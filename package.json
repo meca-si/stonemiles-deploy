@@ -1,0 +1,42 @@
+{
+  "name": "hatch-ts-space-trucker-gps",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.3.10",
+  "scripts": {
+    "typecheck": "tsc -p server/tsconfig.json --noEmit && tsc -p client/tsconfig.json --noEmit",
+    "build": "bun run build:server && bun run build:client",
+    "build:server": "cd server && bun build ./src/actions.ts --target=bun --outfile=./dist/actions.js",
+    "build:client": "bun ./client/build.mjs",
+    "start": "bun run host/migrate.ts && bun run host/server.ts",
+    "smoke": "bash host/smoke.sh",
+    "smoke:pg": "bash host/smoke-pg.sh",
+    "smoke:pg-auth": "bash host/smoke-pg-auth.sh",
+    "migrate:pg": "bun run host/migrate-pg.ts",
+    "transfer:pg": "bun run host/pg/transfer.ts"
+  },
+  "dependencies": {
+    "@hatch/space-sdk": "file:./shim/space-sdk",
+    "@libsql/client": "0.14.0",
+    "@tanstack/react-query": "5.100.10",
+    "drizzle-orm": "0.45.2",
+    "maplibre-gl": "4.7.1",
+    "pdfjs-dist": "5.4.624",
+    "pg": "^8.23.1",
+    "react": "19.2.5",
+    "react-dom": "19.2.5",
+    "recharts": "2.15.3",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.2",
+    "@types/pg": "^8.23.1",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "bun-plugin-tailwind": "0.0.15",
+    "drizzle-kit": "0.31.8",
+    "tailwindcss": "4.1.13",
+    "tailwindcss-safe-area": "1.3.0",
+    "typescript": "5.6.3"
+  }
+}

@@ -1,0 +1,599 @@
+@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap');
+@import "tailwindcss";
+@import "tailwindcss-safe-area";
+
+@theme {
+  --text-xs: 12px;
+  --text-xs--line-height: 16px;
+  --text-sm: 14px;
+  --text-sm--line-height: 20px;
+  --text-base: 16px;
+  --text-base--line-height: 24px;
+  --text-lg: 18px;
+  --text-lg--line-height: 28px;
+  --text-xl: 20px;
+  --text-xl--line-height: 28px;
+  --text-2xl: 24px;
+  --text-2xl--line-height: 32px;
+  --text-3xl: 30px;
+  --text-3xl--line-height: 36px;
+  --text-4xl: 36px;
+  --text-4xl--line-height: 40px;
+  --text-5xl: 48px;
+  --text-5xl--line-height: 52px;
+  --font-condensed: "Barlow Condensed", "Arial Narrow", system-ui, sans-serif;
+  --font-sans: "Outfit", system-ui, -apple-system, sans-serif;
+}
+
+/* Cab UI is dark by default — and since the 2026-10-27 Stonervision
+   reskin it wears the founder's creed as its skin: deep cosmic midnight
+   blue foundations (the grounded bases), warm gold accents (the routes
+   of light), and grounded green as the secondary accent — frosted glass
+   over midnight, one luminous gold-tinted 1px border language, and a
+   gold→green gradient reserved for primary actions and rank/points
+   highlights. "Stonervision isn't about weed. It's an infrastructure of
+   infinity possibilities." — no leaf, no smoke, grounded below and
+   universe above. The map keeps its own true navigation colors (the
+   skin stops at the map chrome), and small critical text never rides
+   on gold. Light mode (Settings → Appearance) is the warm daylight
+   counterpart below: warm paper surfaces, the same gold and green,
+   full contrast. The Settings choice sets data-theme on <html>;
+   "Follow device" resolves to dark/light from prefers-color-scheme. */
+:root {
+  color-scheme: dark;
+  --bg: #050a1a;
+  --surface: #0e1730;
+  --surface2: #1a2442;
+  --text: #f6f1e5;
+  --dim: #a7b1cc;
+  --border: #2c3a5f;
+  --accent: #f5b93f;
+  --accent-dim: #9a7414;
+  --ok: #3ddc84;
+  --danger: #ff4d3d;
+  --radius: 16px;
+  --neon-a: #f6c453;
+  --neon-b: #3ddc84;
+  --glass: rgba(13, 21, 43, 0.8);
+  --glass-border: rgba(246, 196, 83, 0.16);
+  --glass-shadow: 0 14px 34px rgba(2, 5, 16, 0.6), inset 0 1px 0 rgba(255, 226, 160, 0.07);
+  --space-surface: var(--surface);
+  --space-surface-alt: var(--surface2);
+  --space-muted: var(--dim);
+  --space-border: var(--border);
+  --space-accent: var(--accent);
+  /* Map bottom reserve (road test #4, 2026-10-30): in the Muse
+     in-app view the shell's own bottom bar floats over the page's
+     bottom ~84px and covered the map's bottom controls (speed
+     bubble, End route / map-size row, traffic legend, pick sheets)
+     — the driver knew it "won't be in the App Store" build, and it
+     isn't: App.tsx sets data-app-view="embedded" on <html> ONLY
+     when the app is running inside an iframe (the in-app view);
+     a standalone / store build runs top-level, the attribute is
+     never set, and the reserve collapses to 0 so the controls sit
+     exactly where they always sat. Every bottom-anchored map
+     control offsets by this variable. */
+  --map-bottom-reserve: 0px;
+}
+:root[data-app-view="embedded"] {
+  --map-bottom-reserve: 84px;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Phone-width guarantee: the page itself never scrolls sideways. Any
+   wide inner content wraps (or clips inside its own panel) instead of
+   pushing cards off the right edge at ~390px. */
+html,
+body {
+  overflow-x: clip;
+  max-width: 100%;
+}
+
+.font-condensed {
+  font-family: var(--font-condensed);
+}
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Frosted-glass panel: translucency + blur + luminous hairline + soft
+   layered shadow. Reads as solid over the app's solid backgrounds and as
+   true glass over the map, photos, and sheet backdrops. */
+.glass-panel {
+  background:
+    linear-gradient(180deg, rgba(246, 196, 83, 0.055), rgba(246, 196, 83, 0) 42%),
+    linear-gradient(165deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.014) 55%),
+    var(--glass);
+  -webkit-backdrop-filter: blur(16px) saturate(1.35);
+  backdrop-filter: blur(16px) saturate(1.35);
+  border: 1px solid var(--glass-border);
+  border-radius: 20px;
+  box-shadow: var(--glass-shadow);
+}
+.glass-pill {
+  background:
+    linear-gradient(165deg, rgba(255, 232, 175, 0.07), rgba(255, 255, 255, 0.02) 60%),
+    rgba(10, 16, 34, 0.85);
+  -webkit-backdrop-filter: blur(14px) saturate(1.3);
+  backdrop-filter: blur(14px) saturate(1.3);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 10px 26px rgba(2, 5, 16, 0.55), inset 0 1px 0 rgba(255, 226, 160, 0.08);
+}
+
+/* ---------- Drive-screen see-through scope (Repair 5, 2026-11-03) -------
+   The map wrapper carries .drive-scope + data-drive-glass (the
+   driver's see-through level, driveScreen.ts — the alphas there are
+   the source; the tests pin these rules to them). Inside the scope,
+   the glass panels/pills drop to the level's alpha so the map reads
+   beneath EVERY floating element on the driving screen, and overlay
+   text picks up a halo (the mapPopup technique) so contrast rides
+   on the letters, not on a solid box. Med is the standard layout.
+   Outside the scope (parked panels, sheets) the glass keeps its
+   normal substance. */
+.drive-scope[data-drive-glass="low"] {
+  --glass: rgba(13, 21, 43, 0.7);
+}
+.drive-scope[data-drive-glass="med"] {
+  --glass: rgba(13, 21, 43, 0.55);
+}
+.drive-scope[data-drive-glass="high"] {
+  --glass: rgba(13, 21, 43, 0.4);
+}
+.drive-scope[data-drive-glass="low"] .glass-pill {
+  background:
+    linear-gradient(165deg, rgba(255, 232, 175, 0.07), rgba(255, 255, 255, 0.02) 60%),
+    rgba(10, 16, 34, 0.7);
+}
+.drive-scope[data-drive-glass="med"] .glass-pill {
+  background:
+    linear-gradient(165deg, rgba(255, 232, 175, 0.07), rgba(255, 255, 255, 0.02) 60%),
+    rgba(10, 16, 34, 0.55);
+}
+.drive-scope[data-drive-glass="high"] .glass-pill {
+  background:
+    linear-gradient(165deg, rgba(255, 232, 175, 0.07), rgba(255, 255, 255, 0.02) 60%),
+    rgba(10, 16, 34, 0.4);
+}
+.drive-scope .glass-panel,
+.drive-scope .glass-pill {
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55), 0 0 10px rgba(0, 0, 0, 0.35);
+}
+:root[data-theme="light"] .drive-scope[data-drive-glass="low"] {
+  --glass: rgba(255, 253, 244, 0.78);
+}
+:root[data-theme="light"] .drive-scope[data-drive-glass="med"] {
+  --glass: rgba(255, 253, 244, 0.64);
+}
+:root[data-theme="light"] .drive-scope[data-drive-glass="high"] {
+  --glass: rgba(255, 253, 244, 0.5);
+}
+:root[data-theme="light"] .drive-scope .glass-panel,
+:root[data-theme="light"] .drive-scope .glass-pill {
+  text-shadow: 0 1px 2px rgba(255, 253, 244, 0.65);
+}
+
+/* Primary action: the gold→grounded-green gradient, soft depth,
+   tactile press. Dark midnight-green text on it stays high contrast. */
+.btn-neon {
+  background: linear-gradient(92deg, var(--neon-a), var(--neon-b));
+  color: #0a1408;
+  box-shadow: 0 8px 22px rgba(246, 196, 83, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  transition: transform 0.12s ease, box-shadow 0.2s ease, opacity 0.15s ease;
+}
+.btn-neon:active {
+  transform: scale(0.975);
+  box-shadow: 0 4px 12px rgba(246, 196, 83, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+.btn-press {
+  transition: transform 0.12s ease, opacity 0.15s ease;
+}
+.btn-press:active {
+  transform: scale(0.97);
+}
+
+/* Gradient text for the few highlight numbers (points balance, best pay). */
+.neon-text {
+  background: linear-gradient(92deg, var(--neon-a), var(--neon-b));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* ---------- Stonervision cosmic layer (2026-10-27 reskin) ---------------
+   Grounded bases below, universe above: the app root carries a subtle
+   starfield (three tiled dot layers, each a different scale so it never
+   reads as a pattern) over the midnight foundation, a grounded-green
+   foundation glow rising from the bottom edge, and a warm gold horizon
+   glow at the top. It sits BEHIND the content (the root's own background)
+   and faintly through the translucent glass panels — headers, home, and
+   empty states pick it up from there. Pure decoration: no information
+   rides on it, text contrast is carried by the panels themselves. */
+.stoner-app {
+  background-color: var(--bg);
+  background-image:
+    radial-gradient(ellipse 95% 30% at 50% 109%, rgba(61, 220, 132, 0.13), rgba(61, 220, 132, 0) 70%),
+    radial-gradient(ellipse 75% 24% at 50% -7%, rgba(246, 196, 83, 0.1), rgba(246, 196, 83, 0) 70%),
+    radial-gradient(circle, rgba(255, 240, 205, 0.5) 1px, rgba(255, 240, 205, 0) 1.7px),
+    radial-gradient(circle, rgba(190, 214, 255, 0.38) 1px, rgba(190, 214, 255, 0) 1.6px),
+    radial-gradient(circle, rgba(255, 240, 205, 0.26) 0.75px, rgba(255, 240, 205, 0) 1.3px);
+  background-size:
+    100% 100%,
+    100% 100%,
+    149px 149px,
+    211px 211px,
+    97px 97px;
+  background-position:
+    0 0,
+    0 0,
+    17px 29px,
+    71px 113px,
+    43px 61px;
+}
+/* The top bar wears the densest patch of sky: the same starfield at a
+   finer tile, plus a hairline of gold light along its bottom edge —
+   the horizon where the bases meet the universe. */
+.cosmic-header {
+  background-image:
+    radial-gradient(circle, rgba(255, 240, 205, 0.55) 1px, rgba(255, 240, 205, 0) 1.7px),
+    radial-gradient(circle, rgba(190, 214, 255, 0.4) 1px, rgba(190, 214, 255, 0) 1.6px),
+    radial-gradient(circle, rgba(255, 240, 205, 0.3) 0.75px, rgba(255, 240, 205, 0) 1.3px);
+  background-size:
+    113px 113px,
+    167px 167px,
+    71px 71px;
+  background-position:
+    11px 7px,
+    53px 19px,
+    29px 41px;
+  box-shadow:
+    0 10px 26px rgba(2, 5, 16, 0.55),
+    inset 0 1px 0 rgba(255, 226, 160, 0.08),
+    inset 0 -1px 0 rgba(246, 196, 83, 0.35);
+}
+/* Warm display treatment: section headings (large condensed type only)
+   take the warm gold of the preview skin. Small text never does — body
+   and critical copy stay warm white / silver on midnight. */
+:root:not([data-theme="light"]) h2.font-condensed:not(.neon-text) {
+  color: #ffd97a;
+}
+/* Daylight counterpart: the cosmic layer goes quiet — a warm paper glow
+   and the faintest gold dusting, so Light keeps the same identity at
+   day brightness. */
+:root[data-theme="light"] .stoner-app {
+  background-image:
+    radial-gradient(ellipse 95% 30% at 50% 109%, rgba(13, 122, 67, 0.1), rgba(13, 122, 67, 0) 70%),
+    radial-gradient(ellipse 75% 24% at 50% -7%, rgba(217, 154, 0, 0.12), rgba(217, 154, 0, 0) 70%),
+    radial-gradient(circle, rgba(176, 125, 16, 0.16) 1px, rgba(176, 125, 16, 0) 1.7px),
+    radial-gradient(circle, rgba(176, 125, 16, 0.1) 0.75px, rgba(176, 125, 16, 0) 1.3px);
+  background-size:
+    100% 100%,
+    100% 100%,
+    181px 181px,
+    121px 121px;
+  background-position:
+    0 0,
+    0 0,
+    23px 37px,
+    59px 83px;
+}
+:root[data-theme="light"] .cosmic-header {
+  background-image:
+    radial-gradient(circle, rgba(176, 125, 16, 0.18) 1px, rgba(176, 125, 16, 0) 1.7px),
+    radial-gradient(circle, rgba(176, 125, 16, 0.12) 0.75px, rgba(176, 125, 16, 0) 1.3px);
+  background-size:
+    137px 137px,
+    89px 89px;
+  background-position:
+    13px 9px,
+    41px 31px;
+  box-shadow:
+    0 10px 26px rgba(23, 48, 38, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    inset 0 -1px 0 rgba(176, 125, 16, 0.4);
+}
+
+/* Panel/card entrance: a short rise, once. */
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-rise {
+  animation: rise-in 0.45s cubic-bezier(0.22, 0.9, 0.3, 1) both;
+}
+@keyframes sheet-in {
+  from {
+    transform: translateY(26px);
+    opacity: 0.4;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+.animate-sheet {
+  animation: sheet-in 0.32s cubic-bezier(0.22, 0.9, 0.3, 1) both;
+}
+
+/* Card lift — pointer devices only, so nothing shifts under a thumb. */
+@media (hover: hover) and (pointer: fine) {
+  .card-lift {
+    transition: transform 0.18s ease, box-shadow 0.18s ease;
+  }
+  .card-lift:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  }
+}
+
+/* Map host sizing — LOAD-BEARING. MapLibre's bundled stylesheet is
+   unlayered CSS; Tailwind v4 emits its utilities into cascade layers,
+   and unlayered rules beat layered ones, so .maplibregl-map's
+   `position: relative` silently overrode the host's Tailwind
+   `absolute` class and the host collapsed to height 0 — canvas,
+   markers, and route lines clipped inside a 0px box, the map a blank
+   black panel ("GPS still blank", 2026-10-27). This ID rule (plus the
+   inline style on the element) outranks the engine stylesheet in
+   every cascade arrangement. */
+#trucker-map {
+  position: absolute;
+  inset: 0;
+}
+
+/* MapLibre treatment: the vector canvas sits on the cab background so
+   the neon route and markers carry the screen; the engine's own CSS
+   (bundled via mapEngine.ts) handles canvas/popup layout. */
+.maplibregl-map {
+  /* True-color map (driver order 2026-10-27): the canvas backing is
+     Liberty's own land tone, so any unpainted edge reads as map, not
+     as the old green-black void. */
+  background: #eceae4;
+  font-family: var(--font-sans);
+  /* The map owns every touch that starts on it: a drag pans the map,
+     never scrolls the page behind it. */
+  touch-action: none;
+}
+.maplibregl-ctrl-attrib {
+  background: rgba(255, 255, 255, 0.75) !important;
+  color: #4d5a53 !important;
+  font-size: 9px !important;
+}
+.maplibregl-ctrl-attrib a {
+  color: #4d5a53 !important;
+}
+.maplibregl-ctrl-group {
+  background: #0d1526 !important;
+  box-shadow: 0 10px 26px rgba(2, 5, 16, 0.55) !important;
+}
+.maplibregl-ctrl-group button {
+  background: transparent !important;
+  width: 40px !important;
+  height: 40px !important;
+}
+.maplibregl-ctrl-group button span {
+  filter: invert(0.9);
+}
+/* Small place popup — SEE-THROUGH (driver order 2026-11-03,
+   REPAIR B): the solid black box that sat over the middle of the
+   map ("Weigh station OPEN — reported 9d ago …") is gone. The
+   background is fully transparent and the shadow with it; only
+   the text remains, with a hairline 1px outline, and the map
+   reads straight through beneath. Legibility in both map modes
+   comes from the text itself — white letters with a heavy dark
+   halo (mapPopup.ts, MAP_POPUP_TEXT_SHADOW): the halo carries
+   contrast on the pale day basemap, the white carries it on the
+   dark night basemap and satellite. Values mirror mapPopup.ts;
+   the unit tests pin both sides so they can't drift apart. */
+.sm-map-popup .maplibregl-popup-content {
+  background: transparent;
+  border: 1px solid rgba(246, 196, 83, 0.38);
+  border-radius: 12px;
+  padding: 8px 10px;
+  box-shadow: none;
+}
+.sm-map-popup .maplibregl-popup-tip {
+  border-top-color: transparent !important;
+  border-bottom-color: transparent !important;
+}
+.truck-div-icon {
+  background: transparent;
+  border: none;
+}
+.alert-div-icon {
+  background: transparent;
+  border: none;
+}
+/* Selected route: navigation blue with a soft blue halo + a slow
+   light flow along it. Motion is decorative only — position/meaning
+   never depend on it. */
+.route-glow-line {
+  filter: drop-shadow(0 0 6px rgba(26, 115, 232, 0.45));
+}
+@keyframes route-flow {
+  to {
+    stroke-dashoffset: -150;
+  }
+}
+.route-flow-line {
+  animation: route-flow 3.2s linear infinite;
+  opacity: 0.5;
+}
+
+@keyframes alert-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+.alert-pulse {
+  animation: alert-pulse 0.9s ease-in-out infinite;
+}
+
+/* Rank ring: the stroke sweeps to its value when the panel paints. */
+@keyframes ring-sweep {
+  from {
+    stroke-dashoffset: var(--ring-circ, 264);
+  }
+}
+.ring-anim {
+  animation: ring-sweep 0.9s cubic-bezier(0.22, 0.9, 0.3, 1) both;
+}
+
+/* Seal confirmation moment: a record sealing gets one calm pop — state
+   change feedback, never decoration. */
+@keyframes seal-pop {
+  0% {
+    transform: scale(0.96);
+  }
+  55% {
+    transform: scale(1.015);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+.seal-pop {
+  animation: seal-pop 0.45s cubic-bezier(0.22, 0.9, 0.3, 1) both;
+}
+
+/* ---------- Light theme (Settings → Appearance) -------------------------
+   The warm daylight counterpart of the Stonervision skin: warm paper
+   surfaces, deep gold and grounded green, dark text at full contrast.
+   Every token-driven surface flips through these variables; the
+   utility overrides after them retint the handful of hardcoded dark-mode
+   color pairs (amber/emerald/sky callouts, red-300 clock warnings, the
+   dark-gold note boxes) so no screen is left dark-only. */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f2ecdc;
+  --surface: #fffdf4;
+  --surface2: #eae2c8;
+  --text: #1b1a12;
+  --dim: #5d5741;
+  --border: #d3c8a4;
+  --accent: #b07d10;
+  --accent-dim: #8a6108;
+  --ok: #0d7a43;
+  --danger: #d92c1e;
+  --neon-a: #c07f00;
+  --neon-b: #0d7a43;
+  --glass: rgba(255, 253, 244, 0.85);
+  --glass-border: rgba(138, 97, 8, 0.22);
+  --glass-shadow: 0 14px 34px rgba(74, 58, 16, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+:root[data-theme="light"] .glass-pill {
+  background:
+    linear-gradient(165deg, rgba(255, 255, 255, 0.65), rgba(255, 255, 255, 0.25) 60%),
+    rgba(255, 255, 255, 0.88);
+  box-shadow: 0 10px 26px rgba(23, 48, 38, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+:root[data-theme="light"] .maplibregl-map {
+  background: #eceae4;
+}
+:root[data-theme="light"] .maplibregl-ctrl-attrib {
+  background: rgba(255, 255, 255, 0.8) !important;
+  color: #4d5a53 !important;
+}
+:root[data-theme="light"] .maplibregl-ctrl-attrib a {
+  color: #4d5a53 !important;
+}
+:root[data-theme="light"] .maplibregl-ctrl-group {
+  background: #ffffff !important;
+}
+:root[data-theme="light"] .maplibregl-ctrl-group button span {
+  filter: none;
+}
+/* Retints: dark-mode text tints become their deep, readable counterparts. */
+:root[data-theme="light"] .text-amber-200,
+:root[data-theme="light"] .text-amber-300 {
+  color: #8a5a00 !important;
+}
+:root[data-theme="light"] .text-emerald-300,
+:root[data-theme="light"] .text-emerald-200 {
+  color: #0b6b3a !important;
+}
+:root[data-theme="light"] .text-emerald-100 {
+  color: #d9f5e5 !important; /* stays on solid emerald-800 buttons */
+}
+:root[data-theme="light"] .text-sky-100 {
+  color: #0b4a6e !important;
+}
+:root[data-theme="light"] .text-red-300 {
+  color: #b91c1c !important;
+}
+/* Translucent dark callout fills become light tints of the same hue. */
+:root[data-theme="light"] .bg-amber-900\/40,
+:root[data-theme="light"] .bg-amber-900\/60 {
+  background-color: rgba(217, 154, 0, 0.16) !important;
+}
+:root[data-theme="light"] .bg-emerald-900\/50,
+:root[data-theme="light"] .bg-emerald-900\/60 {
+  background-color: rgba(13, 122, 67, 0.14) !important;
+}
+:root[data-theme="light"] .bg-emerald-900\/70 {
+  background-color: rgba(6, 78, 43, 0.92) !important; /* solid notice bar keeps its dark fill + light text */
+}
+:root[data-theme="light"] .bg-\[\#2c2207\] {
+  background-color: rgba(217, 154, 0, 0.14) !important;
+}
+
+/* ---------- Font size (Settings → Appearance) ---------------------------
+   Scales the app's text scale (labels, cards, lists, chat) up; the big
+   condensed driving numerals (3xl and up) are intentionally NOT scaled —
+   they stay exactly as dominant as they are at Standard. */
+:root[data-font="large"] {
+  --text-xs: 13.5px;
+  --text-xs--line-height: 18px;
+  --text-sm: 15.75px;
+  --text-sm--line-height: 22.5px;
+  --text-base: 18px;
+  --text-base--line-height: 27px;
+  --text-lg: 20.25px;
+  --text-lg--line-height: 31px;
+  --text-xl: 22.5px;
+  --text-xl--line-height: 31px;
+  --text-2xl: 27px;
+  --text-2xl--line-height: 36px;
+}
+:root[data-font="xlarge"] {
+  --text-xs: 15px;
+  --text-xs--line-height: 20px;
+  --text-sm: 17.5px;
+  --text-sm--line-height: 25px;
+  --text-base: 20px;
+  --text-base--line-height: 30px;
+  --text-lg: 22.5px;
+  --text-lg--line-height: 34px;
+  --text-xl: 25px;
+  --text-xl--line-height: 34px;
+  --text-2xl: 30px;
+  --text-2xl--line-height: 40px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .alert-pulse,
+  .animate-rise,
+  .animate-sheet,
+  .route-flow-line,
+  .ring-anim,
+  .seal-pop {
+    animation: none;
+  }
+  .btn-neon,
+  .btn-press,
+  .card-lift {
+    transition: none;
+  }
+}

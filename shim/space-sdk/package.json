@@ -1,0 +1,40 @@
+{
+  "dependencies": {
+    "zod": "4.4.3"
+  },
+  "description": "Local standalone shim for the Muse spaces SDK surface used by STONEMILES (re-platform Phase 1). Implements only what the app imports: defineAction/privileged contracts (.), createActionClient/spaceQueryClient/fileToBase64 (./client), PdfViewer (./pdf), buildClient (./build).",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./build": {
+      "import": "./dist/build.js",
+      "types": "./dist/build.d.ts"
+    },
+    "./client": {
+      "import": "./dist/client.js",
+      "types": "./dist/client.d.ts"
+    },
+    "./pdf": {
+      "import": "./dist/pdf.js",
+      "types": "./dist/pdf.d.ts"
+    },
+    "./styles.css": "./styles.css"
+  },
+  "files": [
+    "dist/",
+    "styles.css"
+  ],
+  "main": "./dist/index.js",
+  "name": "@hatch/space-sdk",
+  "peerDependencies": {
+    "@tanstack/react-query": "5.100.10",
+    "pdfjs-dist": "5.4.624",
+    "react": "19.2.5",
+    "react-dom": "19.2.5"
+  },
+  "type": "module",
+  "types": "./dist/index.d.ts",
+  "version": "0.14.0-standalone.1"
+}

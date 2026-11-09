@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <meta name="color-scheme" content="dark" />
+    <!-- Installable-app prep: standalone full-screen launch from the home
+         screen, cab-dark theme/splash colors. The web app manifest itself
+         is injected at runtime by main.tsx (its icon URLs are build
+         assets). A native wrapper (e.g. Capacitor) can package this same
+         client build unchanged later. -->
+    <meta name="theme-color" content="#050a1a" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="STONEMILES" />
+    <meta
+      name="description"
+      content="Truck GPS for semis: truck-legal routes, bridge/weight/weigh-station alerts, speed limits, fuel stops, and a state-by-state trip sheet."
+    />
+    <!-- Map engine: MapLibre GL JS is bundled with the client (see
+         client/src/mapEngine.ts) — no CDN script needed; it renders
+         OpenFreeMap vector tiles (OpenStreetMap data) with WebGL. -->
+    <!-- Empty inline icon: stops the browser fetching /favicon.ico, which
+         lives outside the space's routes and fails auth. -->
+    <link rel="icon" href="data:," />
+    <title>STONEMILES</title>
+    
+  <link rel="stylesheet" crossorigin href="./assets/index-133mce4h.css"><script type="module" crossorigin src="./assets/index-da5dp2vb.js"></script></head>
+  <body>
+    <div
+      data-generated-space-root=""
+      data-generated-space-slug="trucker-gps"
+    ></div>
+  </body>
+</html>

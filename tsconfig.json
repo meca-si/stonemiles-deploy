@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "paths": {
+      "@space/privileged": ["./server/.generated/privileged.contract"],
+      "@space/server/*": ["./server/src/*"]
+    }
+  },
+  "include": ["host/**/*", "server/src/**/*", "server/.generated/**/*"]
+}

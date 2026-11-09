@@ -1,0 +1,762 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1792640989596,
+      "tag": "0001_initial",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1792640989596,
+      "tag": "0002_profile_and_trips_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1792641554370,
+      "tag": "0003_hash_chain_log",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1792642800304,
+      "tag": "0004_loads_status_automation_intel_ai_log",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1792642800304,
+      "tag": "0005_company_chat_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1792642800304,
+      "tag": "0006_social_profiles_and_follows",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1792643900235,
+      "tag": "0007_companies_plans_and_chat_moderation",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1792643900235,
+      "tag": "0008_driver_learning_and_trip_pace",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1792644134616,
+      "tag": "0009_points_ledger",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1792645989719,
+      "tag": "0010_profile_brand_offs_for_all_truck_stop_brands",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1792648555704,
+      "tag": "0011_company_setup_and_paperwork_vault",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1792649144090,
+      "tag": "0012_auto_log_settings_and_daily_logs",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1792650882774,
+      "tag": "0013_beta_codes_referrals_reward_wallet",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1792654280036,
+      "tag": "0014_app_settings_table",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1792668952791,
+      "tag": "0015_security_hardening_vault_and_payment_ledger",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "6",
+      "when": 1792671149866,
+      "tag": "0016_next_level_ifta_money_verify_copilot",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1792686280507,
+      "tag": "0017_owner_fleet_size_for_locked_pricing",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1792687927933,
+      "tag": "0018_trip_tracking_gaps",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1792700400920,
+      "tag": "0019_eld_connections",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1792701103563,
+      "tag": "0020_vault_key_store",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1792702767432,
+      "tag": "0021_safety_training_academy",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1792703516218,
+      "tag": "0022_owner_training_videos",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1792704992129,
+      "tag": "0023_pickup_load_photo_and_bol_camera_fresh",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1792706353440,
+      "tag": "0024_onboarding_suite",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1792707451468,
+      "tag": "0025_driver_profiles_miles_panel_and_milestones_board",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1792708877401,
+      "tag": "0026_equipment_pickup_proof_trailers_drop_hook",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "6",
+      "when": 1792714426263,
+      "tag": "0027_three_tiers_and_trip_queue",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "6",
+      "when": 1792714426263,
+      "tag": "0028_fuel_coach_and_price_reports",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "6",
+      "when": 1792714426263,
+      "tag": "0029_load_fuel_debrief",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "6",
+      "when": 1792715025048,
+      "tag": "0030_welcome_credit_and_earning_pool",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "6",
+      "when": 1792715025048,
+      "tag": "0031_per_plan_welcome_credit_amounts",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "6",
+      "when": 1792715745537,
+      "tag": "0032_signup_credit_with_anti_farm_lock",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1792715745537,
+      "tag": "0033_cashout_holds_and_kyc_status",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "6",
+      "when": 1792716137731,
+      "tag": "0034_weekly_driver_giveaway",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "6",
+      "when": 1792716984486,
+      "tag": "0035_welcome_credit_vesting",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "6",
+      "when": 1792717806182,
+      "tag": "0036_locker_ledger",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "6",
+      "when": 1792718518124,
+      "tag": "0037_burn_ledger",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "6",
+      "when": 1792735280546,
+      "tag": "0038_fix_fleet_welcome_credit_default_to_100000",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "6",
+      "when": 1792736476311,
+      "tag": "0039_ms_points_daily_table_and_conversion",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "6",
+      "when": 1792739215666,
+      "tag": "0040_guidance_saved_places_and_recents",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "6",
+      "when": 1792739947162,
+      "tag": "0041_security_pack_2",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "6",
+      "when": 1792876150465,
+      "tag": "0042_company_driver_cpm_and_additional_charges",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "6",
+      "when": 1792879483464,
+      "tag": "0043_pay_basis_cpm_or_percent_of_load",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "6",
+      "when": 1792947501074,
+      "tag": "0044_rewards_house_rules_yearly_credit_subscriber_giveaway",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "6",
+      "when": 1792949777604,
+      "tag": "0045_referral_levels_and_milestone_state",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "6",
+      "when": 1792958122902,
+      "tag": "0046_perf_timings_and_trip_fix_quality",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "6",
+      "when": 1792959674993,
+      "tag": "0047_fleet_load_board",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "6",
+      "when": 1792966156099,
+      "tag": "0048_broker_upload_links_and_approval_queue",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "6",
+      "when": 1792984530066,
+      "tag": "0049_phase0_payment_packets_and_broker_identity",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "6",
+      "when": 1792984530067,
+      "tag": "0050_ledger_payout_ref_keys",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "6",
+      "when": 1792985945596,
+      "tag": "0051_receivable_key_registry",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "6",
+      "when": 1792995017462,
+      "tag": "0052_dispatch_fee_invoices_and_payments",
+      "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "6",
+      "when": 1793030400000,
+      "tag": "0053_load_doc_verification",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "6",
+      "when": 1793058106012,
+      "tag": "0054_option_c_dollar_anchored_rewards",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "6",
+      "when": 1793064000000,
+      "tag": "0055_usdg_pool_backing",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "6",
+      "when": 1793072464807,
+      "tag": "0056_account_retainers_for_non_renewal",
+      "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "6",
+      "when": 1793072464807,
+      "tag": "0057_account_reactivation_holds",
+      "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "6",
+      "when": 1793074027057,
+      "tag": "0058_sealed_miles_conversion_attribution",
+      "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "6",
+      "when": 1793075532678,
+      "tag": "0059_fuel_price_report_grade_and_nullable_coords",
+      "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "6",
+      "when": 1793076083034,
+      "tag": "0060_map_display_preferences",
+      "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "6",
+      "when": 1793076395890,
+      "tag": "0061_profile_featured_badge",
+      "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "6",
+      "when": 1793077995491,
+      "tag": "0062_map_show_traffic_notes_pref",
+      "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "6",
+      "when": 1793081408311,
+      "tag": "0063_owner_giveaway_portal",
+      "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "6",
+      "when": 1793122410032,
+      "tag": "0064_pay_book_w2_1099_entries",
+      "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "6",
+      "when": 1793124394552,
+      "tag": "0065_pay_stub_deliveries",
+      "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "6",
+      "when": 1793124777114,
+      "tag": "0066_pay_entries_owner_username",
+      "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "6",
+      "when": 1793127819322,
+      "tag": "0067_pay_book_per_diem",
+      "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "6",
+      "when": 1793133365015,
+      "tag": "0068_pay_book_1099_itemized_deductions",
+      "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "6",
+      "when": 1793289832973,
+      "tag": "0069_shipper_portal_accounts_and_loads",
+      "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "6",
+      "when": 1793359253124,
+      "tag": "0070_doc_email_copies_and_filed_copies",
+      "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "6",
+      "when": 1793359537285,
+      "tag": "0071_doc_copy_settings_per_user",
+      "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "6",
+      "when": 1793362969654,
+      "tag": "0072_pay_stub_email_opt_in_toggle",
+      "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "6",
+      "when": 1793386008233,
+      "tag": "0073_broker_posters_and_open_board_overflow",
+      "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "6",
+      "when": 1793389916429,
+      "tag": "0074_team_portal_seats_audit_and_account_admin",
+      "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "6",
+      "when": 1793390486557,
+      "tag": "0075_team_portal_boards_giveaways_notices_consent",
+      "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "6",
+      "when": 1793391169435,
+      "tag": "0076_team_item_consent_windows",
+      "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "6",
+      "when": 1793393356136,
+      "tag": "0077_team_invite_codes_owner_only_seats",
+      "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "6",
+      "when": 1793394690954,
+      "tag": "0078_team_contact_email_stonervisionteam",
+      "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "6",
+      "when": 1793404955845,
+      "tag": "0079_eia_diesel_weekly_snapshots",
+      "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "6",
+      "when": 1793424794527,
+      "tag": "0080_load_loaded_miles_and_rate_per_mile",
+      "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "6",
+      "when": 1793473431669,
+      "tag": "0081_map_day_night_mode",
+      "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "6",
+      "when": 1793475474014,
+      "tag": "0082_carrier_contact_phone_on_social_profile",
+      "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "6",
+      "when": 1793476108776,
+      "tag": "0083_profile_contact_credentials_mc_dot_twic_endorsements",
+      "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "6",
+      "when": 1793518329570,
+      "tag": "0084_si_layer_settings_vetting_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "6",
+      "when": 1793519616791,
+      "tag": "0085_route_weather_prefs_and_si_weather_kind",
+      "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "6",
+      "when": 1793585712601,
+      "tag": "0086_eld_identity_log",
+      "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "6",
+      "when": 1793633362682,
+      "tag": "0087_dispatch_company_accounts",
+      "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "6",
+      "when": 1793637420194,
+      "tag": "0088_dispatcher_fee_pct",
+      "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "6",
+      "when": 1793638134805,
+      "tag": "0089_platform_fee_entries",
+      "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "6",
+      "when": 1793639764230,
+      "tag": "0090_my_desk_solo_dispatcher_flag_and_platform_fee_poster",
+      "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "6",
+      "when": 1793642346933,
+      "tag": "0091_learning_state_paused_default",
+      "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "6",
+      "when": 1793670835549,
+      "tag": "0092_weigh_station_status_reports_and_prompts_setting",
+      "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "6",
+      "when": 1793671427910,
+      "tag": "0093_driver_reported_weigh_stations",
+      "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "6",
+      "when": 1793767189509,
+      "tag": "0094_road_place_not_here_corrections",
+      "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "6",
+      "when": 1793770640055,
+      "tag": "0095_drive_screen_overlay_prefs",
+      "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "6",
+      "when": 1793774055443,
+      "tag": "0096_market_pulse_weekly_spot_rates",
+      "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "6",
+      "when": 1793845996621,
+      "tag": "0097_os_ow_permits",
+      "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "6",
+      "when": 1793887438046,
+      "tag": "0098_market_pulse_equipment_rates_and_coverage",
+      "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "6",
+      "when": 1793938342650,
+      "tag": "0099_app_health_self_reporting_and_live_updates",
+      "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "6",
+      "when": 1794006579789,
+      "tag": "0100_enhanced_map_view_prefs",
+      "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "6",
+      "when": 1794008181290,
+      "tag": "0101_trailer_package_profiles_load_fields_reefer_checks_pretrip_inspections",
+      "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "6",
+      "when": 1794009560251,
+      "tag": "0102_money_flow_batch_payments_claims_maintenance_breakdowns",
+      "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "6",
+      "when": 1794013987031,
+      "tag": "0103_final_extras_dock_note",
+      "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "6",
+      "when": 1794111329177,
+      "tag": "0104_car_mode_android_auto_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "6",
+      "when": 1794157739234,
+      "tag": "0105_hill_grade_alerts_setting",
+      "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "6",
+      "when": 1794159019492,
+      "tag": "0106_traffic_lights_and_work_zones",
+      "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "6",
+      "when": 1794160047246,
+      "tag": "0107_five_alert_systems_hazards_and_winter_setting",
+      "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "6",
+      "when": 1794264858510,
+      "tag": "0108_auth_accounts_sessions_invites",
+      "breakpoints": true
+    }
+  ]
+}

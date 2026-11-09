@@ -1,0 +1,24 @@
+$ bash host/smoke-pg.sh
+[smoke-pg] scratch dir: /tmp/stonemiles-smoke-pg.6Zm4AS
+[smoke-pg] target db: postgres://postgres@localhost:54399/stonemiles_smoke
+PASS: scratch Postgres database recreated
+PASS: migrations apply clean (drizzle-orm/node-postgres/migrator over drizzle-pg/*.sql + index parity)
+[smoke-pg] server pid 11526 on http://localhost:8809
+PASS: host booted on Postgres with 463 actions
+PASS: GET /healthz -> 200 {ok:true}
+PASS: GET / -> 200 real client HTML (title + space root div)
+getProfile (empty): {"data":{"profile":null}}
+PASS: read action getProfile answers {profile:null} on scratch PG db
+saveProfile: {"data":{"ok":true}}
+PASS: write action saveProfile -> {ok:true} (Postgres)
+getProfile (after save): {"data":{"profile":{"heightFt":6,"heightIn":0,"weightLbs":80000,"lengthFt":70,"mpg":6.5,"dieselPrice":3.99,"tankRangeMi":800,"lovesOff":false,"pilotOff":false,"brandOffs":[],"autoRoute":true,"autoTrip":true,"autoAlerts":true,"autoFuel":true,"autoSeal":true,"priority1":"safety","priority2":"net","priority3":"time","chatName":"Standalone Smoke PG","hazmat":false,"hazmatClass":null,"companyName":null,"driverCpm":null,"payBasis":"cpm","driverPayPct":null,"trailerType":"dry_van","pinSet":false}}}
+PASS: read-after-write: profile round-trips with saved chatName
+blob url: /blobs/smoke/proof.txt
+GET /blobs/smoke/proof.txt: standalone-blob-proof
+PASS: blob put via ctx.blobs serves back over HTTP
+PASS: unknown action -> 404 (host stays up)
+[smoke-pg] restarting server...
+getProfile (after restart): {"data":{"profile":{"heightFt":6,"heightIn":0,"weightLbs":80000,"lengthFt":70,"mpg":6.5,"dieselPrice":3.99,"tankRangeMi":800,"lovesOff":false,"pilotOff":false,"brandOffs":[],"autoRoute":true,"autoTrip":true,"autoAlerts":true,"autoFuel":true,"autoSeal":true,"priority1":"safety","priority2":"net","priority3":"time","chatName":"Standalone Smoke PG","hazmat":false,"hazmatClass":null,"companyName":null,"driverCpm":null,"payBasis":"cpm","driverPayPct":null,"trailerType":"dry_van","pinSet":false}}}
+PASS: PERSISTENCE: profile survives a server restart (Postgres)
+PASS: PERSISTENCE: blob survives a server restart (disk store)
+[smoke-pg] RESULT: 12 passed, 0 failed (scratch kept at /tmp/stonemiles-smoke-pg.6Zm4AS)

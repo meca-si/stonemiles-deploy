@@ -1,0 +1,34 @@
+[smoke] scratch dir: /tmp/stonemiles-smoke.ls9lej
+[smoke] migrating scratch DB...
+PASS: migrations apply clean (drizzle-orm/libsql/migrator over drizzle/*.sql)
+[smoke] server pid 2348 on http://localhost:8799
+PASS: GET /healthz -> 200 {ok:true}
+PASS: GET / -> 200 real client HTML (title + space root div)
+PASS: GET /assets/index-*.js -> 200 (built client bundle)
+getProfile (empty): {"data":{"profile":null}}
+PASS: read action getProfile answers {profile:null} on scratch DB
+saveProfile: {"data":{"ok":true}}
+PASS: write action saveProfile -> {ok:true}
+getProfile (after save): {"data":{"profile":{"heightFt":6,"heightIn":0,"weightLbs":80000,"lengthFt":70,"mpg":6.5,"dieselPrice":3.99,"tankRangeMi":800,"lovesOff":false,"pilotOff":false,"brandOffs":[],"autoRoute":true,"autoTrip":true,"autoAlerts":true,"autoFuel":true,"autoSeal":true,"priority1":"safety","priority2":"net","priority3":"time","chatName":"Standalone Smoke","hazmat":false,"hazmatClass":null,"companyName":null,"driverCpm":null,"payBasis":"cpm","driverPayPct":null,"trailerType":"dry_van","pinSet":false}}}
+PASS: read-after-write: profile round-trips with saved chatName
+blob url: /blobs/smoke/proof.txt
+GET /blobs/smoke/proof.txt: standalone-blob-proof
+PASS: blob put via ctx.blobs serves back over HTTP
+PASS: unknown action -> 404 (host stays up)
+[smoke] restarting server...
+getProfile (after restart): {"data":{"profile":{"heightFt":6,"heightIn":0,"weightLbs":80000,"lengthFt":70,"mpg":6.5,"dieselPrice":3.99,"tankRangeMi":800,"lovesOff":false,"pilotOff":false,"brandOffs":[],"autoRoute":true,"autoTrip":true,"autoAlerts":true,"autoFuel":true,"autoSeal":true,"priority1":"safety","priority2":"net","priority3":"time","chatName":"Standalone Smoke","hazmat":false,"hazmatClass":null,"companyName":null,"driverCpm":null,"payBasis":"cpm","driverPayPct":null,"trailerType":"dry_van","pinSet":false}}}
+PASS: PERSISTENCE: profile survives a server restart (SQLite file DB)
+PASS: PERSISTENCE: blob survives a server restart (disk store)
+[smoke] RESULT: 11 passed, 0 failed (scratch kept at /tmp/stonemiles-smoke.ls9lej)
+
+--- Extra probes (same host build, migrated scratch/main DB, 2026-11-09) ---
+$ POST /actions {"action":"getMyDispatchFees","args":{}}   # action declaring privileged contract stripeCheckoutConfig
+{"data":{"invoices":[],"standing":{"blocked":false,"revoked":false,"warned":false,"amountDue":0,"message":null}}}
+-> ctx.executePrivileged dispatches in-process to server/src/privileged.ts handlers reading process.env (no keys set -> not-configured path answers cleanly).
+
+$ POST /actions {"action":"extractLoad","args":{"dataBase64":"<1x1 png>","mimeType":"image/png","purpose":"pickup_bol"}}   # ctx.inference caller
+{"data":{"locked":false,"found":false,"docKind":null,"shipper":"","brokerCompany":"", ... }}
+-> inference fail-soft stub synthesized the schema-valid empty result: found:false, action answers 200, feature degrades to manual entry; host stayed healthy (GET /healthz -> {"ok":true} after all probes).
+
+$ bun run typecheck   (client + server projects)
+exit 0, no errors.

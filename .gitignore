@@ -1,0 +1,7 @@
+node_modules/
+data/
+.space-build/
+.bun-cache/
+host/pg/work/
+*.log
+.env*

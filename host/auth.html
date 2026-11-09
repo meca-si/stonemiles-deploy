@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>STONEMILES — Account</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:#050a1a; color:#e8ecf4; }
+  main { max-width: 420px; margin: 8vh auto; padding: 24px; }
+  .card { background:#0b1226; border:1px solid #1d2a4a; border-radius:16px; padding:24px; }
+  h1 { font-size: 20px; margin: 0 0 6px; }
+  p.sub { color:#9fb0d0; font-size: 14px; margin: 0 0 18px; line-height: 1.45; }
+  label { display:block; font-size: 13px; color:#9fb0d0; margin: 14px 0 6px; }
+  input { width:100%; box-sizing:border-box; padding:12px; font-size:16px; border-radius:10px; border:1px solid #2a3a5f; background:#070d1f; color:#e8ecf4; }
+  button { width:100%; margin-top:20px; padding:13px; font-size:16px; font-weight:600; border:0; border-radius:10px; background:#22c55e; color:#04120a; cursor:pointer; }
+  button:disabled { opacity:.55; }
+  .msg { margin-top:14px; font-size:14px; line-height:1.45; }
+  .err { color:#f87171; } .ok { color:#4ade80; }
+  a { color:#7dd3fc; }
+</style>
+</head>
+<body>
+<main>
+  <div class="card">
+    <h1 id="title">STONEMILES</h1>
+    <p class="sub" id="sub"></p>
+    <form id="form">
+      <div id="emailField">
+        <label for="email">Email</label>
+        <input id="email" type="email" autocomplete="email" />
+      </div>
+      <div id="usernameField" style="display:none">
+        <label for="username">Handle (optional — how other drivers see you)</label>
+        <input id="username" type="text" autocomplete="username" maxlength="24" />
+      </div>
+      <label for="password">New password (12+ characters)</label>
+      <input id="password" type="password" autocomplete="new-password" />
+      <label for="password2">New password again</label>
+      <input id="password2" type="password" autocomplete="new-password" />
+      <button id="submit" type="submit">Set password</button>
+      <div class="msg" id="msg"></div>
+    </form>
+  </div>
+</main>
+<script>
+  const path = location.pathname;
+  const token = new URLSearchParams(location.search).get("token") || "";
+  const title = document.getElementById("title");
+  const sub = document.getElementById("sub");
+  const emailField = document.getElementById("emailField");
+  const usernameField = document.getElementById("usernameField");
+  const btn = document.getElementById("submit");
+  const msg = document.getElementById("msg");
+  let endpoint = "";
+  if (path.endsWith("/claim")) {
+    title.textContent = "Claim the owner account";
+    sub.textContent = "Enter the one-time claim token's email and set your own password. This binds the existing STONEMILES profile to your account.";
+    endpoint = "/auth/claim";
+  } else if (path.endsWith("/accept")) {
+    title.textContent = "You're invited to STONEMILES";
+    sub.textContent = "Set a password to create your account. Diamond is free during the closed test.";
+    endpoint = "/auth/accept-invite";
+    emailField.style.display = "none";
+    usernameField.style.display = "block";
+  } else {
+    title.textContent = "Reset your password";
+    sub.textContent = "Choose a new password. All signed-in devices will be signed out.";
+    endpoint = "/auth/reset";
+    emailField.style.display = "none";
+  }
+  document.getElementById("form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    msg.textContent = ""; msg.className = "msg";
+    const pw = document.getElementById("password").value;
+    const pw2 = document.getElementById("password2").value;
+    if (pw !== pw2) { msg.textContent = "The two passwords don't match."; msg.classList.add("err"); return; }
+    const payload = { token, newPassword: pw };
+    if (endpoint === "/auth/claim") payload.email = document.getElementById("email").value;
+    if (endpoint === "/auth/accept-invite") {
+      const u = document.getElementById("username").value.trim();
+      if (u) payload.username = u;
+    }
+    btn.disabled = true;
+    try {
+      const res = await fetch(endpoint, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.error) throw new Error(data.error || "Something went wrong.");
+      msg.textContent = "Done — you're set. Opening STONEMILES…";
+      msg.classList.add("ok");
+      setTimeout(() => { location.href = "/"; }, 900);
+    } catch (err) {
+      msg.textContent = err.message || "Something went wrong.";
+      msg.classList.add("err");
+      btn.disabled = false;
+    }
+  });
+</script>
+</body>
+</html>

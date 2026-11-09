@@ -1,0 +1,5 @@
+node_modules
+.bun-cache
+data
+client/dist
+server/dist

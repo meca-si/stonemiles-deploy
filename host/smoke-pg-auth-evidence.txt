@@ -1,0 +1,79 @@
+[smoke-pg-auth] scratch dir: /tmp/stonemiles-smoke-pgauth.jUkhLV
+[smoke-pg-auth] target db: postgres://postgres@localhost:54400/stonemiles_smoke_pgauth
+PASS: scratch Postgres database recreated
+PASS: migrations apply clean (drizzle-pg 0000+0001 + index parity incl. ported 0108 indexes)
+[smoke-pg-auth] --- Phase A: Phase 1 suite (staging-anonymous mode) ---
+[smoke-pg-auth] server pid 14771 on http://localhost:8819
+PASS: host booted on Postgres with 463 actions
+PASS: boot log: staging-anonymous flag honored in Phase A only
+PASS: GET /healthz -> 200 {ok:true}
+PASS: GET / -> 200 real client HTML (title + space root div)
+PASS: GET /delete-account + /delete-data -> 200 (Play data-safety pages)
+getProfile (empty): {"data":{"profile":null}}
+PASS: read action getProfile answers {profile:null} on scratch DB
+saveProfile: {"data":{"ok":true}}
+PASS: write action saveProfile -> {ok:true}
+getProfile (after save): {"data":{"profile":{"heightFt":6,"heightIn":0,"weightLbs":80000,"lengthFt":70,"mpg":6.5,"dieselPrice":3.99,"tankRangeMi":800,"lovesOff":false,"pilotOff":false,"brandOffs":[],"autoRoute":true,"autoTrip":true,"autoAlerts":true,"autoFuel":true,"autoSeal":true,"priority1":"safety","priority2":"net","priority3":"time","chatName":"Standalone Smoke","hazmat":false,"hazmatClass":null,"companyName":null,"driverCpm":null,"payBasis":"cpm","driverPayPct":null,"trailerType":"dry_van","pinSet":false}}}
+PASS: read-after-write: profile round-trips with saved chatName
+blob url: /blobs/smoke/proof.txt
+GET /blobs/smoke/proof.txt: standalone-blob-proof
+PASS: blob put via ctx.blobs serves back over HTTP
+PASS: unknown action -> 404 (host stays up)
+[smoke-pg-auth] restarting server (anon)...
+getProfile (after restart): {"data":{"profile":{"heightFt":6,"heightIn":0,"weightLbs":80000,"lengthFt":70,"mpg":6.5,"dieselPrice":3.99,"tankRangeMi":800,"lovesOff":false,"pilotOff":false,"brandOffs":[],"autoRoute":true,"autoTrip":true,"autoAlerts":true,"autoFuel":true,"autoSeal":true,"priority1":"safety","priority2":"net","priority3":"time","chatName":"Standalone Smoke","hazmat":false,"hazmatClass":null,"companyName":null,"driverCpm":null,"payBasis":"cpm","driverPayPct":null,"trailerType":"dry_van","pinSet":false}}}
+PASS: PERSISTENCE: profile survives a server restart (Postgres)
+PASS: PERSISTENCE: blob survives a server restart (disk store)
+[smoke-pg-auth] --- Phase B: Auth suite (multi-account mode) ---
+PASS: gate: unauthenticated getProfile -> 401 signin_required
+verifyCode (public, unauth): {"data":{"found":false,"genuine":false,"kind":null,"summary":null,"recordHashShort":null,"issuedAt":null,"note":"No record carries that code. Check the code and try again — codes look like SM-XXXXXX."}}
+PASS: gate: public verifyCode answers without a session
+PASS: claim CLI armed (token captured from terminal output only)
+PASS: claim: wrong email -> generic refusal
+claim: {"ok":true,"account":{"email":"owner@smoke.test","isOwner":true}}
+PASS: claim: owner account created + session issued
+PASS: claim: token cannot be replayed
+owner getProfile: {"data":{"profile":{"heightFt":6,"heightIn":0,"weightLbs":80000,"lengthFt":70,"mpg":6.5,"dieselPrice":3.99,"tankRangeMi":800,"lovesOff":false,"pilotOff":false,"brandOffs":[],"autoRoute":true,"autoTrip":true,"autoAlerts":true,"autoFuel":true,"autoSeal":true,"priority1":"safety","priority2":"net","priority3":"time","chatName":"Standalone Smoke","hazmat":false,"hazmatClass":null,"companyName":null,"driverCpm":null,"payBasis":"cpm","driverPayPct":null,"trailerType":"dry_van","pinSet":false}}}
+PASS: claim: owner session sees profile 1's saved data
+PASS: signin: wrong password rejected (generic message)
+PASS: signin: unknown email -> same generic message
+invite: {"ok":true,"inviteId":1,"emailed":false,"queued":true,"acceptLink":"http://localhost:8819/auth/accept?token=XkdPDE9enZM3F04TvjMDTfZm-jMsHOt5R8HORmophPA"}
+PASS: invite: issued, mail honestly QUEUED, accept link returned to owner once
+PASS: invite: anonymous issuance refused (403)
+accept: {"ok":true,"account":{"email":"tester@smoke.test","username":"tester","plan":"diamond"}}
+PASS: invite accept: tester account created with session
+tester getProfile: {"data":{"profile":{"heightFt":13,"heightIn":6,"weightLbs":80000,"lengthFt":53,"mpg":6.5,"dieselPrice":3.99,"tankRangeMi":800,"lovesOff":false,"pilotOff":false,"brandOffs":[],"autoRoute":true,"autoTrip":true,"autoAlerts":true,"autoFuel":true,"autoSeal":true,"priority1":"safety","priority2":"net","priority3":"time","chatName":"Driver","hazmat":false,"hazmatClass":null,"companyName":null,"driverCpm":null,"payBasis":"cpm","driverPayPct":null,"trailerType":"dry_van","pinSet":false}}}
+PASS: isolation: tester gets his OWN fresh default profile (not owner's)
+owner saveTrip: {"data":{"id":1}}
+PASS: owner saveTrip ok
+tester listTrips: {"data":{"trips":[]}}
+PASS: isolation: owner's trip invisible to tester (scoped table)
+PASS: owner still sees own trip
+testers (owner): {"testers":[{"accountId":2,"email":"tester@smoke.test","username":"tester","acceptedAt":"2026-11-09T23:27:15.400Z","daysActiveOf14":1,"windowComplete":false,"completed":false,"currentPlan":"diamond","flippedToGoldYear":false}]}
+PASS: D4: owner tester list shows the accepted tester
+PASS: D4: tester list refused for non-owner (403)
+request-reset: {"ok":true}
+PASS: reset: link token recorded in queued mail (D1)
+reset: {"ok":true}
+PASS: reset: password reset completes
+PASS: reset: old tester session revoked
+PASS: reset: old password no longer works
+tester signin (new pw): {"ok":true,"totpRequired":false,"account":{"email":"tester@smoke.test","username":"tester","isOwner":false}}
+PASS: reset: new password signs in
+[smoke-pg-auth] restarting server (multi)...
+me after restart: {"signedIn":true,"gateEnforced":true,"totpPending":false,"account":{"email":"tester@smoke.test","username":"tester","isOwner":false,"hasTeamSeat":false,"profileId":2}}
+PASS: PERSISTENCE: tester session survives a server restart
+PASS: PERSISTENCE: tester actions answer after restart (own profile)
+PASS: totp: owner setup started (secret issued by Security Pack action)
+confirmTotpSetup: {"data":{"ok":true,"error":null,"recoveryCodes":["098F7-352CA","4403E-CEEF8","CAFC9-1BB28","E07AA-DBC35","BD8BA-0F0E1","3EF98-16356","67492-80409","020C8-A8FF3"]}}
+PASS: totp: owner TOTP enabled via Security Pack
+owner signin (totp on): {"ok":true,"totpRequired":true}
+PASS: D7: owner sign-in pauses at the TOTP gate
+PASS: D7: pending-TOTP session authorizes NO actions
+PASS: D7: wrong code rejected at the gate
+totp complete: {"ok":true,"totpRequired":false}
+PASS: D7: correct code completes the gate
+PASS: D7: owner actions work after gate completion
+PASS: signout: session no longer authorizes actions
+pg indexes: {"scoped":28,"owner":true,"activity":true}
+PASS: PG: 0108 index port present (28 profile_id indexes + partial owner index + activity-day unique)
+[smoke-pg-auth] RESULT: 48 passed, 0 failed (scratch kept at /tmp/stonemiles-smoke-pgauth.jUkhLV)

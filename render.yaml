@@ -1,0 +1,73 @@
+# Render blueprint for STONEMILES — PREP ONLY (not yet deployed).
+# This file lives at the root of the merged deployable tree
+# (stonemiles-deploy/) and is mirrored in the hosting-prep folder.
+# Account: to be created under RUGGS LLC / stonervisionteam@gmail.com.
+# Public address: https://app.stonervision.io (custom domain step in
+# DEPLOY-RUNBOOK-FINAL.md).
+#
+# SHAPE NOTE: the standalone Bun host under host/ EXISTS in this tree
+# (Phases 1/2a/2b + the Phase 2 merge): it serves client/dist, dispatches
+# POST /actions, implements the ctx surface, selects SQLite vs Postgres
+# via STONEMILES_DIALECT + DATABASE_URL, and enforces the multi-account
+# session gate (host/auth.ts). Migrations: drizzle/ (SQLite) and
+# drizzle-pg/ (Postgres, generated from server/src/schema-pg.ts); the
+# start command below applies the PG set + index parity before serving.
+# The host also serves the Play data-safety pages /delete-account and
+# /delete-data (static, no session).
+services:
+  - type: web
+    name: stonemiles
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter # estimate; see cost note in DEPLOY.md
+    region: oregon # closest Render region choice is owner's call at create time
+    healthCheckPath: /
+    # Phase 2a: apply the drizzle-pg migration set (journal-aware, no-op
+    # when current; host/migrate-pg.ts reads DATABASE_URL itself), then
+    # serve. Overrides the Dockerfile CMD, which still defaults to the
+    # SQLite path for local docker runs.
+    dockerCommand: bun run host/migrate-pg.ts && bun run host/server.ts
+    envVars:
+      # Dialect switch read by host/ctx.ts: "postgres" + DATABASE_URL
+      # selects Postgres; unset selects the Phase 1 SQLite path.
+      - key: STONEMILES_DIALECT
+        value: postgres
+      - key: DATABASE_URL
+        fromDatabase:
+          name: stonemiles-db
+          property: connectionString
+      # Auth (Phase 2b): optional pepper for session/reset token hashing
+      # (host/auth.ts uses it when set). Owner-entered at deploy.
+      - key: AUTH_TOKEN_PEPPER
+        sync: false
+      # NEVER set AUTH_ALLOW_ANONYMOUS_LOCAL here: it is the local
+      # staging-anonymous escape hatch (AUTH-DESIGN.md section 9 step 2).
+      # Unset = the session gate is ON, which is the production posture.
+      # Secrets below are entered BY THE OWNER in the Render dashboard at
+      # deploy time (sync: false = never committed to the repo).
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: DOC_EMAIL_FROM
+        sync: false
+      - key: STRIPE_CHECKOUT_SUCCESS_URL
+        value: https://app.stonervision.io/checkout/success?session_id={CHECKOUT_SESSION_ID}
+      - key: STRIPE_CHECKOUT_CANCEL_URL
+        value: https://app.stonervision.io/checkout/cancel
+      # TOMTOM_API_KEY: today this key is a hard-coded constant in
+      # server/src/tomtom.ts (line 27). The host-shim work moves it behind
+      # this env var; the owner re-enters (ideally rotates) the value at
+      # deploy. It is intentionally NOT a value anywhere in this prep pack.
+      - key: TOMTOM_API_KEY
+        sync: false
+      # Inference provider key for the ctx.inference replacement (AI copilot /
+      # doc-draft features). Provider choice is part of the shim work; the
+      # owner enters the key at deploy.
+      - key: INFERENCE_API_KEY
+        sync: false
+
+databases:
+  - name: stonemiles-db
+    plan: basic-256mb # estimate; see cost note in DEPLOY.md
+    postgresMajorVersion: "16"

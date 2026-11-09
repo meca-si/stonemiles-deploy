@@ -1,0 +1,11 @@
+{
+  "entry": "client/dist/index.html",
+  "managedCronJobs": [
+    "trucker-gps-eia-weekly-refresh",
+    "trucker-gps-app-health-daily"
+  ],
+  "name": "STONEMILES by Stonervision",
+  "platformVersion": 28,
+  "runtime": "typescript",
+  "slug": "trucker-gps"
+}

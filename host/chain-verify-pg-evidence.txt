@@ -1,0 +1,15 @@
+# Chain verification through the MERGED host on Postgres (Phase 2 merge proof)
+# Date: 2026-11-09 (America/Chicago). Server: embedded Postgres 16.15,
+# scratch port 54400, database stonemiles_merged_chain (fresh: migrate-pg
+# -> transfer from a COPY of the seeded data/app.db; originals untouched).
+# Boot log lines:
+#   [stonemiles-host] actions registered: 463
+#   [stonemiles-host] db: postgres://localhost:54400/stonemiles_merged_chain
+# Transfer (host/pg/transfer.ts, merged): 152 tables, 2574/2574 rows,
+# 0 anomalies; 7 auth tables target-only (empty by design);
+# profile_id backfill: 39 rows set to profile 1 across 28 tables;
+# known legacy drop recorded: admin_settings.welcome_credit_stoner.
+# Full transfer record: host/pg/work/transfer-result-merged-pg16.json
+#
+# POST /actions {"action":"verifyChain","args":{}} ->
+{"data":{"intact":true,"checked":463,"brokenAtId":null,"headHash":"4b2185cbbe440f04bad11bfd42be7d68bc0575e9eb5bd5b61b59e36086e85728"}}
