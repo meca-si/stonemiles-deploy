@@ -26,7 +26,12 @@ services:
     # when current; host/migrate-pg.ts reads DATABASE_URL itself), then
     # serve. Overrides the Dockerfile CMD, which still defaults to the
     # SQLite path for local docker runs.
-    dockerCommand: bun run host/migrate-pg.ts && bun run host/server.bundle.js
+    # ROUND 4: Render's Docker Command is exec-style, NOT a shell — a
+    # `cmd1 && cmd2` command passes everything after the first script to
+    # it as plain arguments, so the server never started (four failed
+    # deploys). host/start.sh does the chaining inside a real shell.
+    # NEVER put && or other shell operators in this field.
+    dockerCommand: sh host/start.sh
     envVars:
       # Dialect switch read by host/ctx.ts: "postgres" + DATABASE_URL
       # selects Postgres; unset selects the Phase 1 SQLite path.
