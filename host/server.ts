@@ -47,6 +47,19 @@ import {
   getDb,
   readBlob,
 } from "./ctx";
+import {
+  handleAppleCallback,
+  handleAppleStart,
+  handleAuthMethods,
+  handleGoogleCallback,
+  handleGoogleStart,
+  handlePasskeyAuthOptions,
+  handlePasskeyAuthVerify,
+  handlePasskeyList,
+  handlePasskeyRegisterOptions,
+  handlePasskeyRegisterVerify,
+  handlePasskeyRemove,
+} from "./social-auth";
 
 /** Staging-anonymous escape hatch (AUTH-DESIGN.md §9 step 2): local
  *  proof only. When set, /actions answers without a session using the
@@ -337,6 +350,17 @@ server = Bun.serve({
       }
       if (req.method === "GET" && pathname === "/auth/me") return handleMe(req);
       if (req.method === "GET" && pathname === "/auth/testers") return handleTesterList(req);
+      // Social sign-in + passkeys (host/social-auth.ts): the OAuth
+      // starts/callbacks are browser navigations (GET; Apple's
+      // callback also arrives as a form POST), the passkey ceremonies
+      // are JSON POSTs, and /auth/methods reports which doors the
+      // host env has switched on.
+      if (req.method === "GET" && pathname === "/auth/methods") return handleAuthMethods();
+      if (req.method === "GET" && pathname === "/auth/google/start") return handleGoogleStart(req);
+      if (req.method === "GET" && pathname === "/auth/google/callback") return handleGoogleCallback(req);
+      if (req.method === "GET" && pathname === "/auth/apple/start") return handleAppleStart(req);
+      if (pathname === "/auth/apple/callback" && (req.method === "GET" || req.method === "POST")) return handleAppleCallback(req);
+      if (req.method === "GET" && pathname === "/auth/passkey") return handlePasskeyList(req);
       if (req.method !== "POST") return json({ error: "POST required" }, 405);
       switch (pathname) {
         case "/auth/signin": return handleSignin(req);
@@ -349,6 +373,11 @@ server = Bun.serve({
         case "/auth/invites": return handleIssueInvite(req);
         case "/auth/testers/flip": return handleTesterFlip(req);
         case "/auth/password": return handlePasswordChange(req);
+        case "/auth/passkey/register/options": return handlePasskeyRegisterOptions(req);
+        case "/auth/passkey/register/verify": return handlePasskeyRegisterVerify(req);
+        case "/auth/passkey/remove": return handlePasskeyRemove(req);
+        case "/auth/passkey/auth/options": return handlePasskeyAuthOptions(req);
+        case "/auth/passkey/auth/verify": return handlePasskeyAuthVerify(req);
         default: return json({ error: "not found" }, 404);
       }
     }

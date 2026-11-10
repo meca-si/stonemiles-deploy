@@ -80,3 +80,6 @@ CREATE INDEX IF NOT EXISTS "account_invites_email_idx" ON "account_invites" ("em
 CREATE INDEX IF NOT EXISTS "auth_audit_account_idx" ON "auth_audit_log" ("account_id");
 CREATE INDEX IF NOT EXISTS "auth_audit_event_idx" ON "auth_audit_log" ("event");
 CREATE UNIQUE INDEX IF NOT EXISTS "auth_activity_account_day_unique" ON "auth_activity_days" ("account_id", "day");
+CREATE UNIQUE INDEX IF NOT EXISTS "account_identities_provider_subject_unique" ON "account_identities" ("provider", "provider_subject");
+CREATE INDEX IF NOT EXISTS "account_identities_account_idx" ON "account_identities" ("account_id");
+CREATE INDEX IF NOT EXISTS "passkey_credentials_account_idx" ON "passkey_credentials" ("account_id");

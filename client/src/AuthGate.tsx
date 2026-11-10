@@ -7,6 +7,10 @@
 //   POST /auth/totp          → completes a session paused at the D7 gate
 //   POST /auth/signout
 //   POST /auth/request-reset → always answers ok (no enumeration)
+//   GET  /auth/methods       → which sign-in doors are actually live
+//   GET  /auth/google/start  → Google OAuth (live only when env is set)
+//   GET  /auth/apple/start   → Apple OAuth (wired; live after Dec 4 env)
+//   POST /auth/passkey/*     → WebAuthn enroll / list / remove / sign-in
 //   POST /auth/invites       → owner-only tester/trial invites (D1/D2)
 //   GET  /auth/testers       → owner-only Founding Tester list (D4)
 //   POST /auth/testers/flip  → owner-only manual Diamond→Gold-year flip (D4)
@@ -112,6 +116,180 @@ const ghostButton: React.CSSProperties = {
   padding: 0,
   marginTop: 14,
 };
+const socialButton: React.CSSProperties = {
+  display: "block",
+  width: "100%",
+  boxSizing: "border-box",
+  marginTop: 10,
+  padding: 12,
+  fontSize: 15,
+  fontWeight: 600,
+  textAlign: "center",
+  textDecoration: "none",
+  borderRadius: 10,
+  border: "1px solid #2a3a5f",
+  background: "#0e1730",
+  color: "#e8ecf4",
+  cursor: "pointer",
+};
+
+// ---------------------------------------------------------------------------
+// Passkeys (WebAuthn). The server (host/social-auth.ts) runs the
+// ceremonies; the device keeps the private key and ALL biometric data —
+// Face ID / fingerprint never leaves the phone. Password sign-in always
+// remains available; a passkey is an added door, never the only one.
+// ---------------------------------------------------------------------------
+
+function b64urlToBuf(text: string): ArrayBuffer {
+  const b64 = text.replace(/-/g, "+").replace(/_/g, "/");
+  const pad = b64.length % 4 === 0 ? "" : "=".repeat(4 - (b64.length % 4));
+  const bin = atob(b64 + pad);
+  const buf = new ArrayBuffer(bin.length);
+  const view = new Uint8Array(buf);
+  for (let i = 0; i < bin.length; i++) view[i] = bin.charCodeAt(i);
+  return buf;
+}
+
+function bufToB64url(buf: ArrayBuffer): string {
+  const view = new Uint8Array(buf);
+  let bin = "";
+  for (let i = 0; i < view.length; i++) bin += String.fromCharCode(view[i]!);
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+interface RawPkCredential {
+  id: string;
+  type: string;
+  response: {
+    clientDataJSON: ArrayBuffer;
+    attestationObject?: ArrayBuffer;
+    authenticatorData?: ArrayBuffer;
+    signature?: ArrayBuffer;
+    userHandle?: ArrayBuffer | null;
+    getTransports?: () => string[];
+  };
+}
+
+function credsApi(): {
+  create: (opts: unknown) => Promise<RawPkCredential | null>;
+  get: (opts: unknown) => Promise<RawPkCredential | null>;
+} | null {
+  if (typeof navigator === "undefined" || !navigator.credentials) return null;
+  if (typeof window === "undefined" || !("PublicKeyCredential" in window)) {
+    return null;
+  }
+  const c = navigator.credentials as unknown as {
+    create?: unknown;
+    get?: unknown;
+  };
+  if (typeof c.create !== "function" || typeof c.get !== "function") return null;
+  return c as {
+    create: (opts: unknown) => Promise<RawPkCredential | null>;
+    get: (opts: unknown) => Promise<RawPkCredential | null>;
+  };
+}
+
+function passkeySupported(): boolean {
+  return credsApi() !== null;
+}
+
+/** "Face ID" on Apple platforms; fingerprint/passkey wording elsewhere. */
+function biometricLabel(): string {
+  const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+  return /iPhone|iPad|iPod|Macintosh|Mac OS/.test(ua)
+    ? "Face ID"
+    : "fingerprint / passkey";
+}
+
+function suggestedDeviceLabel(): string {
+  const ua = navigator.userAgent || "";
+  const kind = /iPhone/.test(ua)
+    ? "iPhone"
+    : /iPad/.test(ua)
+      ? "iPad"
+      : /Android/.test(ua)
+        ? "Android phone"
+        : /Macintosh|Mac OS/.test(ua)
+          ? "Mac"
+          : /Windows/.test(ua)
+            ? "Windows PC"
+            : "This device";
+  return `${kind} passkey`;
+}
+
+interface RegisterOptionsJson {
+  challenge: string;
+  user: { id: string; name: string; displayName: string };
+  excludeCredentials?: Array<{ type: string; id: string }>;
+  [key: string]: unknown;
+}
+
+interface AuthOptionsJson {
+  challenge: string;
+  allowCredentials?: Array<{ type: string; id: string }>;
+  [key: string]: unknown;
+}
+
+async function createPasskey(
+  options: RegisterOptionsJson,
+): Promise<Record<string, unknown>> {
+  const api = credsApi();
+  if (!api) throw new Error("This device can't do passkeys.");
+  const cred = await api.create({
+    publicKey: {
+      ...options,
+      challenge: b64urlToBuf(options.challenge),
+      user: { ...options.user, id: b64urlToBuf(options.user.id) },
+      excludeCredentials: (options.excludeCredentials ?? []).map((c) => ({
+        type: "public-key",
+        id: b64urlToBuf(c.id),
+      })),
+    },
+  });
+  if (!cred) throw new Error("Passkey setup was cancelled.");
+  return {
+    id: cred.id,
+    type: cred.type,
+    response: {
+      attestationObject: bufToB64url(cred.response.attestationObject!),
+      clientDataJSON: bufToB64url(cred.response.clientDataJSON),
+      transports:
+        typeof cred.response.getTransports === "function"
+          ? cred.response.getTransports()
+          : [],
+    },
+  };
+}
+
+async function getPasskeyAssertion(
+  options: AuthOptionsJson,
+): Promise<Record<string, unknown>> {
+  const api = credsApi();
+  if (!api) throw new Error("This device can't do passkeys.");
+  const cred = await api.get({
+    publicKey: {
+      ...options,
+      challenge: b64urlToBuf(options.challenge),
+      allowCredentials: (options.allowCredentials ?? []).map((c) => ({
+        type: "public-key",
+        id: b64urlToBuf(c.id),
+      })),
+    },
+  });
+  if (!cred) throw new Error("Passkey sign-in was cancelled.");
+  return {
+    id: cred.id,
+    type: cred.type,
+    response: {
+      authenticatorData: bufToB64url(cred.response.authenticatorData!),
+      clientDataJSON: bufToB64url(cred.response.clientDataJSON),
+      signature: bufToB64url(cred.response.signature!),
+      ...(cred.response.userHandle
+        ? { userHandle: bufToB64url(cred.response.userHandle) }
+        : {}),
+    },
+  };
+}
 
 function SignInScreen({ onSignedIn }: { onSignedIn: () => void }) {
   const [email, setEmail] = useState("");
@@ -122,6 +300,85 @@ function SignInScreen({ onSignedIn }: { onSignedIn: () => void }) {
   const [busy, setBusy] = useState(false);
   const [resetMode, setResetMode] = useState(false);
   const [resetSent, setResetSent] = useState(false);
+  // Which social doors the server reports live (env-configured). A door
+  // that isn't configured never renders — no dead buttons, ever.
+  const [methods, setMethods] = useState<{ google: boolean; apple: boolean }>({
+    google: false,
+    apple: false,
+  });
+  const [canPasskey] = useState(() => passkeySupported());
+
+  useEffect(() => {
+    let live = true;
+    authFetch("/auth/methods")
+      .then(async (res) => {
+        if (res.ok && live) {
+          const data = (await res.json()) as {
+            google?: boolean;
+            apple?: boolean;
+          };
+          setMethods({
+            google: data.google === true,
+            apple: data.apple === true,
+          });
+        }
+      })
+      .catch(() => {
+        // Methods unreachable → email/password only, the always-on door.
+      });
+    // A social round-trip that refused lands back here with ?authError=.
+    const params = new URLSearchParams(window.location.search);
+    const authError = params.get("authError");
+    if (authError) {
+      setError(
+        authError === "invite_only"
+          ? "STONEMILES is invite-only — that account's email doesn't have an invite yet. If you were invited, open the link from your invite."
+          : "That sign-in didn't work — try again, or use your email and password.",
+      );
+      params.delete("authError");
+      const rest = params.toString();
+      window.history.replaceState(
+        null,
+        "",
+        window.location.pathname + (rest ? `?${rest}` : "") + window.location.hash,
+      );
+    }
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  const passkeySignIn = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const optRes = await authFetch("/auth/passkey/auth/options", {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      if (!optRes.ok) throw new Error("Passkey sign-in isn't available right now.");
+      const options = (await optRes.json()) as AuthOptionsJson;
+      const credential = await getPasskeyAssertion(options);
+      const res = await authFetch("/auth/passkey/auth/verify", {
+        method: "POST",
+        body: JSON.stringify({ credential }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? "That passkey sign-in didn't work.");
+      // If the account is owner/team, the session comes back paused at
+      // the D7 TOTP gate and AuthGate shows the code screen next.
+      onSignedIn();
+    } catch (err) {
+      // Closing the device prompt is a choice, not an error to shout.
+      if ((err as { name?: string })?.name !== "NotAllowedError") {
+        setError(
+          err instanceof Error ? err.message : "That passkey sign-in didn't work.",
+        );
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -224,6 +481,45 @@ function SignInScreen({ onSignedIn }: { onSignedIn: () => void }) {
             {busy ? "Signing in…" : "Sign in"}
           </button>
         </form>
+        {(methods.google || methods.apple || canPasskey) && (
+          <div style={{ marginTop: 18 }}>
+            <p
+              style={{
+                color: "#5b6c92",
+                fontSize: 12,
+                textAlign: "center",
+                margin: "0 0 4px",
+              }}
+            >
+              — or —
+            </p>
+            {methods.google && (
+              <a href="/auth/google/start" style={socialButton}>
+                Continue with Google
+              </a>
+            )}
+            {methods.apple && (
+              <a href="/auth/apple/start" style={socialButton}>
+                Continue with Apple
+              </a>
+            )}
+            {canPasskey && (
+              <button
+                type="button"
+                style={{ ...socialButton, marginTop: 10 }}
+                disabled={busy}
+                onClick={() => void passkeySignIn()}
+              >
+                Sign in with {biometricLabel()}
+              </button>
+            )}
+            <p style={{ color: "#5b6c92", fontSize: 12, lineHeight: 1.5, marginTop: 10 }}>
+              {biometricLabel()} uses a passkey on this device — your face or
+              fingerprint never leaves the phone. New accounts stay
+              invite-only on every door.
+            </p>
+          </div>
+        )}
         <button style={ghostButton} onClick={() => setResetMode(true)}>
           Forgot your password?
         </button>
@@ -395,6 +691,122 @@ function OwnerDesk({ me }: { me: MeState }) {
   );
 }
 
+interface PasskeyRow {
+  id: number;
+  deviceLabel: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+}
+
+function PasskeyDesk() {
+  const [rows, setRows] = useState<PasskeyRow[] | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    const res = await authFetch("/auth/passkey");
+    if (res.ok) {
+      const data = (await res.json()) as { passkeys: PasskeyRow[] };
+      setRows(data.passkeys);
+    } else {
+      setRows([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const add = async () => {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const optRes = await authFetch("/auth/passkey/register/options", {
+        method: "POST",
+        body: "{}",
+      });
+      if (!optRes.ok) throw new Error("Couldn't start passkey setup.");
+      const options = (await optRes.json()) as RegisterOptionsJson;
+      const credential = await createPasskey(options);
+      const res = await authFetch("/auth/passkey/register/verify", {
+        method: "POST",
+        body: JSON.stringify({ credential, deviceLabel: suggestedDeviceLabel() }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Passkey setup didn't finish.");
+      setMsg(`${biometricLabel()} is on for this device.`);
+      void load();
+    } catch (err) {
+      if ((err as { name?: string })?.name !== "NotAllowedError") {
+        setMsg(err instanceof Error ? err.message : "Passkey setup didn't finish.");
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (id: number) => {
+    await authFetch("/auth/passkey/remove", {
+      method: "POST",
+      body: JSON.stringify({ id }),
+    });
+    void load();
+  };
+
+  if (!passkeySupported()) return null;
+  const label = biometricLabel();
+  return (
+    <div style={{ borderTop: "1px solid #1d2a4a", marginTop: 10, paddingTop: 10 }}>
+      <div style={{ fontSize: 13, color: "#9fb0d0", lineHeight: 1.5 }}>
+        Sign in with {label} — a passkey on this device, so you can skip
+        the password here. Your face or fingerprint never leaves the
+        device; the password always works as a fallback.
+      </div>
+      {rows === null && (
+        <p style={{ fontSize: 13, color: "#9fb0d0" }}>Loading…</p>
+      )}
+      {rows?.map((r) => (
+        <div
+          key={r.id}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            fontSize: 13,
+            borderTop: "1px solid #16213d",
+            padding: "8px 0",
+          }}
+        >
+          <span style={{ flex: 1 }}>
+            {r.deviceLabel || "Passkey"}
+            <span style={{ color: "#5b6c92" }}>
+              {" "}
+              · added {new Date(r.createdAt).toLocaleDateString()}
+              {r.lastUsedAt
+                ? ` · last used ${new Date(r.lastUsedAt).toLocaleDateString()}`
+                : ""}
+            </span>
+          </span>
+          <button
+            style={{ ...ghostButton, marginTop: 0 }}
+            onClick={() => void remove(r.id)}
+          >
+            Remove
+          </button>
+        </div>
+      ))}
+      <button
+        style={{ ...socialButton, marginTop: 10 }}
+        disabled={busy}
+        onClick={() => void add()}
+      >
+        {busy ? "Setting up…" : `Add ${label} on this device`}
+      </button>
+      {msg && <p style={{ fontSize: 13, color: "#9fb0d0" }}>{msg}</p>}
+    </div>
+  );
+}
+
 function AccountBar({ me, refresh }: { me: MeState; refresh: () => void }) {
   const [open, setOpen] = useState(false);
   const signOut = async () => {
@@ -428,7 +840,12 @@ function AccountBar({ me, refresh }: { me: MeState; refresh: () => void }) {
           Sign out
         </button>
       </div>
-      {open && <OwnerDesk me={me} />}
+      {open && (
+        <>
+          <OwnerDesk me={me} />
+          <PasskeyDesk />
+        </>
+      )}
     </div>
   );
 }

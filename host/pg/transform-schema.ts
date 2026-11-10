@@ -27,7 +27,9 @@
 // (library document sends) adds +1 table, +1 autoincrement PK, +2
 // timestamp_ms (document_sends created/sent). Migration 0112
 // (receive links) adds +1 table, +1 autoincrement PK, +2 timestamp_ms
-// (receive_links created/revoked).
+// (receive_links created/revoked). Migration 0113
+// (social identities + passkeys) adds +2 tables, +2 autoincrement PKs,
+// +3 timestamp_ms (identities linked_at; passkeys created/last_used).
 //
 //   bun run host/pg/transform-schema.ts
 
@@ -92,15 +94,15 @@ replaceAll(
   'integer mode "timestamp_ms" -> timestamp(tz, date)',
   /integer\(("[a-z0-9_]+"), \{ mode: "timestamp_ms" \}\)/g,
   'timestamp($1, { withTimezone: true, mode: "date" })',
-  296,
+  299,
 );
 replaceAll(
   "autoincrement PK -> serial",
   /integer\(("[a-z0-9_]+")\)\.primaryKey\(\{ autoIncrement: true \}\)/g,
   "serial($1).primaryKey()",
-  131,
+  133,
 );
-replaceAll("sqliteTable -> pgTable", /\bsqliteTable\(/g, "pgTable(", 161);
+replaceAll("sqliteTable -> pgTable", /\bsqliteTable\(/g, "pgTable(", 163);
 replaceAll("real -> doublePrecision", /\breal\(/g, "doublePrecision(", 172);
 
 // Leftovers: any of these means the source schema grew a shape this

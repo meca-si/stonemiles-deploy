@@ -184,3 +184,5 @@ export const accountInvites = impl.accountInvites;
 export const authAuditLog = impl.authAuditLog;
 export const authMailQueue = impl.authMailQueue;
 export const authActivityDays = impl.authActivityDays;
+export const accountIdentities = impl.accountIdentities;
+export const passkeyCredentials = impl.passkeyCredentials;

@@ -4483,3 +4483,43 @@ export const authActivityDays = pgTable("auth_activity_days", {
     .notNull()
     .$defaultFn(() => new Date()),
 });
+
+// Linked social identities (2026-11-10, x's order: "Google now, Apple
+// ready, Face ID too"). One row per (provider, subject) — the
+// provider's stable subject id is the identity key, NOT the email
+// (emails change; subjects don't). The email recorded is the VERIFIED
+// provider email at link time, kept so the owner can see which door an
+// account uses. Uniqueness of (provider, provider_subject) is enforced
+// structurally in migration 0113. Biometric data NEVER appears here or
+// anywhere server-side: Face ID lives in the device's secure enclave.
+export const accountIdentities = pgTable("account_identities", {
+  id: serial("id").primaryKey(),
+  accountId: integer("account_id").notNull(),
+  provider: text("provider").notNull(), // google | apple
+  providerSubject: text("provider_subject").notNull(),
+  email: text("email").notNull(),
+  linkedAt: timestamp("linked_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+// WebAuthn passkeys ("Sign in with Face ID", 2026-11-10). Stores the
+// credential PUBLIC key only (COSE encoding, base64url) — a public key
+// is not a secret and no biometric sample ever leaves the device. The
+// sign counter is the clone-detection signal from the WebAuthn spec.
+export const passkeyCredentials = pgTable("passkey_credentials", {
+  id: serial("id").primaryKey(),
+  accountId: integer("account_id").notNull(),
+  // base64url credential id issued by the authenticator; unique.
+  credentialId: text("credential_id").notNull().unique(),
+  // base64url COSE public key bytes from the attestation/authData.
+  publicKey: text("public_key").notNull(),
+  signCount: integer("sign_count").notNull().default(0),
+  deviceLabel: text("device_label").notNull().default(""),
+  // JSON array of transports reported at registration (usb/nfc/ble/internal…)
+  transports: text("transports"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  lastUsedAt: timestamp("last_used_at", { withTimezone: true, mode: "date" }),
+});

@@ -785,6 +785,13 @@
       "when": 1794000000000,
       "tag": "0112_receive_links",
       "breakpoints": true
+    },
+    {
+      "idx": 112,
+      "version": "6",
+      "when": 1794338000000,
+      "tag": "0113_social_identities_and_passkeys",
+      "breakpoints": true
     }
   ]
 }

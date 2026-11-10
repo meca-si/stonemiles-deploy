@@ -41,6 +41,12 @@
       <button id="submit" type="submit">Set password</button>
       <div class="msg" id="msg"></div>
     </form>
+    <div id="socialDoors" style="display:none">
+      <p style="color:#5b6c92;font-size:12px;text-align:center;margin:18px 0 4px">— or accept with —</p>
+      <a id="googleDoor" href="#" style="display:none;box-sizing:border-box;width:100%;margin-top:10px;padding:12px;font-size:15px;font-weight:600;text-align:center;text-decoration:none;border-radius:10px;border:1px solid #2a3a5f;background:#0e1730;color:#e8ecf4">Continue with Google</a>
+      <a id="appleDoor" href="#" style="display:none;box-sizing:border-box;width:100%;margin-top:10px;padding:12px;font-size:15px;font-weight:600;text-align:center;text-decoration:none;border-radius:10px;border:1px solid #2a3a5f;background:#0e1730;color:#e8ecf4">Continue with Apple</a>
+      <p style="color:#5b6c92;font-size:12px;line-height:1.5;margin-top:10px">Works when the invite was sent to the same email as that account — the invite is consumed either way, and you can still set a password later.</p>
+    </div>
   </div>
 </main>
 <script>
@@ -63,6 +69,31 @@
     endpoint = "/auth/accept-invite";
     emailField.style.display = "none";
     usernameField.style.display = "block";
+    // Social doors on the invite-accept flow: offered only for doors the
+    // server reports live via /auth/methods (env-configured). The start
+    // URL carries this invite's token; the server consumes the invite
+    // when the provider-verified email matches the invited email.
+    fetch("/auth/methods")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((m) => {
+        if (!m) return;
+        const box = document.getElementById("socialDoors");
+        let shown = false;
+        if (m.google) {
+          const a = document.getElementById("googleDoor");
+          a.href = "/auth/google/start?invite=" + encodeURIComponent(token);
+          a.style.display = "block";
+          shown = true;
+        }
+        if (m.apple) {
+          const a = document.getElementById("appleDoor");
+          a.href = "/auth/apple/start?invite=" + encodeURIComponent(token);
+          a.style.display = "block";
+          shown = true;
+        }
+        if (shown) box.style.display = "block";
+      })
+      .catch(() => {});
   } else {
     title.textContent = "Reset your password";
     sub.textContent = "Choose a new password. All signed-in devices will be signed out.";

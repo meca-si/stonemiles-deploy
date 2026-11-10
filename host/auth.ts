@@ -94,7 +94,7 @@ export function maskEmail(email: string): string {
   return `${local.slice(0, 2)}***@${domain}`;
 }
 
-function sha256Hex(text: string): string {
+export function sha256Hex(text: string): string {
   return createHash("sha256").update(text).digest("hex");
 }
 
@@ -405,11 +405,11 @@ export async function resolveSession(
   };
 }
 
-async function createSession(
+export async function createSession(
   db: Db,
   args: {
     accountId: number;
-    createdVia: "signin" | "claim" | "invite_accept";
+    createdVia: "signin" | "claim" | "invite_accept" | "social" | "passkey";
     deviceLabel: string;
     userAgent: string | null;
     ip: string | null;
@@ -645,7 +645,7 @@ export async function totpRequiredFor(
 // Username derivation (§2.4)
 // ---------------------------------------------------------------------------
 
-async function deriveUsername(db: Db, email: string, preferred?: string): Promise<string> {
+export async function deriveUsername(db: Db, email: string, preferred?: string): Promise<string> {
   const sanitize = (s: string) =>
     s.toLowerCase().replace(/[^a-z0-9_]/g, "_").replace(/^_+|_+$/g, "").slice(0, 24);
   const candidates: string[] = [];
@@ -679,7 +679,7 @@ async function deriveUsername(db: Db, email: string, preferred?: string): Promis
 // unless the invite grants it), account link set in the same write.
 // ---------------------------------------------------------------------------
 
-async function createProfileForAccount(
+export async function createProfileForAccount(
   db: Db,
   args: { accountId: number; username: string; plan: string },
 ): Promise<number> {
@@ -728,7 +728,7 @@ async function readJson(req: Request): Promise<Record<string, unknown>> {
   }
 }
 
-function clientIp(req: Request): string | null {
+export function clientIp(req: Request): string | null {
   return (
     req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
     req.headers.get("x-real-ip") ??

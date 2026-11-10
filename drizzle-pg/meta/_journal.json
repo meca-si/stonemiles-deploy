@@ -43,6 +43,13 @@
       "when": 1794295307162,
       "tag": "0005_bitter_violations",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794340218577,
+      "tag": "0006_kind_harpoon",
+      "breakpoints": true
     }
   ]
 }
