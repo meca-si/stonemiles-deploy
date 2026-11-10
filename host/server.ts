@@ -292,7 +292,9 @@ server = Bun.serve({
     // instructions, served without a session like the auth pages.
     if (
       req.method === "GET" &&
-      (pathname === "/delete-account" || pathname === "/delete-data")
+      (pathname === "/delete-account" ||
+        pathname === "/delete-data" ||
+        pathname === "/privacy")
     ) {
       const page = Bun.file(
         path.join(STANDALONE_ROOT, "host", `${pathname.slice(1)}.html`),
