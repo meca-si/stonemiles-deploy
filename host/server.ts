@@ -14,6 +14,10 @@
 // server/src/privileged.ts, bound per action by createPrivilegedExecutor so
 // an action can only invoke the contracts it declared.
 
+// Boot guard FIRST: installs process-level logging/handlers and prints a
+// boot marker before the rest of the import graph evaluates (see
+// host/boot-guard.ts — added after the silent Render boot failures).
+import "./boot-guard";
 import { createPrivilegedExecutor, isAction } from "@hatch/space-sdk";
 import path from "node:path";
 import * as actionsModule from "../server/src/actions";
@@ -274,7 +278,9 @@ async function serveStatic(pathname: string): Promise<Response | null> {
 // Server
 // ---------------------------------------------------------------------------
 
-const server = Bun.serve({
+let server: ReturnType<typeof Bun.serve>;
+try {
+server = Bun.serve({
   port: PORT,
   async fetch(req) {
     const url = new URL(req.url);
@@ -396,6 +402,11 @@ const server = Bun.serve({
     return json({ error: "not found" }, 404);
   },
 });
+} catch (err) {
+  // Never die silently at boot: name the failure, then exit non-zero.
+  console.error("[stonemiles-host] FATAL: Bun.serve failed to start:", err);
+  process.exit(1);
+}
 
 console.log(`[stonemiles-host] listening on http://localhost:${server.port}`);
 console.log(`[stonemiles-host] actions registered: ${actionTable.size}`);
