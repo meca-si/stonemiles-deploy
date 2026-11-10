@@ -370,7 +370,10 @@ import {
   sanitizeReportText,
   type HealthCheck,
 } from "./appHealth";
-import { privileged } from "@space/privileged";
+// Deploy-repo note: relative import instead of the "@space/privileged"
+// tsconfig alias — Bun 1.3.10 (pinned in the Dockerfile) does not resolve
+// that alias at runtime, which killed the host boot on Render silently.
+import { privileged } from "../.generated/privileged.contract";
 
 // ---- Hash chain -------------------------------------------------------------
 // Append-only tamper-evident log. Each entry's hash covers the previous
