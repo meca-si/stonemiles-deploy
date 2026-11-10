@@ -153,6 +153,7 @@ export const PAIRS: Record<string, PairEntry> = {
   "Scale tickets": { pt: "Tickets de balança", ru: "Весовые талоны", uk: "Вагові талони" },
   "IFTA estimator": { pt: "Estimador IFTA", ru: "Оценка IFTA", uk: "Оцінка IFTA" },
   "Tax records": { pt: "Registros de impostos", ru: "Налоговые записи", uk: "Податкові записи" },
+  "Library": { pt: "Biblioteca", ru: "Библиотека", uk: "Бібліотека" },
   "Document expiry wallet": { pt: "Carteira de vencimentos", ru: "Кошелёк сроков документов", uk: "Гаманець строків документів" },
   "Hours & HOS": { pt: "Horas / HOS", ru: "Часы / HOS", uk: "Години / HOS" },
   "Chat": { pt: "Chat", ru: "Чат", uk: "Чат" },

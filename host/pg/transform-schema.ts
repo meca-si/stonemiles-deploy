@@ -19,7 +19,13 @@
 // fails the run loudly instead of emitting a half-converted schema.
 // Counts updated at the Phase 2 merge (auth Phase 2b schema additions:
 // +7 auth tables, +1 boolean (accounts.is_owner), +22 timestamp_ms,
-// +7 autoincrement PKs; REAL unchanged).
+// +7 autoincrement PKs; REAL unchanged). Migration 0109 (board
+// assignment flow) adds +3 timestamp_ms (board_loads pickup/delivery
+// appointments + decline time); its text columns ride the unchanged
+// text rule. Migration 0110 (send door) adds +2 timestamp_ms
+// (broker_submissions pickup/delivery appointments). Migration 0111
+// (library document sends) adds +1 table, +1 autoincrement PK, +2
+// timestamp_ms (document_sends created/sent).
 //
 //   bun run host/pg/transform-schema.ts
 
@@ -84,15 +90,15 @@ replaceAll(
   'integer mode "timestamp_ms" -> timestamp(tz, date)',
   /integer\(("[a-z0-9_]+"), \{ mode: "timestamp_ms" \}\)/g,
   'timestamp($1, { withTimezone: true, mode: "date" })',
-  287,
+  294,
 );
 replaceAll(
   "autoincrement PK -> serial",
   /integer\(("[a-z0-9_]+")\)\.primaryKey\(\{ autoIncrement: true \}\)/g,
   "serial($1).primaryKey()",
-  129,
+  130,
 );
-replaceAll("sqliteTable -> pgTable", /\bsqliteTable\(/g, "pgTable(", 159);
+replaceAll("sqliteTable -> pgTable", /\bsqliteTable\(/g, "pgTable(", 160);
 replaceAll("real -> doublePrecision", /\breal\(/g, "doublePrecision(", 172);
 
 // Leftovers: any of these means the source schema grew a shape this

@@ -62,6 +62,9 @@ type Draft = {
   hazmat: boolean;
   equipmentType: string;
   notes: string;
+  referenceNumber: string;
+  pickupApptAt: string;
+  deliveryApptAt: string;
 };
 
 const EMPTY_DRAFT: Draft = {
@@ -82,6 +85,9 @@ const EMPTY_DRAFT: Draft = {
   hazmat: false,
   equipmentType: "",
   notes: "",
+  referenceNumber: "",
+  pickupApptAt: "",
+  deliveryApptAt: "",
 };
 
 function draftOf(r: {
@@ -102,6 +108,9 @@ function draftOf(r: {
   hazmat: boolean;
   equipmentType: string | null;
   notes: string | null;
+  referenceNumber: string | null;
+  pickupApptAt: string | null;
+  deliveryApptAt: string | null;
 }): Draft {
   return {
     shipper: r.shipper ?? "",
@@ -121,6 +130,9 @@ function draftOf(r: {
     hazmat: r.hazmat,
     equipmentType: r.equipmentType ?? "",
     notes: r.notes ?? "",
+    referenceNumber: r.referenceNumber ?? "",
+    pickupApptAt: r.pickupApptAt ? r.pickupApptAt.slice(0, 16) : "",
+    deliveryApptAt: r.deliveryApptAt ? r.deliveryApptAt.slice(0, 16) : "",
   };
 }
 
@@ -149,6 +161,11 @@ function fieldsOf(d: Draft) {
     hazmat: d.hazmat,
     equipmentType: (d.equipmentType || null) as EquipmentValue | null,
     notes: clean(d.notes),
+    referenceNumber: clean(d.referenceNumber),
+    // datetime-local values are the sender's local wall time — send
+    // the true instant so the server stores it exactly.
+    pickupApptAt: d.pickupApptAt ? new Date(d.pickupApptAt).toISOString() : null,
+    deliveryApptAt: d.deliveryApptAt ? new Date(d.deliveryApptAt).toISOString() : null,
   };
 }
 
@@ -196,6 +213,18 @@ function LoadFieldsForm({ draft, setDraft, prefix }: { draft: Draft; setDraft: (
       <div>
         <label className={LABEL} htmlFor={`${prefix}-dwin`}>Delivery window</label>
         <input id={`${prefix}-dwin`} aria-label="Delivery window" className={INPUT} {...f("deliveryText")} placeholder="e.g. Wed Oct 28 by 17:00" />
+      </div>
+      <div className="sm:col-span-2">
+        <label className={LABEL} htmlFor={`${prefix}-ref`}>Reference # (BOL / PO / order)</label>
+        <input id={`${prefix}-ref`} aria-label="Load reference number" className={INPUT} {...f("referenceNumber")} placeholder="The number the shipper or broker named for this load" />
+      </div>
+      <div>
+        <label className={LABEL} htmlFor={`${prefix}-pappt`}>Pickup appointment</label>
+        <input id={`${prefix}-pappt`} aria-label="Pickup appointment" type="datetime-local" className={INPUT} {...f("pickupApptAt")} />
+      </div>
+      <div>
+        <label className={LABEL} htmlFor={`${prefix}-dappt`}>Delivery appointment</label>
+        <input id={`${prefix}-dappt`} aria-label="Delivery appointment" type="datetime-local" className={INPUT} {...f("deliveryApptAt")} />
       </div>
       <div>
         <label className={LABEL} htmlFor={`${prefix}-rate`}>Load pay ($)</label>
@@ -269,6 +298,8 @@ export function BrokerUploadForm({
   });
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
   const [brokerName, setBrokerName] = useState("");
+  const [senderCompany, setSenderCompany] = useState("");
+  const [senderContact, setSenderContact] = useState("");
   const [pendingDoc, setPendingDoc] = useState<{ base64: string; mime: string } | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -350,13 +381,21 @@ export function BrokerUploadForm({
   return (
     <section aria-label="Broker upload form" className="space-y-1">
       <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface2)] px-4 py-3">
-        <div className="font-condensed text-xl font-bold">Upload a load for {info.forName}</div>
-        <p className="mt-0.5 text-sm text-[var(--dim)]">
-          Link for {info.brokerName}{info.brokerCompany ? ` · ${info.brokerCompany}` : ""} · good through{" "}
-          {info.expiresAt ? new Date(info.expiresAt).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" }) : ""}.
-          Upload the rate confirmation or BOL and add what you know — the carrier reviews everything before
-          anything is posted to their drivers.
-        </p>
+        <div className="font-condensed text-xl font-bold">{info.isDoor ? `Send a load to ${info.forName}` : `Upload a load for ${info.forName}`}</div>
+        {info.isDoor ? (
+          <p className="mt-0.5 text-sm text-[var(--dim)]">
+            This is {info.forName}'s send door — one code any shipper or broker can use to send them a load offer,
+            no account needed. Your offer lands in their inbox only, for their review — never on a public board.
+            Name yourself below: your name, your company, and a contact are required — nothing anonymous is accepted.
+          </p>
+        ) : (
+          <p className="mt-0.5 text-sm text-[var(--dim)]">
+            Link for {info.brokerName}{info.brokerCompany ? ` · ${info.brokerCompany}` : ""} · good through{" "}
+            {info.expiresAt ? new Date(info.expiresAt).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" }) : ""}.
+            Upload the rate confirmation or BOL and add what you know — the carrier reviews everything before
+            anything is posted to their drivers.
+          </p>
+        )}
       </div>
       <label className="btn-press mt-2 flex min-h-[52px] cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed border-[var(--border)] bg-[var(--surface2)] px-3 py-3 text-center text-sm font-bold">
         📎 {pendingDoc ? "Document attached — tap to replace" : "Attach rate con / BOL (photo or file)"}
@@ -364,7 +403,7 @@ export function BrokerUploadForm({
       </label>
       {note && <p className="mt-2 rounded-xl bg-[var(--surface2)] px-3 py-2.5 text-sm leading-relaxed" role="note">{note}</p>}
       <div className="mt-3">
-        <label className={LABEL} htmlFor="broker-up-name">Your name / brokerage (as the carrier knows you)</label>
+        <label className={LABEL} htmlFor="broker-up-name">{info.isDoor ? "Your name (required)" : "Your name / brokerage (as the carrier knows you)"}</label>
         <input
           id="broker-up-name"
           aria-label="Your name or brokerage"
@@ -374,6 +413,32 @@ export function BrokerUploadForm({
           placeholder={info.brokerName ?? "Your name / brokerage"}
         />
       </div>
+      {info.isDoor && (
+        <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+          <div>
+            <label className={LABEL} htmlFor="broker-up-company">Your company (required)</label>
+            <input
+              id="broker-up-company"
+              aria-label="Your company"
+              className={INPUT}
+              value={senderCompany}
+              onChange={(e) => setSenderCompany(e.target.value)}
+              placeholder="Brokerage or shipper name"
+            />
+          </div>
+          <div>
+            <label className={LABEL} htmlFor="broker-up-contact">Your contact — phone or email (required)</label>
+            <input
+              id="broker-up-contact"
+              aria-label="Your contact phone or email"
+              className={INPUT}
+              value={senderContact}
+              onChange={(e) => setSenderContact(e.target.value)}
+              placeholder="So the fleet can reach you about this load"
+            />
+          </div>
+        </div>
+      )}
       <LoadFieldsForm draft={draft} setDraft={setDraft} prefix="broker-up" />
       <button
         type="button"
@@ -381,12 +446,17 @@ export function BrokerUploadForm({
         className="btn-neon btn-press mt-3 w-full rounded-xl px-4 py-3 font-bold disabled:opacity-50"
         aria-label="Send this load to the carrier for review"
         onClick={() => {
+          if (info.isDoor && (!brokerName.trim() || !senderCompany.trim() || !senderContact.trim())) {
+            setBanner("The send door needs your name, your company, and a contact — the fleet won't take an anonymous offer.");
+            return;
+          }
           setBusy(true);
           void api
             .submitBrokerUpload({
               token,
               brokerName: clean(brokerName),
-              brokerCompany: info.brokerCompany,
+              brokerCompany: info.isDoor ? clean(senderCompany) : info.brokerCompany,
+              senderContact: info.isDoor ? clean(senderContact) : null,
               ...fieldsOf(draft),
               docDataBase64: pendingDoc?.base64 ?? null,
               docMime: pendingDoc?.mime ?? null,
@@ -411,8 +481,9 @@ export function BrokerUploadForm({
         {busy ? "Sending…" : "Send to the carrier for review"}
       </button>
       <p className="mt-2 text-xs leading-relaxed text-[var(--dim)]">
-        Upload-only: this link can't see the carrier's load board, drivers, other loads, or anything else — and
-        nothing you send posts anywhere until the carrier approves it.
+        {info.isDoor
+          ? "Send-door only: this offer goes to this one fleet's inbox and nowhere else — it never touches a public board, and the fleet decides whether to book it."
+          : "Upload-only: this link can't see the carrier's load board, drivers, other loads, or anything else — and nothing you send posts anywhere until the carrier approves it."}
       </p>
     </section>
   );
@@ -468,7 +539,10 @@ function SubmissionCard({
         <div className="min-w-0">
           <div className="font-condensed text-lg font-bold leading-tight">{laneOf(sub)}</div>
           <div className="mt-0.5 text-xs leading-relaxed text-[var(--dim)]">
-            From {sub.brokerName}{sub.brokerCompany ? ` · ${sub.brokerCompany}` : ""} via link “{sub.brokerLinkLabel}” ·{" "}
+            From {sub.brokerName}{sub.brokerCompany ? ` · ${sub.brokerCompany}` : ""}{" "}
+            {sub.sourceKind === "door" ? "via the fleet send door" : `via link “${sub.brokerLinkLabel}”`}
+            {sub.senderContact ? ` · contact ${sub.senderContact}` : ""}
+            {sub.referenceNumber ? ` · Ref ${sub.referenceNumber}` : ""} ·{" "}
             {new Date(sub.createdAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
             {sub.hasDoc && (
               <> · 📄 document on file{sub.docSha256 ? ` · fingerprint ${sub.docSha256.slice(0, 10)}…` : ""}</>
@@ -927,6 +1001,105 @@ export function BrokerCenterPanel({
           {data.links.map(linkCard)}
         </div>
       </section>
+
+      {data.mode === "fleet" && (
+        <section className="glass-panel p-3.5" aria-label="Fleet send door">
+          <h3 className="font-condensed text-xl font-semibold">🚪 The send door — one code for every shipper &amp; broker</h3>
+          <p className="mt-1 text-sm leading-relaxed text-[var(--dim)]">
+            One code for the whole fleet, instead of a named link per broker. Any shipper or broker holding the code
+            can send your fleet a load offer — no account, no seat. Senders must name themselves (name, company,
+            contact) or the door refuses the offer. Offers land <strong className="text-[var(--text)]">only in the
+            Broker Inbox below</strong>, marked as send-door offers — they never touch the public board. You control
+            the code: regenerate it and the old code dies in the same moment.
+          </p>
+          {data.sendDoor ? (
+            <article className="mt-3 rounded-2xl border border-[var(--border)] bg-[var(--surface2)] p-3.5" aria-label="Fleet send door code">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="font-condensed text-lg font-bold leading-tight">Send door code</div>
+                  <div className="mt-0.5 text-xs leading-relaxed text-[var(--dim)]">
+                    Created by @{data.sendDoor.createdBy} · {new Date(data.sendDoor.createdAt).toLocaleString([], { month: "short", day: "numeric" })} · {data.sendDoor.submissionCount} offer{data.sendDoor.submissionCount === 1 ? "" : "s"}
+                    {data.sendDoor.pendingCount > 0 ? ` · ${data.sendDoor.pendingCount} awaiting review` : ""}
+                  </div>
+                </div>
+                <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold ${data.sendDoor.status === "active" ? "bg-emerald-900/60 text-emerald-300" : "bg-[var(--surface)] text-[var(--danger)]"}`}>
+                  {data.sendDoor.status === "active" ? "ACTIVE" : data.sendDoor.status === "expired" ? "EXPIRED" : "REVOKED"}
+                </span>
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <code className="min-w-0 flex-1 truncate rounded-lg bg-[var(--surface)] px-2.5 py-2 font-mono text-xs" aria-label="Send door code">
+                  {data.sendDoor.token.slice(0, 18)}…
+                </code>
+                <button
+                  type="button"
+                  className="btn-press rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs font-bold"
+                  aria-label="Copy the full send door code"
+                  onClick={() => {
+                    void navigator.clipboard
+                      ?.writeText(data.sendDoor!.token)
+                      .then(() => setBanner("Send door code copied — give it to shippers and brokers you want offers from. Anything sent with it lands in your Broker Inbox only."))
+                      .catch(() => setBanner("Copy didn't work on this device — the code's first characters are shown on the card."));
+                  }}
+                >
+                  📋 Copy door code
+                </button>
+                <button
+                  type="button"
+                  className="btn-press rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs font-bold"
+                  aria-label="Preview what a sender sees at the send door"
+                  onClick={() => setPreviewToken(data.sendDoor!.token)}
+                >
+                  👁 Sender view
+                </button>
+                <button
+                  type="button"
+                  disabled={busy != null}
+                  className={`btn-press rounded-lg px-3 py-2 text-xs font-bold disabled:opacity-50 ${armKey === "regen-door" ? "bg-[var(--danger)] text-white" : "border border-[var(--border)] bg-[var(--surface)] text-[var(--danger)]"}`}
+                  aria-label="Regenerate the send door code — the old code stops working"
+                  onClick={() => {
+                    if (armKey !== "regen-door") {
+                      setArmKey("regen-door");
+                      return;
+                    }
+                    setArmKey(null);
+                    setBusy("regen-door");
+                    void api
+                      .regenerateSendDoor({})
+                      .then((res) => {
+                        setBanner(res.ok ? "New send door code — the old code is dead now. Give the new code to your shippers and brokers." : (res.error ?? "That didn't go through."));
+                        if (res.ok) refresh();
+                      })
+                      .catch(() => setBanner("That didn't go through — check your connection."))
+                      .finally(() => setBusy(null));
+                  }}
+                >
+                  {armKey === "regen-door" ? "Tap again — old code dies" : "Regenerate code"}
+                </button>
+              </div>
+            </article>
+          ) : (
+            <button
+              type="button"
+              disabled={busy != null}
+              className="btn-neon btn-press mt-3 rounded-xl px-4 py-3 font-bold disabled:opacity-50"
+              aria-label="Open the fleet send door"
+              onClick={() => {
+                setBusy("create-door");
+                void api
+                  .createSendDoor({})
+                  .then((res) => {
+                    setBanner(res.ok ? "Send door open — copy the code on the card and give it to the shippers and brokers you want offers from." : (res.error ?? "That didn't go through."));
+                    if (res.ok) refresh();
+                  })
+                  .catch(() => setBanner("That didn't go through — check your connection."))
+                  .finally(() => setBusy(null));
+              }}
+            >
+              {busy === "create-door" ? "Opening…" : "🚪 Open the send door"}
+            </button>
+          )}
+        </section>
+      )}
 
       <section className="glass-panel p-3.5" aria-label="Test an upload link as a broker">
         <h3 className="font-condensed text-xl font-semibold">👁 Broker view — test any link</h3>

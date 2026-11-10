@@ -61,6 +61,7 @@ export const privileged = definePrivilegedContracts({
   sendDocEmail: {
     request: z.object({
       to: z.string(),
+      replyTo: z.string().nullable().default(null),
       subject: z.string(),
       text: z.string(),
       attachmentBase64: z.string().nullable(),

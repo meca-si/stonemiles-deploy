@@ -170,6 +170,14 @@ validateDispatcherFeePct,
 type CompanyKind,
 } from "./dispatchCompany";
 import {
+assignDecisionFor,
+assignmentPhaseFor,
+canRespondToAssignment,
+cleanReferenceNumber,
+validateDeclineReason,
+} from "./boardAssignment";
+import { buildPdf } from "./pdfDoc";
+import {
 PLATFORM_FEE_LABEL,
 platformFeeApplies,
 platformFeeForGross,
@@ -566,7 +574,7 @@ function enqueueChain<T>(fn: () => Promise<T>): Promise<T> {
 async function appendChain(
   ctx: Ctx,
   args: {
-    refKind: "trip" | "load" | "driver" | "fuel_price_report" | "team";
+    refKind: "trip" | "load" | "driver" | "fuel_price_report" | "team" | "library";
     refId: number | null;
     sessionId: string | null;
     event: string;
@@ -1456,6 +1464,7 @@ async function fileConfirmedDocCopy(
       try {
         const res = await ctx.executePrivileged(privileged.sendDocEmail, {
           to: r.email,
+          replyTo: null,
           subject: `STONEMILES — ${args.label}`,
           text: docCopyEmailText({
             label: args.label,
@@ -1623,6 +1632,7 @@ async function maybeEmailPayStubCopy(
       try {
         const res = await ctx.executePrivileged(privileged.sendDocEmail, {
           to: r.email,
+          replyTo: null,
           subject: `STONEMILES — ${label}`,
           text: payStubEmailText({
             label,
@@ -3299,6 +3309,7 @@ async function notifyTeamChange(
       try {
         const res = await ctx.executePrivileged(privileged.sendDocEmail, {
           to: email,
+          replyTo: null,
           subject: `STONEMILES — ${args.summary}`,
           text: [
             `From: ${TEAM_CONTACT_NAME} <${teamEmail}>`,
@@ -6742,6 +6753,9 @@ const loadShape = z.object({
   brokerCompany: z.string().nullable(),
   brokerMc: z.string().nullable(),
   brokerSource: z.string().nullable(),
+  // The load's reference number (migration 0109), when the booking
+  // named one.
+  referenceNumber: z.string().nullable(),
   // Phase 0 Payment Packet for this load, once assembled (at the seal
   // or on first view of a sealed load). Null before delivery.
   packet: packetShape.nullable(),
@@ -6910,6 +6924,7 @@ function toLoad(
     brokerCompany: row.brokerCompany ?? null,
     brokerMc: row.brokerMc ?? null,
     brokerSource: row.brokerSource ?? null,
+    referenceNumber: row.referenceNumber ?? null,
     packet: packet ? toPacket(packet) : null,
     hasDoc: row.docBlobKey != null,
     docMime: row.docMime,
@@ -8691,10 +8706,24 @@ const boardLoadShape = z.object({
   equipmentType: z.string().nullable(),
   equipmentLabel: z.string().nullable(),
   notes: z.string().nullable(),
-  status: z.string(), // open | taken
+  status: z.string(), // open | assigned | taken | overflowed
   claimMethod: z.string().nullable(), // claim | assign
   claimedBy: z.string().nullable(),
   claimedAt: z.string().nullable(),
+  // Assign-to-driver flow (migration 0109): the assignment phase
+  // derived from the row — "pending" while an offer waits on the
+  // named driver (status "assigned", no driver load exists yet),
+  // "accepted" once that driver took it (status "taken" by assign),
+  // "none" otherwise. The booked load's reference number and its
+  // pickup / delivery appointments ride along, and a decline leaves
+  // its reason on the row for the desk (declinedBy / At / Reason).
+  assignmentPhase: z.string(), // none | pending | accepted
+  referenceNumber: z.string().nullable(),
+  pickupApptAt: z.string().nullable(),
+  deliveryApptAt: z.string().nullable(),
+  declineReason: z.string().nullable(),
+  declinedBy: z.string().nullable(),
+  declinedAt: z.string().nullable(),
   loadId: z.number().nullable(),
   tripQueueId: z.number().nullable(),
   // The linked driver load's live state, when taken: its tracker
@@ -8739,7 +8768,11 @@ function toBoardLoad(
 ): z.infer<typeof boardLoadShape> {
   let canUnassign = false;
   let blocked: string | null = null;
-  if (row.status === "taken") {
+  if (row.status === "assigned") {
+    // A pending offer: nothing exists on the driver's side yet, so
+    // the desk can always pull it back to open.
+    canUnassign = true;
+  } else if (row.status === "taken") {
     if (!linked) {
       blocked = "The driver's load for this board post is gone, so there is nothing to hand back — withdraw and repost it fresh if it still needs covering.";
     } else if (linked.podSealed) {
@@ -8780,6 +8813,13 @@ function toBoardLoad(
     claimMethod: row.claimMethod ?? null,
     claimedBy: row.claimedBy ?? null,
     claimedAt: row.claimedAt?.toISOString() ?? null,
+    assignmentPhase: assignmentPhaseFor({ status: row.status, claimMethod: row.claimMethod ?? null }),
+    referenceNumber: row.referenceNumber ?? null,
+    pickupApptAt: row.pickupApptAt?.toISOString() ?? null,
+    deliveryApptAt: row.deliveryApptAt?.toISOString() ?? null,
+    declineReason: row.declineReason ?? null,
+    declinedBy: row.declinedBy ?? null,
+    declinedAt: row.declinedAt?.toISOString() ?? null,
     loadId: row.loadId ?? null,
     tripQueueId: row.tripQueueId ?? null,
     linkedLoadStatus: linked?.status ?? null,
@@ -8805,21 +8845,65 @@ function toBoardLoad(
   };
 }
 
-/** Live state of the driver load a taken board row created. */
+/** Live state of the driver load a taken board row created.
+ *
+ *  Derived from the hash chain (chain_log), NOT from the loads row:
+ *  the chain is the shared, append-only record every viewer can read,
+ *  while the loads row belongs to the DRIVER's profile — a desk
+ *  viewer in the multi-account host cannot select it (profile-scoped
+ *  db), so reading the row made every other driver's load look gone.
+ *  The derivation mirrors exactly the writes that move a load: it is
+ *  born "booked" (load_saved — every creation path appends it),
+ *  pickup photos seal one by one (pickup_load_photo_sealed /
+ *  pickup_bol_photo_sealed / pickup_securement_photo_sealed), the
+ *  completed pickup seal moves it to picked_up (pickup_sealed — the
+ *  same moment the seal action flips loads.status), later status
+ *  changes ride load_status events (setLoadStatus), the POD seal is
+ *  podStatusByLoad (chain-derived already), and a deleted load —
+ *  which every delete path records as load_deleted — reads as gone. */
 async function boardLinkedState(
   ctx: Ctx,
   row: BoardLoadRow,
 ): Promise<{ status: string; podSealed: boolean; hasPickupProof: boolean } | null> {
   if (row.loadId == null) return null;
   const db = ctx.db<typeof schema>();
-  const rows = await db.select().from(schema.loads).where(eq(schema.loads.id, row.loadId)).limit(1);
-  const load = rows[0];
-  if (!load) return null;
+  const events = await db
+    .select()
+    .from(schema.chainLog)
+    .where(and(eq(schema.chainLog.refKind, "load"), eq(schema.chainLog.refId, row.loadId)))
+    .orderBy(asc(schema.chainLog.id));
+  if (events.length === 0) return null;
+  if (events.some((e) => e.event === "load_deleted")) return null;
+  let seen = false;
+  let status = "booked";
+  let hasPickupProof = false;
+  for (const e of events) {
+    if (e.event === "load_saved") {
+      seen = true;
+    } else if (
+      e.event === "pickup_load_photo_sealed" ||
+      e.event === "pickup_bol_photo_sealed" ||
+      e.event === "pickup_securement_photo_sealed"
+    ) {
+      hasPickupProof = true;
+    } else if (e.event === "pickup_sealed") {
+      hasPickupProof = true;
+      if (status === "booked") status = "picked_up";
+    } else if (e.event === "load_status") {
+      try {
+        const p = JSON.parse(e.payload) as { status?: unknown };
+        if (typeof p.status === "string" && p.status) status = p.status;
+      } catch {
+        /* a malformed status event changes nothing */
+      }
+    }
+  }
+  if (!seen) return null;
   const pods = await podStatusByLoad(ctx);
   return {
-    status: load.status,
-    podSealed: pods.get(load.id)?.sealed ?? false,
-    hasPickupProof: load.pickupLoadBlobKey != null || load.pickupBolBlobKey != null || load.pickupSealedAt != null,
+    status,
+    podSealed: pods.get(row.loadId)?.sealed ?? false,
+    hasPickupProof,
   };
 }
 
@@ -8871,6 +8955,12 @@ async function createLoadFromBoard(
       equipmentType: board.equipmentType ?? null,
       trailerNumber: prof?.currentTrailer ?? null,
       status: "booked",
+      // Booked-load details (migration 0109): the reference number the
+      // desk booked under rides onto the load, and the delivery
+      // appointment becomes the load's dock appointment (the pickup
+      // appointment stays on the board row + the chain payload).
+      referenceNumber: board.referenceNumber ?? null,
+      dockApptAt: board.deliveryApptAt ?? null,
       // Broker identity captured durably at creation (migration 0049):
       // copied from the board post, which got it from the broker link
       // (broker uploads) or the poster (manual board posts).
@@ -8889,7 +8979,7 @@ async function createLoadFromBoard(
     refId: loadId,
     sessionId: null,
     event: "load_saved",
-    payload: { ...fields, extraCharges: board.extraCharges ?? 0, extraChargesNote: board.extraChargesNote ?? null, source: claimSource, boardLoadId: board.id, originKind: board.originKind ?? null, originLabel: board.originLabel ?? null, driver: driverUsername },
+    payload: { ...fields, extraCharges: board.extraCharges ?? 0, extraChargesNote: board.extraChargesNote ?? null, source: claimSource, boardLoadId: board.id, originKind: board.originKind ?? null, originLabel: board.originLabel ?? null, driver: driverUsername, referenceNumber: board.referenceNumber ?? null, pickupApptAt: board.pickupApptAt?.toISOString() ?? null, deliveryApptAt: board.deliveryApptAt?.toISOString() ?? null },
   });
   if (board.docSha256) {
     await appendChain(ctx, {
@@ -9006,6 +9096,22 @@ async function takeBoardLoad(
   }
 }
 
+/** Parse a board appointment input (ISO string from the desk's
+ *  datetime field) into a Date for storage. Blank = no appointment;
+ *  an unparseable value is refused in plain words, never stored. */
+function parseBoardAppt(
+  input: string | null | undefined,
+  label: string,
+): { at: Date | null; error: string | null } {
+  const t = (input ?? "").trim();
+  if (!t) return { at: null, error: null };
+  const d = new Date(t);
+  if (!Number.isFinite(d.getTime())) {
+    return { at: null, error: `That ${label} appointment doesn't parse — pick it again or leave it blank.` };
+  }
+  return { at: d, error: null };
+}
+
 // ---- Broker upload links + approval queue (migration 0048) -----------------
 // OPTIONAL, OFF by default. Eligible: Diamond owner-operators (solo —
 // personal links + inbox; approving creates their OWN load at Booked)
@@ -9030,6 +9136,7 @@ const brokerLinkShape = z.object({
   brokerCompany: z.string().nullable(),
   brokerContact: z.string().nullable(),
   brokerMc: z.string().nullable(),
+  kind: z.string(), // broker | door (migration 0110 send door)
   token: z.string(),
   status: z.string(), // active | expired | revoked
   expiresAt: z.string(),
@@ -9047,6 +9154,15 @@ const brokerSubmissionShape = z.object({
   brokerCompany: z.string().nullable(),
   brokerMc: z.string().nullable(),
   brokerLinkLabel: z.string(), // "<broker name> — <broker company>" of the link used
+  // How the offer arrived (migration 0110): "link" = a named broker's
+  // upload link; "door" = the fleet's send door, where the sender
+  // named THEMSELVES — senderContact is their own contact, and the
+  // reference number + appointments are as the sender stated them.
+  sourceKind: z.string(), // link | door
+  senderContact: z.string().nullable(),
+  referenceNumber: z.string().nullable(),
+  pickupApptAt: z.string().nullable(),
+  deliveryApptAt: z.string().nullable(),
   shipper: z.string().nullable(),
   pickupCity: z.string().nullable(),
   pickupState: z.string().nullable(),
@@ -9134,6 +9250,19 @@ async function brokerEnabled(ctx: Ctx, scopeKey: string): Promise<boolean> {
   return rows[0]?.enabled ?? false;
 }
 
+/** The scope's send-door row (migration 0110), if the fleet has one.
+ *  At most one door per scope — creation refuses a second, and
+ *  regeneration rotates the existing row's code in place. */
+async function sendDoorRow(ctx: Ctx, scopeKey: string): Promise<BrokerLinkRow | null> {
+  const db = ctx.db<typeof schema>();
+  const rows = await db
+    .select()
+    .from(schema.brokerLinks)
+    .where(and(eq(schema.brokerLinks.scopeKey, scopeKey), eq(schema.brokerLinks.kind, "door")))
+    .orderBy(desc(schema.brokerLinks.id));
+  return rows[0] ?? null;
+}
+
 function brokerToken(): string {
   const bytes = new Uint8Array(24);
   crypto.getRandomValues(bytes);
@@ -9154,6 +9283,7 @@ function toBrokerLink(row: BrokerLinkRow, subs: BrokerSubmissionRow[]): z.infer<
     brokerCompany: row.brokerCompany ?? null,
     brokerContact: row.brokerContact ?? null,
     brokerMc: row.brokerMc ?? null,
+    kind: row.kind ?? "broker",
     token: row.token,
     status: brokerLinkStatus(row),
     expiresAt: row.expiresAt.toISOString(),
@@ -9175,7 +9305,16 @@ function toBrokerSubmission(
     brokerName: row.brokerName,
     brokerCompany: row.brokerCompany ?? null,
     brokerMc: row.brokerMc ?? null,
-    brokerLinkLabel: link ? `${link.brokerName}${link.brokerCompany ? ` — ${link.brokerCompany}` : ""}` : `Link #${row.linkId}`,
+    brokerLinkLabel: link
+      ? (link.kind ?? "broker") === "door"
+        ? "Send door"
+        : `${link.brokerName}${link.brokerCompany ? ` — ${link.brokerCompany}` : ""}`
+      : `Link #${row.linkId}`,
+    sourceKind: (link?.kind ?? "broker") === "door" ? "door" : "link",
+    senderContact: row.senderContact ?? null,
+    referenceNumber: row.referenceNumber ?? null,
+    pickupApptAt: row.pickupApptAt?.toISOString() ?? null,
+    deliveryApptAt: row.deliveryApptAt?.toISOString() ?? null,
     shipper: row.shipper,
     pickupCity: row.pickupCity,
     pickupState: row.pickupState,
@@ -11950,6 +12089,964 @@ const marketPulseEquipmentInput = z.object({
   yoyPct: z.number(),
   loadsChangePct: z.number(),
 });
+
+// ---- User Library (x, 2026-11-10) ------------------------------------------
+// One records home per user. The library is an organized VIEW over the
+// records that already exist — sealed Load Tracker records, settlements
+// and pay stubs, IFTA trip/fuel data, filed document copies, personal
+// documents — never a duplicate store. Scoping follows the assignment
+// flow exactly: a driver sees his own profile's records; a fleet
+// owner/dispatch seat additionally sees the FLEET block, which is
+// built only from shared company board rows + the sealed chain (the
+// same chain-derived pattern boardLinkedState uses) — never from
+// another driver's private rows.
+
+interface IftaAggregates {
+  milesByState: Map<string, number>;
+  fuelByState: Map<string, number>;
+  totalMiles: number;
+  totalGallons: number;
+}
+
+/** The one IFTA aggregation: state miles from sealed trip sheets'
+ *  stateBreakdown, gallons from fuel purchases in the window. Every
+ *  IFTA surface (report screen, text export, library, PDF) reads
+ *  through this so the numbers can never drift apart. Reads through
+ *  the caller's scoped db — the caller's own trips and fuel only. */
+async function iftaAggregates(ctx: Ctx, startMs: number, endMs: number): Promise<IftaAggregates> {
+  const db = ctx.db<typeof schema>();
+  const trips = (await db.select().from(schema.trips)).filter(
+    (t) => t.startedAt.getTime() >= startMs && t.startedAt.getTime() < endMs,
+  );
+  const fuel = (await db.select().from(schema.fuelPurchases)).filter(
+    (f) => f.purchasedAt.getTime() >= startMs && f.purchasedAt.getTime() < endMs,
+  );
+  const milesByState = new Map<string, number>();
+  for (const t of trips) {
+    try {
+      const states = JSON.parse(t.stateBreakdown) as { state: string; miles: number }[];
+      for (const s of states) milesByState.set(s.state, (milesByState.get(s.state) ?? 0) + s.miles);
+    } catch { /* skip malformed legacy rows */ }
+  }
+  const fuelByState = new Map<string, number>();
+  for (const f of fuel) fuelByState.set(f.state, (fuelByState.get(f.state) ?? 0) + f.gallons);
+  return {
+    milesByState,
+    fuelByState,
+    totalMiles: trips.reduce((s, t) => s + t.totalMiles, 0),
+    totalGallons: fuel.reduce((s, f) => s + f.gallons, 0),
+  };
+}
+
+type ChainEntryStatus = "verified" | "broken" | "unverified";
+
+interface ChainWalk {
+  intact: boolean;
+  brokenAtId: number | null;
+  headHash: string;
+  checked: number;
+  statusById: Map<number, ChainEntryStatus>;
+  rows: (typeof schema.chainLog.$inferSelect)[];
+}
+
+/** One pass over the sealed chain with the verifyChain action's exact
+ *  algorithm (prev-hash linkage + sha256(prev|event|payload)), extended
+ *  with a per-entry verdict: entries before the first break are
+ *  "verified", the breaking entry is "broken", everything after it is
+ *  "unverified" — so a library entry's status always matches what
+ *  verifyChain reports for the chain as a whole. */
+async function chainWalk(ctx: Ctx): Promise<ChainWalk> {
+  const db = ctx.db<typeof schema>();
+  const rows = await db.select().from(schema.chainLog).orderBy(asc(schema.chainLog.id));
+  const statusById = new Map<number, ChainEntryStatus>();
+  let prev = GENESIS_HASH;
+  let brokenAtId: number | null = null;
+  for (const r of rows) {
+    if (brokenAtId != null) {
+      statusById.set(r.id, "unverified");
+      continue;
+    }
+    if (r.prevHash !== prev) {
+      statusById.set(r.id, "broken");
+      brokenAtId = r.id;
+      continue;
+    }
+    const expected = await sha256(`${r.prevHash}|${r.event}|${r.payload}`);
+    if (expected !== r.hash) {
+      statusById.set(r.id, "broken");
+      brokenAtId = r.id;
+      continue;
+    }
+    statusById.set(r.id, "verified");
+    prev = r.hash;
+  }
+  return {
+    intact: brokenAtId == null,
+    brokenAtId,
+    headHash: prev, // mirrors verifyChain: the last hash that VERIFIED (the chain head when intact)
+    checked: rows.length,
+    statusById,
+    rows,
+  };
+}
+
+function laneTextOf(a: {
+  pickupCity: string | null;
+  pickupState: string | null;
+  deliveryCity: string | null;
+  deliveryState: string | null;
+}): string {
+  const from = [a.pickupCity, a.pickupState].filter(Boolean).join(", ") || "Pickup TBD";
+  const to = [a.deliveryCity, a.deliveryState].filter(Boolean).join(", ") || "Delivery TBD";
+  return `${from} → ${to}`;
+}
+
+function monthLabelOf(d: Date): string {
+  return d.toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
+}
+
+const LIBRARY_PDF_FOOTER = "STONEMILES - sealed records - generated from the User Library";
+
+function libraryPdfBytes(args: {
+  title: string;
+  subtitle?: string | null;
+  sections: { heading?: string; lines: string[] }[];
+}): Uint8Array {
+  return buildPdf({ title: args.title, subtitle: args.subtitle ?? null, sections: args.sections, footer: LIBRARY_PDF_FOOTER });
+}
+
+const moneyText = (n: number | null | undefined): string =>
+  n == null ? "not set" : `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+/** Server-side blob bytes for Library documents (host ctx.blobs.read —
+ *  the getUrl + fetch read leg is broken by design for server work).
+ *  Null when the bytes aren't reachable or the blob is gone. */
+async function readBlobBytes(
+  ctx: Ctx,
+  key: string,
+): Promise<{ bytes: Uint8Array; contentType: string } | null> {
+  const blobs = ctx.blobs as unknown as {
+    read?: (k: string) => Promise<{ bytes: Uint8Array; contentType: string } | null>;
+  };
+  if (typeof blobs.read !== "function") return null;
+  try {
+    return await blobs.read(key);
+  } catch {
+    return null;
+  }
+}
+
+function fileNameFor(label: string, mime: string | null, fallbackExt: string): string {
+  const base =
+    label
+      .replace(/[^a-zA-Z0-9-_ ]/g, "")
+      .trim()
+      .replace(/\s+/g, "-")
+      .slice(0, 60) || "document";
+  const ext = mime?.includes("pdf")
+    ? "pdf"
+    : mime?.includes("png")
+      ? "png"
+      : mime?.includes("jpeg") || mime?.includes("jpg")
+        ? "jpg"
+        : fallbackExt;
+  return `${base}.${ext}`;
+}
+
+/** The load a Library document may be built from, and the scope it was
+ *  reached through: the viewer's own loads row, or the fleet desk's
+ *  shared board row for one of the fleet's taken loads. Anything else
+ *  answers null — cross-scope is indistinguishable from nonexistent. */
+async function libraryLoadScope(
+  ctx: Ctx,
+  loadId: number,
+): Promise<{ via: "mine"; load: LoadRow; board: null } | { via: "fleet"; load: null; board: BoardLoadRow } | null> {
+  const db = ctx.db<typeof schema>();
+  const mine = await db.select().from(schema.loads).where(eq(schema.loads.id, loadId)).limit(1);
+  if (mine[0]) return { via: "mine", load: mine[0], board: null };
+  const me = await myUsername(ctx);
+  const membership = await myMembership(ctx, me);
+  if (membership && (membership.role === "owner" || membership.role === "dispatch")) {
+    const rows = await db
+      .select()
+      .from(schema.boardLoads)
+      .where(
+        and(
+          eq(schema.boardLoads.companyId, membership.company.id),
+          eq(schema.boardLoads.loadId, loadId),
+          eq(schema.boardLoads.status, "taken"),
+        ),
+      )
+      .limit(1);
+    if (rows[0]) return { via: "fleet", load: null, board: rows[0] };
+  }
+  return null;
+}
+
+interface ResolvedLibraryDoc {
+  ok: boolean;
+  error: string | null;
+  docKind: string;
+  title: string;
+  filename: string;
+  mime: string;
+  bytes: Uint8Array | null;
+}
+
+const docRefused = (docKind: string): ResolvedLibraryDoc => ({
+  ok: false,
+  error: "That document isn't in your library — it belongs to another account or fleet, or it doesn't exist.",
+  docKind,
+  title: "",
+  filename: "",
+  mime: "",
+  bytes: null,
+});
+
+/** The sealed-record sections shared by the load certificate and the
+ *  delivered-load packet, built from the chain itself (readable in
+ *  both scopes — the chain is the record). */
+async function sealedLoadSections(
+  ctx: Ctx,
+  loadId: number,
+): Promise<{ heading?: string; lines: string[] }[]> {
+  const walk = await chainWalk(ctx);
+  const entries = walk.rows.filter((r) => r.refKind === "load" && r.refId === loadId);
+  const lines: string[] = [];
+  if (entries.length === 0) lines.push("No sealed chain entries name this load yet.");
+  for (const e of entries) {
+    const status = walk.statusById.get(e.id) ?? "unverified";
+    lines.push(`#${e.id} ${e.event} - ${e.createdAt.toISOString()} - ${status}`);
+    lines.push(`  hash ${e.hash}`);
+  }
+  let verdict = "Chain is intact - every entry above verifies against the sealed chain.";
+  if (!walk.intact) {
+    verdict = `Chain verification stops at entry #${walk.brokenAtId} - entries after it cannot be verified. Run Verify in the app for the full audit.`;
+  }
+  const codes = await ctx
+    .db<typeof schema>()
+    .select()
+    .from(schema.verifyCodes)
+    .where(and(eq(schema.verifyCodes.kind, "load"), eq(schema.verifyCodes.refId, loadId)));
+  const sections: { heading?: string; lines: string[] }[] = [
+    { heading: "Sealed chain record", lines },
+    {
+      heading: "Verification",
+      lines: [
+        verdict,
+        `Chain head: ${walk.headHash}`,
+        `Entries checked: ${walk.checked}`,
+        ...(codes.length
+          ? codes.map((c) => `Verify-anywhere code: ${c.code} (record hash ${c.recordHash})`)
+          : ["No verify-anywhere code has been issued for this load."]),
+      ],
+    },
+  ];
+  return sections;
+}
+
+/** Render one IFTA quarter (the caller's own trips/fuel) as PDF
+ *  sections — the same aggregates and rates as the report screen and
+ *  the text export. */
+async function iftaPdfSections(
+  ctx: Ctx,
+  year: number,
+  quarter: number,
+): Promise<{ heading?: string; lines: string[] }[]> {
+  const qStart = Date.UTC(year, (quarter - 1) * 3, 1);
+  const qEnd = Date.UTC(year, quarter * 3, 1);
+  const agg = await iftaAggregates(ctx, qStart, qEnd);
+  const mpg = agg.totalGallons > 0 && agg.totalMiles > 0 ? agg.totalMiles / agg.totalGallons : null;
+  const states = [...new Set([...agg.milesByState.keys(), ...agg.fuelByState.keys()])].sort();
+  const lines: string[] = ["State | Miles | Gal bought | Gal used | Tax rate | Tax paid | Tax on used | Net"];
+  let totalNet = 0;
+  let anyNet = false;
+  for (const state of states) {
+    const miles = agg.milesByState.get(state) ?? 0;
+    const bought = agg.fuelByState.get(state) ?? 0;
+    const rate = IFTA_DIESEL_RATES[state] ?? null;
+    const used = mpg != null ? miles / mpg : null;
+    const paid = rate != null ? bought * rate : null;
+    const owed = rate != null && used != null ? used * rate : null;
+    const net = owed != null && paid != null ? owed - paid : null;
+    if (net != null) {
+      totalNet += net;
+      anyNet = true;
+    }
+    lines.push(
+      `${state} | ${miles.toFixed(1)} | ${bought.toFixed(2)} | ${used != null ? used.toFixed(2) : "-"} | ${rate != null ? "$" + rate.toFixed(4) : "rate not loaded"} | ${paid != null ? "$" + paid.toFixed(2) : "-"} | ${owed != null ? "$" + owed.toFixed(2) : "-"} | ${net != null ? "$" + net.toFixed(2) : "-"}`,
+    );
+  }
+  if (states.length === 0) lines.push("No trips or fuel in this quarter yet.");
+  const db = ctx.db<typeof schema>();
+  const chain = await db.select({ hash: schema.chainLog.hash }).from(schema.chainLog).orderBy(desc(schema.chainLog.id)).limit(1);
+  return [
+    {
+      heading: `State lines - Q${quarter} ${year}`,
+      lines: [
+        `Total miles: ${agg.totalMiles.toFixed(1)} - Total fuel bought: ${agg.totalGallons.toFixed(2)} gal - Fleet MPG: ${mpg != null ? mpg.toFixed(2) : "not enough fuel logged"}`,
+        "",
+        ...lines,
+        "",
+        `Estimated net for the quarter: ${anyNet ? "$" + totalNet.toFixed(2) + (totalNet >= 0 ? " owed" : " credit") : "- (log fuel purchases to complete the estimate)"}`,
+      ],
+    },
+    {
+      heading: "About this report",
+      lines: [
+        "Miles from sealed trip sheets - Fuel from sealed fuel purchases.",
+        "Tax rates: IFTA, Inc. fuel tax matrix - estimate for planning only, not a filing and not tax advice. Verify before filing.",
+        `Sealed chain head hash: ${chain[0]?.hash ?? GENESIS_HASH}`,
+      ],
+    },
+  ];
+}
+
+/** Resolve a Library document reference to real bytes, scope-checked
+ *  on every call. Refs: settlement:{id} - pay:{id} - ifta:{y}:{q} -
+ *  filing:{chainId} - sealed:{loadId} - packet:{loadId} -
+ *  upload:filed:{id} - upload:personal:{id} - upload:scale:{id} -
+ *  upload:settlement:{id}. Generated documents render as PDF;
+ *  uploads return the original file bytes. */
+async function resolveLibraryDocument(ctx: Ctx, ref: string): Promise<ResolvedLibraryDoc> {
+  const db = ctx.db<typeof schema>();
+  const me = await myUsername(ctx);
+  const parts = ref.split(":");
+  const kind = parts[0] ?? "";
+
+  if (kind === "settlement") {
+    const id = Number(parts[1]);
+    const rows = await db.select().from(schema.settlements).where(eq(schema.settlements.id, id)).limit(1);
+    const r = rows[0];
+    if (!r) return docRefused("settlement");
+    const lines: string[] = [];
+    try {
+      const items = JSON.parse(r.linesJson) as Record<string, unknown>[];
+      for (const it of items) {
+        const label = (it.label ?? it.description ?? it.name ?? "Line") as string;
+        const amt = typeof it.amount === "number" ? it.amount : typeof it.total === "number" ? it.total : null;
+        lines.push(amt != null ? `${label}: ${moneyText(amt)}` : JSON.stringify(it).slice(0, 160));
+      }
+    } catch { /* lines stay empty — the totals below still render */ }
+    let checkLines: string[] = [];
+    if (r.checkJson) {
+      try {
+        const c = JSON.parse(r.checkJson) as { report?: string };
+        if (c.report) checkLines = c.report.split("\n");
+      } catch { /* no check on file */ }
+    }
+    const title = `Settlement statement - ${r.carrier ?? "carrier"} - ${r.periodLabel ?? monthLabelOf(r.createdAt)}`;
+    const bytes = libraryPdfBytes({
+      title,
+      subtitle: `Recorded ${r.createdAt.toISOString()} - from the sealed settlement record in your library`,
+      sections: [
+        {
+          heading: "Statement",
+          lines: [
+            `Carrier: ${r.carrier ?? "not named"}`,
+            `Period: ${r.periodLabel ?? monthLabelOf(r.createdAt)}`,
+            `Gross: ${moneyText(r.gross)}`,
+            `Net: ${moneyText(r.net)}`,
+          ],
+        },
+        ...(lines.length ? [{ heading: "Lines", lines }] : []),
+        ...(checkLines.length ? [{ heading: "Settlement check (sealed)", lines: checkLines }] : []),
+      ],
+    });
+    return { ok: true, error: null, docKind: "settlement", title, filename: `settlement-${r.id}.pdf`, mime: "application/pdf", bytes };
+  }
+
+  if (kind === "pay") {
+    const id = Number(parts[1]);
+    const rows = await db
+      .select()
+      .from(schema.payEntries)
+      .where(and(eq(schema.payEntries.id, id), eq(schema.payEntries.username, me)))
+      .limit(1);
+    const r = rows[0];
+    if (!r) return docRefused("pay");
+    let dedLines: string[] = [];
+    if (r.deductionLines) {
+      try {
+        const items = JSON.parse(r.deductionLines) as { label: string; amount: number }[];
+        dedLines = items.map((d) => `${d.label}: ${moneyText(d.amount)}`);
+      } catch { /* none */ }
+    }
+    const net = Math.round((r.gross - r.federalWithheld - r.stateWithheld - r.otherDeductions) * 100) / 100;
+    const title = `Pay statement - ${r.payer} - ${r.paidAt.toISOString().slice(0, 10)}`;
+    const bytes = libraryPdfBytes({
+      title,
+      subtitle: `${r.kind === "w2" ? "W-2" : "1099"} pay stub - from your Pay Book record`,
+      sections: [
+        {
+          heading: "Pay",
+          lines: [
+            `Payer: ${r.payer}`,
+            `Paid: ${r.paidAt.toISOString().slice(0, 10)}`,
+            `Gross: ${moneyText(r.gross)}`,
+            `Federal withheld: ${moneyText(r.federalWithheld)}`,
+            `State withheld: ${moneyText(r.stateWithheld)}`,
+            `Other deductions: ${moneyText(r.otherDeductions)}`,
+            ...dedLines,
+            ...(r.perDiem > 0 ? [`Per diem (non-taxable, separate): ${moneyText(r.perDiem)}`] : []),
+            `Net pay: ${moneyText(net)}`,
+          ],
+        },
+      ],
+    });
+    return { ok: true, error: null, docKind: "pay", title, filename: `pay-statement-${r.id}.pdf`, mime: "application/pdf", bytes };
+  }
+
+  if (kind === "ifta") {
+    const year = Number(parts[1]);
+    const quarter = Number(parts[2]);
+    if (!Number.isInteger(year) || year < 2020 || year > 2100 || !Number.isInteger(quarter) || quarter < 1 || quarter > 4)
+      return { ...docRefused("ifta"), error: "That IFTA quarter isn't valid." };
+    const title = `IFTA Q${quarter} ${year} - state lines`;
+    const bytes = libraryPdfBytes({
+      title,
+      subtitle: "State-by-state miles and fuel from your sealed trip and fuel records",
+      sections: await iftaPdfSections(ctx, year, quarter),
+    });
+    return { ok: true, error: null, docKind: "ifta", title, filename: `stonemiles-ifta-Q${quarter}-${year}.pdf`, mime: "application/pdf", bytes };
+  }
+
+  if (kind === "filing") {
+    const id = Number(parts[1]);
+    const rows = await db.select().from(schema.chainLog).where(eq(schema.chainLog.id, id)).limit(1);
+    const r = rows[0];
+    let payload: Record<string, unknown> = {};
+    try { payload = JSON.parse(r?.payload ?? "{}") as Record<string, unknown>; } catch { /* refused below */ }
+    if (
+      !r ||
+      r.refKind !== "library" ||
+      (r.event !== "ifta_export_generated" && r.event !== "tax_year_export_generated") ||
+      payload.by !== me
+    )
+      return docRefused("filing");
+    if (r.event === "ifta_export_generated") {
+      const year = Number(payload.year);
+      const quarter = Number(payload.quarter);
+      const title = `IFTA Q${quarter} ${year} - state lines`;
+      const bytes = libraryPdfBytes({
+        title,
+        subtitle: `Filing export generated ${r.createdAt.toISOString()} - regenerated from the same sealed data (chain entry #${r.id})`,
+        sections: await iftaPdfSections(ctx, year, quarter),
+      });
+      return { ok: true, error: null, docKind: "filing", title, filename: `stonemiles-ifta-Q${quarter}-${year}.pdf`, mime: "application/pdf", bytes };
+    }
+    const year = Number(payload.year);
+    const expenses = await db.select().from(schema.expenses);
+    const totals = expenseTotalsForYear(
+      expenses.map((e) => ({ spentAtMs: e.spentAt.getTime(), category: e.category, amount: e.amount })),
+      year,
+    );
+    const fuel = (await db.select().from(schema.fuelPurchases)).filter((f) => f.purchasedAt.getUTCFullYear() === year);
+    const trips = await db.select().from(schema.trips);
+    const days = perDiemDates(
+      trips.map((t) => ({ startedAtMs: t.startedAt.getTime(), endedAtMs: t.endedAt.getTime() })),
+      year,
+    );
+    const title = `Tax-year summary ${year}`;
+    const bytes = libraryPdfBytes({
+      title,
+      subtitle: `Filing export generated ${r.createdAt.toISOString()} - regenerated from the same sealed data (chain entry #${r.id}). A record for tax prep - not tax advice.`,
+      sections: [
+        { heading: "Per-diem days", lines: [`Days out in ${year}: ${days.length} - counted from your sealed trip records.`] },
+        {
+          heading: "Expenses by category",
+          lines: totals.byCategory.length
+            ? totals.byCategory.map((c) => `${c.category}: ${moneyText(c.total)}`)
+            : ["No expenses logged for this year."],
+        },
+        {
+          heading: "Fuel",
+          lines: [
+            `Purchases: ${fuel.length}`,
+            `Gallons: ${fuel.reduce((s, f) => s + f.gallons, 0).toFixed(2)}`,
+            `Spent: ${moneyText(fuel.reduce((s, f) => s + f.total, 0))}`,
+          ],
+        },
+      ],
+    });
+    return { ok: true, error: null, docKind: "filing", title, filename: `stonemiles-tax-summary-${year}.pdf`, mime: "application/pdf", bytes };
+  }
+
+  if (kind === "sealed" || kind === "packet") {
+    const loadId = Number(parts[1]);
+    const scope = await libraryLoadScope(ctx, loadId);
+    if (!scope) return docRefused(kind);
+    const head = scope.load ?? scope.board!;
+    const lane = laneTextOf(head);
+    const title =
+      kind === "sealed" ? `Sealed load record - Load #${loadId} - ${lane}` : `Delivered-load packet - Load #${loadId} - ${lane}`;
+    const summaryLines = [
+      `Lane: ${lane}`,
+      `Shipper: ${head.shipper ?? "not named"}`,
+      ...(head.brokerName || head.brokerCompany
+        ? [`Broker: ${[head.brokerName, head.brokerCompany].filter(Boolean).join(" - ")}${head.brokerMc ? ` (${head.brokerMc})` : ""}`]
+        : []),
+      `Reference #: ${head.referenceNumber ?? "none on file"}`,
+      `Rate: ${moneyText(head.rate)}${head.extraCharges ? ` + ${moneyText(head.extraCharges)} extras` : ""} = ${moneyText(head.rate != null ? Math.round((head.rate + (head.extraCharges ?? 0)) * 100) / 100 : null)} total`,
+      `Weight: ${head.weightLbs != null ? `${head.weightLbs.toLocaleString()} lbs` : "not set"}`,
+      `Freight: ${head.commodity ?? "not named"}${head.hazmat ? " - HAZMAT" : ""}`,
+      `Pickup window: ${head.pickupText ?? "not set"}`,
+      `Delivery window: ${head.deliveryText ?? "not set"}`,
+      `Recorded: ${head.createdAt.toISOString()}`,
+    ];
+    const sections: { heading?: string; lines: string[] }[] = [{ heading: "Load", lines: summaryLines }];
+    if (kind === "packet") {
+      const walk = await chainWalk(ctx);
+      const pod = walk.rows.find((r) => r.refKind === "load" && r.refId === loadId && r.event === "pod_seal");
+      let podLines: string[] = ["Not delivered yet - no POD seal on this load's record."];
+      if (pod) {
+        let p: Record<string, unknown> = {};
+        try { p = JSON.parse(pod.payload) as Record<string, unknown>; } catch { /* lines below still render */ }
+        podLines = [
+          `POD sealed: ${pod.createdAt.toISOString()}`,
+          `Seal grade: ${p.sealGrade === "release_grade" ? "RELEASE-GRADE" : "proof-grade"}`,
+          `Geofence: ${String(p.geofence ?? "unavailable")}`,
+          `${String(p.pickupNote ?? "Pickup proof state recorded on the seal.")}`,
+          `Seal hash: ${pod.hash}`,
+        ];
+      }
+      sections.push({ heading: "Delivery (POD)", lines: podLines });
+      const reg = await db.select().from(schema.invoiceRegistry).where(eq(schema.invoiceRegistry.loadId, loadId));
+      sections.push({
+        heading: "Payment packet",
+        lines: reg.length
+          ? reg.map((x) => `Invoice fingerprint ${x.fingerprint} - packet ${x.packetRef} - registered ${x.registeredAt.toISOString()}`)
+          : ["No payment packet registered for this load yet - it assembles at the delivery seal."],
+      });
+      if (scope.via === "mine") {
+        const copies = await db.select().from(schema.filedDocCopies).where(eq(schema.filedDocCopies.loadId, loadId));
+        sections.push({
+          heading: "Documents on file",
+          lines: copies.length
+            ? copies.map((c) => `${c.label} - SHA-256 ${c.sha256}`)
+            : ["No documents filed for this load yet."],
+        });
+      } else {
+        sections.push({
+          heading: "Documents on file",
+          lines: [
+            scope.board!.docSha256
+              ? `Booking document fingerprint (SHA-256): ${scope.board!.docSha256}`
+              : "No booking document was attached to this board post.",
+            "The driver's filed copies live in the driver's own library.",
+          ],
+        });
+      }
+    }
+    sections.push(...(await sealedLoadSections(ctx, loadId)));
+    const bytes = libraryPdfBytes({
+      title,
+      subtitle: kind === "sealed" ? "Record certificate - the hash-chained sealed record for this load" : "The delivered load's full packet: load, delivery seal, payment packet, verification",
+      sections,
+    });
+    return {
+      ok: true,
+      error: null,
+      docKind: kind,
+      title,
+      filename: kind === "sealed" ? `sealed-load-${loadId}.pdf` : `load-packet-${loadId}.pdf`,
+      mime: "application/pdf",
+      bytes,
+    };
+  }
+
+  if (kind === "upload") {
+    const sub = parts[1] ?? "";
+    const id = Number(parts[2]);
+    let blobKey: string | null = null;
+    let mime: string | null = null;
+    let label = "Upload";
+    if (sub === "filed") {
+      const rows = await db.select().from(schema.filedDocCopies).where(eq(schema.filedDocCopies.id, id)).limit(1);
+      if (!rows[0]) return docRefused("upload");
+      blobKey = rows[0].blobKey;
+      mime = rows[0].mime;
+      label = rows[0].label;
+    } else if (sub === "personal") {
+      const rows = await db.select().from(schema.personalDocs).where(eq(schema.personalDocs.id, id)).limit(1);
+      if (!rows[0]) return docRefused("upload");
+      blobKey = rows[0].blobKey;
+      mime = rows[0].mime;
+      label = rows[0].label;
+    } else if (sub === "scale") {
+      const rows = await db.select().from(schema.scaleTickets).where(eq(schema.scaleTickets.id, id)).limit(1);
+      if (!rows[0]) return docRefused("upload");
+      blobKey = rows[0].photoBlobKey;
+      mime = rows[0].photoMime;
+      label = `Scale ticket ${rows[0].location ?? ""}`.trim();
+    } else if (sub === "settlement") {
+      const rows = await db.select().from(schema.settlements).where(eq(schema.settlements.id, id)).limit(1);
+      if (!rows[0]) return docRefused("upload");
+      blobKey = rows[0].docBlobKey;
+      mime = rows[0].docMime;
+      label = `Settlement document - ${rows[0].carrier ?? "carrier"}`;
+    } else if (sub === "fuel") {
+      const rows = await db.select().from(schema.fuelPurchases).where(eq(schema.fuelPurchases.id, id)).limit(1);
+      if (!rows[0]) return docRefused("upload");
+      blobKey = rows[0].receiptBlobKey;
+      mime = rows[0].receiptMime;
+      label = `Fuel receipt - ${rows[0].station ?? rows[0].state} - ${rows[0].purchasedAt.toISOString().slice(0, 10)}`;
+    } else {
+      return { ...docRefused("upload"), error: "That upload reference isn't one the library knows." };
+    }
+    if (!blobKey)
+      return { ...docRefused("upload"), error: "That upload has no file bytes on record — its sealed summary lives on the load record instead." };
+    const got = await readBlobBytes(ctx, blobKey);
+    if (!got)
+      return { ...docRefused("upload"), error: "That file's bytes aren't reachable from the server in this build — open it from the load or document screen instead." };
+    const finalMime = mime ?? got.contentType;
+    return {
+      ok: true,
+      error: null,
+      docKind: "upload",
+      title: label,
+      filename: fileNameFor(label, finalMime, "bin"),
+      mime: finalMime,
+      bytes: got.bytes,
+    };
+  }
+
+  return { ...docRefused(kind), error: "That document reference isn't one the library knows." };
+}
+
+const libDeliveredShape = z.object({
+  loadId: z.number(),
+  driverUsername: z.string(),
+  lane: z.string(),
+  shipper: z.string().nullable(),
+  referenceNumber: z.string().nullable(),
+  totalWithExtras: z.number().nullable(),
+  deliveredAt: z.string().nullable(),
+  sealHash: z.string().nullable(),
+  sealGrade: z.string().nullable(),
+});
+
+const libSealedShape = z.object({
+  ref: z.string().nullable(),
+  recordKind: z.string(), // load | trip
+  recordId: z.number(),
+  title: z.string(),
+  eventCount: z.number(),
+  headHash: z.string().nullable(),
+  status: z.string(), // verified | broken | unverified
+  lastEventAt: z.string().nullable(),
+});
+
+type LibDelivered = z.infer<typeof libDeliveredShape>;
+type LibSealed = z.infer<typeof libSealedShape>;
+
+function sealedEntriesFor(
+  walk: ChainWalk,
+  recordKind: "load" | "trip",
+  recordId: number,
+  title: string,
+  ref: string | null,
+): LibSealed | null {
+  const entries = walk.rows.filter((r) => r.refKind === recordKind && r.refId === recordId);
+  if (entries.length === 0) return null;
+  const rank: Record<ChainEntryStatus, number> = { verified: 0, unverified: 1, broken: 2 };
+  let worst: ChainEntryStatus = "verified";
+  for (const e of entries) {
+    const s = walk.statusById.get(e.id) ?? "unverified";
+    if (rank[s] > rank[worst]) worst = s;
+  }
+  const last = entries.at(-1)!;
+  return {
+    ref,
+    recordKind,
+    recordId,
+    title,
+    eventCount: entries.length,
+    headHash: last.hash,
+    status: worst,
+    lastEventAt: last.createdAt.toISOString(),
+  };
+}
+
+/** Assemble the whole library for the viewer (see the design note at
+ *  the top of this section). Mine = the viewer's own profile records;
+ *  the fleet block exists only for owner/dispatch seats and is built
+ *  from shared board rows + the chain, never private rows. */
+async function buildLibrary(ctx: Ctx) {
+  const db = ctx.db<typeof schema>();
+  const me = await myUsername(ctx);
+  const membership = await myMembership(ctx, me);
+  const canManage = !!membership && (membership.role === "owner" || membership.role === "dispatch");
+  const pod = await podStatusByLoad(ctx);
+  const walk = await chainWalk(ctx);
+
+  // 1) Loads delivered — mine. Delivered = the load's POD is sealed;
+  //    the delivery hook is the seal itself: sealDelivery files the
+  //    POD copy into filed_doc_copies, and the seal is what this list
+  //    reads. Nothing extra is written when a load is delivered.
+  const myLoads = await db.select().from(schema.loads);
+  const deliveredLoads: LibDelivered[] = myLoads
+    .filter((l) => pod.get(l.id)?.sealed)
+    .map((l) => ({
+      loadId: l.id,
+      driverUsername: me,
+      lane: laneTextOf(l),
+      shipper: l.shipper,
+      referenceNumber: l.referenceNumber ?? null,
+      totalWithExtras: l.rate != null ? Math.round((l.rate + (l.extraCharges ?? 0)) * 100) / 100 : null,
+      deliveredAt: pod.get(l.id)?.sealedAt ?? null,
+      sealHash: pod.get(l.id)?.sealHash ?? null,
+      sealGrade: pod.get(l.id)?.grade ?? null,
+    }))
+    .sort((a, b) => (b.deliveredAt ?? "").localeCompare(a.deliveredAt ?? ""));
+
+  // 2) Statements — settlements + pay stubs, each carrying its period
+  //    so the client groups by period.
+  const settlementRows = (await db.select().from(schema.settlements).orderBy(desc(schema.settlements.id)).limit(50)).map((r) => ({
+    ref: `settlement:${r.id}`,
+    kind: "settlement",
+    title: `Settlement - ${r.carrier ?? "carrier"} - ${r.periodLabel ?? monthLabelOf(r.createdAt)}`,
+    periodKey: r.periodLabel ?? monthLabelOf(r.createdAt),
+    periodLabel: r.periodLabel ?? monthLabelOf(r.createdAt),
+    gross: r.gross,
+    net: r.net,
+    createdAt: r.createdAt.toISOString(),
+    hasDoc: r.docBlobKey != null,
+  }));
+  const payRows = (await db.select().from(schema.payEntries).where(eq(schema.payEntries.username, me)))
+    .sort((a, b) => b.paidAt.getTime() - a.paidAt.getTime())
+    .slice(0, 50)
+    .map((r) => ({
+      ref: `pay:${r.id}`,
+      kind: "pay",
+      title: `Pay stub - ${r.payer} - ${r.paidAt.toISOString().slice(0, 10)}`,
+      periodKey: monthLabelOf(r.paidAt),
+      periodLabel: monthLabelOf(r.paidAt),
+      gross: r.gross as number | null,
+      net: Math.round((r.gross - r.federalWithheld - r.stateWithheld - r.otherDeductions) * 100) / 100,
+      createdAt: r.paidAt.toISOString(),
+      hasDoc: r.stubBlobKey != null,
+    }));
+  const statements = [...settlementRows, ...payRows].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+  // 3) Fuel tax, state by state — quarters present in the viewer's own
+  //    trips/fuel, newest first, through the one IFTA aggregation.
+  const trips = await db.select().from(schema.trips);
+  const fuel = await db.select().from(schema.fuelPurchases);
+  const quarterKeys = new Map<string, { year: number; quarter: number }>();
+  const addQuarter = (d: Date) => {
+    const year = d.getUTCFullYear();
+    const quarter = Math.floor(d.getUTCMonth() / 3) + 1;
+    quarterKeys.set(`${year}:${quarter}`, { year, quarter });
+  };
+  for (const t of trips) addQuarter(t.startedAt);
+  for (const f of fuel) addQuarter(f.purchasedAt);
+  const quarters = [...quarterKeys.values()]
+    .sort((a, b) => b.year - a.year || b.quarter - a.quarter)
+    .slice(0, 8);
+  const fuelTax: {
+    year: number;
+    quarter: number;
+    rows: { state: string; miles: number; gallonsBought: number; gallonsUsed: number | null }[];
+    totalMiles: number;
+    totalGallonsBought: number;
+  }[] = [];
+  for (const q of quarters) {
+    const agg = await iftaAggregates(ctx, Date.UTC(q.year, (q.quarter - 1) * 3, 1), Date.UTC(q.year, q.quarter * 3, 1));
+    const totalMiles = Math.round(agg.totalMiles * 10) / 10;
+    const totalGallons = Math.round(agg.totalGallons * 100) / 100;
+    const mpg = totalGallons > 0 && totalMiles > 0 ? Math.round((totalMiles / totalGallons) * 100) / 100 : null;
+    const states = [...new Set([...agg.milesByState.keys(), ...agg.fuelByState.keys()])].sort();
+    fuelTax.push({
+      year: q.year,
+      quarter: q.quarter,
+      rows: states.map((state) => {
+        const miles = Math.round((agg.milesByState.get(state) ?? 0) * 10) / 10;
+        return {
+          state,
+          miles,
+          gallonsBought: Math.round((agg.fuelByState.get(state) ?? 0) * 100) / 100,
+          gallonsUsed: mpg != null && mpg > 0 ? Math.round((miles / mpg) * 100) / 100 : null,
+        };
+      }),
+      totalMiles,
+      totalGallonsBought: totalGallons,
+    });
+  }
+
+  // 4) Filings — export generations recorded on the sealed chain
+  //    (exportIftaReport / exportTaxYearSummary append the event; the
+  //    artifact itself regenerates from the same sealed data).
+  const filings = walk.rows
+    .filter((r) => r.refKind === "library" && (r.event === "ifta_export_generated" || r.event === "tax_year_export_generated"))
+    .flatMap((r) => {
+      let p: Record<string, unknown> = {};
+      try { p = JSON.parse(r.payload) as Record<string, unknown>; } catch { return []; }
+      if (p.by !== me) return [];
+      const isIfta = r.event === "ifta_export_generated";
+      return [{
+        ref: `filing:${r.id}`,
+        kind: isIfta ? "ifta" : "tax_year",
+        title: isIfta ? `IFTA Q${String(p.quarter)} ${String(p.year)} export` : `Tax-year summary ${String(p.year)}`,
+        periodLabel: isIfta ? `Q${String(p.quarter)} ${String(p.year)}` : String(p.year),
+        generatedAt: r.createdAt.toISOString(),
+        recordHash: r.hash,
+      }];
+    })
+    .reverse()
+    .slice(0, 50);
+
+  // 5) Uploads — the viewer's own documents across the standing
+  //    stores: filed load-doc copies, the personal document vault,
+  //    scale tickets, settlement documents, fuel receipts.
+  const uploads: {
+    ref: string;
+    kind: string;
+    label: string;
+    loadId: number | null;
+    mime: string | null;
+    sha256: string | null;
+    createdAt: string;
+    hasFile: boolean;
+  }[] = [];
+  for (const c of await db.select().from(schema.filedDocCopies)) {
+    uploads.push({
+      ref: `upload:filed:${c.id}`,
+      kind: c.docKind,
+      label: c.label,
+      loadId: c.loadId,
+      mime: c.mime,
+      sha256: c.sha256,
+      createdAt: c.createdAt.toISOString(),
+      hasFile: c.blobKey != null,
+    });
+  }
+  for (const d of await db.select().from(schema.personalDocs)) {
+    uploads.push({
+      ref: `upload:personal:${d.id}`,
+      kind: d.kind,
+      label: d.label,
+      loadId: null,
+      mime: d.mime,
+      sha256: null,
+      createdAt: d.createdAt.toISOString(),
+      hasFile: d.blobKey != null,
+    });
+  }
+  for (const t of await db.select().from(schema.scaleTickets)) {
+    uploads.push({
+      ref: `upload:scale:${t.id}`,
+      kind: "scale_ticket",
+      label: `Scale ticket - ${t.location ?? "weigh station"} - ${t.weighedAt.toISOString().slice(0, 10)}`,
+      loadId: t.loadId,
+      mime: t.photoMime,
+      sha256: t.photoSha256,
+      createdAt: t.createdAt.toISOString(),
+      hasFile: t.photoBlobKey != null,
+    });
+  }
+  for (const s of await db.select().from(schema.settlements)) {
+    if (!s.docBlobKey) continue;
+    uploads.push({
+      ref: `upload:settlement:${s.id}`,
+      kind: "settlement_doc",
+      label: `Settlement document - ${s.carrier ?? "carrier"} - ${s.periodLabel ?? monthLabelOf(s.createdAt)}`,
+      loadId: null,
+      mime: s.docMime,
+      sha256: s.docSha256,
+      createdAt: s.createdAt.toISOString(),
+      hasFile: true,
+    });
+  }
+  for (const f of fuel) {
+    if (!f.receiptBlobKey) continue;
+    uploads.push({
+      ref: `upload:fuel:${f.id}`,
+      kind: "fuel_receipt",
+      label: `Fuel receipt - ${f.station ?? f.state} - ${f.purchasedAt.toISOString().slice(0, 10)}`,
+      loadId: null,
+      mime: f.receiptMime,
+      sha256: null,
+      createdAt: f.createdAt.toISOString(),
+      hasFile: true,
+    });
+  }
+  uploads.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+  // 6) Sealed files — mine: every load/trip of the viewer's with chain
+  //    entries, each carrying its verify status from the one walk.
+  const sealedFiles: LibSealed[] = [];
+  for (const l of myLoads) {
+    const s = sealedEntriesFor(walk, "load", l.id, `Load #${l.id} - ${laneTextOf(l)}`, `sealed:${l.id}`);
+    if (s) sealedFiles.push(s);
+  }
+  for (const t of trips) {
+    const s = sealedEntriesFor(
+      walk,
+      "trip",
+      t.id,
+      `Trip - ${t.startedAt.toISOString().slice(0, 10)} - ${Math.round(t.totalMiles)} mi`,
+      null,
+    );
+    if (s) sealedFiles.push(s);
+  }
+  sealedFiles.sort((a, b) => (b.lastEventAt ?? "").localeCompare(a.lastEventAt ?? ""));
+
+  // Fleet block — owner/dispatch seats only, shared rows + chain only.
+  let fleet: {
+    companyName: string;
+    deliveredLoads: LibDelivered[];
+    sealedFiles: LibSealed[];
+  } | null = null;
+  if (canManage && membership) {
+    const boardRows = await db
+      .select()
+      .from(schema.boardLoads)
+      .where(and(eq(schema.boardLoads.companyId, membership.company.id), eq(schema.boardLoads.status, "taken")));
+    const fDelivered: LibDelivered[] = [];
+    const fSealed: LibSealed[] = [];
+    for (const b of boardRows) {
+      if (b.loadId == null) continue;
+      const p = pod.get(b.loadId);
+      if (p?.sealed) {
+        fDelivered.push({
+          loadId: b.loadId,
+          driverUsername: b.claimedBy ?? "",
+          lane: laneTextOf(b),
+          shipper: b.shipper,
+          referenceNumber: b.referenceNumber ?? null,
+          totalWithExtras: b.rate != null ? Math.round((b.rate + (b.extraCharges ?? 0)) * 100) / 100 : null,
+          deliveredAt: p.sealedAt,
+          sealHash: p.sealHash,
+          sealGrade: p.grade,
+        });
+      }
+      const s = sealedEntriesFor(walk, "load", b.loadId, `Load #${b.loadId} - ${laneTextOf(b)} - @${b.claimedBy ?? "?"}`, `sealed:${b.loadId}`);
+      if (s) fSealed.push(s);
+    }
+    fDelivered.sort((a, b) => (b.deliveredAt ?? "").localeCompare(a.deliveredAt ?? ""));
+    fSealed.sort((a, b) => (b.lastEventAt ?? "").localeCompare(a.lastEventAt ?? ""));
+    fleet = { companyName: membership.company.name, deliveredLoads: fDelivered, sealedFiles: fSealed };
+  }
+
+  return {
+    viewer: {
+      username: me,
+      email: viewerOf(ctx)?.email ?? (await accountEmailFor(ctx, me)),
+      mode: membership ? ("fleet" as const) : ("solo" as const),
+      canManageFleet: canManage,
+      companyName: membership?.company.name ?? null,
+    },
+    deliveredLoads,
+    statements,
+    fuelTax,
+    filings,
+    uploads: uploads.slice(0, 100),
+    sealedFiles: sealedFiles.slice(0, 100),
+    chain: { intact: walk.intact, checked: walk.checked, headHash: walk.headHash },
+    fleet,
+  };
+}
 
 export const Actions = {
   // ---- Beta gate -------------------------------------------------------------
@@ -18906,6 +20003,7 @@ export const Actions = {
       try {
         const res = await ctx.executePrivileged(privileged.sendDocEmail, {
           to: row.recipientEmail,
+          replyTo: null,
           subject: `STONEMILES — ${label}`,
           text: docCopyEmailText({
             label,
@@ -19062,6 +20160,7 @@ export const Actions = {
       try {
         const res = await ctx.executePrivileged(privileged.sendDocEmail, {
           to: row.recipientEmail,
+          replyTo: null,
           subject: `STONEMILES — ${label}`,
           text: payStubEmailText({
             label,
@@ -19335,6 +20434,12 @@ export const Actions = {
       brokerName: z.string().max(120).nullable().default(null),
       brokerCompany: z.string().max(160).nullable().default(null),
       brokerMc: z.string().max(40).nullable().default(null),
+      // Booked-load details (migration 0109): the reference number the
+      // shipper/broker named and the pickup / delivery appointments,
+      // as ISO strings (the desk's datetime inputs) — all optional.
+      referenceNumber: z.string().max(80).nullable().default(null),
+      pickupApptAt: z.string().max(40).nullable().default(null),
+      deliveryApptAt: z.string().max(40).nullable().default(null),
       docDataBase64: z.string().max(14_000_000).nullable().default(null),
       docMime: z.string().max(100).nullable().default(null),
     }),
@@ -19381,6 +20486,10 @@ export const Actions = {
       if (!fields.pickupCity && !fields.deliveryCity && !fields.shipper) {
         return { ok: false, error: "That post is empty — give it at least a pickup or delivery city (or the shipper) before it goes on the board.", id: null };
       }
+      const pickupAppt = parseBoardAppt(args.pickupApptAt, "pickup");
+      if (pickupAppt.error) return { ok: false, error: pickupAppt.error, id: null };
+      const deliveryAppt = parseBoardAppt(args.deliveryApptAt, "delivery");
+      if (deliveryAppt.error) return { ok: false, error: deliveryAppt.error, id: null };
       // SI vetting BEFORE the board (Rule 6, 2026-11-01): while SI is
       // on, every board post is checked first — the load's own
       // completeness and, when a broker is named, the broker's public
@@ -19462,7 +20571,19 @@ export const Actions = {
       // (the fee rides Broker Portal releases instead).
       const ins = await db
         .insert(schema.boardLoads)
-        .values({ companyId: mine.company.id, postedBy: me, ...fields, ...brokerFields, status: "open", docBlobKey, docMime, docSha256: docSha })
+        .values({
+          companyId: mine.company.id,
+          postedBy: me,
+          ...fields,
+          ...brokerFields,
+          status: "open",
+          docBlobKey,
+          docMime,
+          docSha256: docSha,
+          referenceNumber: cleanReferenceNumber(args.referenceNumber),
+          pickupApptAt: pickupAppt.at,
+          deliveryApptAt: deliveryAppt.at,
+        })
         .returning({ id: schema.boardLoads.id });
       const id = ins[0]?.id ?? null;
       if (id == null) throw new Error("postBoardLoad: insert returned no rows");
@@ -19503,6 +20624,11 @@ export const Actions = {
       hazmat: z.boolean().default(false),
       equipmentType: z.enum(["flatbed", "open_deck", "rgn", "oversized", "dry_van", "reefer", "container"]).nullable().default(null),
       notes: z.string().max(500).nullable().default(null),
+      // Booked-load details (migration 0109) — optional: only sent
+      // fields move, so an older edit form never clears them.
+      referenceNumber: z.string().max(80).nullable().optional(),
+      pickupApptAt: z.string().max(40).nullable().optional(),
+      deliveryApptAt: z.string().max(40).nullable().optional(),
     }),
     response: z.object({ ok: z.boolean(), error: z.string().nullable() }),
     async handler(ctx, args) {
@@ -19517,10 +20643,17 @@ export const Actions = {
         return { ok: false, error: "That board load isn't on your company's board." };
       if (row.status !== "open")
         return { ok: false, error: "That load is already taken — unassign it back to the board before editing it." };
+      const pickupAppt = parseBoardAppt(args.pickupApptAt, "pickup");
+      if (pickupAppt.error) return { ok: false, error: pickupAppt.error };
+      const deliveryAppt = parseBoardAppt(args.deliveryApptAt, "delivery");
+      if (deliveryAppt.error) return { ok: false, error: deliveryAppt.error };
       const clean = (s: string | null) => (s?.trim() ? s.trim() : null);
       await db
         .update(schema.boardLoads)
         .set({
+          ...(args.referenceNumber !== undefined ? { referenceNumber: cleanReferenceNumber(args.referenceNumber) } : {}),
+          ...(args.pickupApptAt !== undefined ? { pickupApptAt: pickupAppt.at } : {}),
+          ...(args.deliveryApptAt !== undefined ? { deliveryApptAt: deliveryAppt.at } : {}),
           shipper: clean(args.shipper),
           pickupCity: clean(args.pickupCity),
           pickupState: clean(args.pickupState),
@@ -19577,6 +20710,14 @@ export const Actions = {
       // answers exactly like a load that doesn't exist.
       if (!row || row.companyId !== mine.company.id)
         return { ok: false, error: "That load isn't on your company's board.", loadId: null, tripQueueId: null };
+      if (row.status === "assigned") {
+        return {
+          ok: false,
+          error: `That load is assigned to @${row.claimedBy ?? "a driver"} — it's waiting on them to accept or decline, not open for claiming.`,
+          loadId: null,
+          tripQueueId: null,
+        };
+      }
       if (row.status !== "open") {
         return {
           ok: false,
@@ -19630,12 +20771,19 @@ export const Actions = {
       const row = rows[0];
       if (!row || row.companyId !== mine.company.id)
         return { ok: false, error: "That load isn't on your company's board.", loadId: null, tripQueueId: null };
-      if (row.status !== "open") {
+      // What this assign means for the row as it stands (pure rules,
+      // boardAssignment.ts): a fresh offer on an open row, a reassign
+      // on a pending one, a refusal otherwise.
+      const decision = assignDecisionFor({ status: row.status, claimedBy: row.claimedBy ?? null, targetUsername: targetRow.username });
+      if (decision.kind === "refuse") {
         return {
           ok: false,
-          error: row.claimedBy
-            ? `Already taken by @${row.claimedBy} — unassign it back to the board first if it needs a different driver.`
-            : "That load is no longer open.",
+          error:
+            row.status === "taken"
+              ? `Already taken by @${row.claimedBy} — unassign it back to the board first if it needs a different driver.`
+              : row.status === "overflowed"
+                ? "That load is out on the Open Board — recall it to your board before assigning it."
+                : decision.error,
           loadId: null,
           tripQueueId: null,
         };
@@ -19652,9 +20800,235 @@ export const Actions = {
           tripQueueId: null,
         };
       }
-      const res = await takeBoardLoad(ctx, row, targetRow.username, "assign", me);
+      const now = new Date();
+      if (decision.kind === "reassign") {
+        // Move the pending offer: ONE conditional update off the
+        // "assigned" state, so a driver accepting in the same moment
+        // wins or loses cleanly — never both.
+        const moved = await db
+          .update(schema.boardLoads)
+          .set({ claimedBy: targetRow.username, claimedAt: now, updatedAt: now })
+          .where(and(eq(schema.boardLoads.id, row.id), eq(schema.boardLoads.status, "assigned")))
+          .returning({ id: schema.boardLoads.id });
+        if (!moved[0]) {
+          return { ok: false, error: "That assignment just changed — refresh the board and try again.", loadId: null, tripQueueId: null };
+        }
+        await appendChain(ctx, {
+          refKind: "load",
+          refId: null,
+          sessionId: null,
+          event: "board_load_reassigned",
+          payload: {
+            boardLoadId: row.id,
+            companyId: mine.company.id,
+            from: decision.from,
+            to: targetRow.username,
+            by: me,
+            lane: `${row.pickupCity ?? "?"} → ${row.deliveryCity ?? "?"}`,
+            at: now.toISOString(),
+          },
+        });
+        ctx.invalidateQueries();
+        return { ok: true, error: null, loadId: null, tripQueueId: null };
+      }
+      // Fresh offer: flip open → assigned naming the driver. NO load
+      // or trip is created — that happens only when the driver
+      // accepts (acceptAssignedLoad), under the driver's own session,
+      // so the sealed record is born in the driver's own profile.
+      const flipped = await db
+        .update(schema.boardLoads)
+        .set({
+          status: "assigned",
+          claimMethod: "assign",
+          claimedBy: targetRow.username,
+          claimedAt: now,
+          declineReason: null,
+          declinedBy: null,
+          declinedAt: null,
+          updatedAt: now,
+        })
+        .where(and(eq(schema.boardLoads.id, row.id), eq(schema.boardLoads.status, "open")))
+        .returning({ id: schema.boardLoads.id });
+      if (!flipped[0]) {
+        return { ok: false, error: "That load just changed — refresh the board and try again.", loadId: null, tripQueueId: null };
+      }
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: null,
+        sessionId: null,
+        event: "board_load_assigned",
+        payload: {
+          boardLoadId: row.id,
+          companyId: mine.company.id,
+          driver: targetRow.username,
+          by: me,
+          lane: `${row.pickupCity ?? "?"} → ${row.deliveryCity ?? "?"}`,
+          at: now.toISOString(),
+        },
+      });
       ctx.invalidateQueries();
-      return res;
+      return { ok: true, error: null, loadId: null, tripQueueId: null };
+    },
+  }),
+
+  acceptAssignedLoad: defineAction({
+
+    description: "Accept assigned load.",
+    request: z.object({ id: z.number().int().positive() }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable(), loadId: z.number().nullable(), tripQueueId: z.number().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const mine = await myMembership(ctx, me);
+      if (!mine) return { ok: false, error: "You're not in a company — assignments live inside a fleet. Join with your owner's driver code first.", loadId: null, tripQueueId: null };
+      if (mine.role === "dispatch")
+        return { ok: false, error: "Dispatch doesn't haul loads — this assignment is for the driver it names.", loadId: null, tripQueueId: null };
+      if (mine.role !== "driver" && mine.role !== "owner")
+        return { ok: false, error: "Accepting an assignment requires a driver seat in the company.", loadId: null, tripQueueId: null };
+      const rows = await db.select().from(schema.boardLoads).where(eq(schema.boardLoads.id, args.id)).limit(1);
+      const row = rows[0];
+      // Cross-company invisibility: another fleet's assignment
+      // answers exactly like a load that doesn't exist.
+      if (!row || row.companyId !== mine.company.id)
+        return { ok: false, error: "That load isn't on your company's board.", loadId: null, tripQueueId: null };
+      if (row.status === "taken" && row.claimedBy === me)
+        return { ok: false, error: "You already accepted this one — it's in your loads, on the Load Tracker.", loadId: row.loadId ?? null, tripQueueId: row.tripQueueId ?? null };
+      if (!canRespondToAssignment({ status: row.status, claimedBy: row.claimedBy ?? null, username: me })) {
+        return {
+          ok: false,
+          error:
+            row.status === "assigned"
+              ? `This load is assigned to @${row.claimedBy ?? "another driver"} — only they can accept or decline it.`
+              : "That load isn't waiting on an answer — it may have been taken back or given to another driver.",
+          loadId: null,
+          tripQueueId: null,
+        };
+      }
+      // The settle-to-claim gate covers accepting too: taking a board
+      // load — by claim or by accepting an assignment — stops while a
+      // delivered load's dispatch fee stands unpaid (same rule, same
+      // words as claimBoardLoad).
+      const standing = await feeStandingForCarrier(ctx, mine.company.id, me);
+      if (standing.gate.blocked) {
+        return { ok: false, error: gateRefusalMessage(standing.gate), loadId: null, tripQueueId: null };
+      }
+      // Flip assigned → taken FIRST (one conditional update — of any
+      // racing answers exactly one lands), then create the driver's
+      // load + trip under THIS (the driver's own) session, so the
+      // sealed Load Tracker record is born in the driver's profile
+      // with the driver's own pay setup — the same records a claim
+      // creates. A creation failure rolls the row back to "assigned"
+      // so the offer is never stranded.
+      const now = new Date();
+      const flipped = await db
+        .update(schema.boardLoads)
+        .set({ status: "taken", updatedAt: now })
+        .where(and(eq(schema.boardLoads.id, row.id), eq(schema.boardLoads.status, "assigned"), eq(schema.boardLoads.claimedBy, row.claimedBy ?? "")))
+        .returning({ id: schema.boardLoads.id });
+      if (!flipped[0]) {
+        return { ok: false, error: "That assignment just changed — refresh and try again.", loadId: null, tripQueueId: null };
+      }
+      try {
+        const takenRow: BoardLoadRow = { ...row, status: "taken", claimMethod: "assign", claimedBy: me, claimedAt: row.claimedAt ?? now };
+        const { loadId, tripQueueId } = await createLoadFromBoard(ctx, takenRow, me);
+        await db
+          .update(schema.boardLoads)
+          .set({ loadId, tripQueueId, updatedAt: new Date() })
+          .where(eq(schema.boardLoads.id, row.id));
+        await appendChain(ctx, {
+          refKind: "load",
+          refId: loadId,
+          sessionId: null,
+          event: "board_load_assignment_accepted",
+          payload: {
+            boardLoadId: row.id,
+            companyId: mine.company.id,
+            driver: me,
+            assignedBy: row.postedBy,
+            loadId,
+            tripQueueId,
+            lane: `${row.pickupCity ?? "?"} → ${row.deliveryCity ?? "?"}`,
+            at: new Date().toISOString(),
+          },
+        });
+        ctx.invalidateQueries();
+        return { ok: true, error: null, loadId, tripQueueId };
+      } catch {
+        await db
+          .update(schema.boardLoads)
+          .set({ status: "assigned", loadId: null, tripQueueId: null, updatedAt: new Date() })
+          .where(eq(schema.boardLoads.id, row.id));
+        return { ok: false, error: "Accepting hit a snag creating the load — nothing was taken and the assignment is still waiting on you. Try again.", loadId: null, tripQueueId: null };
+      }
+    },
+  }),
+
+  declineAssignedLoad: defineAction({
+
+    description: "Decline assigned load.",
+    request: z.object({
+      id: z.number().int().positive(),
+      reason: z.string().max(300),
+    }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const mine = await myMembership(ctx, me);
+      if (!mine) return { ok: false, error: "You're not in a company — assignments live inside a fleet." };
+      if (mine.role === "dispatch")
+        return { ok: false, error: "Dispatch doesn't haul loads — this assignment is for the driver it names." };
+      const checked = validateDeclineReason(args.reason);
+      if (!checked.ok) return { ok: false, error: checked.error };
+      const rows = await db.select().from(schema.boardLoads).where(eq(schema.boardLoads.id, args.id)).limit(1);
+      const row = rows[0];
+      if (!row || row.companyId !== mine.company.id)
+        return { ok: false, error: "That load isn't on your company's board." };
+      if (!canRespondToAssignment({ status: row.status, claimedBy: row.claimedBy ?? null, username: me })) {
+        return {
+          ok: false,
+          error:
+            row.status === "assigned"
+              ? `This load is assigned to @${row.claimedBy ?? "another driver"} — only they can accept or decline it.`
+              : "That load isn't waiting on an answer — it may have been taken back or given to another driver.",
+        };
+      }
+      // Back to open, with the words on the row: the desk reads the
+      // reason right on the board card before it re-offers the load.
+      const now = new Date();
+      const flipped = await db
+        .update(schema.boardLoads)
+        .set({
+          status: "open",
+          claimMethod: null,
+          claimedBy: null,
+          claimedAt: null,
+          declineReason: checked.reason,
+          declinedBy: me,
+          declinedAt: now,
+          updatedAt: now,
+        })
+        .where(and(eq(schema.boardLoads.id, row.id), eq(schema.boardLoads.status, "assigned"), eq(schema.boardLoads.claimedBy, row.claimedBy ?? "")))
+        .returning({ id: schema.boardLoads.id });
+      if (!flipped[0]) {
+        return { ok: false, error: "That assignment just changed — refresh and try again." };
+      }
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: null,
+        sessionId: null,
+        event: "board_load_assignment_declined",
+        payload: {
+          boardLoadId: row.id,
+          companyId: mine.company.id,
+          driver: me,
+          reason: checked.reason,
+          lane: `${row.pickupCity ?? "?"} → ${row.deliveryCity ?? "?"}`,
+          at: now.toISOString(),
+        },
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
     },
   }),
 
@@ -19673,6 +21047,24 @@ export const Actions = {
       const row = rows[0];
       if (!row || row.companyId !== mine.company.id)
         return { ok: false, error: "That load isn't on your company's board." };
+      if (row.status === "assigned") {
+        // Cancelling a pending offer: no driver load or trip exists
+        // yet — the row simply returns to open, offer cleared.
+        const driverWas = row.claimedBy;
+        await db
+          .update(schema.boardLoads)
+          .set({ status: "open", claimMethod: null, claimedBy: null, claimedAt: null, updatedAt: new Date() })
+          .where(and(eq(schema.boardLoads.id, args.id), eq(schema.boardLoads.status, "assigned")));
+        await appendChain(ctx, {
+          refKind: "load",
+          refId: null,
+          sessionId: null,
+          event: "board_load_unassigned",
+          payload: { boardLoadId: row.id, companyId: mine.company.id, by: me, driverWas, methodWas: "assign_pending", at: new Date().toISOString() },
+        });
+        ctx.invalidateQueries();
+        return { ok: true, error: null };
+      }
       if (row.status !== "taken")
         return { ok: false, error: "That load is already open on the board — nobody has it." };
       const linked = await boardLinkedState(ctx, row);
@@ -20197,6 +21589,9 @@ export const Actions = {
       canToggle: z.boolean(),
       pendingCount: z.number(),
       links: z.array(brokerLinkShape),
+      // The fleet's send door (migration 0110) — its own shape, kept
+      // OUT of the per-broker links list: it names nobody.
+      sendDoor: brokerLinkShape.nullable(),
       submissions: z.array(brokerSubmissionShape),
     }),
     async handler(ctx): Promise<{
@@ -20211,6 +21606,7 @@ export const Actions = {
       canToggle: boolean;
       pendingCount: number;
       links: z.infer<typeof brokerLinkShape>[];
+      sendDoor: z.infer<typeof brokerLinkShape> | null;
       submissions: z.infer<typeof brokerSubmissionShape>[];
     }> {
       const db = ctx.db<typeof schema>();
@@ -20226,11 +21622,11 @@ export const Actions = {
         canToggle: bc.canToggle,
       };
       if (!bc.eligible || !bc.canManage) {
-        return { ...base, enabled: false, pendingCount: 0, links: [], submissions: [] };
+        return { ...base, enabled: false, pendingCount: 0, links: [], sendDoor: null, submissions: [] };
       }
       const enabled = await brokerEnabled(ctx, bc.scopeKey);
       if (!enabled) {
-        return { ...base, enabled: false, pendingCount: 0, links: [], submissions: [] };
+        return { ...base, enabled: false, pendingCount: 0, links: [], sendDoor: null, submissions: [] };
       }
       const linkRows = await db
         .select()
@@ -20243,11 +21639,13 @@ export const Actions = {
         .where(eq(schema.brokerSubmissions.scopeKey, bc.scopeKey))
         .orderBy(desc(schema.brokerSubmissions.id));
       const linkById = new Map(linkRows.map((l) => [l.id, l]));
+      const doorRow = linkRows.find((l) => (l.kind ?? "broker") === "door") ?? null;
       return {
         ...base,
         enabled: true,
         pendingCount: subRows.filter((s) => s.status === "pending").length,
-        links: linkRows.map((l) => toBrokerLink(l, subRows)),
+        links: linkRows.filter((l) => (l.kind ?? "broker") !== "door").map((l) => toBrokerLink(l, subRows)),
+        sendDoor: doorRow ? toBrokerLink(doorRow, subRows) : null,
         submissions: subRows.map((s) => toBrokerSubmission(s, linkById.get(s.linkId) ?? null)),
       };
     },
@@ -20401,6 +21799,108 @@ export const Actions = {
     },
   }),
 
+  // ---- Send door (migration 0110) -----------------------------------
+  // ONE standing door per FLEET scope: a broker_links row of kind
+  // "door" whose token is the fleet's door code. Any shipper or
+  // broker opens it with NO account, names THEMSELVES in the form,
+  // and the offer lands only in this fleet's Broker Inbox (the same
+  // submitBrokerUpload below, keyed by the door token) — it can never
+  // reach another fleet or the public board. The fleet controls the
+  // door: it lives under the same broker-uploads opt-in as links, and
+  // regenerating rotates the code — the old code dies in the same
+  // write. Door rows never expire on a clock (the desk's regeneration
+  // is the control), so their expiresAt sits a century out and the
+  // shared link-status math reads them "active" until revoked.
+
+  createSendDoor: defineAction({
+
+    description: "Create send door.",
+    request: z.object({}),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable(), door: brokerLinkShape.nullable() }),
+    async handler(ctx): Promise<{ ok: boolean; error: string | null; door: z.infer<typeof brokerLinkShape> | null }> {
+      const db = ctx.db<typeof schema>();
+      const bc = await brokerContext(ctx);
+      if (!bc.eligible)
+        return { ok: false, error: "The send door is a Diamond / Fleet Owner feature — Gold and Basic don't include it.", door: null };
+      if (bc.mode !== "fleet")
+        return { ok: false, error: "The send door belongs to a fleet — solo accounts give each broker their own upload link instead.", door: null };
+      if (!bc.canManage)
+        return { ok: false, error: "Only the owner or dispatch runs the fleet's send door.", door: null };
+      if (!(await brokerEnabled(ctx, bc.scopeKey)))
+        return { ok: false, error: "Broker uploads are OFF — turn them on first (the toggle at the top of the Broker panel), then open the door.", door: null };
+      const existing = await sendDoorRow(ctx, bc.scopeKey);
+      if (existing) {
+        return { ok: false, error: "Your fleet already has a send door — regenerate it to change the code, don't mint a second one.", door: toBrokerLink(existing, []) };
+      }
+      const expiresAt = new Date(Date.now() + 100 * 365 * 86400000);
+      const ins = await db
+        .insert(schema.brokerLinks)
+        .values({
+          scopeKey: bc.scopeKey,
+          companyId: bc.companyId,
+          ownerUsername: bc.me,
+          kind: "door",
+          brokerName: "Send door",
+          brokerCompany: null,
+          brokerContact: null,
+          brokerMc: null,
+          token: brokerToken(),
+          expiresAt,
+          createdBy: bc.me,
+        })
+        .returning({ id: schema.brokerLinks.id });
+      const id = ins[0]?.id;
+      if (id == null) throw new Error("createSendDoor: insert returned no rows");
+      const row = (await db.select().from(schema.brokerLinks).where(eq(schema.brokerLinks.id, id)).limit(1))[0];
+      if (!row) throw new Error("createSendDoor: row vanished after insert");
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "send_door_created",
+        payload: { doorId: id, scopeKey: bc.scopeKey, companyId: bc.companyId, tokenHint: `${row.token.slice(0, 8)}…`, by: bc.me, at: new Date().toISOString() },
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null, door: toBrokerLink(row, []) };
+    },
+  }),
+
+  regenerateSendDoor: defineAction({
+
+    description: "Regenerate send door.",
+    request: z.object({}),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable(), door: brokerLinkShape.nullable() }),
+    async handler(ctx): Promise<{ ok: boolean; error: string | null; door: z.infer<typeof brokerLinkShape> | null }> {
+      const db = ctx.db<typeof schema>();
+      const bc = await brokerContext(ctx);
+      if (bc.mode !== "fleet" || !bc.canManage)
+        return { ok: false, error: "Only the fleet's owner or dispatch can regenerate the send door code.", door: null };
+      const existing = await sendDoorRow(ctx, bc.scopeKey);
+      if (!existing) return { ok: false, error: "Your fleet has no send door yet — create it first.", door: null };
+      const expiresAt = new Date(Date.now() + 100 * 365 * 86400000);
+      const token = brokerToken();
+      // ONE write: the old code dies and the new code lives in the
+      // same moment — there is never a window with two live codes or
+      // none. A revoked door reopens under the fresh code: handing
+      // out the new code IS the fleet's decision to reopen.
+      await db
+        .update(schema.brokerLinks)
+        .set({ token, expiresAt, revokedAt: null })
+        .where(eq(schema.brokerLinks.id, existing.id));
+      const row = (await db.select().from(schema.brokerLinks).where(eq(schema.brokerLinks.id, existing.id)).limit(1))[0];
+      if (!row) throw new Error("regenerateSendDoor: row vanished after update");
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "send_door_regenerated",
+        payload: { doorId: row.id, scopeKey: bc.scopeKey, companyId: bc.companyId, tokenHint: `${token.slice(0, 8)}…`, by: bc.me, at: new Date().toISOString() },
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null, door: toBrokerLink(row, []) };
+    },
+  }),
+
   // BROKER SIDE (upload-only). Keyed by token alone — deliberately no
   // company/board/driver reads anywhere in these two actions.
   getBrokerUploadInfo: defineAction({
@@ -20413,14 +21913,18 @@ export const Actions = {
       brokerCompany: z.string().nullable(),
       forName: z.string().nullable(), // company name (fleet) or the owner-operator's handle (solo)
       expiresAt: z.string().nullable(),
+      // Send door (migration 0110): the code names NO broker — the
+      // form asks the sender who THEY are (name, company, contact).
+      isDoor: z.boolean(),
     }),
     async handler(ctx, args) {
       const db = ctx.db<typeof schema>();
       const rows = await db.select().from(schema.brokerLinks).where(eq(schema.brokerLinks.token, args.token.trim())).limit(1);
       const row = rows[0];
-      if (!row) return { valid: false, reason: "This upload link isn't valid. Check the link your carrier sent you, or ask them for a fresh one.", brokerName: null, brokerCompany: null, forName: null, expiresAt: null };
-      const dead = (reason: string) => ({ valid: false, reason, brokerName: row.brokerName, brokerCompany: row.brokerCompany ?? null, forName: null, expiresAt: row.expiresAt.toISOString() });
-      if (row.revokedAt) return dead("This upload link has been revoked by the carrier, so it no longer accepts uploads. Ask them for a new link if you still have a load for them.");
+      if (!row) return { valid: false, reason: "This upload link isn't valid. Check the link your carrier sent you, or ask them for a fresh one.", brokerName: null, brokerCompany: null, forName: null, expiresAt: null, isDoor: false };
+      const isDoor = (row.kind ?? "broker") === "door";
+      const dead = (reason: string) => ({ valid: false, reason, brokerName: isDoor ? null : row.brokerName, brokerCompany: isDoor ? null : (row.brokerCompany ?? null), forName: null, expiresAt: row.expiresAt.toISOString(), isDoor });
+      if (row.revokedAt) return dead(isDoor ? "This fleet's send door has been closed by the fleet, so it no longer accepts loads. Contact the fleet directly." : "This upload link has been revoked by the carrier, so it no longer accepts uploads. Ask them for a new link if you still have a load for them.");
       if (row.expiresAt.getTime() <= Date.now()) return dead("This upload link has expired, so it no longer accepts uploads. Ask the carrier for a fresh link if you still have a load for them.");
       if (!(await brokerEnabled(ctx, row.scopeKey))) return dead("Broker uploads are turned off for this carrier right now, so this link isn't accepting uploads. Contact the carrier directly.");
       let forName: string | null = row.ownerUsername;
@@ -20428,7 +21932,7 @@ export const Actions = {
         const comps = await db.select().from(schema.companies).where(eq(schema.companies.id, row.companyId)).limit(1);
         forName = comps[0]?.name ?? row.ownerUsername;
       }
-      return { valid: true, reason: null, brokerName: row.brokerName, brokerCompany: row.brokerCompany ?? null, forName, expiresAt: row.expiresAt.toISOString() };
+      return { valid: true, reason: null, brokerName: isDoor ? null : row.brokerName, brokerCompany: isDoor ? null : (row.brokerCompany ?? null), forName, expiresAt: row.expiresAt.toISOString(), isDoor };
     },
   }),
 
@@ -20439,6 +21943,15 @@ export const Actions = {
       token: z.string().min(8).max(120),
       brokerName: z.string().max(120).nullable().default(null),
       brokerCompany: z.string().max(160).nullable().default(null),
+      // Send-door identity + booked-load details (migration 0110):
+      // the sender's own contact, and the load's reference number and
+      // pickup / delivery appointments as the sender states them. On
+      // a NAMED broker's link all four are optional extras; through
+      // the DOOR the identity three are required (see handler).
+      senderContact: z.string().max(160).nullable().default(null),
+      referenceNumber: z.string().max(80).nullable().default(null),
+      pickupApptAt: z.string().max(40).nullable().default(null),
+      deliveryApptAt: z.string().max(40).nullable().default(null),
       ...brokerLoadFields,
       docDataBase64: z.string().max(14_000_000).nullable().default(null),
       docMime: z.string().max(100).nullable().default(null),
@@ -20452,6 +21965,21 @@ export const Actions = {
       if (link.revokedAt) return { ok: false, error: "This upload link has been revoked, so it no longer accepts uploads — nothing was submitted.", submissionId: null, extracted: false };
       if (link.expiresAt.getTime() <= Date.now()) return { ok: false, error: "This upload link has expired, so it no longer accepts uploads — nothing was submitted. Ask the carrier for a fresh link.", submissionId: null, extracted: false };
       if (!(await brokerEnabled(ctx, link.scopeKey))) return { ok: false, error: "Broker uploads are turned off for this carrier right now — nothing was submitted.", submissionId: null, extracted: false };
+      // SEND DOOR (migration 0110): the door code names the FLEET,
+      // never the sender — so a door offer must carry the sender's
+      // own name, company, and contact, or the desk can't tell whose
+      // load it is. Nothing anonymous reaches the inbox.
+      const viaDoor = (link.kind ?? "broker") === "door";
+      const senderName = args.brokerName?.trim() ?? "";
+      const senderCompany = args.brokerCompany?.trim() ?? "";
+      const senderContact = args.senderContact?.trim() ?? "";
+      if (viaDoor && (!senderName || !senderCompany || !senderContact)) {
+        return { ok: false, error: "Tell the fleet who you are first — your name, your company, and a contact (phone or email). The send door takes no anonymous loads.", submissionId: null, extracted: false };
+      }
+      const pickupAppt = parseBoardAppt(args.pickupApptAt, "pickup");
+      if (pickupAppt.error) return { ok: false, error: pickupAppt.error, submissionId: null, extracted: false };
+      const deliveryAppt = parseBoardAppt(args.deliveryApptAt, "delivery");
+      if (deliveryAppt.error) return { ok: false, error: deliveryAppt.error, submissionId: null, extracted: false };
       let fields = cleanBrokerFields(args);
       let docBlobKey: string | null = null;
       let docMime: string | null = null;
@@ -20504,6 +22032,10 @@ export const Actions = {
           brokerName: args.brokerName?.trim() || link.brokerName,
           brokerCompany: args.brokerCompany?.trim() || link.brokerCompany,
           brokerMc: link.brokerMc ?? null,
+          senderContact: senderContact || null,
+          referenceNumber: cleanReferenceNumber(args.referenceNumber),
+          pickupApptAt: pickupAppt.at,
+          deliveryApptAt: deliveryAppt.at,
           ...fields,
           status: "pending",
           docBlobKey,
@@ -20522,8 +22054,11 @@ export const Actions = {
           submissionId: id,
           linkId: link.id,
           scopeKey: link.scopeKey,
+          viaDoor,
           brokerName: args.brokerName?.trim() || link.brokerName,
           brokerCompany: args.brokerCompany?.trim() || link.brokerCompany,
+          senderContact: senderContact || null,
+          referenceNumber: cleanReferenceNumber(args.referenceNumber),
           ...fields,
           docSha256: docSha,
           extracted,
@@ -20564,7 +22099,16 @@ export const Actions = {
   updateBrokerSubmission: defineAction({
 
     description: "Update broker submission.",
-    request: z.object({ id: z.number().int().positive(), ...brokerLoadFields }),
+    request: z.object({
+      id: z.number().int().positive(),
+      ...brokerLoadFields,
+      // Sender-stated details (migration 0110) — editable like the
+      // rest of the submission while it is still pending.
+      senderContact: z.string().max(160).nullable().optional(),
+      referenceNumber: z.string().max(80).nullable().optional(),
+      pickupApptAt: z.string().max(40).nullable().optional(),
+      deliveryApptAt: z.string().max(40).nullable().optional(),
+    }),
     response: z.object({ ok: z.boolean(), error: z.string().nullable() }),
     async handler(ctx, args) {
       const db = ctx.db<typeof schema>();
@@ -20575,7 +22119,21 @@ export const Actions = {
       if (!row || row.scopeKey !== bc.scopeKey) return { ok: false, error: "That submission isn't in your Broker Inbox." };
       if (row.status !== "pending") return { ok: false, error: `That submission was already ${row.status} — decided submissions stay exactly as recorded.` };
       const fields = cleanBrokerFields(args);
-      await db.update(schema.brokerSubmissions).set({ ...fields, updatedAt: new Date() }).where(eq(schema.brokerSubmissions.id, args.id));
+      const pickupAppt = parseBoardAppt(args.pickupApptAt, "pickup");
+      if (pickupAppt.error) return { ok: false, error: pickupAppt.error };
+      const deliveryAppt = parseBoardAppt(args.deliveryApptAt, "delivery");
+      if (deliveryAppt.error) return { ok: false, error: deliveryAppt.error };
+      await db
+        .update(schema.brokerSubmissions)
+        .set({
+          ...fields,
+          ...(args.senderContact !== undefined ? { senderContact: args.senderContact?.trim() || null } : {}),
+          ...(args.referenceNumber !== undefined ? { referenceNumber: cleanReferenceNumber(args.referenceNumber) } : {}),
+          ...(args.pickupApptAt !== undefined ? { pickupApptAt: pickupAppt.at } : {}),
+          ...(args.deliveryApptAt !== undefined ? { deliveryApptAt: deliveryAppt.at } : {}),
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.brokerSubmissions.id, args.id));
       await appendChain(ctx, {
         refKind: "load",
         refId: null,
@@ -20629,6 +22187,12 @@ export const Actions = {
             brokerMc: row.brokerMc ?? null,
             brokerSource: "broker_link",
             brokerLinkId: row.linkId,
+            // Booked-load details the sender stated (migration 0110)
+            // ride the post too, so an accepted door/link offer keeps
+            // its reference number and appointments as a booked load.
+            referenceNumber: row.referenceNumber ?? null,
+            pickupApptAt: row.pickupApptAt ?? null,
+            deliveryApptAt: row.deliveryApptAt ?? null,
           })
           .returning({ id: schema.boardLoads.id });
         const boardLoadId = ins[0]?.id ?? null;
@@ -20671,6 +22235,9 @@ export const Actions = {
         brokerMc: row.brokerMc ?? null,
         brokerSource: "broker_link",
         brokerLinkId: row.linkId,
+        referenceNumber: row.referenceNumber ?? null,
+        pickupApptAt: row.pickupApptAt ?? null,
+        deliveryApptAt: row.deliveryApptAt ?? null,
       } as unknown as BoardLoadRow;
       const { loadId, tripQueueId } = await createLoadFromBoard(ctx, boardLike, bc.me);
       await db
@@ -35704,23 +37271,11 @@ export const Actions = {
       const db = ctx.db<typeof schema>();
       const qStart = Date.UTC(args.year, (args.quarter - 1) * 3, 1);
       const qEnd = Date.UTC(args.year, args.quarter * 3, 1);
-      const trips = (await db.select().from(schema.trips)).filter(
-        (t) => t.startedAt.getTime() >= qStart && t.startedAt.getTime() < qEnd,
-      );
-      const fuel = (await db.select().from(schema.fuelPurchases)).filter(
-        (f) => f.purchasedAt.getTime() >= qStart && f.purchasedAt.getTime() < qEnd,
-      );
-      const milesByState = new Map<string, number>();
-      for (const t of trips) {
-        try {
-          const states = JSON.parse(t.stateBreakdown) as { state: string; miles: number }[];
-          for (const s of states) milesByState.set(s.state, (milesByState.get(s.state) ?? 0) + s.miles);
-        } catch { /* skip malformed legacy rows */ }
-      }
-      const fuelByState = new Map<string, number>();
-      for (const f of fuel) fuelByState.set(f.state, (fuelByState.get(f.state) ?? 0) + f.gallons);
-      const totalMiles = Math.round(trips.reduce((s, t) => s + t.totalMiles, 0) * 10) / 10;
-      const totalGallons = Math.round(fuel.reduce((s, f) => s + f.gallons, 0) * 100) / 100;
+      const agg = await iftaAggregates(ctx, qStart, qEnd);
+      const milesByState = agg.milesByState;
+      const fuelByState = agg.fuelByState;
+      const totalMiles = Math.round(agg.totalMiles * 10) / 10;
+      const totalGallons = Math.round(agg.totalGallons * 100) / 100;
       const fleetMpg = totalGallons > 0 && totalMiles > 0 ? Math.round((totalMiles / totalGallons) * 100) / 100 : null;
       const states = new Set([...milesByState.keys(), ...fuelByState.keys()]);
       let totalNet: number | null = null;
@@ -35759,24 +37314,17 @@ export const Actions = {
     async handler(ctx, args) {
       // Recompute through the same numbers the screen shows (single source).
       const db = ctx.db<typeof schema>();
-      if (await isAccountLocked(ctx, await myUsername(ctx))) {
+      const me = await myUsername(ctx);
+      if (await isAccountLocked(ctx, me)) {
         return { text: "EXPORT BLOCKED — this account is locked (lost-phone kill switch). Unlock it from the Security Center to export again.", filename: "stonemiles-ifta-blocked.txt" };
       }
       const qStart = Date.UTC(args.year, (args.quarter - 1) * 3, 1);
       const qEnd = Date.UTC(args.year, args.quarter * 3, 1);
-      const trips = (await db.select().from(schema.trips)).filter((t) => t.startedAt.getTime() >= qStart && t.startedAt.getTime() < qEnd);
-      const fuel = (await db.select().from(schema.fuelPurchases)).filter((f) => f.purchasedAt.getTime() >= qStart && f.purchasedAt.getTime() < qEnd);
-      const milesByState = new Map<string, number>();
-      for (const t of trips) {
-        try {
-          const states = JSON.parse(t.stateBreakdown) as { state: string; miles: number }[];
-          for (const s of states) milesByState.set(s.state, (milesByState.get(s.state) ?? 0) + s.miles);
-        } catch { /* skip */ }
-      }
-      const fuelByState = new Map<string, number>();
-      for (const f of fuel) fuelByState.set(f.state, (fuelByState.get(f.state) ?? 0) + f.gallons);
-      const totalMiles = trips.reduce((s, t) => s + t.totalMiles, 0);
-      const totalGal = fuel.reduce((s, f) => s + f.gallons, 0);
+      const agg = await iftaAggregates(ctx, qStart, qEnd);
+      const milesByState = agg.milesByState;
+      const fuelByState = agg.fuelByState;
+      const totalMiles = agg.totalMiles;
+      const totalGal = agg.totalGallons;
       const mpg = totalGal > 0 ? totalMiles / totalGal : null;
       const chain = await db.select({ hash: schema.chainLog.hash }).from(schema.chainLog).orderBy(desc(schema.chainLog.id)).limit(1);
       const head = chain[0]?.hash ?? GENESIS_HASH;
@@ -35806,7 +37354,222 @@ export const Actions = {
       lines.push("", `Estimated net for the quarter: ${anyNet ? "$" + totalNet.toFixed(2) + (totalNet >= 0 ? " owed" : " credit") : "— (log fuel purchases to complete the estimate)"}`);
       lines.push("Tax rates: IFTA, Inc. fuel tax matrix, 4th quarter 2026 (Oct–Dec 2026), matrix dated October 15, 2026, updated November 5, 2026 — not final until December 4, 2026; verify before filing. Kentucky/Virginia include their surcharge; Oregon 0 (weight-mile tax). Estimate for planning only — not a filing and not tax advice.");
       lines.push(`Sealed chain head hash: ${head}`);
+      // The generation is itself a filing record on the sealed chain —
+      // the Library's Filings section lists it, and the artifact
+      // regenerates from this same sealed data.
+      try {
+        await appendChain(ctx, {
+          refKind: "library",
+          refId: null,
+          sessionId: null,
+          event: "ifta_export_generated",
+          payload: { by: me, year: args.year, quarter: args.quarter },
+        });
+      } catch { /* the filing record never fails the export */ }
       return { text: lines.join("\n"), filename: `stonemiles-ifta-Q${args.quarter}-${args.year}.txt` };
+    },
+  }),
+
+  // ---- User Library ------------------------------------------------------------
+  // One records home (design note at buildLibrary): delivered loads,
+  // statements by period, state-by-state fuel tax, filings, uploads,
+  // sealed files with their chain-verify status. A VIEW over standing
+  // records — this action writes nothing.
+
+  getLibrary: defineAction({
+    description: "Get the viewer's User Library: delivered loads, statements, fuel tax by state, filings, uploads, sealed files (plus the fleet block for owner/dispatch seats).",
+    request: z.object({}),
+    response: z.object({
+      viewer: z.object({
+        username: z.string(),
+        email: z.string().nullable(),
+        mode: z.enum(["fleet", "solo"]),
+        canManageFleet: z.boolean(),
+        companyName: z.string().nullable(),
+      }),
+      deliveredLoads: z.array(libDeliveredShape),
+      statements: z.array(
+        z.object({
+          ref: z.string(),
+          kind: z.string(),
+          title: z.string(),
+          periodKey: z.string(),
+          periodLabel: z.string(),
+          gross: z.number().nullable(),
+          net: z.number().nullable(),
+          createdAt: z.string(),
+          hasDoc: z.boolean(),
+        }),
+      ),
+      fuelTax: z.array(
+        z.object({
+          year: z.number(),
+          quarter: z.number(),
+          rows: z.array(
+            z.object({
+              state: z.string(),
+              miles: z.number(),
+              gallonsBought: z.number(),
+              gallonsUsed: z.number().nullable(),
+            }),
+          ),
+          totalMiles: z.number(),
+          totalGallonsBought: z.number(),
+        }),
+      ),
+      filings: z.array(
+        z.object({
+          ref: z.string(),
+          kind: z.string(),
+          title: z.string(),
+          periodLabel: z.string(),
+          generatedAt: z.string(),
+          recordHash: z.string(),
+        }),
+      ),
+      uploads: z.array(
+        z.object({
+          ref: z.string(),
+          kind: z.string(),
+          label: z.string(),
+          loadId: z.number().nullable(),
+          mime: z.string().nullable(),
+          sha256: z.string().nullable(),
+          createdAt: z.string(),
+          hasFile: z.boolean(),
+        }),
+      ),
+      sealedFiles: z.array(libSealedShape),
+      chain: z.object({ intact: z.boolean(), checked: z.number(), headHash: z.string() }),
+      fleet: z
+        .object({
+          companyName: z.string(),
+          deliveredLoads: z.array(libDeliveredShape),
+          sealedFiles: z.array(libSealedShape),
+        })
+        .nullable(),
+    }),
+    async handler(ctx) {
+      return buildLibrary(ctx);
+    },
+  }),
+
+  // Print / Download share one payload: the document itself (a
+  // generated PDF, or an upload's original file). Print opens the PDF
+  // — in the web app the PDF IS the print view: document only, letter
+  // size, no app chrome. Scope is re-checked on every call through
+  // resolveLibraryDocument; a cross-scope ref answers exactly like a
+  // document that doesn't exist.
+  getLibraryDocument: defineAction({
+    description: "Get one Library document's bytes (base64) for print/download — scope-checked per call.",
+    request: z.object({ ref: z.string().min(1).max(160) }),
+    response: z.object({
+      ok: z.boolean(),
+      error: z.string().nullable(),
+      filename: z.string().nullable(),
+      mime: z.string().nullable(),
+      dataBase64: z.string().nullable(),
+    }),
+    async handler(ctx, args) {
+      if (await isAccountLocked(ctx, await myUsername(ctx))) {
+        return {
+          ok: false,
+          error: "This account is locked (lost-phone kill switch) — exports are off until you unlock it from the Security Center.",
+          filename: null,
+          mime: null,
+          dataBase64: null,
+        };
+      }
+      const doc = await resolveLibraryDocument(ctx, args.ref);
+      if (!doc.ok || !doc.bytes) {
+        return { ok: false, error: doc.error ?? "That document couldn't be built.", filename: null, mime: null, dataBase64: null };
+      }
+      return {
+        ok: true,
+        error: null,
+        filename: doc.filename,
+        mime: doc.mime,
+        dataBase64: Buffer.from(doc.bytes).toString("base64"),
+      };
+    },
+  }),
+
+  // Document mail (new mail kind, D1 mechanics): user-initiated send of
+  // a Library document as an attachment. From = the app's mail
+  // identity (the transport's DOC_EMAIL_FROM); Reply-To = the sending
+  // user's own email, so replies come back to the user, not the app.
+  // Every send is audit-logged twice: a document_sends row (the queue
+  // — "sent" only with a provider id; unconfigured transport leaves it
+  // "queued") and a document_emailed chain event.
+  emailLibraryDocument: defineAction({
+    description: "Email one Library document as an attachment to an address the user enters (default: their own). Audit-logged; queued when mail is unconfigured.",
+    request: z.object({
+      ref: z.string().min(1).max(160),
+      toEmail: z.string().min(3).max(160),
+    }),
+    response: z.object({
+      ok: z.boolean(),
+      error: z.string().nullable(),
+      status: z.enum(["sent", "queued", "failed"]).nullable(),
+    }),
+    privileged: [privileged.docEmailConfig, privileged.sendDocEmail],
+    async handler(ctx, args) {
+      const me = await myUsername(ctx);
+      if (await isAccountLocked(ctx, me)) {
+        return { ok: false, error: "This account is locked (lost-phone kill switch) — sending is off until you unlock it from the Security Center.", status: null };
+      }
+      const to = args.toEmail.trim();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
+        return { ok: false, error: "That email address doesn't look right — check it and try again.", status: null };
+      }
+      const doc = await resolveLibraryDocument(ctx, args.ref);
+      if (!doc.ok || !doc.bytes) {
+        return { ok: false, error: doc.error ?? "That document couldn't be built.", status: null };
+      }
+      const myEmail = viewerOf(ctx)?.email ?? (await accountEmailFor(ctx, me));
+      const subject = doc.title;
+      const res = (await ctx.executePrivileged(privileged.sendDocEmail, {
+        to,
+        replyTo: myEmail ?? null,
+        subject,
+        text: [
+          `${subject}`,
+          ``,
+          `Sent by @${me} from their STONEMILES Library. The document is attached (${doc.filename}).`,
+          myEmail ? `Reply to this email and it goes to ${myEmail} — the sender — not to the app.` : `Reply to this email and it goes to the sender.`,
+          ``,
+          `STONEMILES by Stonervision — sealed records, plain and simple.`,
+        ].join("\n"),
+        attachmentBase64: Buffer.from(doc.bytes).toString("base64"),
+        attachmentFilename: doc.filename,
+      })) as { ok: boolean; notConfigured: boolean; providerId: string | null; errorMessage: string | null };
+      const status: "sent" | "queued" | "failed" = res.ok && res.providerId ? "sent" : res.notConfigured ? "queued" : "failed";
+      const detail = status === "failed" ? (res.errorMessage ?? "The mail transport refused the send.") : null;
+      const db = ctx.db<typeof schema>();
+      await db.insert(schema.documentSends).values({
+        username: me,
+        docRef: args.ref,
+        docKind: doc.docKind,
+        docTitle: doc.title,
+        toEmail: to,
+        replyTo: myEmail ?? null,
+        subject,
+        status,
+        providerId: res.providerId ?? null,
+        detail,
+        sentAt: status === "sent" ? new Date() : null,
+      });
+      await appendChain(ctx, {
+        refKind: "library",
+        refId: null,
+        sessionId: null,
+        event: "document_emailed",
+        payload: { by: me, ref: args.ref, docKind: doc.docKind, to, subject, status },
+      });
+      if (status === "failed") {
+        return { ok: false, error: detail ?? "The email didn't send.", status };
+      }
+      return { ok: true, error: null, status };
     },
   }),
 
@@ -36029,7 +37792,8 @@ export const Actions = {
     response: z.object({ text: z.string(), filename: z.string() }),
     async handler(ctx, args) {
       const db = ctx.db<typeof schema>();
-      if (await isAccountLocked(ctx, await myUsername(ctx))) {
+      const me = await myUsername(ctx);
+      if (await isAccountLocked(ctx, me)) {
         return { text: "EXPORT BLOCKED — this account is locked (lost-phone kill switch). Unlock it from the Security Center to export again.", filename: "stonemiles-tax-summary-blocked.txt" };
       }
       const expenses = await db.select().from(schema.expenses);
@@ -36070,6 +37834,17 @@ export const Actions = {
         "",
         `Sealed chain head hash: ${head}`,
       ];
+      // Filing record on the sealed chain — the Library's Filings
+      // section lists it; the artifact regenerates from the same data.
+      try {
+        await appendChain(ctx, {
+          refKind: "library",
+          refId: null,
+          sessionId: null,
+          event: "tax_year_export_generated",
+          payload: { by: me, year: args.year },
+        });
+      } catch { /* the filing record never fails the export */ }
       return { text: lines.join("\n"), filename: `stonemiles-tax-year-${args.year}.txt` };
     },
   }),
@@ -42196,6 +43971,8 @@ export const Actions = {
         return { ok: false, error: "That load isn't on your fleet's board.", openBoardLoadId: null };
       if (row.status === "overflowed")
         return { ok: false, error: "That load is already out on the Open Board — recall it from here if it needs to come back.", openBoardLoadId: null };
+      if (row.status === "assigned")
+        return { ok: false, error: `Only an open load can move to the Open Board — this one is assigned to @${row.claimedBy ?? "a driver"} and waiting on their answer. Cancel the assignment back to open first.`, openBoardLoadId: null };
       if (row.status !== "open")
         return { ok: false, error: "Only an open load can move to the Open Board — this one is already taken by a driver.", openBoardLoadId: null };
       const now = new Date();

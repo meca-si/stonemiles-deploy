@@ -208,6 +208,7 @@ type TruckStopDetails,
 } from "./truckStop";
 import { MilestonesBoardPanel } from "./Board";
 import { FleetLoadBoardPanel, RuggsLogisticsLedgerPanel } from "./LoadBoard";
+import { LibraryPanel } from "./Library";
 import { OpenBoardPanel } from "./OpenBoard";
 import { BrokerCenterPanel } from "./Broker";
 import { ShipperPortalPanel } from "./ShipperPortal";
@@ -808,6 +809,7 @@ type MecaDestId =
   | "broker_portal"
   | "team_portal"
   | "trips"
+  | "library"
   | "hours"
   | "settlements"
   | "detention"
@@ -9631,6 +9633,7 @@ export function App() {
     // the generic detention rule (which owns the live tracker).
     if (/facility memory|what to expect|what'?s it like at|been (to|here|there) before|last time (at|i was at)|detention at|how was detention|how long.*(detention|held|wait).*(at|receiver|shipper|facility)|remember.*(receiver|shipper|facility)/.test(q)) return "facility_memory";
     if (/detention|held at (the )?(dock|shipper|receiver)|waiting at (the )?(dock|shipper|receiver)|dock (time|pay)/.test(q)) return "detention";
+    if (/librar|all my records|my records home|delivered loads|sealed files|my filings/.test(q)) return "library";
     if (/settlement|settle|underpaid|short(ed)? me/.test(q)) return "settlements";
     if (/pay ?book|pay ?stub|paycheck|pay check|log (my )?pay|per ?diem|\bw-?2\b|\b1099\b|year-end (tax )?form|(add|edit|change|fix|itemize|itemise)\w* (the |my |a )?deduction|deduction.*(add|edit|change|fix|itemize|itemise)/.test(q)) return "pay_book";
     if (/document vault|documents?|paperwork|cdl|medical card|insurance card/.test(q)) return "documents";
@@ -9962,6 +9965,7 @@ export function App() {
       case "true_rate": exitConsole(); setTab("driver"); scrollToAnchor("true-rate", 700); break;
       case "claims_log": exitConsole(); setTab("driver"); scrollToAnchor("claims-log", 700); break;
       case "ifta": exitConsole(); setTab("driver"); scrollToAnchor("ifta-panel", 700); break;
+      case "library": exitConsole(); setTab("driver"); scrollToAnchor("library-panel", 700); break;
       case "maintenance": exitConsole(); setTab("driver"); scrollToAnchor("maintenance", 700); break;
       case "breakdown_log": exitConsole(); setTab("driver"); scrollToAnchor("breakdown-log", 700); break;
       case "facility_memory": exitConsole(); setTab("loads"); scrollToAnchor("facility-memory", 700); break;
@@ -17864,6 +17868,9 @@ export function App() {
                 original rather than an unreviewed translation of
                 safety-training material. */}
             <SafetyAcademyPanel setBanner={setBanner} onOpenPlans={() => setShowPlans(true)} language={lang} />
+            <div id="library-panel" className="scroll-mt-4">
+              <LibraryPanel setBanner={setBanner} />
+            </div>
             <div id="ifta-panel" className="scroll-mt-4">
               <IftaPanel setBanner={setBanner} lang={lang} />
             </div>

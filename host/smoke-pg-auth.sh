@@ -85,7 +85,7 @@ bun run host/migrate-pg.ts > "${SCRATCH}/migrate.log" 2>&1 && ok "migrations app
 say "--- Phase A: Phase 1 suite (staging-anonymous mode) ---"
 start_server anon || exit 1
 say "server pid ${SRVPID} on ${BASE}"
-grep -q "actions registered: 463" "${SCRATCH}/server-anon.log" && ok "host booted on Postgres with 463 actions" || bad "unexpected action count in boot log"
+grep -q "actions registered: 470" "${SCRATCH}/server-anon.log" && ok "host booted on Postgres with 470 actions" || bad "unexpected action count in boot log"
 grep -q "auth: session gate OFF" "${SCRATCH}/server-anon.log" && ok "boot log: staging-anonymous flag honored in Phase A only" || bad "boot log missing auth mode line"
 
 # 1) health

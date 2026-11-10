@@ -1691,6 +1691,10 @@ export const loads = sqliteTable("loads", {
   hazmat: integer("hazmat", { mode: "boolean" }).notNull().default(false),
   // Payment-progress state: "booked" -> "picked_up" -> (POD seal) sealed.
   status: text("status").notNull().default("booked"),
+  // The load's reference number (BOL / PO / order #), when the booking
+  // named one (migration 0109): typed on a manual load or carried from
+  // the board post at claim / assignment-accept.
+  referenceNumber: text("reference_number"),
   // Multiple trips (migration 0027): the trip_queue row this load
   // belongs to, when the driver assigns it to one trip. Null = not
   // assigned to a queued trip.
@@ -1840,15 +1844,20 @@ export const pretripInspections = sqliteTable("pretrip_inspections", {
 // Fleet Load Board (migration 0047). A board load belongs to exactly
 // ONE company and is visible only to that company's members — there is
 // no public board and nothing crosses companies. Owner/Dispatch post
-// (status "open"); a company driver claims it or Owner/Dispatch assigns
-// it (status "taken", claimMethod "claim" | "assign"), which creates
-// the driver's real load (loads row, Booked) + trip (trip_queue row)
-// and links them here (loadId / tripQueueId). Owner/Dispatch can
-// unassign a taken load BEFORE pickup: the created load/trip are
-// removed and the row returns to "open". The board row itself holds a
-// full copy of the load fields so a repost never depends on the
-// driver's (deleted) load row. The rate-con / BOL the poster uploaded
-// lives in the doc blob columns, sealed by SHA-256 like a load doc.
+// (status "open"); a company driver claims it (status "taken",
+// claimMethod "claim"), which creates the driver's real load (loads
+// row, Booked) + trip (trip_queue row) and links them here (loadId /
+// tripQueueId). Owner/Dispatch can instead ASSIGN it to one named
+// driver (migration 0109): the row sits at status "assigned" as a
+// pending offer — no load exists yet — until the driver accepts
+// (status "taken", claimMethod "assign", load + trip created then) or
+// declines with a reason (row returns to "open", reason on the row).
+// Owner/Dispatch can unassign a taken load BEFORE pickup: the created
+// load/trip are removed and the row returns to "open". The board row
+// itself holds a full copy of the load fields so a repost never
+// depends on the driver's (deleted) load row. The rate-con / BOL the
+// poster uploaded lives in the doc blob columns, sealed by SHA-256
+// like a load doc.
 export const boardLoads = sqliteTable("board_loads", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   companyId: integer("company_id").notNull(),
@@ -1929,6 +1938,22 @@ export const boardLoads = sqliteTable("board_loads", {
   // the Broker Portal load a broker open row was released from.
   overflowFromBoardLoadId: integer("overflow_from_board_load_id"),
   brokerPosterLoadId: integer("broker_poster_load_id"),
+  // Assign-to-driver flow (migration 0109): status gains "assigned" —
+  // an offer naming claimedBy (the driver) that NO driver load backs
+  // yet; the load + trip are created only when the driver ACCEPTS
+  // (status flips to "taken"). A DECLINE returns the row to "open"
+  // and leaves its words on the row for the desk: the reason, who
+  // declined, and when — cleared the next time the row is taken or
+  // offered. The booked load's reference number (BOL / PO / order #)
+  // and its pickup / delivery appointment instants ride the row and
+  // carry onto the driver's load at accept (reference + the delivery
+  // appointment, which becomes the load's dock appointment).
+  referenceNumber: text("reference_number"),
+  pickupApptAt: integer("pickup_appt_at", { mode: "timestamp_ms" }),
+  deliveryApptAt: integer("delivery_appt_at", { mode: "timestamp_ms" }),
+  declineReason: text("decline_reason"),
+  declinedBy: text("declined_by"),
+  declinedAt: integer("declined_at", { mode: "timestamp_ms" }),
   createdAt: integer("created_at", { mode: "timestamp_ms" })
     .notNull()
     .$defaultFn(() => new Date()),
@@ -1963,6 +1988,11 @@ export const brokerLinks = sqliteTable("broker_links", {
   scopeKey: text("scope_key").notNull(),
   companyId: integer("company_id"),
   ownerUsername: text("owner_username").notNull(), // account the inbox belongs to
+  // broker (one named broker's upload link) | door (migration 0110:
+  // the fleet's standing SEND DOOR — one per fleet scope, named by
+  // nobody: the sender identifies THEMSELVES in the form, and the
+  // offer lands only in this fleet's inbox).
+  kind: text("kind").notNull().default("broker"),
   brokerName: text("broker_name").notNull(),
   brokerCompany: text("broker_company"),
   brokerContact: text("broker_contact"),
@@ -1997,6 +2027,15 @@ export const brokerSubmissions = sqliteTable("broker_submissions", {
   brokerName: text("broker_name").notNull(), // as submitted (link's broker name by default)
   brokerCompany: text("broker_company"),
   brokerMc: text("broker_mc"), // from the link, when provided (migration 0049)
+  // Send-door offers (migration 0110): the sender's own contact, and
+  // the booked load's reference number + pickup / delivery
+  // appointments as the SENDER stated them — carried onto the board
+  // post at approval, exactly like the lane and rate. Named-link
+  // submissions may carry them too (same form); null when unstated.
+  senderContact: text("sender_contact"),
+  referenceNumber: text("reference_number"),
+  pickupApptAt: integer("pickup_appt_at", { mode: "timestamp_ms" }),
+  deliveryApptAt: integer("delivery_appt_at", { mode: "timestamp_ms" }),
   shipper: text("shipper"),
   pickupCity: text("pickup_city"),
   pickupState: text("pickup_state"),
@@ -3581,6 +3620,35 @@ export const payStubEmailDeliveries = sqliteTable("pay_stub_email_deliveries", {
   detail: text("detail"),
   providerId: text("provider_id"),
   dedupeKey: text("dedupe_key").notNull().unique(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  sentAt: integer("sent_at", { mode: "timestamp_ms" }),
+});
+
+// ---- Library document sends (migration 0111) -------------------------------
+// One row per user-initiated document email out of the User Library
+// (statements, IFTA state lines + filings, sealed load records,
+// delivered-load packets, uploads). The row is BOTH the audit trail
+// and the queue (D1 mechanics): it reads "sent" only with a provider
+// id back from the mail transport; unconfigured transport leaves it
+// "queued" — nothing is ever reported sent without a provider id.
+// The matching sealed record is the document_emailed chain event.
+export const documentSends = sqliteTable("document_sends", {
+  // Auth Phase 2b: owning profile (host-stamped on insert, host-filtered
+  // on read — see host/ctx.ts scopedDb).
+  profileId: integer("profile_id"),
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  username: text("username").notNull(),
+  docRef: text("doc_ref").notNull(),
+  docKind: text("doc_kind").notNull(), // settlement | pay | ifta | filing | sealed | packet | upload
+  docTitle: text("doc_title").notNull(),
+  toEmail: text("to_email").notNull(),
+  replyTo: text("reply_to"),
+  subject: text("subject").notNull(),
+  status: text("status").notNull(), // queued | sent | failed
+  providerId: text("provider_id"),
+  detail: text("detail"),
   createdAt: integer("created_at", { mode: "timestamp_ms" })
     .notNull()
     .$defaultFn(() => new Date()),

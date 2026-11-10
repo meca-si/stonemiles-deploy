@@ -59,6 +59,7 @@ export type ToolDestId =
   | "scale_tickets"
   | "trips"
   | "ifta"
+  | "library"
   | "tax_records"
   | "doc_expiry"
   | "documents"
@@ -354,6 +355,12 @@ export const TOOL_GROUPS: ToolGroup[] = [
     subEn: "Trip sheets, IFTA, taxes, documents, hours",
     subEs: "Hojas de viaje, IFTA, impuestos, documentos, horas",
     items: [
+      {
+        id: "library", icon: "📚", en: "Library", es: "Biblioteca",
+        subEn: "Every record in one home — delivered loads, statements, fuel tax by state, filings, documents, sealed files",
+        subEs: "Todos tus registros en un solo lugar — cargas entregadas, estados, impuesto al diésel por estado, declaraciones, documentos, archivos sellados",
+        dest: "library",
+      },
       {
         id: "trips", icon: "🧾", en: "Trips", es: "Viajes",
         subEn: "Trip sheets — miles by state, pay, sealed proof & export",

@@ -148,6 +148,7 @@ export const docCopySettings = impl.docCopySettings;
 export const filedDocCopies = impl.filedDocCopies;
 export const docEmailDeliveries = impl.docEmailDeliveries;
 export const payStubEmailDeliveries = impl.payStubEmailDeliveries;
+export const documentSends = impl.documentSends;
 export const permits = impl.permits;
 export const brokerAccounts = impl.brokerAccounts;
 export const brokerPosterLoads = impl.brokerPosterLoads;

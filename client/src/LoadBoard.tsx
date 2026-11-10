@@ -64,6 +64,11 @@ type Draft = {
   brokerName: string;
   brokerCompany: string;
   brokerMc: string;
+  // Booked-load details (migration 0109): the reference number and
+  // the pickup / delivery appointments (datetime-local values).
+  referenceNumber: string;
+  pickupApptAt: string;
+  deliveryApptAt: string;
 };
 
 const EMPTY_DRAFT: Draft = {
@@ -87,6 +92,9 @@ const EMPTY_DRAFT: Draft = {
   brokerName: "",
   brokerCompany: "",
   brokerMc: "",
+  referenceNumber: "",
+  pickupApptAt: "",
+  deliveryApptAt: "",
 };
 
 /** The board post form's persisted snapshot, parsed once per page
@@ -496,6 +504,8 @@ export function FleetLoadBoardPanel({
   const [busy, setBusy] = useState<string | null>(null);
   const [armKey, setArmKey] = useState<string | null>(null);
   const [assignPick, setAssignPick] = useState<Record<number, string>>({});
+  const [declineFor, setDeclineFor] = useState<number | null>(null);
+  const [declineText, setDeclineText] = useState("");
   const [overflowPick, setOverflowPick] = useState<Record<number, string>>({});
   const [viewDocId, setViewDocId] = useState<number | null>(null);
   const docQuery = useQuery({
@@ -685,6 +695,9 @@ export function FleetLoadBoardPanel({
       brokerName: r.brokerName ?? "",
       brokerCompany: r.brokerCompany ?? "",
       brokerMc: r.brokerMc ?? "",
+      referenceNumber: r.referenceNumber ?? "",
+      pickupApptAt: r.pickupApptAt ? r.pickupApptAt.slice(0, 16) : "",
+      deliveryApptAt: r.deliveryApptAt ? r.deliveryApptAt.slice(0, 16) : "",
     });
   };
 
@@ -714,6 +727,11 @@ export function FleetLoadBoardPanel({
       hazmat: draft.hazmat,
       equipmentType: (draft.equipmentType || null) as EquipmentValue | null,
       notes: clean(draft.notes),
+      referenceNumber: clean(draft.referenceNumber),
+      // datetime-local values are the desk's local wall time — send
+      // the true instant so the server stores it exactly.
+      pickupApptAt: draft.pickupApptAt ? new Date(draft.pickupApptAt).toISOString() : null,
+      deliveryApptAt: draft.deliveryApptAt ? new Date(draft.deliveryApptAt).toISOString() : null,
     };
     setBusy("submit");
     try {
@@ -775,6 +793,8 @@ export function FleetLoadBoardPanel({
 
   const open = data.board.filter((b) => b.status === "open");
   const overflowed = data.board.filter((b) => b.status === "overflowed");
+  const assignedToMe = data.board.filter((b) => b.status === "assigned" && b.claimedBy === data.myUsername);
+  const assignedOther = data.board.filter((b) => b.status === "assigned" && b.claimedBy !== data.myUsername);
   const mineTaken = data.board.filter((b) => b.status === "taken" && b.claimedBy === data.myUsername);
   const otherTaken = data.board.filter((b) => b.status === "taken" && b.claimedBy !== data.myUsername);
   const assignable = data.members.filter((m) => m.role === "driver" || m.role === "owner");
@@ -837,18 +857,26 @@ export function FleetLoadBoardPanel({
           )}
           <span
             className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold ${
-              r.status === "open" ? "bg-emerald-900/60 text-emerald-300" : "bg-[var(--surface)] text-[var(--accent)]"
+              r.status === "open"
+                ? "bg-emerald-900/60 text-emerald-300"
+                : r.status === "assigned"
+                  ? "bg-amber-900/60 text-amber-200"
+                  : "bg-[var(--surface)] text-[var(--accent)]"
             }`}
           >
             {r.status === "open"
               ? "OPEN"
               : r.status === "overflowed"
                 ? "🌐 ON THE OPEN BOARD"
-                : isMine
-                  ? r.claimMethod === "assign"
-                    ? "ASSIGNED TO YOU"
-                    : "YOURS — CLAIMED"
-                  : `${r.claimMethod === "assign" ? "ASSIGNED" : "CLAIMED"} · @${r.claimedBy ?? ""}`}
+                : r.status === "assigned"
+                  ? isMine
+                    ? "📩 ASSIGNED TO YOU — ANSWER IT"
+                    : `ASSIGNED · @${r.claimedBy ?? ""} — AWAITING ANSWER`
+                  : isMine
+                    ? r.claimMethod === "assign"
+                      ? "ASSIGNED TO YOU"
+                      : "YOURS — CLAIMED"
+                    : `${r.claimMethod === "assign" ? "ASSIGNED" : "CLAIMED"} · @${r.claimedBy ?? ""}`}
           </span>
         </div>
         <div className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -875,8 +903,23 @@ export function FleetLoadBoardPanel({
           )}
           <div><dt className="inline text-[var(--dim)]">Pickup: </dt><dd className="inline font-semibold">{r.pickupText ?? "Window not set"}</dd></div>
           <div><dt className="inline text-[var(--dim)]">Deliver: </dt><dd className="inline font-semibold">{r.deliveryText ?? "Window not set"}</dd></div>
+          {r.referenceNumber && (
+            <div><dt className="inline text-[var(--dim)]">Ref #: </dt><dd className="inline font-semibold">{r.referenceNumber}</dd></div>
+          )}
+          {r.pickupApptAt && (
+            <div><dt className="inline text-[var(--dim)]">Pickup appt: </dt><dd className="inline font-semibold">{new Date(r.pickupApptAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</dd></div>
+          )}
+          {r.deliveryApptAt && (
+            <div><dt className="inline text-[var(--dim)]">Delivery appt: </dt><dd className="inline font-semibold">{new Date(r.deliveryApptAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</dd></div>
+          )}
         </dl>
         {r.notes && <p className="mt-1.5 text-sm text-[var(--dim)]">{r.notes}</p>}
+        {r.status === "open" && data.canPost && r.declineReason && (
+          <p className="mt-1.5 rounded-xl bg-amber-900/40 px-3 py-2 text-xs leading-relaxed text-amber-200">
+            ↩ @{r.declinedBy ?? "A driver"} declined this load
+            {r.declinedAt ? ` ${new Date(r.declinedAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : ""}: “{r.declineReason}” — it's back on the board for the next driver.
+          </p>
+        )}
         {r.hasDoc && (
           <button
             type="button"
@@ -925,7 +968,7 @@ export function FleetLoadBoardPanel({
                 disabled={busy != null || !pick}
                 className="btn-press rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3.5 py-2.5 text-sm font-bold disabled:opacity-50"
                 aria-label={`Assign load ${laneOf(r)} to the chosen driver`}
-                onClick={() => void act(`assign-${r.id}`, () => api.assignBoardLoad({ id: r.id, targetUsername: pick }), `Assigned — ${laneOf(r)} is in @${pick}'s loads now, Load Tracker at Booked.`)}
+                onClick={() => void act(`assign-${r.id}`, () => api.assignBoardLoad({ id: r.id, targetUsername: pick }), `Offered — ${laneOf(r)} is assigned to @${pick}; it lands in their Loads when they accept.`)}
               >
                 {busy === `assign-${r.id}` ? "Assigning…" : "Assign"}
               </button>
@@ -988,6 +1031,97 @@ export function FleetLoadBoardPanel({
               )}
             </>
           )}
+          {r.status === "assigned" && isMine && (
+            <>
+              <button
+                type="button"
+                disabled={busy != null}
+                className="btn-neon btn-press rounded-xl px-4 py-2.5 text-sm font-bold disabled:opacity-50"
+                aria-label={`Accept assigned load ${laneOf(r)}`}
+                onClick={() => void act(`accept-${r.id}`, () => api.acceptAssignedLoad({ id: r.id }), `Accepted — ${laneOf(r)} is in your Loads now, Load Tracker at Booked.`)}
+              >
+                {busy === `accept-${r.id}` ? "Accepting…" : "✅ Accept this load"}
+              </button>
+              {declineFor === r.id ? (
+                <span className="flex w-full flex-wrap items-center gap-2">
+                  <input
+                    className="min-w-[220px] flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm"
+                    value={declineText}
+                    onChange={(e) => setDeclineText(e.target.value)}
+                    placeholder="Why not? The desk sees this reason."
+                    aria-label={`Reason for declining ${laneOf(r)}`}
+                    maxLength={300}
+                  />
+                  <button
+                    type="button"
+                    disabled={busy != null || !declineText.trim()}
+                    className="btn-press rounded-xl bg-[var(--danger)] px-3.5 py-2.5 text-sm font-bold text-white disabled:opacity-50"
+                    aria-label={`Send the decline for ${laneOf(r)}`}
+                    onClick={() => {
+                      void act(`decline-${r.id}`, () => api.declineAssignedLoad({ id: r.id, reason: declineText.trim() }), "Declined — the load went back to the desk with your reason.");
+                      setDeclineFor(null);
+                      setDeclineText("");
+                    }}
+                  >
+                    {busy === `decline-${r.id}` ? "Sending…" : "Send decline"}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-press rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3.5 py-2.5 text-sm font-bold"
+                    aria-label="Cancel declining"
+                    onClick={() => {
+                      setDeclineFor(null);
+                      setDeclineText("");
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  disabled={busy != null}
+                  className="btn-press rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3.5 py-2.5 text-sm font-bold disabled:opacity-50"
+                  aria-label={`Decline assigned load ${laneOf(r)}`}
+                  onClick={() => {
+                    setDeclineFor(r.id);
+                    setDeclineText("");
+                  }}
+                >
+                  Decline
+                </button>
+              )}
+            </>
+          )}
+          {r.status === "assigned" && data.canPost && (
+            <>
+              <label className="sr-only" htmlFor={`reassign-${r.id}`}>Reassign to driver</label>
+              <select
+                id={`reassign-${r.id}`}
+                className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-2.5 text-sm font-semibold"
+                value={pick}
+                onChange={(e) => setAssignPick((p) => ({ ...p, [r.id]: e.target.value }))}
+                aria-label={`Choose a different driver for ${laneOf(r)}`}
+              >
+                {assignable.length === 0 && <option value="">No drivers yet</option>}
+                {assignable.map((m) => (
+                  <option key={m.username} value={m.username}>@{m.username}{m.role === "owner" ? " (owner)" : ""}</option>
+                ))}
+              </select>
+              <button
+                type="button"
+                disabled={busy != null || !pick || pick === r.claimedBy}
+                className="btn-press rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3.5 py-2.5 text-sm font-bold disabled:opacity-50"
+                aria-label={`Reassign load ${laneOf(r)} to the chosen driver`}
+                onClick={() => void act(`assign-${r.id}`, () => api.assignBoardLoad({ id: r.id, targetUsername: pick }), `Reassigned — ${laneOf(r)} is offered to @${pick} now, waiting on their answer.`)}
+              >
+                {busy === `assign-${r.id}` ? "Reassigning…" : "Reassign"}
+              </button>
+              {twoTap(`unassign-${r.id}`, "Cancel assignment", () =>
+                void act(`unassign-${r.id}`, () => api.unassignBoardLoad({ id: r.id }), "Assignment cancelled — the load is open on the board again."),
+              )}
+            </>
+          )}
           {r.status === "taken" && isMine && r.loadId != null && (
             <button
               type="button"
@@ -1011,6 +1145,11 @@ export function FleetLoadBoardPanel({
           <p className="mt-2 text-xs text-[var(--dim)]">
             Load Tracker: {r.linkedPodSealed ? "Delivered — POD sealed" : r.linkedLoadStatus ? r.linkedLoadStatus.replace(/_/g, " ") : "booked"}
             {r.claimedAt ? ` · taken ${new Date(r.claimedAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : ""}
+          </p>
+        )}
+        {r.status === "assigned" && (
+          <p className="mt-2 text-xs text-[var(--dim)]">
+            Assigned{r.claimedAt ? ` ${new Date(r.claimedAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : ""} · waiting on @{r.claimedBy ?? "the driver"} to answer — nothing lands in their Loads until they accept.
           </p>
         )}
       </article>
@@ -1038,6 +1177,10 @@ export function FleetLoadBoardPanel({
           <label className={LABEL} htmlFor="board-shipper">Shipper / broker</label>
           <input id="board-shipper" aria-label="Shipper or broker" className={INPUT} value={draft.shipper} onChange={(e) => setDraft({ ...draft, shipper: e.target.value })} placeholder="As printed on the rate con" />
         </div>
+        <div className="sm:col-span-2">
+          <label className={LABEL} htmlFor="board-reference">Reference # (BOL / PO / order)</label>
+          <input id="board-reference" aria-label="Load reference number" className={INPUT} value={draft.referenceNumber} onChange={(e) => setDraft({ ...draft, referenceNumber: e.target.value })} placeholder="The number the shipper or broker named for this load" />
+        </div>
         <div>
           <label className={LABEL} htmlFor="board-pickup-city">Pickup city</label>
           <input id="board-pickup-city" aria-label="Pickup city" className={INPUT} value={draft.pickupCity} onChange={(e) => setDraft({ ...draft, pickupCity: e.target.value })} />
@@ -1061,6 +1204,14 @@ export function FleetLoadBoardPanel({
         <div>
           <label className={LABEL} htmlFor="board-delivery-window">Delivery window</label>
           <input id="board-delivery-window" aria-label="Delivery window" className={INPUT} value={draft.deliveryText} onChange={(e) => setDraft({ ...draft, deliveryText: e.target.value })} placeholder="e.g. Wed Oct 28 by 17:00" />
+        </div>
+        <div>
+          <label className={LABEL} htmlFor="board-pickup-appt">Pickup appointment</label>
+          <input id="board-pickup-appt" aria-label="Pickup appointment" type="datetime-local" className={INPUT} value={draft.pickupApptAt} onChange={(e) => setDraft({ ...draft, pickupApptAt: e.target.value })} />
+        </div>
+        <div>
+          <label className={LABEL} htmlFor="board-delivery-appt">Delivery appointment</label>
+          <input id="board-delivery-appt" aria-label="Delivery appointment" type="datetime-local" className={INPUT} value={draft.deliveryApptAt} onChange={(e) => setDraft({ ...draft, deliveryApptAt: e.target.value })} />
         </div>
         <div>
           <label className={LABEL} htmlFor="board-rate">Load pay ($)</label>
@@ -1156,13 +1307,20 @@ export function FleetLoadBoardPanel({
     <div className="space-y-3">
       <BoardSortControl id={`board-sort-${variant}`} value={sortKey} onChange={setSortKey} />
     <div className={variant === "console" ? "grid grid-cols-1 gap-3 xl:grid-cols-2" : "space-y-3"}>
-      {open.length === 0 && mineTaken.length === 0 && otherTaken.length === 0 && (
+      {open.length === 0 && assignedToMe.length === 0 && assignedOther.length === 0 && mineTaken.length === 0 && otherTaken.length === 0 && (
         <p className="rounded-2xl border border-[var(--border)] bg-[var(--surface2)] px-3.5 py-3 text-sm text-[var(--dim)] xl:col-span-2">
           Nothing on the board yet.{data.canPost ? " Post the first load above — snap the rate con and it fills itself in." : " When the owner or dispatch posts a load, it shows up here for your fleet's drivers to claim."}
         </p>
       )}
+      {assignedToMe.length > 0 && (
+        <p className="rounded-2xl border border-amber-500/40 bg-amber-900/20 px-3.5 py-2.5 text-sm font-bold text-amber-200 xl:col-span-2">
+          📩 {assignedToMe.length} load{assignedToMe.length === 1 ? "" : "s"} assigned to you — answer below; accepting starts the load in your Load Tracker.
+        </p>
+      )}
+      {assignedToMe.map(renderCard)}
       {rankedOpen.map(renderCard)}
       {overflowed.map(renderCard)}
+      {assignedOther.map(renderCard)}
       {mineTaken.map(renderCard)}
       {otherTaken.map(renderCard)}
     </div>
@@ -1180,8 +1338,8 @@ export function FleetLoadBoardPanel({
         </div>
         <p className="mt-1 text-sm text-[var(--dim)]">
           Company-private — only {data.companyName} members see this board.{" "}
-          <strong className="text-[var(--text)]">{open.length} open</strong> · {mineTaken.length} yours · {otherTaken.length} taken by the fleet.
-          Claiming starts the load in the Load Tracker at Booked; first claim wins.
+          <strong className="text-[var(--text)]">{open.length} open</strong> · {assignedToMe.length} assigned to you · {assignedOther.length} out for an answer · {mineTaken.length} yours · {otherTaken.length} taken by the fleet.
+          Claiming starts the load in the Load Tracker at Booked; first claim wins. Assigning offers a load to one driver by name — it becomes their load when they accept, and a decline sends it back here with their reason.
         </p>
         {data.feeStanding.blocked && (
           <div className={`mt-2.5 rounded-xl px-3.5 py-2.5 text-sm font-semibold leading-relaxed ${data.feeStanding.revoked ? "bg-[var(--danger)] text-white" : "bg-amber-900/60 text-amber-200"}`} role="alert">

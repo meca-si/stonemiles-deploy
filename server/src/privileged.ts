@@ -76,6 +76,11 @@ export const privileged = definePrivilegedContracts({
   sendDocEmail: {
     request: z.object({
       to: z.string(),
+      // Document mail (Library sends): replies route back to the
+      // sending user, never to the app's mail identity. Default null
+      // keeps every pre-existing caller (auth mail, doc copies)
+      // behaving exactly as before.
+      replyTo: z.string().nullable().default(null),
       subject: z.string(),
       text: z.string(),
       attachmentBase64: z.string().nullable(),
@@ -232,6 +237,9 @@ export const privilegedHandlers = definePrivilegedHandlers(privileged, {
       subject: args.subject,
       text: args.text,
     };
+    if (args.replyTo) {
+      body.reply_to = args.replyTo;
+    }
     if (args.attachmentBase64 && args.attachmentFilename) {
       body.attachments = [{ filename: args.attachmentFilename, content: args.attachmentBase64 }];
     }

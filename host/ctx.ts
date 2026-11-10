@@ -403,6 +403,15 @@ export const blobs = {
     return `/blobs/${key.split("/").map(encodeURIComponent).join("/")}`;
   },
 
+  /** Read a stored blob's bytes + content type for server-side
+   *  document work (User Library downloads + document-mail
+   *  attachments). The same store readBlob serves to the HTTP layer. */
+  async read(
+    key: string,
+  ): Promise<{ bytes: Uint8Array; contentType: string } | null> {
+    return readBlob(key);
+  },
+
   async delete(key: string): Promise<void> {
     sanitizeKey(key);
     rmSync(blobFilePath(key), { force: true });
