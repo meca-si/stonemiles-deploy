@@ -1,7 +1,7 @@
 // Phase 2a — schema dialect transform.
 //
 // Reads server/src/schema-sqlite.ts (the verbatim Phase 1 SQLite schema)
-// and writes server/src/schema-pg.ts: the same 159 tables in
+// and writes server/src/schema-pg.ts: the same tables in
 // drizzle-orm/pg-core dialect. The transform is purely textual because the
 // source schema uses a small, fully regular set of declaration shapes
 // (verified by enumeration before this script was written):
@@ -25,7 +25,9 @@
 // text rule. Migration 0110 (send door) adds +2 timestamp_ms
 // (broker_submissions pickup/delivery appointments). Migration 0111
 // (library document sends) adds +1 table, +1 autoincrement PK, +2
-// timestamp_ms (document_sends created/sent).
+// timestamp_ms (document_sends created/sent). Migration 0112
+// (receive links) adds +1 table, +1 autoincrement PK, +2 timestamp_ms
+// (receive_links created/revoked).
 //
 //   bun run host/pg/transform-schema.ts
 
@@ -90,15 +92,15 @@ replaceAll(
   'integer mode "timestamp_ms" -> timestamp(tz, date)',
   /integer\(("[a-z0-9_]+"), \{ mode: "timestamp_ms" \}\)/g,
   'timestamp($1, { withTimezone: true, mode: "date" })',
-  294,
+  296,
 );
 replaceAll(
   "autoincrement PK -> serial",
   /integer\(("[a-z0-9_]+")\)\.primaryKey\(\{ autoIncrement: true \}\)/g,
   "serial($1).primaryKey()",
-  130,
+  131,
 );
-replaceAll("sqliteTable -> pgTable", /\bsqliteTable\(/g, "pgTable(", 160);
+replaceAll("sqliteTable -> pgTable", /\bsqliteTable\(/g, "pgTable(", 161);
 replaceAll("real -> doublePrecision", /\breal\(/g, "doublePrecision(", 172);
 
 // Leftovers: any of these means the source schema grew a shape this

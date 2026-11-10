@@ -262,6 +262,10 @@ export function LibraryPanel({ setBanner }: { setBanner: (s: string | null) => v
                   <div className="flex flex-wrap items-center gap-3">
                     <span className="text-xs font-bold text-[var(--dim)]">Packet:</span>
                     <DocActions docRef={`packet:${l.loadId}`} title={`Delivered load packet — ${l.lane}`} defaultEmail={defaultEmail} setBanner={setBanner} />
+
+                    <DocActions docRef={`bol:${l.loadId}`} title={`Bill of lading — ${l.lane}`} defaultEmail={defaultEmail} setBanner={setBanner} />
+
+                    <DocActions docRef={`pod:${l.loadId}`} title={`Signed POD — ${l.lane}`} defaultEmail={defaultEmail} setBanner={setBanner} />
                   </div>
                   <div className="flex flex-wrap items-center gap-3">
                     <span className="text-xs font-bold text-[var(--dim)]">Sealed record:</span>
@@ -416,6 +420,10 @@ export function LibraryPanel({ setBanner }: { setBanner: (s: string | null) => v
                     <div className="flex flex-wrap items-center gap-3">
                       <span className="text-xs font-bold text-[var(--dim)]">Packet:</span>
                       <DocActions docRef={`packet:${l.loadId}`} title={`Delivered load packet — ${l.lane}`} defaultEmail={defaultEmail} setBanner={setBanner} />
+
+                      <DocActions docRef={`bol:${l.loadId}`} title={`Bill of lading — ${l.lane}`} defaultEmail={defaultEmail} setBanner={setBanner} />
+
+                      <DocActions docRef={`pod:${l.loadId}`} title={`Signed POD — ${l.lane}`} defaultEmail={defaultEmail} setBanner={setBanner} />
                     </div>
                     <div className="flex flex-wrap items-center gap-3">
                       <span className="text-xs font-bold text-[var(--dim)]">Sealed record:</span>

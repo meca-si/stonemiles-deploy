@@ -1147,6 +1147,18 @@ export function FleetLoadBoardPanel({
             {r.claimedAt ? ` · taken ${new Date(r.claimedAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : ""}
           </p>
         )}
+        {r.status === "taken" && r.deliveryPath && (
+          <p className="mt-1 text-xs font-semibold text-[var(--ok)]">
+            ✅ Confirmed{r.deliveryReceiver ? ` by ${r.deliveryReceiver}` : ""} · {r.deliveryPath === "receive_link" ? "receive link" : r.deliveryPath === "phone_signature" ? "signed on the driver's phone" : r.deliveryPath === "paper_bol" ? "signed paper BOL" : "driver POD seal"}
+            {r.deliveryConfirmedAt ? ` · ${new Date(r.deliveryConfirmedAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : ""}
+            {" "}· proof in the Library packet
+          </p>
+        )}
+        {r.status === "taken" && r.deliveryException && (
+          <p className="mt-1 rounded-lg border border-amber-500/50 bg-amber-500/10 px-2 py-1 text-xs font-bold text-amber-300">
+            ⚠ DELIVERY EXCEPTION: {r.deliveryException}
+          </p>
+        )}
         {r.status === "assigned" && (
           <p className="mt-2 text-xs text-[var(--dim)]">
             Assigned{r.claimedAt ? ` ${new Date(r.claimedAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : ""} · waiting on @{r.claimedBy ?? "the driver"} to answer — nothing lands in their Loads until they accept.

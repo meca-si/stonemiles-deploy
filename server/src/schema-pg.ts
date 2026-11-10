@@ -3610,6 +3610,27 @@ export const docEmailDeliveries = pgTable("doc_email_deliveries", {
   sentAt: timestamp("sent_at", { withTimezone: true, mode: "date" }),
 });
 
+// Receive links (migration 0112): the per-load capability tokens for
+// the delivery close-out. kind "action" = the receive link printed as
+// a QR on the BOL — the receiver confirms delivery with it, once.
+// kind "copy" = the receiver's own view-only POD copy link (separate
+// token, no action rights). One active token per (load, kind); the
+// desk regenerates by revoking the old row and issuing a new one.
+// Global table (no profile_id): public lookups resolve by token
+// alone, exactly like chain_log rows resolve by id.
+export const receiveLinks = pgTable("receive_links", {
+  id: serial("id").primaryKey(),
+  loadId: integer("load_id").notNull(),
+  token: text("token").notNull().unique(),
+  kind: text("kind").notNull().default("action"), // action | copy
+  status: text("status").notNull().default("active"), // active | used | revoked
+  createdBy: text("created_by").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  revokedAt: timestamp("revoked_at", { withTimezone: true, mode: "date" }),
+});
+
 // Pay-stub email copies (migration 0072): one row per (confirmed pay
 // entry, recipient seat), written ONLY when the driver has opted in
 // (doc_copy_settings.payStubEmailEnabled). A row names the Pay Book

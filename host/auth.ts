@@ -1564,4 +1564,15 @@ export const PUBLIC_ACTIONS = new Set<string>([
   // return only the verdict for that one code (design §5.3 step 6).
   "verifyCode",
   "checkCustody",
+  // Receive-link surface (2026-11-10): the per-load capability token
+  // IS the credential (128-bit random, revocable, single-purpose).
+  // These return delivery-necessary info only — never rates/money —
+  // and the copy actions key off the same token or its view-only
+  // copy sibling. See server actions getReceiveInfo/confirmReceive.
+  "getReceiveInfo",
+  "confirmReceive",
+  "getReceiverCopyLink",
+  "getPodCopyDocument",
+  "emailReceiverCopy",
+  "logReceiverCopyTextOffer",
 ]);

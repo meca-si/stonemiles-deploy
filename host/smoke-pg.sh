@@ -57,7 +57,7 @@ bun run host/migrate-pg.ts > "${SCRATCH}/migrate.log" 2>&1 && ok "migrations app
 
 start_server || exit 1
 say "server pid ${SRVPID} on ${BASE}"
-grep -q "actions registered: 470" "${SCRATCH}/server.log" && ok "host booted on Postgres with 470 actions" || bad "unexpected action count in boot log"
+grep -q "actions registered: 480" "${SCRATCH}/server.log" && ok "host booted on Postgres with 480 actions" || bad "unexpected action count in boot log"
 
 # 2) health
 OUT=$(curl -s -m 5 -w "\n%{http_code}" "${BASE}/healthz")

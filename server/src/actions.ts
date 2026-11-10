@@ -7,7 +7,7 @@
 // see DATA-PLAN.md.
 
 import { defineAction, z, type ActionsModule, type Ctx } from "@hatch/space-sdk";
-import { and, asc, desc, eq, gte, inArray, isNull, or } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, ne, or } from "drizzle-orm";
 import * as schema from "./schema";
 import {
 normalizeDeductionLines,
@@ -176,7 +176,8 @@ canRespondToAssignment,
 cleanReferenceNumber,
 validateDeclineReason,
 } from "./boardAssignment";
-import { buildPdf } from "./pdfDoc";
+import { buildPdf, jpegDimensions } from "./pdfDoc";
+import { encodeQr } from "./qrCode";
 import {
 PLATFORM_FEE_LABEL,
 platformFeeApplies,
@@ -1390,6 +1391,449 @@ function docCopyEmailText(args: {
     "",
     "This copy was filed because the document was confirmed in STONEMILES. The sealed original lives in the load's record, fingerprinted into its hash chain.",
   ].join("\n");
+}
+
+// ---- Receive links + delivery confirmation (2026-11-10) -------------------
+// The delivery close-out core shared by the three signature paths and
+// the receive link. First close wins: completeDeliveryConfirmation is
+// the ONLY writer of delivery_confirmed, and it refuses to write a
+// second one — later paths read the standing confirmation and report
+// already-confirmed.
+
+const APP_PUBLIC_ORIGIN = process.env.STONEMILES_PUBLIC_ORIGIN ?? "https://app.stonervision.io";
+
+function receiveUrlFor(token: string): string {
+  return `${APP_PUBLIC_ORIGIN}/receive/${token}`;
+}
+function copyUrlFor(token: string): string {
+  return `${APP_PUBLIC_ORIGIN}/pod/${token}`;
+}
+function newReceiveToken(kind: "action" | "copy"): string {
+  return `${kind === "copy" ? "cpy" : "rcv"}_${Buffer.from(randomBytes(16)).toString("hex")}`;
+}
+
+function deliveryPathLabel(path: string): string {
+  switch (path) {
+    case "receive_link": return "Receiver confirmed on the receive link";
+    case "phone_signature": return "Receiver signed on the driver's phone";
+    case "paper_bol": return "Signed paper BOL — photo on file";
+    case "driver_pod": return "Driver POD seal (standing close)";
+    default: return path;
+  }
+}
+
+function maskEmailForLog(email: string): string {
+  const at = email.indexOf("@");
+  if (at < 1) return "***";
+  return `${email.slice(0, 1)}***${email.slice(at)}`;
+}
+
+/** The username that owns a load — loads carry profile_id, not a
+ *  username; the profile row is the join (Phase 2b identity). */
+async function driverUsernameForLoad(ctx: Ctx, load: LoadRow): Promise<string | null> {
+  if (load.profileId == null) return null;
+  const db = ctx.db<typeof schema>();
+  const rows = await db.select().from(schema.profile).where(eq(schema.profile.id, load.profileId)).limit(1);
+  return rows[0]?.socialUsername ?? null;
+}
+
+// Basic throttle for the public receive surface: repeated FAILED
+// lookups of the same token string lock that string out for a while.
+// (Tokens are 128-bit random; this is hygiene on top of unguessable.)
+const receiveFailures = new Map<string, { count: number; firstAt: number }>();
+const RECEIVE_FAIL_WINDOW_MS = 10 * 60 * 1000;
+const RECEIVE_FAIL_MAX = 12;
+function receiveThrottleBlocked(token: string): boolean {
+  const rec = receiveFailures.get(token);
+  if (!rec) return false;
+  if (Date.now() - rec.firstAt > RECEIVE_FAIL_WINDOW_MS) {
+    receiveFailures.delete(token);
+    return false;
+  }
+  return rec.count >= RECEIVE_FAIL_MAX;
+}
+function receiveThrottleFail(token: string): void {
+  const now = Date.now();
+  const rec = receiveFailures.get(token);
+  if (!rec || now - rec.firstAt > RECEIVE_FAIL_WINDOW_MS) receiveFailures.set(token, { count: 1, firstAt: now });
+  else rec.count++;
+}
+function receiveThrottleOk(token: string): void {
+  receiveFailures.delete(token);
+}
+
+type ReceiveLinkRow = typeof schema.receiveLinks.$inferSelect;
+
+async function ensureReceiveLink(ctx: Ctx, loadId: number, createdBy: string): Promise<ReceiveLinkRow> {
+  const db = ctx.db<typeof schema>();
+  const rows = await db
+    .select()
+    .from(schema.receiveLinks)
+    .where(and(eq(schema.receiveLinks.loadId, loadId), eq(schema.receiveLinks.kind, "action")))
+    .orderBy(desc(schema.receiveLinks.id));
+  const live = rows.find((r) => r.status === "active" || r.status === "used");
+  if (live) return live;
+  const ins = await db
+    .insert(schema.receiveLinks)
+    .values({ loadId, token: newReceiveToken("action"), kind: "action", status: "active", createdBy })
+    .returning();
+  return ins[0]!;
+}
+
+async function ensureCopyLink(ctx: Ctx, loadId: number, createdBy: string): Promise<ReceiveLinkRow> {
+  const db = ctx.db<typeof schema>();
+  const rows = await db
+    .select()
+    .from(schema.receiveLinks)
+    .where(and(eq(schema.receiveLinks.loadId, loadId), eq(schema.receiveLinks.kind, "copy"), eq(schema.receiveLinks.status, "active")))
+    .orderBy(desc(schema.receiveLinks.id));
+  if (rows[0]) return rows[0];
+  const ins = await db
+    .insert(schema.receiveLinks)
+    .values({ loadId, token: newReceiveToken("copy"), kind: "copy", status: "active", createdBy })
+    .returning();
+  return ins[0]!;
+}
+
+/** Resolve a receive/copy token to its link + load. Revoked tokens and
+ *  unknown tokens resolve to null — callers return ONE generic refusal
+ *  for both (no enumeration hints). */
+async function resolveReceiveToken(ctx: Ctx, token: string): Promise<{ link: ReceiveLinkRow; load: LoadRow } | null> {
+  const db = ctx.db<typeof schema>();
+  const links = await db.select().from(schema.receiveLinks).where(eq(schema.receiveLinks.token, token)).limit(1);
+  const link = links[0];
+  if (!link || link.status === "revoked") return null;
+  const loads = await db.select().from(schema.loads).where(eq(schema.loads.id, link.loadId)).limit(1);
+  if (!loads[0]) return null;
+  return { link, load: loads[0] };
+}
+
+export interface DeliveryConfirmation {
+  path: string;
+  receiverName: string | null;
+  exceptionNotes: string | null;
+  at: string | null;
+  docBlobKey: string | null;
+  docMime: string | null;
+  docSha256: string | null;
+  sealHash: string | null;
+}
+
+/** The standing delivery confirmation for a load: the first
+ *  delivery_confirmed event wins; a bare pod_seal (the driver's
+ *  standing GPS close) also counts as confirmed. */
+async function deliveryConfirmationFor(ctx: Ctx, loadId: number): Promise<DeliveryConfirmation | null> {
+  const db = ctx.db<typeof schema>();
+  const rows = await db
+    .select()
+    .from(schema.chainLog)
+    .where(and(eq(schema.chainLog.refKind, "load"), eq(schema.chainLog.refId, loadId)))
+    .orderBy(asc(schema.chainLog.id));
+  let sealHash: string | null = null;
+  for (const r of rows) if (r.event === "pod_seal") sealHash = r.hash;
+  for (const r of rows) {
+    if (r.event !== "delivery_confirmed") continue;
+    try {
+      const p = JSON.parse(r.payload) as Record<string, unknown>;
+      return {
+        path: typeof p.path === "string" ? p.path : "receive_link",
+        receiverName: typeof p.receiverName === "string" ? p.receiverName : null,
+        exceptionNotes: typeof p.exceptionNotes === "string" ? p.exceptionNotes : null,
+        at: typeof p.at === "string" ? p.at : null,
+        docBlobKey: typeof p.docBlobKey === "string" ? p.docBlobKey : null,
+        docMime: typeof p.docMime === "string" ? p.docMime : null,
+        docSha256: typeof p.docSha256 === "string" ? p.docSha256 : null,
+        sealHash,
+      };
+    } catch {
+      return { path: "receive_link", receiverName: null, exceptionNotes: null, at: null, docBlobKey: null, docMime: null, docSha256: null, sealHash };
+    }
+  }
+  if (sealHash) {
+    const seal = rows.find((r) => r.event === "pod_seal" && r.hash === sealHash);
+    let receiverName: string | null = null;
+    let exceptionNotes: string | null = null;
+    let at: string | null = null;
+    try {
+      const p = JSON.parse(seal?.payload ?? "{}") as Record<string, unknown>;
+      if (typeof p.receiverName === "string") receiverName = p.receiverName;
+      if (typeof p.exceptionNotes === "string") exceptionNotes = p.exceptionNotes;
+      if (typeof p.at === "string") at = p.at;
+    } catch { /* a bare seal is still a confirmation */ }
+    return { path: "driver_pod", receiverName, exceptionNotes, at, docBlobKey: null, docMime: null, docSha256: null, sealHash };
+  }
+  return null;
+}
+
+/** The one completion path for every close: writes delivery_confirmed
+ *  + the pod_seal the whole app already derives "delivered" from,
+ *  assembles the payment packet, and files the POD copy. Idempotent
+ *  by construction — a standing confirmation short-circuits. */
+async function completeDeliveryConfirmation(
+  ctx: Ctx,
+  opts: {
+    load: LoadRow;
+    path: "receive_link" | "phone_signature" | "paper_bol";
+    receiverName: string;
+    exceptionNotes: string | null;
+    doc: { base64: string; mime: string } | null;
+    actorUsername: string;
+  },
+): Promise<{ already: boolean; sealHash: string | null }> {
+  const { load } = opts;
+  const existing = await deliveryConfirmationFor(ctx, load.id);
+  if (existing) return { already: true, sealHash: existing.sealHash };
+  const at = new Date();
+  let docBlobKey: string | null = null;
+  let docSha256: string | null = null;
+  if (opts.doc) {
+    const bytes = base64ToBytes(opts.doc.base64);
+    docSha256 = await sha256Bytes(new Uint8Array(bytes));
+    docBlobKey = `delivery-doc-${load.id}-${docSha256.slice(0, 16)}`;
+    await ctx.blobs.put(docBlobKey, bytes, { contentType: opts.doc.mime });
+  }
+  await appendChain(ctx, {
+    refKind: "load",
+    refId: load.id,
+    sessionId: null,
+    event: "delivery_confirmed",
+    payload: {
+      loadId: load.id,
+      path: opts.path,
+      receiverName: opts.receiverName,
+      exceptionNotes: opts.exceptionNotes,
+      docBlobKey,
+      docMime: opts.doc?.mime ?? null,
+      docSha256,
+      at: at.toISOString(),
+    },
+  });
+  // The pod_seal rides the same payload conventions as the driver's
+  // GPS seal (minus the geofence — a receiver close has no truck GPS;
+  // it says so plainly) so Library/desk/packet derivations light up.
+  const pickupNow = pickupStateFor(load);
+  const gradeResult = await sealGradeForLoad(ctx, load, null);
+  const sealHash = await appendChain(ctx, {
+    refKind: "load",
+    refId: load.id,
+    sessionId: null,
+    event: "pod_seal",
+    payload: {
+      loadId: load.id,
+      lat: null,
+      lon: null,
+      at: at.toISOString(),
+      autoSealed: false,
+      confirmationPath: opts.path,
+      receiverName: opts.receiverName,
+      exceptionNotes: opts.exceptionNotes,
+      docSha256,
+      pickupSealed: pickupNow.sealed,
+      pickupSealedAt: pickupNow.sealedAt,
+      pickupPhotosMissing: pickupNow.missing,
+      pickupNote: pickupNow.missing
+        ? "Pickup photos missing — the load photo and/or BOL pickup photo was never camera-sealed for this load."
+        : "Pickup proof sealed — load photo + BOL on file from pickup.",
+      pickupLoadSha256: load.pickupLoadSha256 ?? null,
+      pickupBolSha256: load.pickupBolSha256 ?? null,
+      equipmentType: load.equipmentType ?? null,
+      trailerNumber: load.trailerNumber ?? null,
+      sealEntered: load.sealEntered ?? null,
+      sealBol: load.sealBol ?? null,
+      sealStatus: load.sealStatus ?? null,
+      sealNote: load.sealStatus === "mismatch"
+        ? "SEAL MISMATCH on the pickup record — the entered seal number did not match the BOL seal number. Flagged plainly, never passed over."
+        : null,
+      geofence: "unavailable",
+      geofenceMiles: null,
+      sealGrade: gradeResult.grade,
+      gradeCriteria: gradeResult.criteria,
+    },
+  });
+  try {
+    await assemblePaymentPacket(ctx, load, sealHash);
+  } catch (e) {
+    await appendChain(ctx, {
+      refKind: "load",
+      refId: load.id,
+      sessionId: null,
+      event: "payment_packet_error",
+      payload: { loadId: load.id, podSealHash: sealHash, error: e instanceof Error ? e.message : String(e), at: new Date().toISOString() },
+    });
+  }
+  // File the POD copy (the confirmation document itself when one was
+  // captured; otherwise the sealed pickup BOL, exactly like the
+  // standing seal). fileConfirmedDocCopy needs a signed-in actor for
+  // its email fan-out; the public receive path files the same row
+  // directly instead — the Library and the desk read the same table.
+  const copyBlobKey = docBlobKey ?? load.pickupBolBlobKey ?? load.docBlobKey ?? null;
+  const copySha = docSha256 ?? load.pickupBolSha256 ?? load.docSha256 ?? sealHash;
+  const copyMime = opts.doc?.mime ?? load.pickupBolMime ?? load.docMime ?? null;
+  const copyLabel = `Proof of delivery (POD) — ${deliveryPathLabel(opts.path).toLowerCase()} — Load #${load.id}`;
+  try {
+    await fileConfirmedDocCopy(ctx, {
+      loadId: load.id,
+      docKind: "pod",
+      label: copyLabel,
+      blobKey: copyBlobKey,
+      ownsBlob: docBlobKey != null,
+      mime: copyMime,
+      sha256: copySha,
+      source: "pod_seal",
+      dedupeKey: `load:${load.id}:pod:${sealHash}`,
+      attachmentBase64: opts.doc?.base64 ?? null,
+      attachmentFilename: opts.doc ? `pod-load-${load.id}${opts.doc.mime === "image/png" ? ".png" : ".jpg"}` : null,
+      summaryLines: [
+        `Received by: ${opts.receiverName}`,
+        `Close path: ${deliveryPathLabel(opts.path)}`,
+        ...(opts.exceptionNotes ? [`⚠ EXCEPTIONS REPORTED: ${opts.exceptionNotes}`] : []),
+      ],
+    });
+  } catch {
+    try {
+      const db = ctx.db<typeof schema>();
+      const dedupeKey = `load:${load.id}:pod:${sealHash}`;
+      const dupe = await db.select().from(schema.filedDocCopies).where(eq(schema.filedDocCopies.dedupeKey, dedupeKey)).limit(1);
+      if (!dupe[0]) {
+        await db.insert(schema.filedDocCopies).values({
+          profileId: load.profileId ?? null,
+          loadId: load.id,
+          docKind: "pod",
+          label: copyLabel,
+          blobKey: copyBlobKey,
+          ownsBlob: docBlobKey != null,
+          mime: copyMime,
+          sha256: copySha,
+          source: "pod_seal",
+          filedBy: opts.actorUsername,
+          dedupeKey,
+        });
+      }
+    } catch { /* a copy failure never fails the delivery seal */ }
+  }
+  ctx.invalidateQueries();
+  return { already: false, sealHash };
+}
+
+/** The signed POD document — ONE builder shared by the Library
+ *  (pod:{loadId}) and the receiver's own copy, so they are the same
+ *  PDF by construction. */
+async function buildSignedPodPdf(
+  ctx: Ctx,
+  load: LoadRow,
+  confirmation: DeliveryConfirmation,
+): Promise<{ bytes: Uint8Array; title: string }> {
+  const title = `Signed proof of delivery — Load #${load.id}`;
+  const lane = (c: string | null, s: string | null) => [c, s].filter(Boolean).join(", ");
+  let image: { jpegBytes: Uint8Array; widthPt: number; heightPt: number } | null = null;
+  if (confirmation.docMime === "image/jpeg" && confirmation.docBlobKey) {
+    const got = await readBlobBytes(ctx, confirmation.docBlobKey);
+    if (got) {
+      const dims = jpegDimensions(got.bytes);
+      const widthPt = 240;
+      const heightPt = dims ? Math.min(170, Math.round((widthPt * dims.height) / Math.max(1, dims.width))) : 80;
+      image = { jpegBytes: got.bytes, widthPt, heightPt };
+    }
+  }
+  const bytes = buildPdf({
+    title,
+    subtitle: `${lane(load.pickupCity, load.pickupState) || "Pickup"} → ${lane(load.deliveryCity, load.deliveryState) || "Delivery"}${load.shipper ? ` · Shipper: ${load.shipper}` : ""}`,
+    image,
+    sections: [
+      {
+        heading: "Delivery",
+        lines: [
+          ...(load.commodity ? [`Commodity: ${load.commodity}`] : []),
+          ...(load.weightLbs != null ? [`Weight: ${load.weightLbs.toLocaleString("en-US")} lbs`] : []),
+          ...(load.referenceNumber ? [`Reference #: ${load.referenceNumber}`] : []),
+          ...(load.deliveryText ? [`Delivery window: ${load.deliveryText}`] : []),
+        ],
+      },
+      {
+        heading: "Confirmation",
+        lines: [
+          `Received by: ${confirmation.receiverName ?? "(name on the sealed record)"}`,
+          `How it closed: ${deliveryPathLabel(confirmation.path)}`,
+          ...(confirmation.at ? [`Confirmed at: ${confirmation.at}`] : []),
+          confirmation.exceptionNotes ? `⚠ EXCEPTIONS REPORTED: ${confirmation.exceptionNotes}` : "Exceptions: none reported.",
+          ...(confirmation.docSha256 ? [`Confirmation document SHA-256: ${confirmation.docSha256}`] : []),
+          ...(confirmation.sealHash ? [`POD seal hash: ${confirmation.sealHash}`] : []),
+          "This copy comes from the load's sealed, hash-chained record.",
+        ],
+      },
+    ],
+    footer: "STONEMILES by Stonervision — signed proof of delivery",
+  });
+  return { bytes, title };
+}
+
+/** The printed BOL for a booked load — carries the receive link as a
+ *  QR code + the short URL in text, and paper signature lines. */
+async function buildBolPdf(
+  ctx: Ctx,
+  scope: { load: LoadRow; board: BoardLoadRow | null },
+  actorUsername: string,
+): Promise<{ bytes: Uint8Array; title: string }> {
+  const { load, board } = scope;
+  const link = await ensureReceiveLink(ctx, load.id, actorUsername);
+  const url = receiveUrlFor(link.token);
+  let qr: { modules: boolean[][] } | null = null;
+  try {
+    qr = { modules: encodeQr(url).modules };
+  } catch { /* a BOL without a QR still carries the URL in text */ }
+  const lane = (c: string | null, s: string | null) => [c, s].filter(Boolean).join(", ");
+  const db = ctx.db<typeof schema>();
+  const driverUsername = await driverUsernameForLoad(ctx, load);
+  const driver = await db.select().from(schema.socialUsers).where(eq(schema.socialUsers.username, driverUsername ?? "")).limit(1);
+  const driverName = driver[0]?.displayName?.trim() || driverUsername || "";
+  const title = `Bill of lading — Load #${load.id}`;
+  const bytes = buildPdf({
+    title,
+    subtitle: `${lane(load.pickupCity, load.pickupState) || "Pickup"} → ${lane(load.deliveryCity, load.deliveryState) || "Delivery"}`,
+    qr,
+    sections: [
+      {
+        heading: "RECEIVE THIS DELIVERY",
+        lines: [
+          "Receiver — scan the code above or open this link on your phone:",
+          url,
+          "Confirm received with your name (that is your signature). No account needed.",
+          "Or sign the paper copy below and the driver will photograph it.",
+        ],
+      },
+      {
+        heading: "Load",
+        lines: [
+          ...(load.shipper ? [`Shipper: ${load.shipper}`] : []),
+          ...(board?.brokerCompany || load.brokerCompany ? [`Broker: ${board?.brokerCompany ?? load.brokerCompany}`] : []),
+          ...(load.commodity ? [`Commodity: ${load.commodity}`] : []),
+          ...(load.weightLbs != null ? [`Weight: ${load.weightLbs.toLocaleString("en-US")} lbs`] : []),
+          ...(load.referenceNumber ? [`Reference #: ${load.referenceNumber}`] : []),
+          ...(load.pickupText ? [`Pickup: ${load.pickupText}`] : []),
+          ...(load.deliveryText ? [`Delivery window: ${load.deliveryText}`] : []),
+          ...(load.dockApptAt ? [`Dock appointment: ${load.dockApptAt.toISOString()}`] : []),
+          ...(load.equipmentType ? [`Equipment: ${load.equipmentType}`] : []),
+        ],
+      },
+      {
+        heading: "Carrier",
+        lines: [
+          `Fleet: ${driver[0]?.company ?? "STONEMILES carrier"}`,
+          `Driver: ${driverName}`,
+        ],
+      },
+      {
+        heading: "Signatures",
+        lines: [
+          "Received by (print): ________________________________",
+          "Signature: ________________________________   Date/Time: ________________",
+          "Exceptions (damage / shortage): ______________________________________________",
+        ],
+      },
+    ],
+    footer: "STONEMILES by Stonervision — bill of lading",
+  });
+  return { bytes, title };
 }
 
 async function fileConfirmedDocCopy(
@@ -8724,6 +9168,13 @@ const boardLoadShape = z.object({
   declineReason: z.string().nullable(),
   declinedBy: z.string().nullable(),
   declinedAt: z.string().nullable(),
+  // Delivery confirmation (2026-11-10): how the delivery closed, who
+  // received it, and the exception flag — visible at the desk the
+  // moment any close path lands.
+  deliveryPath: z.string().nullable(),
+  deliveryReceiver: z.string().nullable(),
+  deliveryException: z.string().nullable(),
+  deliveryConfirmedAt: z.string().nullable(),
   loadId: z.number().nullable(),
   tripQueueId: z.number().nullable(),
   // The linked driver load's live state, when taken: its tracker
@@ -8764,7 +9215,7 @@ type BoardLoadRow = typeof schema.boardLoads.$inferSelect;
 
 function toBoardLoad(
   row: BoardLoadRow,
-  linked: { status: string; podSealed: boolean; hasPickupProof: boolean } | null,
+  linked: { status: string; podSealed: boolean; hasPickupProof: boolean; confirmation: { path: string; receiverName: string | null; exceptionNotes: string | null; at: string | null } | null } | null,
 ): z.infer<typeof boardLoadShape> {
   let canUnassign = false;
   let blocked: string | null = null;
@@ -8820,6 +9271,10 @@ function toBoardLoad(
     declineReason: row.declineReason ?? null,
     declinedBy: row.declinedBy ?? null,
     declinedAt: row.declinedAt?.toISOString() ?? null,
+    deliveryPath: linked?.confirmation?.path ?? null,
+    deliveryReceiver: linked?.confirmation?.receiverName ?? null,
+    deliveryException: linked?.confirmation?.exceptionNotes ?? null,
+    deliveryConfirmedAt: linked?.confirmation?.at ?? null,
     loadId: row.loadId ?? null,
     tripQueueId: row.tripQueueId ?? null,
     linkedLoadStatus: linked?.status ?? null,
@@ -8864,7 +9319,12 @@ function toBoardLoad(
 async function boardLinkedState(
   ctx: Ctx,
   row: BoardLoadRow,
-): Promise<{ status: string; podSealed: boolean; hasPickupProof: boolean } | null> {
+): Promise<{
+  status: string;
+  podSealed: boolean;
+  hasPickupProof: boolean;
+  confirmation: { path: string; receiverName: string | null; exceptionNotes: string | null; at: string | null } | null;
+} | null> {
   if (row.loadId == null) return null;
   const db = ctx.db<typeof schema>();
   const events = await db
@@ -8900,10 +9360,31 @@ async function boardLinkedState(
   }
   if (!seen) return null;
   const pods = await podStatusByLoad(ctx);
+  // Delivery confirmation surface for the desk (2026-11-10): the first
+  // delivery_confirmed payload, or the confirming pod_seal's own
+  // payload — exception notes ride along so the desk sees the flag.
+  let confirmation: { path: string; receiverName: string | null; exceptionNotes: string | null; at: string | null } | null = null;
+  for (const e of events) {
+    if (e.event !== "delivery_confirmed" && e.event !== "pod_seal") continue;
+    try {
+      const p = JSON.parse(e.payload) as Record<string, unknown>;
+      if (e.event === "pod_seal" && typeof p.confirmationPath !== "string" && confirmation) continue;
+      confirmation = {
+        path: e.event === "delivery_confirmed"
+          ? (typeof p.path === "string" ? p.path : "receive_link")
+          : (typeof p.confirmationPath === "string" ? p.confirmationPath : "driver_pod"),
+        receiverName: typeof p.receiverName === "string" ? p.receiverName : null,
+        exceptionNotes: typeof p.exceptionNotes === "string" ? p.exceptionNotes : null,
+        at: typeof p.at === "string" ? p.at : null,
+      };
+      if (e.event === "delivery_confirmed") break;
+    } catch { /* a malformed event changes nothing */ }
+  }
   return {
     status,
     podSealed: pods.get(row.loadId)?.sealed ?? false,
     hasPickupProof,
+    confirmation,
   };
 }
 
@@ -8990,6 +9471,12 @@ async function createLoadFromBoard(
       payload: { sha256: board.docSha256, mime: board.docMime, source: claimSource, boardLoadId: board.id },
     });
   }
+  // Receive link at booking (2026-11-10): every booked load carries
+  // its per-load receive token from birth. A link failure never fails
+  // the booking — the load screen can mint it lazily too.
+  try {
+    await ensureReceiveLink(ctx, loadId, driverUsername);
+  } catch { /* lazy creation on first view covers it */ }
   const lane = (city: string | null, state: string | null) => [city, state].filter(Boolean).join(", ");
   const tripName =
     `${lane(board.pickupCity, board.pickupState) || "Pickup"} → ${lane(board.deliveryCity, board.deliveryState) || "Delivery"}`.slice(0, 120);
@@ -12570,6 +13057,28 @@ async function resolveLibraryDocument(ctx: Ctx, ref: string): Promise<ResolvedLi
       ],
     });
     return { ok: true, error: null, docKind: "filing", title, filename: `stonemiles-tax-summary-${year}.pdf`, mime: "application/pdf", bytes };
+  }
+
+  if (kind === "bol") {
+    // The printed BOL — carries the load's receive link as a QR code +
+    // the URL in text (receive-link leg, 2026-11-10).
+    const loadId = Number(parts[1]);
+    const scope = await libraryLoadScope(ctx, loadId);
+    if (!scope || !scope.load) return docRefused("bol");
+    const pdf = await buildBolPdf(ctx, { load: scope.load, board: scope.board }, me);
+    return { ok: true, error: null, docKind: "bol", title: pdf.title, filename: `bol-load-${loadId}.pdf`, mime: "application/pdf", bytes: pdf.bytes };
+  }
+
+  if (kind === "pod") {
+    // The signed POD — the SAME builder the receiver's own copy uses,
+    // so the Library document and the receiver copy are one PDF.
+    const loadId = Number(parts[1]);
+    const scope = await libraryLoadScope(ctx, loadId);
+    if (!scope || !scope.load) return docRefused("pod");
+    const confirmation = await deliveryConfirmationFor(ctx, loadId);
+    if (!confirmation) return docRefused("pod");
+    const pdf = await buildSignedPodPdf(ctx, scope.load, confirmation);
+    return { ok: true, error: null, docKind: "pod", title: pdf.title, filename: `signed-pod-load-${loadId}.pdf`, mime: "application/pdf", bytes: pdf.bytes };
   }
 
   if (kind === "sealed" || kind === "packet") {
@@ -19559,6 +20068,9 @@ export const Actions = {
         .returning({ id: schema.loads.id });
       const inserted = result[0];
       if (!inserted) throw new Error("saveLoad: insert returned no rows");
+      try {
+        await ensureReceiveLink(ctx, inserted.id, await myUsername(ctx));
+      } catch { /* a receive-link failure never fails the load save */ }
       await appendChain(ctx, {
         refKind: "load",
         refId: inserted.id,
@@ -19685,6 +20197,389 @@ export const Actions = {
   // for queued/failed copies. Filing + delivery creation happen inside
   // saveLoad / recordBolExtraction / sealDelivery via
   // fileConfirmedDocCopy — these actions only read and configure.
+
+  // =====================================================================
+  // Receive link + delivery close-out (owner order, 2026-11-10): every
+  // booked load carries a per-load receive link (QR on the BOL); the
+  // delivery closes by whichever lands FIRST — (1) the receiver
+  // confirming on the link, (2) the receiver signing on the driver's
+  // phone, (3) a photo of the signed paper BOL — plus the standing
+  // driver POD seal, which stays the fallback. The first close writes
+  // ONE delivery_confirmed event + the pod_seal every existing
+  // derivation reads; later closes report already-confirmed and write
+  // nothing. After a DIGITAL signature the receiver is offered their
+  // own copy of the signed POD: by email (document mail, audited
+  // against the load), by a view-only copy link (texted from the
+  // DRIVER'S device — no server SMS exists here), or as a download.
+  // =====================================================================
+  getLoadReceiveLink: defineAction({
+    description: "Get (or create) this load's receive link + confirmation state.",
+    request: z.object({ loadId: z.number().int().positive() }),
+    response: z.object({
+      ok: z.boolean(),
+      error: z.string().nullable(),
+      url: z.string().nullable(),
+      token: z.string().nullable(),
+      confirmed: z.boolean(),
+      path: z.string().nullable(),
+      receiverName: z.string().nullable(),
+      confirmedAt: z.string().nullable(),
+      exceptionNotes: z.string().nullable(),
+      copyUrl: z.string().nullable(),
+    }),
+    async handler(ctx, args) {
+      const fail = { ok: false, error: "That load isn't in your scope.", url: null, token: null, confirmed: false, path: null, receiverName: null, confirmedAt: null, exceptionNotes: null, copyUrl: null };
+      const scope = await libraryLoadScope(ctx, args.loadId);
+      if (!scope) return fail;
+      const me = await myUsername(ctx);
+      const link = await ensureReceiveLink(ctx, args.loadId, me);
+      const confirmation = await deliveryConfirmationFor(ctx, args.loadId);
+      let copyUrl: string | null = null;
+      if (confirmation) {
+        const copy = await ensureCopyLink(ctx, args.loadId, me);
+        copyUrl = copyUrlFor(copy.token);
+      }
+      return {
+        ok: true,
+        error: null,
+        url: receiveUrlFor(link.token),
+        token: link.token,
+        confirmed: confirmation != null,
+        path: confirmation?.path ?? null,
+        receiverName: confirmation?.receiverName ?? null,
+        confirmedAt: confirmation?.at ?? null,
+        exceptionNotes: confirmation?.exceptionNotes ?? null,
+        copyUrl,
+      };
+    },
+  }),
+
+  regenerateReceiveLink: defineAction({
+    description: "Revoke this load's receive link and issue a new one (desk).",
+    request: z.object({ loadId: z.number().int().positive() }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable(), url: z.string().nullable(), token: z.string().nullable() }),
+    async handler(ctx, args) {
+      const scope = await libraryLoadScope(ctx, args.loadId);
+      if (!scope) return { ok: false, error: "That load isn't in your scope.", url: null, token: null };
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      // Regeneration invalidates the old token outright — active AND
+      // used rows alike (the receiver's separate copy link still
+      // serves the receipt view, so nothing is lost by killing it).
+      await db
+        .update(schema.receiveLinks)
+        .set({ status: "revoked", revokedAt: new Date() })
+        .where(and(eq(schema.receiveLinks.loadId, args.loadId), eq(schema.receiveLinks.kind, "action"), ne(schema.receiveLinks.status, "revoked")));
+      const token = newReceiveToken("action");
+      await db.insert(schema.receiveLinks).values({ loadId: args.loadId, token, kind: "action", status: "active", createdBy: me });
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: args.loadId,
+        sessionId: null,
+        event: "receive_link_regenerated",
+        payload: { loadId: args.loadId, by: me, at: new Date().toISOString() },
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null, url: receiveUrlFor(token), token };
+    },
+  }),
+
+  getReceiveInfo: defineAction({
+    description: "PUBLIC: delivery-necessary info for a receive/copy token. Never any rate or money field.",
+    request: z.object({ token: z.string().min(8).max(80) }),
+    response: z.object({
+      valid: z.boolean(),
+      kind: z.string().nullable(),
+      canConfirm: z.boolean(),
+      status: z.string().nullable(),
+      shipperName: z.string().nullable(),
+      commodity: z.string().nullable(),
+      pieces: z.number().nullable(),
+      weightText: z.string().nullable(),
+      deliveryCity: z.string().nullable(),
+      deliveryState: z.string().nullable(),
+      deliveryWindow: z.string().nullable(),
+      fleetName: z.string().nullable(),
+      driverFirstName: z.string().nullable(),
+      receiverName: z.string().nullable(),
+      confirmedAt: z.string().nullable(),
+      exceptionNotes: z.string().nullable(),
+    }),
+    async handler(ctx, args) {
+      const invalid = { valid: false, kind: null, canConfirm: false, status: null, shipperName: null, commodity: null, pieces: null, weightText: null, deliveryCity: null, deliveryState: null, deliveryWindow: null, fleetName: null, driverFirstName: null, receiverName: null, confirmedAt: null, exceptionNotes: null };
+      if (receiveThrottleBlocked(args.token)) return invalid;
+      const resolved = await resolveReceiveToken(ctx, args.token);
+      if (!resolved) {
+        receiveThrottleFail(args.token);
+        return invalid;
+      }
+      receiveThrottleOk(args.token);
+      const { link, load } = resolved;
+      const db = ctx.db<typeof schema>();
+      const confirmation = await deliveryConfirmationFor(ctx, load.id);
+      // Board row (pieces + fleet company) via the load_saved chain link.
+      let board: BoardLoadRow | null = null;
+      const saved = await db
+        .select()
+        .from(schema.chainLog)
+        .where(and(eq(schema.chainLog.refKind, "load"), eq(schema.chainLog.refId, load.id), eq(schema.chainLog.event, "load_saved")))
+        .limit(1);
+      if (saved[0]) {
+        try {
+          const p = JSON.parse(saved[0].payload) as { boardLoadId?: unknown };
+          if (typeof p.boardLoadId === "number") {
+            const brows = await db.select().from(schema.boardLoads).where(eq(schema.boardLoads.id, p.boardLoadId)).limit(1);
+            board = brows[0] ?? null;
+          }
+        } catch { /* the page works without board details */ }
+      }
+      const driverUsername = await driverUsernameForLoad(ctx, load);
+      const driver = await db.select().from(schema.socialUsers).where(eq(schema.socialUsers.username, driverUsername ?? "")).limit(1);
+      const driverName = driver[0]?.displayName?.trim() || driverUsername || "";
+      return {
+        valid: true,
+        kind: link.kind,
+        canConfirm: link.kind === "action" && link.status === "active" && confirmation == null,
+        status: confirmation ? "confirmed" : "awaiting",
+        shipperName: load.shipper ?? board?.shipper ?? null,
+        commodity: load.commodity ?? null,
+        pieces: null, // pieces ride broker drafts only — load/board records don't carry them
+        weightText: load.weightLbs != null ? `${load.weightLbs.toLocaleString("en-US")} lbs` : null,
+        deliveryCity: load.deliveryCity ?? null,
+        deliveryState: load.deliveryState ?? null,
+        deliveryWindow: load.deliveryText ?? (load.dockApptAt ? load.dockApptAt.toISOString() : null),
+        fleetName: driver[0]?.company ?? "STONEMILES carrier",
+        driverFirstName: driverName.split(/\s+/)[0] ?? null,
+        receiverName: confirmation?.receiverName ?? null,
+        confirmedAt: confirmation?.at ?? null,
+        exceptionNotes: confirmation?.exceptionNotes ?? null,
+      };
+    },
+  }),
+
+  confirmReceive: defineAction({
+    description: "PUBLIC: the receiver confirms delivery on the receive link (typed name = signature). First close wins.",
+    request: z.object({
+      token: z.string().min(8).max(80),
+      receiverName: z.string().min(1).max(120),
+      exceptionNotes: z.string().max(500).nullable().default(null),
+      photoDataBase64: z.string().max(8_000_000).nullable().default(null),
+      photoMime: z.string().max(60).nullable().default(null),
+    }),
+    response: z.object({
+      ok: z.boolean(),
+      error: z.string().nullable(),
+      alreadyConfirmed: z.boolean(),
+      confirmedAt: z.string().nullable(),
+      copyUrl: z.string().nullable(),
+    }),
+    async handler(ctx, args) {
+      const refused = { ok: false, error: "This link isn't valid for confirming a delivery.", alreadyConfirmed: false, confirmedAt: null, copyUrl: null };
+      if (receiveThrottleBlocked(args.token)) return refused;
+      const resolved = await resolveReceiveToken(ctx, args.token);
+      if (!resolved || resolved.link.kind !== "action") {
+        receiveThrottleFail(args.token);
+        return refused;
+      }
+      const { link, load } = resolved;
+      const existing = await deliveryConfirmationFor(ctx, load.id);
+      if (existing || link.status === "used") {
+        const copy = await ensureCopyLink(ctx, load.id, (await driverUsernameForLoad(ctx, load)) ?? "receiver");
+        return { ok: true, error: null, alreadyConfirmed: true, confirmedAt: existing?.at ?? null, copyUrl: copyUrlFor(copy.token) };
+      }
+      if (link.status !== "active") return refused;
+      receiveThrottleOk(args.token);
+      let doc: { base64: string; mime: string } | null = null;
+      if (args.photoDataBase64 && args.photoMime) doc = { base64: args.photoDataBase64, mime: args.photoMime };
+      const result = await completeDeliveryConfirmation(ctx, {
+        load,
+        path: "receive_link",
+        receiverName: args.receiverName.trim(),
+        exceptionNotes: args.exceptionNotes?.trim() ? args.exceptionNotes.trim() : null,
+        doc,
+        actorUsername: (await driverUsernameForLoad(ctx, load)) ?? "receiver",
+      });
+      const db = ctx.db<typeof schema>();
+      await db.update(schema.receiveLinks).set({ status: "used" }).where(eq(schema.receiveLinks.id, link.id));
+      const copy = await ensureCopyLink(ctx, load.id, (await driverUsernameForLoad(ctx, load)) ?? "receiver");
+      const conf = await deliveryConfirmationFor(ctx, load.id);
+      return { ok: true, error: null, alreadyConfirmed: result.already, confirmedAt: conf?.at ?? new Date().toISOString(), copyUrl: copyUrlFor(copy.token) };
+    },
+  }),
+
+  signDeliveryOnPhone: defineAction({
+    description: "Receiver signs on the driver's phone: signature image + printed name seal the delivery.",
+    request: z.object({
+      loadId: z.number().int().positive(),
+      receiverName: z.string().min(1).max(120),
+      exceptionNotes: z.string().max(500).nullable().default(null),
+      signatureDataBase64: z.string().min(100).max(8_000_000),
+      signatureMime: z.string().max(60).default("image/jpeg"),
+    }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable(), alreadyConfirmed: z.boolean(), confirmedAt: z.string().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const rows = await db.select().from(schema.loads).where(eq(schema.loads.id, args.loadId)).limit(1);
+      if (!rows[0]) return { ok: false, error: "That load isn't in your scope.", alreadyConfirmed: false, confirmedAt: null };
+      const me = await myUsername(ctx);
+      const result = await completeDeliveryConfirmation(ctx, {
+        load: rows[0],
+        path: "phone_signature",
+        receiverName: args.receiverName.trim(),
+        exceptionNotes: args.exceptionNotes?.trim() ? args.exceptionNotes.trim() : null,
+        doc: { base64: args.signatureDataBase64, mime: args.signatureMime },
+        actorUsername: me,
+      });
+      const conf = await deliveryConfirmationFor(ctx, args.loadId);
+      ctx.invalidateQueries();
+      return { ok: true, error: null, alreadyConfirmed: result.already, confirmedAt: conf?.at ?? null };
+    },
+  }),
+
+  uploadSignedBolPod: defineAction({
+    description: "Paper path: a photo of the signed paper BOL uploads as the signed POD and seals the delivery.",
+    request: z.object({
+      loadId: z.number().int().positive(),
+      receiverName: z.string().min(1).max(120),
+      exceptionNotes: z.string().max(500).nullable().default(null),
+      photoDataBase64: z.string().min(100).max(12_000_000),
+      photoMime: z.string().max(60),
+    }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable(), alreadyConfirmed: z.boolean(), confirmedAt: z.string().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const rows = await db.select().from(schema.loads).where(eq(schema.loads.id, args.loadId)).limit(1);
+      if (!rows[0]) return { ok: false, error: "That load isn't in your scope.", alreadyConfirmed: false, confirmedAt: null };
+      const me = await myUsername(ctx);
+      const result = await completeDeliveryConfirmation(ctx, {
+        load: rows[0],
+        path: "paper_bol",
+        receiverName: args.receiverName.trim(),
+        exceptionNotes: args.exceptionNotes?.trim() ? args.exceptionNotes.trim() : null,
+        doc: { base64: args.photoDataBase64, mime: args.photoMime },
+        actorUsername: me,
+      });
+      const conf = await deliveryConfirmationFor(ctx, args.loadId);
+      ctx.invalidateQueries();
+      return { ok: true, error: null, alreadyConfirmed: result.already, confirmedAt: conf?.at ?? null };
+    },
+  }),
+
+  getReceiverCopyLink: defineAction({
+    description: "PUBLIC: the receiver's view-only POD copy link for a confirmed delivery (separate token, no action rights).",
+    request: z.object({ token: z.string().min(8).max(80) }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable(), copyUrl: z.string().nullable(), copyToken: z.string().nullable() }),
+    async handler(ctx, args) {
+      const resolved = await resolveReceiveToken(ctx, args.token);
+      if (!resolved) return { ok: false, error: "This link isn't valid.", copyUrl: null, copyToken: null };
+      const confirmation = await deliveryConfirmationFor(ctx, resolved.load.id);
+      if (!confirmation) return { ok: false, error: "This delivery hasn't been confirmed yet.", copyUrl: null, copyToken: null };
+      const copy = await ensureCopyLink(ctx, resolved.load.id, (await driverUsernameForLoad(ctx, resolved.load)) ?? "receiver");
+      return { ok: true, error: null, copyUrl: copyUrlFor(copy.token), copyToken: copy.token };
+    },
+  }),
+
+  getPodCopyDocument: defineAction({
+    description: "PUBLIC: the signed POD PDF for a confirmed delivery (action or copy token). Download/print.",
+    request: z.object({ token: z.string().min(8).max(80) }),
+    response: z.object({
+      ok: z.boolean(),
+      error: z.string().nullable(),
+      filename: z.string().nullable(),
+      mime: z.string().nullable(),
+      dataBase64: z.string().nullable(),
+    }),
+    async handler(ctx, args) {
+      const resolved = await resolveReceiveToken(ctx, args.token);
+      if (!resolved) return { ok: false, error: "This link isn't valid.", filename: null, mime: null, dataBase64: null };
+      const confirmation = await deliveryConfirmationFor(ctx, resolved.load.id);
+      if (!confirmation) return { ok: false, error: "This delivery hasn't been confirmed yet.", filename: null, mime: null, dataBase64: null };
+      const pdf = await buildSignedPodPdf(ctx, resolved.load, confirmation);
+      return {
+        ok: true,
+        error: null,
+        filename: `signed-pod-load-${resolved.load.id}.pdf`,
+        mime: "application/pdf",
+        dataBase64: Buffer.from(pdf.bytes).toString("base64"),
+      };
+    },
+  }),
+
+  emailReceiverCopy: defineAction({
+    description: "PUBLIC: email the signed POD PDF to the receiver's typed address. Audited against the load (document mail).",
+    request: z.object({
+      token: z.string().min(8).max(80),
+      toEmail: z.string().email().max(200),
+    }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable(), status: z.string().nullable() }),
+    privileged: [privileged.docEmailConfig, privileged.sendDocEmail],
+    async handler(ctx, args) {
+      const resolved = await resolveReceiveToken(ctx, args.token);
+      if (!resolved) return { ok: false, error: "This link isn't valid.", status: null };
+      const { load } = resolved;
+      const confirmation = await deliveryConfirmationFor(ctx, load.id);
+      if (!confirmation) return { ok: false, error: "This delivery hasn't been confirmed yet.", status: null };
+      const pdf = await buildSignedPodPdf(ctx, load, confirmation);
+      const db = ctx.db<typeof schema>();
+      const subject = `Your signed delivery copy — Load #${load.id}`;
+      const send = await ctx.executePrivileged(privileged.sendDocEmail, {
+        to: args.toEmail,
+        replyTo: null,
+        subject,
+        text: `Attached is your signed proof of delivery for load #${load.id} (${load.pickupCity ?? ""} → ${load.deliveryCity ?? ""}), received by ${confirmation.receiverName ?? "the receiver"}.\nKeep it for your records.\n\n— STONEMILES by Stonervision`,
+        attachmentFilename: `signed-pod-load-${load.id}.pdf`,
+        attachmentBase64: Buffer.from(pdf.bytes).toString("base64"),
+      });
+      const status = send.ok ? "sent" : send.notConfigured ? "queued" : "failed";
+      await db.insert(schema.documentSends).values({
+        profileId: load.profileId ?? null,
+        username: (await driverUsernameForLoad(ctx, load)) ?? "receiver-copy",
+        docRef: `podcopy:${load.id}`,
+        docKind: "receiver_copy",
+        docTitle: `Signed POD copy — Load #${load.id}`,
+        toEmail: args.toEmail,
+        replyTo: null,
+        subject,
+        status,
+        providerId: send.providerId ?? null,
+        detail: send.notConfigured ? "Mail transport not configured yet — the send is queued." : send.errorMessage ?? null,
+        sentAt: send.ok ? new Date() : null,
+      });
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: load.id,
+        sessionId: null,
+        event: "receiver_copy_emailed",
+        payload: { loadId: load.id, channel: "email", toMasked: maskEmailForLog(args.toEmail), status, at: new Date().toISOString() },
+      });
+      return { ok: status !== "failed", error: status === "failed" ? (send.errorMessage ?? "The email could not be sent.") : null, status };
+    },
+  }),
+
+  logReceiverCopyTextOffer: defineAction({
+    description: "Audit-log a receiver-copy offer handed to the DRIVER'S device text app (sms: handoff — no server SMS exists). Stores only a masked number + hash.",
+    request: z.object({
+      token: z.string().min(8).max(80),
+      phone: z.string().min(7).max(24),
+    }),
+    response: z.object({ ok: z.boolean(), masked: z.string().nullable() }),
+    async handler(ctx, args) {
+      const resolved = await resolveReceiveToken(ctx, args.token);
+      if (!resolved) return { ok: false, masked: null };
+      const digits = args.phone.replace(/\D/g, "");
+      if (digits.length < 7 || digits.length > 15) return { ok: false, masked: null };
+      const masked = `***-***-${digits.slice(-2)}`;
+      const phoneHash = (await sha256Bytes(new TextEncoder().encode(digits))).slice(0, 16);
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: resolved.load.id,
+        sessionId: null,
+        event: "receiver_copy_text_offered",
+        payload: { loadId: resolved.load.id, channel: "driver_device_text", masked, phoneHash, at: new Date().toISOString() },
+      });
+      return { ok: true, masked };
+    },
+  }),
 
   getDocCopySettings: defineAction({
 

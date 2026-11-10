@@ -74,6 +74,32 @@ export interface PdfDocInput {
   subtitle?: string | null;
   sections: PdfSection[];
   footer: string;
+  /** Media block (receive-link legs, 2026-11-10): a QR matrix and/or a
+   *  JPEG (a signature), drawn in a media band right under the header
+   *  rule, before the sections. Captions ride as ordinary lines in the
+   *  first section. */
+  qr?: { modules: boolean[][] } | null;
+  image?: { jpegBytes: Uint8Array; widthPt: number; heightPt: number } | null;
+}
+
+/** Pixel dimensions of a JPEG, from its SOF0/SOF2 marker — needed to
+ *  declare the image XObject. Returns null for non-JPEG bytes. */
+export function jpegDimensions(bytes: Uint8Array): { width: number; height: number } | null {
+  if (bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) return null;
+  let i = 2;
+  while (i + 9 < bytes.length) {
+    if (bytes[i] !== 0xff) return null;
+    const marker = bytes[i + 1]!;
+    if (marker === 0xc0 || marker === 0xc2) {
+      const height = (bytes[i + 5]! << 8) | bytes[i + 6]!;
+      const width = (bytes[i + 7]! << 8) | bytes[i + 8]!;
+      return { width, height };
+    }
+    const len = (bytes[i + 2]! << 8) | bytes[i + 3]!;
+    if (len < 2) return null;
+    i += 2 + len;
+  }
+  return null;
 }
 
 type Placed =
@@ -82,7 +108,11 @@ type Placed =
   | { kind: "rule" }
   | { kind: "heading"; text: string }
   | { kind: "line"; text: string }
+  | { kind: "qr"; modules: boolean[][] }
+  | { kind: "image"; widthPt: number; heightPt: number }
   | { kind: "gap"; size: number };
+
+const QR_BOX_PT = 132;
 
 function layout(input: PdfDocInput): Placed[][] {
   const items: Placed[] = [];
@@ -94,6 +124,14 @@ function layout(input: PdfDocInput): Placed[][] {
   items.push({ kind: "gap", size: 4 });
   items.push({ kind: "rule" });
   items.push({ kind: "gap", size: 8 });
+  if (input.qr) {
+    items.push({ kind: "qr", modules: input.qr.modules });
+    items.push({ kind: "gap", size: 6 });
+  }
+  if (input.image) {
+    items.push({ kind: "image", widthPt: input.image.widthPt, heightPt: input.image.heightPt });
+    items.push({ kind: "gap", size: 6 });
+  }
   input.sections.forEach((sec, i) => {
     if (i > 0) items.push({ kind: "gap", size: 8 });
     if (sec.heading) {
@@ -110,6 +148,8 @@ function layout(input: PdfDocInput): Placed[][] {
     it.kind === "title" ? 19 :
     it.kind === "heading" ? 15 :
     it.kind === "rule" ? 2 :
+    it.kind === "qr" ? QR_BOX_PT :
+    it.kind === "image" ? it.heightPt :
     it.kind === "gap" ? it.size :
     13.5;
   const pages: Placed[][] = [];
@@ -151,6 +191,28 @@ function contentStream(page: Placed[], footer: string, pageNo: number, pageCount
     } else if (it.kind === "rule") {
       ops.push(`0.75 g 0.75 w ${MARGIN} ${y} m ${PAGE_W - MARGIN} ${y} l S`);
       y -= 2;
+    } else if (it.kind === "qr") {
+      // Quiet zone of 4 modules around the matrix, black on white.
+      const n = it.modules.length;
+      const cell = QR_BOX_PT / (n + 8);
+      const x0 = MARGIN;
+      const top = y;
+      ops.push(`1 g ${x0} ${top - QR_BOX_PT} ${QR_BOX_PT} ${QR_BOX_PT} re f`);
+      ops.push("0 g");
+      const rects: string[] = [];
+      for (let r = 0; r < n; r++) {
+        for (let c = 0; c < n; c++) {
+          if (!it.modules[r]![c]) continue;
+          const rx = x0 + (c + 4) * cell;
+          const ry = top - (r + 5) * cell;
+          rects.push(`${rx.toFixed(2)} ${ry.toFixed(2)} ${cell.toFixed(2)} ${cell.toFixed(2)} re`);
+        }
+      }
+      if (rects.length) ops.push(`${rects.join(" ")} f`);
+      y -= QR_BOX_PT;
+    } else if (it.kind === "image") {
+      ops.push(`q ${it.widthPt} 0 0 ${it.heightPt} ${MARGIN} ${y - it.heightPt} cm /Im1 Do Q`);
+      y -= it.heightPt;
     } else {
       y -= it.size;
     }
@@ -163,34 +225,72 @@ function contentStream(page: Placed[], footer: string, pageNo: number, pageCount
   return ops.join("\n");
 }
 
-/** Render the document to PDF bytes (US Letter). */
+/** Render the document to PDF bytes (US Letter). Assembly is byte-based
+ *  so a JPEG stream can ride as a raw chunk; text objects stay ASCII
+ *  (pdfText escapes everything above 127). */
 export function buildPdf(input: PdfDocInput): Uint8Array {
   const pages = layout(input);
-  const objects: string[] = [];
-  // 1: catalog, 2: pages, 3/4: fonts; then per page: page + content.
-  objects.push("<< /Type /Catalog /Pages 2 0 R >>");
+  type Obj = { text: string } | { dict: string; stream: Uint8Array };
+  const objects: Obj[] = [];
+  // 1: catalog, 2: pages, 3/4: fonts; then per page: page + content;
+  // the optional JPEG image object rides last.
+  const imageObjNum = input.image ? 5 + pages.length * 2 : 0;
+  objects.push({ text: "<< /Type /Catalog /Pages 2 0 R >>" });
   const kids = pages.map((_, i) => `${5 + i * 2} 0 R`).join(" ");
-  objects.push(`<< /Type /Pages /Kids [${kids}] /Count ${pages.length} >>`);
-  objects.push("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
-  objects.push("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>");
+  objects.push({ text: `<< /Type /Pages /Kids [${kids}] /Count ${pages.length} >>` });
+  objects.push({ text: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>" });
+  objects.push({ text: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>" });
   pages.forEach((page, i) => {
     const content = contentStream(page, input.footer, i + 1, pages.length);
-    objects.push(
-      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_W} ${PAGE_H}] ` +
-      `/Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${6 + i * 2} 0 R >>`,
-    );
-    objects.push(`<< /Length ${content.length} >>\nstream\n${content}\nendstream`);
+    const hasImage = page.some((it) => it.kind === "image");
+    objects.push({
+      text:
+        `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_W} ${PAGE_H}] ` +
+        `/Resources << /Font << /F1 3 0 R /F2 4 0 R >>${hasImage ? ` /XObject << /Im1 ${imageObjNum} 0 R >>` : ""} >> /Contents ${6 + i * 2} 0 R >>`,
+    });
+    objects.push({ text: `<< /Length ${content.length} >>\nstream\n${content}\nendstream` });
   });
+  if (input.image) {
+    const dims = jpegDimensions(input.image.jpegBytes);
+    objects.push({
+      dict:
+        `<< /Type /XObject /Subtype /Image /Width ${dims?.width ?? 600} /Height ${dims?.height ?? 200} ` +
+        `/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${input.image.jpegBytes.length} >>`,
+      stream: input.image.jpegBytes,
+    });
+  }
 
-  let out = "%PDF-1.4\n";
+  const enc = new TextEncoder();
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  const push = (u: Uint8Array) => {
+    chunks.push(u);
+    length += u.length;
+  };
+  const pushText = (s: string) => push(enc.encode(s));
+  pushText("%PDF-1.4\n");
   const offsets: number[] = [];
-  objects.forEach((body, i) => {
-    offsets.push(out.length);
-    out += `${i + 1} 0 obj\n${body}\nendobj\n`;
+  objects.forEach((obj, i) => {
+    offsets.push(length);
+    if ("text" in obj) {
+      pushText(`${i + 1} 0 obj\n${obj.text}\nendobj\n`);
+    } else {
+      pushText(`${i + 1} 0 obj\n${obj.dict}\nstream\n`);
+      push(obj.stream);
+      pushText("\nendstream\nendobj\n");
+    }
   });
-  const xrefAt = out.length;
-  out += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
-  for (const off of offsets) out += `${String(off).padStart(10, "0")} 00000 n \n`;
-  out += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefAt}\n%%EOF`;
-  return new TextEncoder().encode(out);
+  const xrefAt = length;
+  let tail = `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  for (const off of offsets) tail += `${String(off).padStart(10, "0")} 00000 n \n`;
+  tail += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefAt}\n%%EOF`;
+  pushText(tail);
+
+  const out = new Uint8Array(length);
+  let at = 0;
+  for (const u of chunks) {
+    out.set(u, at);
+    at += u.length;
+  }
+  return out;
 }

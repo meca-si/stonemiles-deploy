@@ -305,6 +305,24 @@ server = Bun.serve({
       return json({ error: "not found" }, 404);
     }
 
+    // ---- Receive-link pages (2026-11-10): the receiver-facing public
+    // pages. /receive/<token> is the action page (confirm delivery);
+    // /pod/<token> is the view-only copy page. Both serve the same
+    // static shell; the page reads the token from its own path and
+    // talks to the PUBLIC_ACTIONS receive actions. No session.
+    if (
+      req.method === "GET" &&
+      (pathname.startsWith("/receive/") || pathname.startsWith("/pod/"))
+    ) {
+      const page = Bun.file(path.join(STANDALONE_ROOT, "host", "receive.html"));
+      if (await page.exists()) {
+        return new Response(page, {
+          headers: { "content-type": "text/html" },
+        });
+      }
+      return json({ error: "not found" }, 404);
+    }
+
     // ---- Auth routes (Phase 2b): host routes, not actions — they run
     // before a session exists and set the session cookie themselves.
     if (pathname.startsWith("/auth/")) {

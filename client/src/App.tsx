@@ -209,6 +209,7 @@ type TruckStopDetails,
 import { MilestonesBoardPanel } from "./Board";
 import { FleetLoadBoardPanel, RuggsLogisticsLedgerPanel } from "./LoadBoard";
 import { LibraryPanel } from "./Library";
+import { DeliveryCloseout } from "./DeliveryCloseout";
 import { OpenBoardPanel } from "./OpenBoard";
 import { BrokerCenterPanel } from "./Broker";
 import { ShipperPortalPanel } from "./ShipperPortal";
@@ -902,6 +903,7 @@ const MECA_DEST_INFO: Record<MecaDestId, { label: string; blurb: string }> = {
   trips: { label: "Trips → Trip sheets", blurb: "Trip sheets live in the Trips screen (More → Trips) — miles by state, pay, sealed proof, and IFTA exports." },
   hours: { label: "Driver → Hours / HOS", blurb: "Your hours live on the Driver tab — duty status and the HOS clocks are at the top, with the full daily log and log fixes below. On desktop, Owner/Dispatch get the fleet-wide view in Owner Console → Hours." },
   settlements: { label: "Settlements", blurb: "The Settlement Checker is on the Driver tab (Owner Console → Settlements on desktop) — it compares a settlement against your sealed loads and flags underpayments and missing loads with amounts." },
+  library: { label: "Library", blurb: "The Library is on the Driver tab in the Records & Taxes group — one records home: your delivered loads with their sealed records, statements, state-by-state fuel tax, filings, uploads, and sealed files, each printable, emailable, and downloadable. A delivered load's bill of lading (with its receive-link QR) and signed POD live there too." },
   detention: { label: "Detention Pay", blurb: "Detention Pay lives on each load's card in the Loads tab — open the load and its Detention Pay tracker is in the details: tap Arrived when you reach the gate and Departed when you leave, and every minute seals into the record. Time past your free-time allowance accrues at your own set rate as an estimate for claims, and the tracker exports a Detention Pay report built from those sealed arrival/departure stamps — the proof a detention invoice needs." },
   documents: { label: "Documents", blurb: "Your documents live in the Document Vault on the Driver tab — CDL, medical card, and insurance, with renewal reminders. Company paperwork lives in Owner Console → Documents on desktop." },
   chat: { label: "Chat", blurb: "Chat is under More → Chat — company chat, groups, and DMs. On desktop it's Owner Console → Company Chat." },
@@ -18431,6 +18433,7 @@ export function App() {
                         )}
                       </div>
                     )}
+                    <DeliveryCloseout loadId={l.id} setBanner={setBanner} />
                     {(l.brokerName || l.brokerCompany || l.brokerMc) && (
                       <div className="mt-1 text-xs text-[var(--dim)]">
                         Broker: <span className="text-[var(--text)]">{[l.brokerName, l.brokerCompany, l.brokerMc].filter(Boolean).join(" · ")}</span>

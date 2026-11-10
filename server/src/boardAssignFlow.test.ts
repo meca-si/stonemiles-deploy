@@ -750,3 +750,315 @@ describe("user library", () => {
     expect(sealed!.status).toBe("broken");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Receive link + signature close-out (owner orders, 2026-11-10):
+//   (r) the public receive page carries NO rate/money fields
+//   (s) a receiver confirmation seals the delivery, flips the desk
+//       status, and completes the Library packet
+//   (t) a token cannot read or act on any other load; forged refused
+//   (u) post-confirmation the link refuses further edits (first wins)
+//   (v) the driver fallback close (standing POD seal) still works
+//   (w) desk regeneration invalidates the old token
+//   (x) phone-signature close seals + attaches the signature document
+//   (y) paper-POD upload close seals; the desk sees status + proof
+//   (x2) a second close path after the first writes NO duplicate event
+//   (z) exception notes surface the flag at the desk
+//   (aa) receiver copy by email queues/sends exactly one copy
+//   (bb) the copy link is view-only
+//   (cc) document download returns the signed POD PDF
+//   (dd) skipping the copy prompt changes nothing about the seal
+// ---------------------------------------------------------------------------
+
+const TINY_JPEG = Buffer.from([
+  0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, ...new Array(14).fill(0),
+  0xff, 0xc0, 0x00, 0x11, 0x08, 0x00, 0xc8, 0x02, 0x58, 0x03, 0x01, 0x22, 0x00, 0x02, 0x11, 0x01, 0x03, 0x11, 0x01,
+  0xff, 0xd9,
+]);
+const TINY_JPEG_B64 = TINY_JPEG.toString("base64");
+const TINY_JPEG_SHA = createHash("sha256").update(TINY_JPEG).digest("hex");
+
+async function bookLoadFor(driverCtx: CtxT, username: string): Promise<{ boardId: number; loadId: number }> {
+  const boardId = await postFleetLoad(owner1Ctx);
+  const asg = await Actions.assignBoardLoad.handler(owner1Ctx, { id: boardId, targetUsername: username } as never);
+  expect(asg.ok).toBe(true);
+  const acc = await Actions.acceptAssignedLoad.handler(driverCtx, { id: boardId } as never);
+  expect(acc.ok).toBe(true);
+  return { boardId, loadId: acc.loadId! };
+}
+
+async function bookLoadForDriverA(): Promise<{ boardId: number; loadId: number }> {
+  return bookLoadFor(aCtx, "drivera");
+}
+
+// NOTE: once a driver DELIVERS a load, the standing dispatch-fee gate
+// blocks him from taking new board loads until the fee settles — so
+// each close-out case books for a FRESH fleet driver (clean fee
+// slate) instead of fighting the gate. The gate itself is Dispatch
+// rounds behavior, unchanged by these legs.
+let freshN = 0;
+async function bookLoadForFreshDriver(): Promise<{ boardId: number; loadId: number; ctx: CtxT }> {
+  freshN++;
+  const u = await seedUser(`freshdrv${freshN}`);
+  await addMember(fleet1, u.username, "driver");
+  const ctx = ctxFor(u);
+  const booked = await bookLoadFor(ctx, u.username);
+  return { ...booked, ctx };
+}
+
+async function chainEvents(loadId: number, event: string) {
+  const rows = await getDb().select().from(schema.chainLog);
+  return rows.filter((r) => r.refKind === "load" && r.refId === loadId && r.event === event);
+}
+
+describe("receive link + signature close-out", () => {
+  let boardId = 0;
+  let loadId = 0;
+  let token = "";
+
+  test("setup: a booked load is born carrying a receive link", async () => {
+    ({ boardId, loadId } = await bookLoadForDriverA());
+    const link = await Actions.getLoadReceiveLink.handler(aCtx, { loadId } as never);
+    expect(link.ok).toBe(true);
+    expect(link.token).toMatch(/^rcv_[0-9a-f]{32}$/);
+    expect(link.url).toContain(`/receive/${link.token}`);
+    expect(link.confirmed).toBe(false);
+    token = link.token!;
+    // Minted at booking: the row already existed before this call.
+    const rows = await getDb().select().from(schema.receiveLinks);
+    expect(rows.filter((r) => r.loadId === loadId && r.kind === "action").length).toBe(1);
+  });
+
+  test("(r) the receive page data contains NO rate or money fields", async () => {
+    const info = await Actions.getReceiveInfo.handler(anonCtx, { token } as never);
+    expect(info.valid).toBe(true);
+    expect(info.canConfirm).toBe(true);
+    expect(info.shipperName).toBe("Acme Steel");
+    expect(info.deliveryCity).toBe("Dallas");
+    expect(info.commodity).toBe("steel coils");
+    const wire = JSON.stringify(info);
+    expect(wire).not.toContain('"rate"');
+    expect(wire).not.toContain('"gross"');
+    expect(wire).not.toContain('"totalWithExtras"');
+    expect(wire).not.toContain("2400"); // the seeded load's rate value
+    expect(wire.toLowerCase()).not.toContain("dispatcherfee");
+  });
+
+  test("(s) receiver confirmation seals the delivery, flips desk status, completes the Library packet", async () => {
+    const r = await Actions.confirmReceive.handler(anonCtx, {
+      token, receiverName: "Sam Receiver", exceptionNotes: null, photoDataBase64: null, photoMime: null,
+    } as never);
+    expect(r.ok).toBe(true);
+    expect(r.alreadyConfirmed).toBe(false);
+    expect(r.copyUrl).toContain("/pod/cpy_");
+
+    expect((await chainEvents(loadId, "delivery_confirmed")).length).toBe(1);
+    expect((await chainEvents(loadId, "pod_seal")).length).toBe(1);
+
+    const desk = (await boardOf(owner1Ctx)).find((l) => l.id === boardId)!;
+    expect(desk.linkedPodSealed).toBe(true);
+    expect(desk.deliveryPath).toBe("receive_link");
+    expect(desk.deliveryReceiver).toBe("Sam Receiver");
+    expect(desk.deliveryException).toBeNull();
+
+    const lib = await Actions.getLibrary.handler(aCtx, {} as never);
+    expect(lib.deliveredLoads.some((l) => l.loadId === loadId)).toBe(true);
+    const packet = await Actions.getLibraryDocument.handler(aCtx, { ref: `packet:${loadId}` } as never);
+    expect(packet.ok).toBe(true);
+    const pod = await Actions.getLibraryDocument.handler(aCtx, { ref: `pod:${loadId}` } as never);
+    expect(pod.ok).toBe(true);
+    expect(Buffer.from(pod.dataBase64!, "base64").subarray(0, 5).toString()).toBe("%PDF-");
+  });
+
+  test("(u) post-confirmation the link refuses further edits — first close wins", async () => {
+    const again = await Actions.confirmReceive.handler(anonCtx, {
+      token, receiverName: "Someone Else", exceptionNotes: "changed my mind", photoDataBase64: null, photoMime: null,
+    } as never);
+    expect(again.ok).toBe(true);
+    expect(again.alreadyConfirmed).toBe(true);
+    expect((await chainEvents(loadId, "delivery_confirmed")).length).toBe(1);
+    const info = await Actions.getReceiveInfo.handler(anonCtx, { token } as never);
+    expect(info.status).toBe("confirmed");
+    expect(info.receiverName).toBe("Sam Receiver"); // the FIRST name stands
+    expect(info.canConfirm).toBe(false);
+  });
+
+  test("(aa) receiver copy by email queues exactly one copy, audited against the load", async () => {
+    const before = (await getDb().select().from(schema.documentSends)).filter((d) => d.docKind === "receiver_copy");
+    expect(before.length).toBe(0);
+    const r = await Actions.emailReceiverCopy.handler(anonCtx, { token, toEmail: "sam@receiver.example" } as never);
+    expect(r.ok).toBe(true);
+    expect(r.status).toBe("queued"); // transport unconfigured in tests — queued honestly, never faked sent
+    const after = (await getDb().select().from(schema.documentSends)).filter((d) => d.docKind === "receiver_copy");
+    expect(after.length).toBe(1);
+    expect(after[0]!.toEmail).toBe("sam@receiver.example");
+    expect(after[0]!.docRef).toBe(`podcopy:${loadId}`);
+    expect(after[0]!.profileId).toBe(driverA.profileId);
+    const evts = await chainEvents(loadId, "receiver_copy_emailed");
+    expect(evts.length).toBe(1);
+    expect(evts[0]!.payload).not.toContain("sam@receiver.example"); // masked in the chain
+  });
+
+  test("(bb)+(cc) the copy link is view-only and its document is the signed POD PDF", async () => {
+    const linkRes = await Actions.getReceiverCopyLink.handler(anonCtx, { token } as never);
+    expect(linkRes.ok).toBe(true);
+    const copyToken = linkRes.copyToken!;
+    expect(copyToken).toMatch(/^cpy_/);
+    const info = await Actions.getReceiveInfo.handler(anonCtx, { token: copyToken } as never);
+    expect(info.valid).toBe(true);
+    expect(info.kind).toBe("copy");
+    expect(info.canConfirm).toBe(false);
+    const confirmTry = await Actions.confirmReceive.handler(anonCtx, {
+      token: copyToken, receiverName: "Copy Holder", exceptionNotes: null, photoDataBase64: null, photoMime: null,
+    } as never);
+    expect(confirmTry.ok).toBe(false);
+    expect((await chainEvents(loadId, "delivery_confirmed")).length).toBe(1);
+    const doc = await Actions.getPodCopyDocument.handler(anonCtx, { token: copyToken } as never);
+    expect(doc.ok).toBe(true);
+    expect(doc.dataBase64!.startsWith("JVBERi")).toBe(true); // %PDF-
+    const text = Buffer.from(doc.dataBase64!, "base64").toString("latin1");
+    expect(text).toContain("Sam Receiver");
+  });
+
+  test("(dd) skipping the copy prompt changes nothing about the sealed delivery", async () => {
+    const chainBefore = (await getDb().select().from(schema.chainLog)).filter((r) => r.refKind === "load" && r.refId === loadId).length;
+    const sendsBefore = (await getDb().select().from(schema.documentSends)).length;
+    // Receipt views + copy-link fetches are reads, not writes.
+    await Actions.getReceiveInfo.handler(anonCtx, { token } as never);
+    await Actions.getReceiverCopyLink.handler(anonCtx, { token } as never);
+    const chainAfter = (await getDb().select().from(schema.chainLog)).filter((r) => r.refKind === "load" && r.refId === loadId).length;
+    const sendsAfter = (await getDb().select().from(schema.documentSends)).length;
+    expect(chainAfter).toBe(chainBefore);
+    expect(sendsAfter).toBe(sendsBefore);
+  });
+
+  test("(t) a token cannot read or act on any other load; forged tokens get the generic refusal", async () => {
+    const other = await bookLoadFor(bCtx, "driverb");
+    const otherLink = await Actions.getLoadReceiveLink.handler(bCtx, { loadId: other.loadId } as never);
+    // Load A's token shows ONLY load A's delivery (Dallas) — the other
+    // load exists but is unreachable through it; there is no load id
+    // parameter on the public surface at all.
+    const info = await Actions.getReceiveInfo.handler(anonCtx, { token } as never);
+    expect(info.deliveryCity).toBe("Dallas");
+    const forged = await Actions.getReceiveInfo.handler(anonCtx, { token: "rcv_0000000000000000000000000000dead" } as never);
+    expect(forged.valid).toBe(false);
+    expect(forged.shipperName).toBeNull();
+    const forgedConfirm = await Actions.confirmReceive.handler(anonCtx, {
+      token: "rcv_0000000000000000000000000000dead", receiverName: "Forged", exceptionNotes: null, photoDataBase64: null, photoMime: null,
+    } as never);
+    expect(forgedConfirm.ok).toBe(false);
+    expect(otherLink.token).not.toBe(token);
+    expect((await chainEvents(other.loadId, "delivery_confirmed")).length).toBe(0);
+  });
+
+  test("(w) desk regeneration invalidates the old token", async () => {
+    const regen = await Actions.regenerateReceiveLink.handler(owner1Ctx, { loadId } as never);
+    expect(regen.ok).toBe(true);
+    expect(regen.token).not.toBe(token);
+    const old = await Actions.getReceiveInfo.handler(anonCtx, { token } as never);
+    expect(old.valid).toBe(false);
+    const fresh = await Actions.getReceiveInfo.handler(anonCtx, { token: regen.token! } as never);
+    expect(fresh.valid).toBe(true);
+    expect(fresh.status).toBe("confirmed"); // regeneration never un-delivers
+    token = regen.token!;
+  });
+
+  test("the BOL PDF carries the receive link as text + a drawn QR", async () => {
+    const bol = await Actions.getLibraryDocument.handler(aCtx, { ref: `bol:${loadId}` } as never);
+    expect(bol.ok).toBe(true);
+    const text = Buffer.from(bol.dataBase64!, "base64").toString("latin1");
+    expect(text).toContain(`/receive/${token}`);
+    expect(text).toContain(" re f"); // QR module rects in the content stream
+  });
+
+  test("(x) phone-signature close seals the delivery and attaches the signature document", async () => {
+    const { boardId: b2, loadId: l2, ctx: xCtx } = await bookLoadForFreshDriver();
+    const r = await Actions.signDeliveryOnPhone.handler(xCtx, {
+      loadId: l2, receiverName: "Pat Dock", exceptionNotes: null,
+      signatureDataBase64: TINY_JPEG_B64, signatureMime: "image/jpeg",
+    } as never);
+    expect(r.ok).toBe(true);
+    expect(r.alreadyConfirmed).toBe(false);
+    const conf = await chainEvents(l2, "delivery_confirmed");
+    expect(conf.length).toBe(1);
+    const payload = JSON.parse(conf[0]!.payload) as { path: string; docSha256: string };
+    expect(payload.path).toBe("phone_signature");
+    expect(payload.docSha256).toBe(TINY_JPEG_SHA);
+    const copies = (await getDb().select().from(schema.filedDocCopies)).filter((c) => c.loadId === l2 && c.docKind === "pod");
+    expect(copies.length).toBe(1);
+    expect(copies[0]!.sha256).toBe(TINY_JPEG_SHA);
+    const desk = (await boardOf(owner1Ctx)).find((l) => l.id === b2)!;
+    expect(desk.deliveryPath).toBe("phone_signature");
+    expect(desk.deliveryReceiver).toBe("Pat Dock");
+    // The signed POD PDF embeds the signature image (DCTDecode).
+    const pod = await Actions.getLibraryDocument.handler(xCtx, { ref: `pod:${l2}` } as never);
+    expect(pod.ok).toBe(true);
+    expect(Buffer.from(pod.dataBase64!, "base64").toString("latin1")).toContain("/DCTDecode");
+
+    // (x2) a second close path writes NO duplicate delivery event.
+    const link2 = await Actions.getLoadReceiveLink.handler(xCtx, { loadId: l2 } as never);
+    const second = await Actions.confirmReceive.handler(anonCtx, {
+      token: link2.token!, receiverName: "Late Link", exceptionNotes: null, photoDataBase64: null, photoMime: null,
+    } as never);
+    expect(second.ok).toBe(true);
+    expect(second.alreadyConfirmed).toBe(true);
+    expect((await chainEvents(l2, "delivery_confirmed")).length).toBe(1);
+    expect((await chainEvents(l2, "pod_seal")).length).toBe(1);
+  });
+
+  test("(y) paper-POD upload close seals it and the desk sees status + proof", async () => {
+    const { boardId: b3, loadId: l3, ctx: yCtx } = await bookLoadForFreshDriver();
+    const r = await Actions.uploadSignedBolPod.handler(yCtx, {
+      loadId: l3, receiverName: "Jo Paper", exceptionNotes: null,
+      photoDataBase64: TINY_JPEG_B64, photoMime: "image/jpeg",
+    } as never);
+    expect(r.ok).toBe(true);
+    const desk = (await boardOf(owner1Ctx)).find((l) => l.id === b3)!;
+    expect(desk.linkedPodSealed).toBe(true);
+    expect(desk.deliveryPath).toBe("paper_bol");
+    const copies = (await getDb().select().from(schema.filedDocCopies)).filter((c) => c.loadId === l3 && c.docKind === "pod");
+    expect(copies.length).toBe(1);
+    expect(copies[0]!.sha256).toBe(TINY_JPEG_SHA); // the proof is filed + viewable
+    const lib = await Actions.getLibrary.handler(owner1Ctx, {} as never);
+    expect((lib.fleet?.deliveredLoads ?? []).some((l) => l.loadId === l3)).toBe(true);
+  });
+
+  test("(z) exception notes surface the flag at the desk — visibly, not buried", async () => {
+    const { boardId: b4, loadId: l4, ctx: zCtx } = await bookLoadForFreshDriver();
+    const r = await Actions.signDeliveryOnPhone.handler(zCtx, {
+      loadId: l4, receiverName: "Rue Checker", exceptionNotes: "2 cases crushed, corner damage",
+      signatureDataBase64: TINY_JPEG_B64, signatureMime: "image/jpeg",
+    } as never);
+    expect(r.ok).toBe(true);
+    const desk = (await boardOf(owner1Ctx)).find((l) => l.id === b4)!;
+    expect(desk.deliveryException).toBe("2 cases crushed, corner damage");
+    const link = await Actions.getLoadReceiveLink.handler(zCtx, { loadId: l4 } as never);
+    expect(link.exceptionNotes).toBe("2 cases crushed, corner damage");
+  });
+
+  test("(v) driver fallback close still works when the link was never used", async () => {
+    const { loadId: l5, ctx: vCtx } = await bookLoadForFreshDriver();
+    const seal = await Actions.sealDelivery.handler(vCtx, {
+      loadId: l5, lat: 32.7767, lon: -96.797, autoSealed: false, deliveryLat: 32.7767, deliveryLon: -96.797,
+    } as never);
+    expect(seal.hash).toBeTruthy();
+    expect((await chainEvents(l5, "pod_seal")).length).toBe(1);
+    const link = await Actions.getLoadReceiveLink.handler(vCtx, { loadId: l5 } as never);
+    expect(link.confirmed).toBe(true);
+    expect(link.path).toBe("driver_pod");
+    // And the link then reports already-confirmed instead of double-sealing.
+    const viaLink = await Actions.confirmReceive.handler(anonCtx, {
+      token: link.token!, receiverName: "Too Late", exceptionNotes: null, photoDataBase64: null, photoMime: null,
+    } as never);
+    expect(viaLink.alreadyConfirmed).toBe(true);
+    expect((await chainEvents(l5, "delivery_confirmed")).length).toBe(0);
+    expect((await chainEvents(l5, "pod_seal")).length).toBe(1);
+  });
+
+  test("no server SMS codepath exists — no action sends texts", () => {
+    const names = Object.keys(Actions);
+    expect(names.filter((n) => /sms|textmessage/i.test(n))).toEqual([]);
+    // The text offer is an audit log of a DEVICE handoff, nothing more.
+    expect(names).toContain("logReceiverCopyTextOffer");
+  });
+});

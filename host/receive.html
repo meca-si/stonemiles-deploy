@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>STONEMILES — Delivery confirmation</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:#050a1a; color:#e8ecf4; }
+  main { max-width: 560px; margin: 5vh auto; padding: 16px; }
+  .card { background:#0b1226; border:1px solid #1d2a4a; border-radius:16px; padding:24px; }
+  h1 { font-size: 20px; margin: 0 0 6px; }
+  h2 { font-size: 15px; margin: 22px 0 8px; }
+  p, li { color:#c6d2e8; font-size: 15px; line-height: 1.55; }
+  .dim { color:#8fa1c4; font-size:13px; }
+  .kv { display:flex; justify-content:space-between; gap:16px; padding:6px 0; border-bottom:1px solid #16223f; font-size:15px; }
+  .kv span:first-child { color:#8fa1c4; }
+  .kv span:last-child { text-align:right; }
+  label { display:block; font-size:13px; color:#8fa1c4; margin:14px 0 6px; }
+  input[type="text"], input[type="email"], textarea {
+    width:100%; box-sizing:border-box; background:#081020; border:1px solid #26355c; border-radius:10px;
+    color:#e8ecf4; padding:12px; font-size:16px; font-family:inherit;
+  }
+  button {
+    width:100%; margin-top:16px; background:#2563eb; color:#fff; border:0; border-radius:12px;
+    padding:14px; font-size:16px; font-weight:600; cursor:pointer;
+  }
+  button.secondary { background:#16223f; color:#c6d2e8; }
+  button:disabled { opacity:.55; cursor:default; }
+  .ok { background:#0d2b1a; border:1px solid #1f5136; border-radius:12px; padding:14px; }
+  .warn { background:#2b1d0d; border:1px solid #6b4d1f; border-radius:12px; padding:14px; }
+  .err { background:#2b0d0d; border:1px solid #5c1f1f; border-radius:12px; padding:14px; }
+  .row { display:flex; gap:10px; } .row > * { flex:1; }
+</style>
+</head>
+<body>
+<main>
+  <div class="card" id="app">
+    <h1>Delivery confirmation</h1>
+    <p class="dim">Loading your delivery…</p>
+  </div>
+  <p class="dim" style="text-align:center; margin-top:14px;">STONEMILES by Stonervision — sealed delivery records</p>
+</main>
+<script>
+const app = document.getElementById("app");
+const parts = location.pathname.split("/").filter(Boolean);
+const mode = parts[0]; // "receive" (action link) or "pod" (view-only copy link)
+const token = parts[1] || "";
+
+async function call(action, args) {
+  const res = await fetch("/actions", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ action, args }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (body && body.error) throw new Error(body.error);
+  return body.data;
+}
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+function kv(label, value) {
+  if (value == null || value === "") return "";
+  return `<div class="kv"><span>${esc(label)}</span><span>${esc(value)}</span></div>`;
+}
+function invalidPage() {
+  app.innerHTML = `<h1>Delivery confirmation</h1><div class="err"><p style="margin:0;">This link isn't valid. Ask the driver or the shipping desk for a fresh link.</p></div>`;
+}
+
+let photo = null; // { dataBase64, mime }
+
+function deliveryCard(info) {
+  return `
+    ${kv("Shipper", info.shipperName)}
+    ${kv("Deliver to", [info.deliveryCity, info.deliveryState].filter(Boolean).join(", "))}
+    ${kv("Delivery window", info.deliveryWindow)}
+    ${kv("Commodity", info.commodity)}
+    ${kv("Pieces", info.pieces)}
+    ${kv("Weight", info.weightText)}
+    ${kv("Carrier", info.fleetName)}
+    ${kv("Driver", info.driverFirstName)}`;
+}
+
+function copyOptionsHtml() {
+  return `
+    <h2>Your copy of the signed proof of delivery</h2>
+    <p class="dim">For your safe keeping — this is the sealed record of this delivery.</p>
+    <label for="copyEmail">Email it to me</label>
+    <input type="email" id="copyEmail" placeholder="you@company.com" autocomplete="email" />
+    <button class="secondary" id="emailBtn">Email my copy</button>
+    <div class="row">
+      <button class="secondary" id="downloadBtn">Download / print</button>
+      <button class="secondary" id="shareBtn">Share copy link</button>
+    </div>
+    <p class="dim" id="copyMsg"></p>`;
+}
+
+function wireCopyOptions(copyUrl) {
+  const msg = document.getElementById("copyMsg");
+  document.getElementById("emailBtn").addEventListener("click", async () => {
+    const email = document.getElementById("copyEmail").value.trim();
+    if (!email) { msg.textContent = "Type your email address first."; return; }
+    msg.textContent = "Sending…";
+    try {
+      const r = await call("emailReceiverCopy", { token, toEmail: email });
+      msg.textContent = r && r.ok
+        ? (r.status === "queued" ? "Your copy is queued — email delivery is being set up; you can also download it below." : "Sent — check your inbox.")
+        : "That email couldn't be sent. You can download the copy instead.";
+    } catch { msg.textContent = "That email couldn't be sent. You can download the copy instead."; }
+  });
+  document.getElementById("downloadBtn").addEventListener("click", async () => {
+    msg.textContent = "Preparing your PDF…";
+    try {
+      const doc = await call("getPodCopyDocument", { token });
+      if (!doc || !doc.ok) { msg.textContent = "The copy isn't ready yet."; return; }
+      const bytes = Uint8Array.from(atob(doc.dataBase64), (c) => c.charCodeAt(0));
+      const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+      const a = document.createElement("a");
+      a.href = url; a.download = doc.filename || "signed-pod.pdf"; a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      msg.textContent = "Downloaded. Your browser's print dialog can also print it from the PDF.";
+    } catch { msg.textContent = "The download failed — try again."; }
+  });
+  document.getElementById("shareBtn").addEventListener("click", async () => {
+    const link = copyUrl || location.href;
+    try {
+      if (navigator.share) { await navigator.share({ title: "Signed proof of delivery", url: link }); return; }
+      throw new Error("no share");
+    } catch {
+      try { await navigator.clipboard.writeText(link); msg.textContent = "Copy link saved to your clipboard."; }
+      catch { msg.textContent = link; }
+    }
+  });
+}
+
+function receiptView(info, copyUrl) {
+  app.innerHTML = `
+    <h1>Delivered ✓</h1>
+    <div class="ok"><p style="margin:0;">Received by <strong>${esc(info.receiverName || "the receiver")}</strong>${info.confirmedAt ? ` · ${esc(new Date(info.confirmedAt).toLocaleString())}` : ""}. This confirmation is sealed in the load's record — the link is now a receipt and can't be changed.</p></div>
+    ${info.exceptionNotes ? `<div class="warn" style="margin-top:12px;"><p style="margin:0;">⚠ Exceptions reported: ${esc(info.exceptionNotes)}</p></div>` : ""}
+    <h2>Delivery</h2>
+    ${deliveryCard(info)}
+    <div id="copyZone">${copyOptionsHtml()}</div>`;
+  wireCopyOptions(copyUrl);
+}
+
+function confirmView(info) {
+  app.innerHTML = `
+    <h1>Confirm your delivery</h1>
+    <p class="dim">Check the load, then sign with your name. No account needed.</p>
+    ${deliveryCard(info)}
+    <label for="name">Your name (this is your signature)</label>
+    <input type="text" id="name" placeholder="Printed name" autocomplete="name" />
+    <label for="notes">Exceptions — damage or shortage (optional)</label>
+    <textarea id="notes" rows="2" placeholder="Leave blank if everything arrived clean"></textarea>
+    <label for="photo">Dock photo (optional)</label>
+    <input type="file" id="photo" accept="image/*" />
+    <button id="confirmBtn">Confirm received</button>
+    <p class="dim" id="msg"></p>`;
+  document.getElementById("photo").addEventListener("change", (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) { photo = null; return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const s = String(reader.result || "");
+      photo = { dataBase64: s.slice(s.indexOf(",") + 1), mime: f.type || "image/jpeg" };
+    };
+    reader.readAsDataURL(f);
+  });
+  document.getElementById("confirmBtn").addEventListener("click", async () => {
+    const name = document.getElementById("name").value.trim();
+    const notes = document.getElementById("notes").value.trim();
+    const msg = document.getElementById("msg");
+    if (!name) { msg.textContent = "Type your name — that's your signature on this delivery."; return; }
+    const btn = document.getElementById("confirmBtn");
+    btn.disabled = true; msg.textContent = "Sealing your confirmation…";
+    try {
+      const r = await call("confirmReceive", {
+        token,
+        receiverName: name,
+        exceptionNotes: notes || null,
+        photoDataBase64: photo ? photo.dataBase64 : null,
+        photoMime: photo ? photo.mime : null,
+      });
+      if (!r || !r.ok) { msg.textContent = "This link isn't valid for confirming a delivery."; btn.disabled = false; return; }
+      const fresh = await call("getReceiveInfo", { token });
+      receiptView(fresh, r.copyUrl);
+    } catch {
+      msg.textContent = "Something went wrong — try again.";
+      btn.disabled = false;
+    }
+  });
+}
+
+(async () => {
+  if (!token) { invalidPage(); return; }
+  try {
+    const info = await call("getReceiveInfo", { token });
+    if (!info || !info.valid) { invalidPage(); return; }
+    if (info.status === "confirmed") {
+      let copyUrl = location.href;
+      try {
+        const c = await call("getReceiverCopyLink", { token });
+        if (c && c.ok) copyUrl = c.copyUrl;
+      } catch { /* the receipt stands without it */ }
+      receiptView(info, copyUrl);
+    } else if (mode === "receive" && info.canConfirm) {
+      confirmView(info);
+    } else {
+      app.innerHTML = `<h1>Delivery</h1><p>This delivery hasn't been confirmed yet.</p>${deliveryCard(info)}`;
+    }
+  } catch {
+    invalidPage();
+  }
+})();
+</script>
+</body>
+</html>
