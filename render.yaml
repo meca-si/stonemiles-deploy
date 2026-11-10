@@ -26,7 +26,7 @@ services:
     # when current; host/migrate-pg.ts reads DATABASE_URL itself), then
     # serve. Overrides the Dockerfile CMD, which still defaults to the
     # SQLite path for local docker runs.
-    dockerCommand: bun run host/migrate-pg.ts && bun run host/server.ts
+    dockerCommand: bun run host/migrate-pg.ts && bun run host/server.bundle.js
     envVars:
       # Dialect switch read by host/ctx.ts: "postgres" + DATABASE_URL
       # selects Postgres; unset selects the Phase 1 SQLite path.

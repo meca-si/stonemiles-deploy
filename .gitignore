@@ -5,3 +5,6 @@ data/
 host/pg/work/
 *.log
 .env*
+
+# Round 3: host bundle is built in the Docker image, never committed
+host/server.bundle.js
