@@ -25,7 +25,7 @@
 // - Signed in → children + a compact account bar (email, sign out, and
 //   for the owner: invite desk + tester completion list).
 
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 interface MeState {
   signedIn: boolean;
@@ -292,6 +292,7 @@ async function getPasskeyAssertion(
 }
 
 function SignInScreen({ onSignedIn }: { onSignedIn: () => void }) {
+  const emailRef = useRef<HTMLInputElement | null>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [totpCode, setTotpCode] = useState("");
@@ -456,6 +457,20 @@ function SignInScreen({ onSignedIn }: { onSignedIn: () => void }) {
   return (
     <div style={wrap}>
       <div style={card}>
+        {/* Sign in at the top of the signed-out view (x, 2026-11-11):
+            this screen renders no app top bar or menu, so the button
+            that sits beside Menu in the bar rides at the top of the
+            card instead — it puts the cursor in the email field, the
+            first step of the form right below it. */}
+        <div style={{ display: "flex", justifyContent: "flex-end" }}>
+          <button
+            type="button"
+            style={{ ...ghostButton, marginTop: 0 }}
+            onClick={() => emailRef.current?.focus()}
+          >
+            Sign in
+          </button>
+        </div>
         <h1 style={{ fontSize: 20, margin: "0 0 6px" }}>STONEMILES by Stonervision</h1>
         <p style={{ color: "#9fb0d0", fontSize: 14, margin: 0, lineHeight: 1.5 }}>
           Sign in to your account. New accounts are invite-only — if you
@@ -464,7 +479,7 @@ function SignInScreen({ onSignedIn }: { onSignedIn: () => void }) {
         <form onSubmit={submit}>
           <label style={label}>
             Email
-            <input style={input} type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" required />
+            <input ref={emailRef} style={input} type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" required />
           </label>
           <label style={label}>
             Password

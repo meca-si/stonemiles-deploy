@@ -396,6 +396,15 @@ export const STRINGS: Record<string, Partial<Record<Lang, string>>> = {
     ru: "Условия разрешения печатаются по-английски в точности как выданы — главным считается этот текст.",
     uk: "Умови дозволу друкуються англійською в точності як видані — головним вважається цей текст.",
   },
+  // Top bar auth button (x, 2026-11-11 — Sign out beside the Menu)
+  "topbar.signOut": { en: "Sign out", es: "Cerrar sesión", pt: "Sair", ru: "Выйти", uk: "Вийти" },
+  "topbar.signOutQuestion": {
+    en: "Sign out of this device?",
+    es: "¿Cerrar sesión en este dispositivo?",
+    pt: "Sair deste dispositivo?",
+    ru: "Выйти на этом устройстве?",
+    uk: "Вийти на цьому пристрої?",
+  },
   // Ask Meca chrome
   "meca.askMeca": { en: "Ask Meca", es: "Pregunta a Meca", pt: "Pergunte à Meca", ru: "Спросить Meca", uk: "Запитати Meca" },
   "meca.takeMeThere": { en: "Take me there", es: "Llévame ahí", pt: "Me leve lá", ru: "Покажи, где это", uk: "Покажи, де це" },

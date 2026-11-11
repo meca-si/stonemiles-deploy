@@ -252,6 +252,10 @@ export function SecurityHosts({
   const [unlockErr, setUnlockErr] = useState<string | null>(null);
   const lastActivityRef = useRef(Date.now());
   const autoLockedRef = useRef(false);
+  // The signed-out overlay's top "Sign in" button (x, 2026-11-11)
+  // focuses this PIN field — the overlay renders no top bar, so the
+  // button rides at the top of the view instead of beside a menu.
+  const signInPinRef = useRef<HTMLInputElement | null>(null);
 
   const packQuery = useQuery({
     queryKey: ["security-pack"],
@@ -494,6 +498,31 @@ export function SecurityHosts({
       )}
       {signedOut && !remoteLocked && !cutOff && (
         <div className="fixed inset-0 z-[992] flex flex-col items-center justify-center bg-[var(--bg)] px-6" role="dialog" aria-label="Sign in">
+          {/* Sign in at the top of the signed-out view (x, 2026-11-11):
+              this overlay covers the app top bar, so the button that
+              sits beside Menu in the bar rides at the top here instead.
+              It drives THIS view's own doors — focus the PIN field when
+              a PIN is set, the biometric door when offered, otherwise
+              the plain sign-this-device-back-in flow below. */}
+          <div className="absolute right-3 top-3" style={{ paddingTop: "env(safe-area-inset-top)" }}>
+            <button
+              type="button"
+              className="min-h-[44px] rounded-full bg-[var(--surface2)] px-4 py-2.5 text-sm font-bold active:opacity-80"
+              aria-label="Sign in"
+              onClick={() => {
+                if (packQuery.data?.pinSet) {
+                  signInPinRef.current?.focus();
+                } else if (bio.offer) {
+                  signInWithBiometric();
+                } else {
+                  reRegister();
+                  completeSignIn();
+                }
+              }}
+            >
+              Sign in
+            </button>
+          </div>
           <div className="text-4xl" aria-hidden>🔑</div>
           <h2 className="mt-2 text-center font-condensed text-3xl font-bold">
             {localSignOut ? "Signed out" : "Signed out everywhere"}
@@ -516,6 +545,7 @@ export function SecurityHosts({
           {packQuery.data?.pinSet ? (
             <>
               <input
+                ref={signInPinRef}
                 type="password"
                 inputMode="numeric"
                 autoComplete="off"

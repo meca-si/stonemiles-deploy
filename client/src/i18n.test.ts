@@ -122,6 +122,7 @@ describe("t — the keyed catalogue", () => {
       "settings.fontSize", "govern.note", "govern.atlasLine", "govern.permitsNote",
       "meca.takeMeThere", "meca.takeMeThereInstead", "meca.notAvailable",
       "meca.tapTakeMeThere", "meca.placeholder", "meca.askMeca",
+      "topbar.signOut", "topbar.signOutQuestion",
     ];
     for (const key of keys) {
       for (const lang of LANGS) {

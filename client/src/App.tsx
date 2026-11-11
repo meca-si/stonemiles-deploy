@@ -2724,6 +2724,16 @@ export function App() {
   // App Menu + its reading pages (Dictionary / FAQ / Disclaimer /
   // Donations / About) — secondary surfaces live here, not in the scroll.
   const [showMenu, setShowMenu] = useState(false);
+  // Top-bar Sign out (x, 2026-11-11): the button beside Menu opens a
+  // small confirm card under the bar; confirming calls the SAME
+  // requestSignOut() the Settings "Sign out of this device" uses —
+  // no second sign-out path, no session-semantics change.
+  const [signOutConfirm, setSignOutConfirm] = useState(false);
+  useEffect(() => {
+    if (!signOutConfirm) return;
+    const t = setTimeout(() => setSignOutConfirm(false), 6000);
+    return () => clearTimeout(t);
+  }, [signOutConfirm]);
   // DOT Inspection Mode: the locked-down officer view. It renders above
   // the menu/panels but below the PIN lock — opening it needs no wallet
   // or private-screen unlock, and nothing else in the app is reachable
@@ -12958,7 +12968,11 @@ export function App() {
               top bar carries ONLY GPS status, Menu, and Ask Meca. The
               record-chain / Proof button and the settings gear that
               crowded this row live in the Menu now (chain state still
-              surfaces as the tamper banner below when it matters). */}
+              surfaces as the tamper banner below when it matters).
+              Sign out joined the row on x's order, 2026-11-11 — it sat
+              buried in Settings → Security & privacy; now it rides
+              beside Menu, and the signed-out views carry Sign in at
+              their top in the same spirit. */}
           <div className="flex-1" />
           {consoleEligible && isWideViewport && !consoleActive && (
             <button
@@ -12970,6 +12984,20 @@ export function App() {
               🖥 Console
             </button>
           )}
+          {/* Sign out of THIS device (x, 2026-11-11) — beside Menu.
+              Tapping opens the confirm card under the bar; confirming
+              runs requestSignOut(), the exact Settings path (revokes
+              this device's server session, drops the local token,
+              raises the sign-in screen). The Settings control stays. */}
+          <button
+            type="button"
+            onClick={() => setSignOutConfirm((v) => !v)}
+            className="min-h-[44px] rounded-full bg-[var(--surface2)] px-4 py-2.5 text-sm font-bold active:opacity-80"
+            aria-label="Sign out of this device"
+            aria-expanded={signOutConfirm}
+          >
+            🚪 {tt(lang, "topbar.signOut")}
+          </button>
           <button
             type="button"
             onClick={() => setShowMenu(true)}
@@ -12988,6 +13016,42 @@ export function App() {
           </button>
         </div>
       </header>
+
+      {/* Sign-out confirm (x, 2026-11-11) — the one quick confirmation
+          for the top-bar Sign out: a banner-style pill under the bar
+          with the question and the two doors. Confirming runs the
+          Settings sign-out path (requestSignOut); the card also
+          dismisses itself after a few seconds untouched. */}
+      {signOutConfirm && (
+        <div className="shrink-0 px-3 pt-2">
+          <div
+            className="glass-pill animate-rise flex items-center gap-2 rounded-2xl px-4 py-2.5 text-sm"
+            role="alertdialog"
+            aria-label={tt(lang, "topbar.signOutQuestion")}
+          >
+            <span className="min-w-0 flex-1 font-semibold">🚪 {tt(lang, "topbar.signOutQuestion")}</span>
+            <button
+              type="button"
+              className="btn-press shrink-0 rounded-full bg-[var(--danger)] px-3.5 py-1.5 font-bold text-white"
+              aria-label="Confirm sign out of this device"
+              onClick={() => {
+                setSignOutConfirm(false);
+                requestSignOut();
+              }}
+            >
+              {tt(lang, "topbar.signOut")}
+            </button>
+            <button
+              type="button"
+              className="btn-press shrink-0 rounded-full bg-[var(--surface2)] px-3.5 py-1.5 font-bold"
+              aria-label="Cancel sign out"
+              onClick={() => setSignOutConfirm(false)}
+            >
+              {tt(lang, "common.cancel")}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Banners — bold glass pills with a glow edge; alerts stay stark and
           high-contrast, legibility first. */}
