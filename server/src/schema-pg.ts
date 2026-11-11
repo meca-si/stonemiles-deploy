@@ -4523,3 +4523,30 @@ export const passkeyCredentials = pgTable("passkey_credentials", {
     .$defaultFn(() => new Date()),
   lastUsedAt: timestamp("last_used_at", { withTimezone: true, mode: "date" }),
 });
+
+// Beta join requests (x's order, 2026-11-11: one public join link +
+// owner approval instead of one-by-one invite emails). Written ONLY by
+// the public /join form — a row grants nothing by itself (D2 stays
+// invite-only). The owner approves/denies from the Owner desk;
+// approval mints a tester invite through the standard invite path and
+// links it here. At most one pending row per email (handler-enforced).
+export const betaJoinRequests = pgTable("beta_join_requests", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  // Normalized (trim + NFC + lowercase) applicant email — the dedupe key.
+  email: text("email").notNull(),
+  role: text("role").notNull(), // driver | fleet_owner | dispatcher | just_testing
+  note: text("note").notNull().default(""),
+  // pending | approved | denied — decided rows keep their decision
+  // metadata so the desk can show a short history.
+  status: text("status").notNull().default("pending"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  decidedAt: timestamp("decided_at", { withTimezone: true, mode: "date" }),
+  decidedBy: integer("decided_by"), // owner account id
+  // Set on approval: the account_invites row the approval minted and
+  // the auth_mail_queue row that carries its link (queued or sent).
+  inviteId: integer("invite_id"),
+  mailQueueId: integer("mail_queue_id"),
+});

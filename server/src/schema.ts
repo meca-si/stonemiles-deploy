@@ -186,3 +186,4 @@ export const authMailQueue = impl.authMailQueue;
 export const authActivityDays = impl.authActivityDays;
 export const accountIdentities = impl.accountIdentities;
 export const passkeyCredentials = impl.passkeyCredentials;
+export const betaJoinRequests = impl.betaJoinRequests;

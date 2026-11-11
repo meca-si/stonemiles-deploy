@@ -1323,7 +1323,126 @@ export async function handleAcceptInvite(req: Request): Promise<Response> {
 // POST /auth/invites        { email, kind, note? }        → owner session only
 // GET  /auth/testers                                   → owner session only (D4 list)
 // POST /auth/testers/flip   { accountId }                → owner session only (D4 manual flip)
+// POST /auth/beta-requests                             → PUBLIC submit (/join form; row only)
+// GET  /auth/beta-requests                             → owner-only join-request queue
+// POST /auth/beta-requests/decide { id, decision }     → owner-only approve / deny
 // POST /auth/password       { currentPassword, newPassword } → any full session
+
+export interface IssueInviteOutcome {
+  ok: boolean;
+  status: number;
+  error?: string;
+  inviteId?: number;
+  emailed?: boolean;
+  queued?: boolean;
+  acceptLink?: string | null;
+  mailQueueId?: number | null;
+}
+
+/** The ONE invite-issuance path (D1/D2). POST /auth/invites and the
+ *  beta-approval door (handleBetaJoinDecide) both mint through here, so
+ *  an approved join request produces EXACTLY the invite a manual owner
+ *  invite produces: same daily cap, same refusal rules, same TTL, same
+ *  mail-queue behavior, same invite_issued audit event. Callers own
+ *  their own gating (owner session) and input validation; the email
+ *  arrives already normalized. */
+export async function issueInviteCore(args: {
+  email: string;
+  kind: "tester" | "trial";
+  note?: string;
+  actorAccountId: number;
+  req: Request;
+}): Promise<IssueInviteOutcome> {
+  const db = getDb();
+  const { email, kind } = args;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const issuedToday = await db
+    .select()
+    .from(schema.authAuditLog)
+    .where(eq(schema.authAuditLog.event, "invite_issued"));
+  const issuedCount = issuedToday.filter(
+    (r) => r.actorAccountId === args.actorAccountId && r.createdAt.getTime() >= today.getTime(),
+  ).length;
+  if (issuedCount >= INVITE_ISSUE_DAILY_CAP) {
+    return { ok: false, status: 429, error: "Daily invite cap reached." };
+  }
+  const acct = await db
+    .select()
+    .from(schema.accounts)
+    .where(eq(schema.accounts.email, email))
+    .limit(1);
+  if (acct[0] && acct[0].status === "active") {
+    return { ok: false, status: 409, error: "That email already has an active account." };
+  }
+  const live = await db
+    .select()
+    .from(schema.accountInvites)
+    .where(eq(schema.accountInvites.email, email));
+  const hasLive = live.some(
+    (i) => i.kind === kind && i.status === "pending" && i.expiresAt.getTime() > Date.now(),
+  );
+  if (hasLive) {
+    return { ok: false, status: 409, error: "A live invite already exists for that email." };
+  }
+  const token = mintToken();
+  const ttl = kind === "trial" ? TRIAL_INVITE_TTL_MS : TESTER_INVITE_TTL_MS;
+  const inserted = await db
+    .insert(schema.accountInvites)
+    .values({
+      kind,
+      email,
+      tokenHash: sha256Hex(token),
+      grantPlan: "diamond",
+      invitedByAccountId: args.actorAccountId,
+      note: (args.note ?? "").slice(0, 200),
+      status: "pending",
+      expiresAt: new Date(Date.now() + ttl),
+    })
+    .returning({ id: schema.accountInvites.id });
+  const link = `${appBaseUrl(args.req)}/auth/accept?token=${encodeURIComponent(token)}`;
+  const mail = await sendAuthMail({
+    db,
+    accountId: null,
+    kind: "invite",
+    to: email,
+    subject: "You're invited to STONEMILES by Stonervision",
+    text: `You've been invited to the STONEMILES closed test. Set your password and create your account here:\n\n${link}\n\nThis link is tied to this email address and expires. Diamond is free during the test.`,
+    linkToken: token,
+  });
+  // The mail-queue row this issuance just produced — beta approvals
+  // link it onto the request row; manual invites don't need it.
+  const queueRows = await db
+    .select({ id: schema.authMailQueue.id })
+    .from(schema.authMailQueue)
+    .where(
+      and(
+        eq(schema.authMailQueue.kind, "invite"),
+        eq(schema.authMailQueue.toEmail, email),
+      ),
+    )
+    .orderBy(desc(schema.authMailQueue.id))
+    .limit(1);
+  await audit(db, {
+    event: "invite_issued",
+    accountId: null,
+    actorAccountId: args.actorAccountId,
+    detail: `${kind} invite #${inserted[0]!.id} issued for ${maskEmail(email)} (${mail.sent ? "emailed" : "queued for owner delivery"})`,
+    ip: clientIp(args.req),
+    userAgent: args.req.headers.get("user-agent"),
+  });
+  return {
+    ok: true,
+    status: 200,
+    inviteId: inserted[0]!.id,
+    emailed: mail.sent,
+    queued: mail.queued,
+    // When mail is queued the owner delivers the link himself — surfaced
+    // ONCE here to the owner session only (D1 honest-staging posture).
+    acceptLink: mail.queued ? link : null,
+    mailQueueId: queueRows[0]?.id ?? null,
+  };
+}
 
 export async function handleIssueInvite(req: Request): Promise<Response> {
   const db = getDb();
@@ -1338,77 +1457,20 @@ export async function handleIssueInvite(req: Request): Promise<Response> {
   if (kind !== "tester" && kind !== "trial") {
     return jsonRes({ error: "Invite kind must be 'tester' or 'trial'." }, 400);
   }
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const issuedToday = await db
-    .select()
-    .from(schema.authAuditLog)
-    .where(eq(schema.authAuditLog.event, "invite_issued"));
-  const issuedCount = issuedToday.filter(
-    (r) => r.actorAccountId === resolved.viewer.accountId && r.createdAt.getTime() >= today.getTime(),
-  ).length;
-  if (issuedCount >= INVITE_ISSUE_DAILY_CAP) {
-    return jsonRes({ error: "Daily invite cap reached." }, 429);
-  }
-  const acct = await db
-    .select()
-    .from(schema.accounts)
-    .where(eq(schema.accounts.email, email))
-    .limit(1);
-  if (acct[0] && acct[0].status === "active") {
-    return jsonRes({ error: "That email already has an active account." }, 409);
-  }
-  const live = await db
-    .select()
-    .from(schema.accountInvites)
-    .where(eq(schema.accountInvites.email, email));
-  const hasLive = live.some(
-    (i) => i.kind === kind && i.status === "pending" && i.expiresAt.getTime() > Date.now(),
-  );
-  if (hasLive) {
-    return jsonRes({ error: "A live invite already exists for that email." }, 409);
-  }
-  const token = mintToken();
-  const ttl = kind === "trial" ? TRIAL_INVITE_TTL_MS : TESTER_INVITE_TTL_MS;
-  const inserted = await db
-    .insert(schema.accountInvites)
-    .values({
-      kind,
-      email,
-      tokenHash: sha256Hex(token),
-      grantPlan: "diamond",
-      invitedByAccountId: resolved.viewer.accountId,
-      note: String(body.note ?? "").slice(0, 200),
-      status: "pending",
-      expiresAt: new Date(Date.now() + ttl),
-    })
-    .returning({ id: schema.accountInvites.id });
-  const link = `${appBaseUrl(req)}/auth/accept?token=${encodeURIComponent(token)}`;
-  const mail = await sendAuthMail({
-    db,
-    accountId: null,
-    kind: "invite",
-    to: email,
-    subject: "You're invited to STONEMILES by Stonervision",
-    text: `You've been invited to the STONEMILES closed test. Set your password and create your account here:\n\n${link}\n\nThis link is tied to this email address and expires. Diamond is free during the test.`,
-    linkToken: token,
-  });
-  await audit(db, {
-    event: "invite_issued",
-    accountId: null,
+  const outcome = await issueInviteCore({
+    email,
+    kind,
+    note: String(body.note ?? ""),
     actorAccountId: resolved.viewer.accountId,
-    detail: `${kind} invite #${inserted[0]!.id} issued for ${maskEmail(email)} (${mail.sent ? "emailed" : "queued for owner delivery"})`,
-    ip: clientIp(req),
-    userAgent: req.headers.get("user-agent"),
+    req,
   });
+  if (!outcome.ok) return jsonRes({ error: outcome.error }, outcome.status);
   return jsonRes({
     ok: true,
-    inviteId: inserted[0]!.id,
-    emailed: mail.sent,
-    queued: mail.queued,
-    // When mail is queued the owner delivers the link himself — returned
-    // ONCE here to the owner session only (D1 honest-staging posture).
-    acceptLink: mail.queued ? link : null,
+    inviteId: outcome.inviteId,
+    emailed: outcome.emailed,
+    queued: outcome.queued,
+    acceptLink: outcome.acceptLink ?? null,
   });
 }
 
@@ -1522,6 +1584,233 @@ export async function handleTesterFlip(req: Request): Promise<Response> {
     userAgent: req.headers.get("user-agent"),
   });
   return jsonRes({ ok: true, accountId, plan: "gold" });
+}
+
+// ---- Beta join requests (2026-11-11, x's order) -------------------------------------------
+// POST /auth/beta-requests          → public submit from the /join page (no session)
+// GET  /auth/beta-requests          → owner-only queue (pending + recent decisions)
+// POST /auth/beta-requests/decide   → owner-only approve / deny { id, decision }
+//
+// The public door creates a beta_join_requests row and NOTHING else —
+// no account, no session, no invite (D2 registration stays invite-only;
+// a request grants nothing by itself). Every absorbable outcome answers
+// the same { ok: true }, so the endpoint can never be used to enumerate
+// accounts, invites, or pending requests (§8.2 posture, same as
+// request-reset). Approval is the ONLY path from a request to an
+// invite, and it runs through issueInviteCore — the manual path — so
+// cap/refusal errors surface to the desk verbatim and the request
+// stays pending when issuance refuses.
+
+export const BETA_ROLES = [
+  "driver",
+  "fleet_owner",
+  "dispatcher",
+  "just_testing",
+] as const;
+export type BetaRole = (typeof BETA_ROLES)[number];
+const BETA_NAME_MAX = 80;
+const BETA_NOTE_MAX = 500;
+const BETA_IP_LIMIT = 10; // submissions per IP per hour (§8.1 style)
+const BETA_EMAIL_LIMIT = 5; // submissions per email per hour
+const BETA_WINDOW_MS = 60 * 60 * 1000;
+
+export async function handleBetaJoinSubmit(req: Request): Promise<Response> {
+  const db = getDb();
+  const ip = clientIp(req);
+  const body = await readJson(req);
+  const email = normalizeEmail(String(body.email ?? ""));
+  // Rate windows first: a tripped window absorbs the submission whole —
+  // same generic answer, no row, no signal about which limit fired.
+  // (The email window keys off the normalized address; ipAttempt is the
+  // codebase's in-memory window helper, keyed by any string.)
+  const ipOk = ipAttempt(ip, BETA_IP_LIMIT, BETA_WINDOW_MS);
+  const emailOk =
+    email === "" ? true : ipAttempt(`beta-email:${email}`, BETA_EMAIL_LIMIT, BETA_WINDOW_MS);
+  // Honeypot: a field real browsers never fill (the /join form renders
+  // it off-screen). Tripped ⇒ silently absorb, exactly like a success.
+  const honeypot = String(body.website ?? "").trim() !== "";
+  if (honeypot || !ipOk || !emailOk) return jsonRes({ ok: true });
+  if (!isValidEmail(email)) {
+    return jsonRes({ error: "Enter a valid email address." }, 400);
+  }
+  const name = String(body.name ?? "").trim().slice(0, BETA_NAME_MAX);
+  if (!name) return jsonRes({ error: "Enter your name." }, 400);
+  const roleRaw = String(body.role ?? "just_testing");
+  const role: BetaRole = (BETA_ROLES as readonly string[]).includes(roleRaw)
+    ? (roleRaw as BetaRole)
+    : "just_testing";
+  const note = String(body.note ?? "").trim().slice(0, BETA_NOTE_MAX);
+
+  // Silent-absorb checks — each answers the same { ok: true }:
+  //  - the email already has an account (any status)
+  //  - the email already has a live pending invite (either kind)
+  //  - a pending request already exists for the email (one-pending rule)
+  const acct = await db
+    .select({ id: schema.accounts.id })
+    .from(schema.accounts)
+    .where(eq(schema.accounts.email, email))
+    .limit(1);
+  if (acct[0]) return jsonRes({ ok: true });
+  const invites = await db
+    .select()
+    .from(schema.accountInvites)
+    .where(eq(schema.accountInvites.email, email));
+  const hasLiveInvite = invites.some(
+    (i) => i.status === "pending" && i.expiresAt.getTime() > Date.now(),
+  );
+  if (hasLiveInvite) return jsonRes({ ok: true });
+  const pending = await db
+    .select({ id: schema.betaJoinRequests.id })
+    .from(schema.betaJoinRequests)
+    .where(
+      and(
+        eq(schema.betaJoinRequests.email, email),
+        eq(schema.betaJoinRequests.status, "pending"),
+      ),
+    )
+    .limit(1);
+  if (pending[0]) return jsonRes({ ok: true });
+
+  const inserted = await db
+    .insert(schema.betaJoinRequests)
+    .values({ name, email, role, note, status: "pending" })
+    .returning({ id: schema.betaJoinRequests.id });
+  await audit(db, {
+    event: "beta_request_received",
+    accountId: null,
+    detail: `beta request #${inserted[0]!.id} from ${maskEmail(email)} (${role})`,
+    ip,
+    userAgent: req.headers.get("user-agent"),
+  });
+  return jsonRes({ ok: true });
+}
+
+export interface BetaJoinRow {
+  id: number;
+  name: string;
+  email: string;
+  role: string;
+  note: string;
+  status: string;
+  createdAt: string;
+  decidedAt: string | null;
+  inviteId: number | null;
+}
+
+export async function handleBetaJoinList(req: Request): Promise<Response> {
+  const db = getDb();
+  const resolved = await resolveSession(db, sessionCookieFromRequest(req));
+  if (!resolved || !resolved.viewer.isOwner || resolved.viewer.totpPending) {
+    return jsonRes({ error: "Owner sign-in required." }, 403);
+  }
+  // One bounded read, partitioned in memory: pending oldest-first (the
+  // work queue), then the most recent decisions (the history view).
+  const rows = await db
+    .select()
+    .from(schema.betaJoinRequests)
+    .orderBy(desc(schema.betaJoinRequests.id))
+    .limit(200);
+  const toRow = (r: (typeof rows)[number]): BetaJoinRow => ({
+    id: r.id,
+    name: r.name,
+    email: r.email,
+    role: r.role,
+    note: r.note,
+    status: r.status,
+    createdAt: r.createdAt.toISOString(),
+    decidedAt: r.decidedAt ? r.decidedAt.toISOString() : null,
+    inviteId: r.inviteId ?? null,
+  });
+  const pending = rows
+    .filter((r) => r.status === "pending")
+    .reverse()
+    .map(toRow);
+  const decided = rows
+    .filter((r) => r.status !== "pending")
+    .slice(0, 25)
+    .map(toRow);
+  return jsonRes({ pending, decided });
+}
+
+export async function handleBetaJoinDecide(req: Request): Promise<Response> {
+  const db = getDb();
+  const resolved = await resolveSession(db, sessionCookieFromRequest(req));
+  if (!resolved || !resolved.viewer.isOwner || resolved.viewer.totpPending) {
+    return jsonRes({ error: "Owner sign-in required." }, 403);
+  }
+  const body = await readJson(req);
+  const id = Number(body.id);
+  const decision = String(body.decision ?? "");
+  if (!Number.isFinite(id) || (decision !== "approve" && decision !== "deny")) {
+    return jsonRes({ error: "id and a decision ('approve' or 'deny') are required." }, 400);
+  }
+  const rows = await db
+    .select()
+    .from(schema.betaJoinRequests)
+    .where(eq(schema.betaJoinRequests.id, id))
+    .limit(1);
+  const request = rows[0];
+  if (!request) return jsonRes({ error: "No such beta request." }, 404);
+  if (request.status !== "pending") {
+    return jsonRes({ error: "That request was already decided." }, 409);
+  }
+  const now = new Date();
+  const ip = clientIp(req);
+  const userAgent = req.headers.get("user-agent");
+  if (decision === "deny") {
+    await db
+      .update(schema.betaJoinRequests)
+      .set({ status: "denied", decidedAt: now, decidedBy: resolved.viewer.accountId })
+      .where(eq(schema.betaJoinRequests.id, id));
+    await audit(db, {
+      event: "beta_request_denied",
+      accountId: null,
+      actorAccountId: resolved.viewer.accountId,
+      detail: `beta request #${id} denied (${maskEmail(request.email)})`,
+      ip,
+      userAgent,
+    });
+    return jsonRes({ ok: true, id, decision: "deny" });
+  }
+  // Approve: mint through the manual invite path, verbatim. If issuance
+  // refuses (daily cap, live invite, active account), its error goes
+  // back to the desk untouched and the request STAYS pending.
+  const outcome = await issueInviteCore({
+    email: request.email,
+    kind: "tester",
+    note: `Beta request #${id}`,
+    actorAccountId: resolved.viewer.accountId,
+    req,
+  });
+  if (!outcome.ok) return jsonRes({ error: outcome.error }, outcome.status);
+  await db
+    .update(schema.betaJoinRequests)
+    .set({
+      status: "approved",
+      decidedAt: now,
+      decidedBy: resolved.viewer.accountId,
+      inviteId: outcome.inviteId ?? null,
+      mailQueueId: outcome.mailQueueId ?? null,
+    })
+    .where(eq(schema.betaJoinRequests.id, id));
+  await audit(db, {
+    event: "beta_request_approved",
+    accountId: null,
+    actorAccountId: resolved.viewer.accountId,
+    detail: `beta request #${id} approved; tester invite #${outcome.inviteId} issued for ${maskEmail(request.email)} (${outcome.emailed ? "emailed" : "queued for owner delivery"})`,
+    ip,
+    userAgent,
+  });
+  return jsonRes({
+    ok: true,
+    id,
+    decision: "approve",
+    inviteId: outcome.inviteId,
+    emailed: outcome.emailed,
+    queued: outcome.queued,
+    // Same one-time owner-delivery rule as manual invites (D1).
+    acceptLink: outcome.acceptLink ?? null,
+  });
 }
 
 // ---- POST /auth/password (authenticated change) ---------------------------------------------

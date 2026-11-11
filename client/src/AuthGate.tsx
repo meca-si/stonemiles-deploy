@@ -14,6 +14,10 @@
 //   POST /auth/invites       → owner-only tester/trial invites (D1/D2)
 //   GET  /auth/testers       → owner-only Founding Tester list (D4)
 //   POST /auth/testers/flip  → owner-only manual Diamond→Gold-year flip (D4)
+//   POST /auth/beta-requests → public /join submit (creates a request row ONLY)
+//   GET  /auth/beta-requests → owner-only beta request queue
+//   POST /auth/beta-requests/decide → owner-only approve (mints the same
+//                              tester invite as POST /auth/invites) / deny
 //
 // Behaviour:
 // - Host in staging-anonymous mode (gateEnforced false) → children render
@@ -57,6 +61,35 @@ interface TesterRow {
   completed: boolean;
   currentPlan: string | null;
   flippedToGoldYear: boolean;
+}
+
+interface BetaRequestRow {
+  id: number;
+  name: string;
+  email: string;
+  role: string;
+  note: string;
+  status: string;
+  createdAt: string;
+  decidedAt: string | null;
+  inviteId: number | null;
+}
+
+const BETA_ROLE_LABELS: Record<string, string> = {
+  driver: "Driver",
+  fleet_owner: "Fleet owner",
+  dispatcher: "Dispatcher",
+  just_testing: "Just testing",
+};
+
+function betaAge(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(ms / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
 }
 
 async function authFetch(path: string, init?: RequestInit): Promise<Response> {
@@ -554,6 +587,14 @@ function SignInScreen({ onSignedIn }: { onSignedIn: () => void }) {
         <button style={ghostButton} onClick={() => setResetMode(true)}>
           Forgot your password?
         </button>
+        <div>
+          <a
+            href="/join"
+            style={{ ...ghostButton, display: "inline-block", textDecoration: "none" }}
+          >
+            Request beta access
+          </a>
+        </div>
       </div>
     </div>
   );
@@ -609,6 +650,11 @@ function OwnerDesk({ me }: { me: MeState }) {
   const [inviteMsg, setInviteMsg] = useState<string | null>(null);
   const [acceptLink, setAcceptLink] = useState<string | null>(null);
   const [testers, setTesters] = useState<TesterRow[] | null>(null);
+  const [betaPending, setBetaPending] = useState<BetaRequestRow[] | null>(null);
+  const [betaDecided, setBetaDecided] = useState<BetaRequestRow[]>([]);
+  const [betaMsg, setBetaMsg] = useState<string | null>(null);
+  const [betaLink, setBetaLink] = useState<string | null>(null);
+  const [betaBusyId, setBetaBusyId] = useState<number | null>(null);
 
   const loadTesters = useCallback(async () => {
     const res = await authFetch("/auth/testers");
@@ -618,9 +664,60 @@ function OwnerDesk({ me }: { me: MeState }) {
     }
   }, []);
 
+  const loadBeta = useCallback(async () => {
+    const res = await authFetch("/auth/beta-requests");
+    if (res.ok) {
+      const data = (await res.json()) as {
+        pending: BetaRequestRow[];
+        decided: BetaRequestRow[];
+      };
+      setBetaPending(data.pending);
+      setBetaDecided(data.decided);
+    }
+  }, []);
+
   useEffect(() => {
-    if (open) void loadTesters();
-  }, [open, loadTesters]);
+    if (open) {
+      void loadTesters();
+      void loadBeta();
+    }
+  }, [open, loadTesters, loadBeta]);
+
+  const decideBeta = async (id: number, decision: "approve" | "deny") => {
+    setBetaBusyId(id);
+    setBetaMsg(null);
+    setBetaLink(null);
+    try {
+      const res = await authFetch("/auth/beta-requests/decide", {
+        method: "POST",
+        body: JSON.stringify({ id, decision }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        emailed?: boolean;
+        acceptLink?: string | null;
+      };
+      if (!res.ok) {
+        // Issuance refusals (daily cap, live invite, active account)
+        // surface honestly; the request stays pending in the queue.
+        setBetaMsg(data.error ?? "That decision didn't go through — the request is still pending.");
+        return;
+      }
+      if (decision === "approve") {
+        setBetaMsg(
+          data.emailed
+            ? "Approved — invite emailed."
+            : "Approved — mail isn't live yet, so the invite is queued. Deliver this link yourself:",
+        );
+        setBetaLink(data.acceptLink ?? null);
+      } else {
+        setBetaMsg("Denied — no invite was created and nothing was sent.");
+      }
+      void loadBeta();
+    } finally {
+      setBetaBusyId(null);
+    }
+  };
 
   const issue = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -690,6 +787,59 @@ function OwnerDesk({ me }: { me: MeState }) {
           {inviteMsg && <p style={{ fontSize: 13, color: "#9fb0d0" }}>{inviteMsg}</p>}
           {acceptLink && (
             <p style={{ fontSize: 12, wordBreak: "break-all", color: "#7dd3fc" }}>{acceptLink}</p>
+          )}
+          <h3 style={{ fontSize: 15, margin: "18px 0 6px" }}>Beta requests — join link</h3>
+          <p style={{ fontSize: 13, color: "#9fb0d0", margin: "0 0 6px" }}>
+            Requests from the public join page (/join). Approving mints the
+            same Founding Tester invite as the form above; denying sends
+            nothing.
+          </p>
+          {betaPending === null && <p style={{ fontSize: 13, color: "#9fb0d0" }}>Loading…</p>}
+          {betaPending !== null && betaPending.length === 0 && (
+            <p style={{ fontSize: 13, color: "#9fb0d0" }}>No pending requests.</p>
+          )}
+          {betaPending?.map((r) => (
+            <div key={r.id} style={{ fontSize: 13, borderTop: "1px solid #16213d", padding: "8px 0" }}>
+              <div>{r.name} — {r.email}</div>
+              <div style={{ color: "#9fb0d0" }}>
+                {BETA_ROLE_LABELS[r.role] ?? r.role} · requested {betaAge(r.createdAt)}
+              </div>
+              {r.note && <div style={{ color: "#9fb0d0" }}>“{r.note}”</div>}
+              <div style={{ display: "flex", gap: 14 }}>
+                <button
+                  style={{ ...ghostButton, marginTop: 6 }}
+                  disabled={betaBusyId === r.id}
+                  onClick={() => void decideBeta(r.id, "approve")}
+                >
+                  Approve — send tester invite
+                </button>
+                <button
+                  style={{ ...ghostButton, marginTop: 6, color: "#f87171" }}
+                  disabled={betaBusyId === r.id}
+                  onClick={() => void decideBeta(r.id, "deny")}
+                >
+                  Deny
+                </button>
+              </div>
+            </div>
+          ))}
+          {betaMsg && <p style={{ fontSize: 13, color: "#9fb0d0" }}>{betaMsg}</p>}
+          {betaLink && (
+            <p style={{ fontSize: 12, wordBreak: "break-all", color: "#7dd3fc" }}>{betaLink}</p>
+          )}
+          {betaDecided.length > 0 && (
+            <>
+              <h4 style={{ fontSize: 13, margin: "14px 0 4px", color: "#9fb0d0" }}>Recently decided</h4>
+              {betaDecided.map((r) => (
+                <div key={r.id} style={{ fontSize: 13, borderTop: "1px solid #16213d", padding: "6px 0" }}>
+                  <div>{r.name} — {r.email}</div>
+                  <div style={{ color: "#9fb0d0" }}>
+                    {r.status === "approved" ? "Approved" : "Denied"}
+                    {r.decidedAt ? ` · ${new Date(r.decidedAt).toLocaleDateString()}` : ""}
+                  </div>
+                </div>
+              ))}
+            </>
           )}
           <h3 style={{ fontSize: 15, margin: "18px 0 6px" }}>Founding Testers — 14-day completion</h3>
           {testers === null && <p style={{ fontSize: 13, color: "#9fb0d0" }}>Loading…</p>}

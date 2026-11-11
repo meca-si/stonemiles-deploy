@@ -25,6 +25,9 @@ import { privilegedHandlers } from "../server/src/privileged";
 import {
   PUBLIC_ACTIONS,
   handleAcceptInvite,
+  handleBetaJoinDecide,
+  handleBetaJoinList,
+  handleBetaJoinSubmit,
   handleClaim,
   handleIssueInvite,
   handleMe,
@@ -320,6 +323,20 @@ server = Bun.serve({
       return json({ error: "not found" }, 404);
     }
 
+    // ---- Beta join page (2026-11-11): the ONE public join link. The
+    // static page posts to POST /auth/beta-requests, which creates a
+    // pending request row and nothing else — the owner approves from
+    // the Owner desk (D2 stays invite-only). No session.
+    if (req.method === "GET" && pathname === "/join") {
+      const page = Bun.file(path.join(STANDALONE_ROOT, "host", "join.html"));
+      if (await page.exists()) {
+        return new Response(page, {
+          headers: { "content-type": "text/html" },
+        });
+      }
+      return json({ error: "not found" }, 404);
+    }
+
     // ---- Receive-link pages (2026-11-10): the receiver-facing public
     // pages. /receive/<token> is the action page (confirm delivery);
     // /pod/<token> is the view-only copy page. Both serve the same
@@ -350,6 +367,7 @@ server = Bun.serve({
       }
       if (req.method === "GET" && pathname === "/auth/me") return handleMe(req);
       if (req.method === "GET" && pathname === "/auth/testers") return handleTesterList(req);
+      if (req.method === "GET" && pathname === "/auth/beta-requests") return handleBetaJoinList(req);
       // Social sign-in + passkeys (host/social-auth.ts): the OAuth
       // starts/callbacks are browser navigations (GET; Apple's
       // callback also arrives as a form POST), the passkey ceremonies
@@ -372,6 +390,8 @@ server = Bun.serve({
         case "/auth/accept-invite": return handleAcceptInvite(req);
         case "/auth/invites": return handleIssueInvite(req);
         case "/auth/testers/flip": return handleTesterFlip(req);
+        case "/auth/beta-requests": return handleBetaJoinSubmit(req);
+        case "/auth/beta-requests/decide": return handleBetaJoinDecide(req);
         case "/auth/password": return handlePasswordChange(req);
         case "/auth/passkey/register/options": return handlePasskeyRegisterOptions(req);
         case "/auth/passkey/register/verify": return handlePasskeyRegisterVerify(req);

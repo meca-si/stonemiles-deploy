@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>STONEMILES — Request beta access</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:#050a1a; color:#e8ecf4; }
+  main { max-width: 560px; margin: 5vh auto; padding: 16px; }
+  .card { background:#0b1226; border:1px solid #1d2a4a; border-radius:16px; padding:24px; }
+  h1 { font-size: 20px; margin: 0 0 6px; }
+  p { color:#c6d2e8; font-size: 15px; line-height: 1.55; }
+  .dim { color:#8fa1c4; font-size:13px; }
+  label { display:block; font-size:13px; color:#8fa1c4; margin:14px 0 6px; }
+  input[type="text"], input[type="email"], select, textarea {
+    width:100%; box-sizing:border-box; background:#081020; border:1px solid #26355c; border-radius:10px;
+    color:#e8ecf4; padding:12px; font-size:16px; font-family:inherit;
+  }
+  textarea { resize: vertical; min-height: 64px; }
+  button {
+    width:100%; margin-top:20px; background:#22c55e; color:#04120a; border:0; border-radius:12px;
+    padding:14px; font-size:16px; font-weight:700; cursor:pointer;
+  }
+  button:disabled { opacity:.55; cursor:default; }
+  .ok { background:#0d2b1a; border:1px solid #1f5136; border-radius:12px; padding:14px; }
+  .err { color:#f87171; font-size:14px; min-height: 20px; margin-top: 10px; }
+  .hp { position:absolute; left:-9999px; top:-9999px; }
+</style>
+</head>
+<body>
+<main>
+  <div class="card" id="app">
+    <h1>Request beta access</h1>
+    <p>
+      STONEMILES by Stonervision is in closed beta, and accounts are
+      invite-only. Founding Testers run <strong>Diamond free during the
+      test</strong>. Leave your details below — the owner reviews every
+      request personally, and approved testers get a personal sign-in
+      link.
+    </p>
+    <form id="join-form" novalidate>
+      <label for="name">Your name</label>
+      <input type="text" id="name" name="name" maxlength="80" autocomplete="name" required />
+      <label for="email">Email</label>
+      <input type="email" id="email" name="email" maxlength="254" autocomplete="email" required />
+      <label for="role">I am a…</label>
+      <select id="role" name="role">
+        <option value="driver">Driver</option>
+        <option value="fleet_owner">Fleet owner</option>
+        <option value="dispatcher">Dispatcher</option>
+        <option value="just_testing" selected>Just testing</option>
+      </select>
+      <label for="note">Note for the owner (optional)</label>
+      <textarea id="note" name="note" maxlength="500" placeholder="Anything the owner should know?"></textarea>
+      <div class="hp" aria-hidden="true">
+        <label>Website
+          <input type="text" id="website" name="website" tabindex="-1" autocomplete="off" />
+        </label>
+      </div>
+      <p class="err" id="form-error"></p>
+      <button type="submit" id="submit-btn">Request beta access</button>
+    </form>
+  </div>
+  <p class="dim" style="text-align:center; margin-top:14px;">
+    STONEMILES by Stonervision — Built by a Trucker for Truckers
+  </p>
+</main>
+<script>
+  const form = document.getElementById("join-form");
+  const errEl = document.getElementById("form-error");
+  const btn = document.getElementById("submit-btn");
+  const app = document.getElementById("app");
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    errEl.textContent = "";
+    btn.disabled = true;
+    const payload = {
+      name: document.getElementById("name").value,
+      email: document.getElementById("email").value,
+      role: document.getElementById("role").value,
+      note: document.getElementById("note").value,
+      website: document.getElementById("website").value,
+    };
+    try {
+      const res = await fetch("/auth/beta-requests", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        errEl.textContent = data.error || "That didn't go through — check the form and try again.";
+        btn.disabled = false;
+        return;
+      }
+      // ONE generic confirmation for every accepted outcome — the page
+      // never reveals whether the email already has an account, an
+      // invite, or a pending request.
+      app.innerHTML =
+        '<div class="ok"><p style="margin:0;">Request received — every request is reviewed by the owner; if you\u2019re approved you\u2019ll get your personal sign-in link.</p></div>';
+    } catch {
+      errEl.textContent = "Couldn't send that just now — check your connection and try again.";
+      btn.disabled = false;
+    }
+  });
+</script>
+</body>
+</html>
