@@ -26,6 +26,13 @@
 //   for the owner: invite desk + tester completion list).
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  authFormSeen,
+  clearDeviceSignOutMark,
+  markAuthFormSeen,
+  shouldClearDeviceSignOutMark,
+  useDeviceSignOutMark,
+} from "./deviceSignOut";
 
 interface MeState {
   signedIn: boolean;
@@ -59,6 +66,15 @@ async function authFetch(path: string, init?: RequestInit): Promise<Response> {
     ...init,
   });
 }
+
+// Set when this page lifetime actually rendered the sign-in form or
+// the TOTP screen. Together with the sessionStorage flag (which
+// survives the Google/Apple redirect round-trip), it tells refresh()
+// "a credentialed sign-in just completed here" — the signal that
+// clears SecurityPack's durable device-sign-out mark. A page load
+// that lands straight in the app on a leftover account cookie never
+// sets it, so an explicit device sign-out survives reloads.
+let gateFormSeenThisLoad = false;
 
 const wrap: React.CSSProperties = {
   minHeight: "100dvh",
@@ -824,10 +840,17 @@ function PasskeyDesk() {
 
 function AccountBar({ me, refresh }: { me: MeState; refresh: () => void }) {
   const [open, setOpen] = useState(false);
+  // While the device stands explicitly signed out (SecurityPack's
+  // durable mark), this footer must not render: it names the account
+  // email, and the signed-out screen promises no account data shows.
+  // The account session underneath is still alive — that's exactly
+  // why the footer has to hide on the mark, not on the session.
+  const deviceSignOutMark = useDeviceSignOutMark();
   const signOut = async () => {
     await authFetch("/auth/signout", { method: "POST", body: "{}" });
     refresh();
   };
+  if (deviceSignOutMark) return null;
   return (
     <div
       style={{
@@ -872,7 +895,23 @@ export function AuthGate({ children }: { children: ReactNode }) {
     try {
       const res = await authFetch("/auth/me");
       if (res.ok) {
-        setMe((await res.json()) as MeState);
+        const data = (await res.json()) as MeState;
+        // A sign-in form shown during this browser session that now
+        // completes (TOTP included) is a credentialed re-entry: it
+        // ends SecurityPack's durable device-sign-out posture, so
+        // the app it lands in registers its device session normally
+        // — for THIS account, whoever just signed in. A leftover
+        // cookie with no form behind it clears nothing.
+        if (
+          shouldClearDeviceSignOutMark({
+            signedIn: data.signedIn,
+            totpPending: data.totpPending === true,
+            formSeen: gateFormSeenThisLoad || authFormSeen(),
+          })
+        ) {
+          clearDeviceSignOutMark();
+        }
+        setMe(data);
         return;
       }
     } catch {
@@ -888,8 +927,16 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   if (me === null) return null;
   if (!me.gateEnforced) return <>{children}</>;
-  if (!me.signedIn) return <SignInScreen onSignedIn={() => void refresh()} />;
-  if (me.totpPending) return <TotpScreen onDone={() => void refresh()} />;
+  if (!me.signedIn) {
+    gateFormSeenThisLoad = true;
+    markAuthFormSeen();
+    return <SignInScreen onSignedIn={() => void refresh()} />;
+  }
+  if (me.totpPending) {
+    gateFormSeenThisLoad = true;
+    markAuthFormSeen();
+    return <TotpScreen onDone={() => void refresh()} />;
+  }
   return (
     <>
       {children}

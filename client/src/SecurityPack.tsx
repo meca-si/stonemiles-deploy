@@ -11,6 +11,13 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./api";
 import { qrGrid } from "./qrcode";
 import { attemptBiometricUnlock, useBiometric } from "./biometric";
+import {
+  clearDeviceSignOutMark,
+  getDeviceSignOutMark,
+  setDeviceSignOutMark,
+  signedOutDoors,
+  topSignInAction,
+} from "./deviceSignOut";
 
 type Banner = (s: string | null) => void;
 
@@ -263,8 +270,22 @@ export function SecurityHosts({
     refetchInterval: 60000,
   });
 
-  // Register this device as a server-side session, once per mount.
+  // Register this device as a server-side session, once per mount —
+  // UNLESS this device was explicitly signed out (device sign-out or
+  // sign out everywhere): the durable mark stands, the sign-in
+  // overlay raises instead, and NO session is re-registered until a
+  // real credential is presented (PIN / biometric / the full account
+  // form). Without the mark, boot auto-registration resurrected the
+  // session on every reload and the sign-out evaporated. A plain
+  // reload while signed IN carries no mark and keeps the session,
+  // exactly as the D3 lifetimes intend.
   useEffect(() => {
+    const mark = getDeviceSignOutMark();
+    if (mark) {
+      setLocalSignOut(mark.kind === "device");
+      setSignedOut(true);
+      return;
+    }
     void (async () => {
       try {
         const r = await api.registerSession({ deviceId: deviceId(), deviceLabel: deviceLabel() });
@@ -296,6 +317,10 @@ export function SecurityHosts({
           if (v.accountLocked) setRemoteLocked(true);
           if (v.accessCutOff) setCutOff(true);
           if (!v.valid && !v.accountLocked && !v.accessCutOff) {
+            // A revocation lands durably too: the mark keeps this
+            // device on the sign-in overlay across reloads until a
+            // credential is presented.
+            setDeviceSignOutMark("everywhere");
             setLocalSignOut(false);
             setSignedOut(true);
           }
@@ -333,6 +358,11 @@ export function SecurityHosts({
   }, [packQuery.data?.autoLockMinutes, onAutoLock, setBanner]);
 
   const reRegister = () => {
+    // reRegister is only ever called AFTER a credential proof (PIN
+    // verified, biometric matched, or the lost-phone unlock) — that
+    // proof is what ends the signed-out posture, so the durable mark
+    // clears here, at the single minting point.
+    clearDeviceSignOutMark();
     void (async () => {
       try {
         localStorage.removeItem(SESSION_TOKEN_KEY);
@@ -365,6 +395,10 @@ export function SecurityHosts({
       try {
         localStorage.removeItem(SESSION_TOKEN_KEY);
       } catch { /* ignore */ }
+      // The durable mark: this sign-out must survive a page reload.
+      // Boot reads it and raises the sign-in overlay instead of
+      // re-registering the device session.
+      setDeviceSignOutMark("device");
       queryClient.clear();
       setSignInPin("");
       setSignInErr(null);
@@ -373,6 +407,35 @@ export function SecurityHosts({
       onAutoLock();
     })();
   }, [queryClient, onAutoLock]);
+
+  // The different-account door — also the ONLY way back when no PIN
+  // or biometric door exists on this device. The device sign-out
+  // above never ends the AuthGate ACCOUNT session, which is why the
+  // full sign-in form can't appear (and accounts can't switch) until
+  // it ends: this door ends it (POST /auth/signout), drops the local
+  // device token, and reloads into the full form (email + password /
+  // Google / passkey). The durable mark stays set across the reload;
+  // AuthGate clears it once a credentialed form sign-in completes,
+  // and only then does this device register a session again — for
+  // the NEW account, with none of the old account's state riding
+  // along (the reload drops every in-memory cache regardless).
+  const goToFullSignIn = useCallback(() => {
+    void (async () => {
+      try {
+        await fetch("/auth/signout", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "content-type": "application/json" },
+          body: "{}",
+        });
+      } catch { /* the reload reads the true state either way */ }
+      try {
+        localStorage.removeItem(SESSION_TOKEN_KEY);
+      } catch { /* ignore */ }
+      queryClient.clear();
+      window.location.reload();
+    })();
+  }, [queryClient]);
 
   useEffect(() => {
     signOutHandler = doSignOut;
@@ -421,11 +484,20 @@ export function SecurityHosts({
         setSignInErr(
           packQuery.data?.pinSet
             ? "Face ID / fingerprint didn't go through — enter your PIN instead."
-            : "Face ID / fingerprint didn't go through — use the sign-in button below.",
+            : "Face ID / fingerprint didn't go through — use the full account sign-in below.",
         );
       }
     });
   };
+
+  // The signed-out overlay's doors (pure logic in deviceSignOut.ts,
+  // unit-tested): biometric only when offered, PIN only when set,
+  // the full account form always — and no restore-without-credential
+  // door, ever.
+  const doors = signedOutDoors({
+    pinSet: !!packQuery.data?.pinSet,
+    biometricOffered: bio.offer,
+  });
 
   return (
     <>
@@ -501,22 +573,27 @@ export function SecurityHosts({
           {/* Sign in at the top of the signed-out view (x, 2026-11-11):
               this overlay covers the app top bar, so the button that
               sits beside Menu in the bar rides at the top here instead.
-              It drives THIS view's own doors — focus the PIN field when
-              a PIN is set, the biometric door when offered, otherwise
-              the plain sign-this-device-back-in flow below. */}
+              It drives THIS view's credential doors — focus the PIN
+              field when a PIN is set, the biometric door when offered,
+              otherwise the full account sign-in form. It never
+              restores the session by itself: there is no one-tap way
+              back after a sign-out (re-entry fix, x 2026-11-11). */}
           <div className="absolute right-3 top-3" style={{ paddingTop: "env(safe-area-inset-top)" }}>
             <button
               type="button"
               className="min-h-[44px] rounded-full bg-[var(--surface2)] px-4 py-2.5 text-sm font-bold active:opacity-80"
               aria-label="Sign in"
               onClick={() => {
-                if (packQuery.data?.pinSet) {
+                const action = topSignInAction({
+                  pinSet: !!packQuery.data?.pinSet,
+                  biometricOffered: bio.offer,
+                });
+                if (action === "pin") {
                   signInPinRef.current?.focus();
-                } else if (bio.offer) {
+                } else if (action === "biometric") {
                   signInWithBiometric();
                 } else {
-                  reRegister();
-                  completeSignIn();
+                  goToFullSignIn();
                 }
               }}
             >
@@ -529,10 +606,10 @@ export function SecurityHosts({
           </h2>
           <p className="mt-2 max-w-sm text-center text-sm leading-relaxed text-[var(--dim)]">
             {localSignOut
-              ? "You signed out of this device — no account data shows on it, and your other devices stay signed in. Sign back in to keep going; the new sign-in is recorded as a session."
-              : "Every session for this account was revoked — that's the Sign Out Everywhere / kill-switch doing its job. Sign this device back in to keep going; the new sign-in is recorded as a session."}
+              ? "You signed out of this device — no account data shows on it, and your other devices stay signed in. Getting back in takes a real credential: your app PIN, Face ID / fingerprint if it's on, or the full account sign-in. There's no one-tap way back."
+              : "Every session for this account was revoked — that's the Sign Out Everywhere / kill-switch doing its job. To use this device again, sign in with a real credential: your app PIN, Face ID / fingerprint if it's on, or the full account sign-in."}
           </p>
-          {bio.offer && (
+          {doors.includes("biometric") && (
             <button
               type="button"
               className="mt-4 w-64 rounded-xl border border-[var(--accent)] bg-[var(--surface2)] py-3.5 font-bold text-[var(--accent)]"
@@ -542,7 +619,7 @@ export function SecurityHosts({
               🔓 Sign in with Face ID / fingerprint
             </button>
           )}
-          {packQuery.data?.pinSet ? (
+          {doors.includes("pin") ? (
             <>
               <input
                 ref={signInPinRef}
@@ -568,6 +645,14 @@ export function SecurityHosts({
               <p className="mt-3 max-w-xs text-center text-xs leading-relaxed text-[var(--dim)]">
                 The PIN always works — Face ID is a shortcut on this device, never the only door.
               </p>
+              <button
+                type="button"
+                className="mt-3 w-64 rounded-xl border border-[var(--border)] bg-[var(--surface2)] py-3 font-bold"
+                aria-label="Sign in with a different account"
+                onClick={goToFullSignIn}
+              >
+                Sign in with a different account
+              </button>
             </>
           ) : (
             <>
@@ -575,14 +660,16 @@ export function SecurityHosts({
               <button
                 type="button"
                 className="mt-3 w-64 rounded-xl bg-[var(--accent)] py-3.5 font-bold text-black"
-                aria-label="Sign this device back in"
-                onClick={() => {
-                  reRegister();
-                  completeSignIn();
-                }}
+                aria-label="Sign in with a different account"
+                onClick={goToFullSignIn}
               >
-                Sign this device back in
+                Sign in with a different account
               </button>
+              <p className="mt-3 max-w-xs text-center text-xs leading-relaxed text-[var(--dim)]">
+                No app PIN is set on this device, so the way back is the full account sign-in — email +
+                password, Google, or a passkey. You can sign back into this same account there, or a
+                different one.
+              </p>
             </>
           )}
         </div>
@@ -843,6 +930,10 @@ export function SecurityPackPanel({ setBanner }: { setBanner: Banner }) {
                     try {
                       localStorage.removeItem(SESSION_TOKEN_KEY);
                     } catch { /* ignore */ }
+                    // Durable here too — this device's own sign-out
+                    // must survive a reload, not just the session
+                    // poll noticing the revocation later.
+                    setDeviceSignOutMark("everywhere");
                     setBanner(`Signed out everywhere — ${r.revoked} session(s) revoked. This device will ask you to sign back in.`);
                     refresh();
                   })
