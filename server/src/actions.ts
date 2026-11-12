@@ -40,7 +40,7 @@ type TomTomIncident,
 } from "./tomtom";
 import { fetchSpeedLimit } from "./speedLimit";
 import { fetchExplorePois } from "./explorePois";
-import { expenseTotalsForYear, perDiemDates } from "./taxYear";
+import { buildTaxWorksheet, expenseTotalsForYear, perDiemDates } from "./taxYear";
 import {
 evaluateSealGrade,
 type FixQualityTallies,
@@ -36989,7 +36989,7 @@ export const Actions = {
     description: "Log expense.",
     request: z.object({
       spentAt: z.string(),
-      category: z.enum(["fuel", "tolls", "lumper", "maintenance", "insurance", "scale", "parking", "permits", "meals", "supplies", "other"]),
+      category: z.enum(["fuel", "tolls", "lumper", "maintenance", "insurance", "scale", "parking", "permits", "meals", "supplies", "repairs", "dot_testing", "licensing", "software", "other"]),
       amount: z.number().positive().max(1_000_000),
       vendor: z.string().max(160).nullable(),
       state: z.string().max(60).nullable(),
@@ -38741,6 +38741,180 @@ export const Actions = {
         });
       } catch { /* the filing record never fails the export */ }
       return { text: lines.join("\n"), filename: `stonemiles-tax-year-${args.year}.txt` };
+    },
+  }),
+
+  // Tax Worksheet (2026-11-12): the paper "Tax Deduction Worksheet
+  // for Truck Driver Operators" as a single full view over the SAME
+  // records — Pay Book income (lanes kept separate), the expense
+  // tracker folded into the worksheet's sections, the fuel log as
+  // its own block, per-diem days and sealed trip miles. Assembly is
+  // pure (taxYear.ts buildTaxWorksheet); no new store, no tax ID is
+  // asked for or kept anywhere — the header carries only the name /
+  // company already on the account.
+  getTaxWorksheet: defineAction({
+    description: "Get the tax worksheet for a year: income tracker by lane, worksheet expense sections, fuel block, per-diem days, sealed trip miles.",
+    request: z.object({ year: z.number().int().min(2020).max(2100) }),
+    response: z.object({
+      year: z.number(),
+      driverName: z.string(),
+      companyName: z.string().nullable(),
+      incomeRows: z.array(z.object({ dateIso: z.string(), payer: z.string(), lane: z.enum(["w2", "1099"]), miles: z.number().nullable(), gross: z.number() })),
+      w2: z.object({ gross: z.number(), count: z.number() }),
+      ten99: z.object({ gross: z.number(), count: z.number() }),
+      sections: z.array(z.object({
+        key: z.string(),
+        title: z.string(),
+        lines: z.array(z.object({ key: z.string(), label: z.string(), categories: z.array(z.string()), total: z.number(), count: z.number() })),
+        subtotal: z.number(),
+      })),
+      expenseTotal: z.number(),
+      expenseCount: z.number(),
+      fuelTotal: z.number(),
+      fuelGallons: z.number(),
+      fuelCount: z.number(),
+      perDiemDays: z.number(),
+      sealedTripMiles: z.number(),
+    }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const social = (await db.select().from(schema.socialUsers).where(eq(schema.socialUsers.username, me)).limit(1))[0];
+      let companyName: string | null = social?.company?.trim() || null;
+      if (!companyName) {
+        const member = (await db.select().from(schema.companyMembers).where(eq(schema.companyMembers.username, me)).limit(1))[0];
+        if (member) {
+          const comp = (await db.select().from(schema.companies).where(eq(schema.companies.id, member.companyId)).limit(1))[0];
+          if (comp) companyName = comp.name;
+        }
+      }
+      const entries = await db.select().from(schema.payEntries);
+      const expenses = await db.select().from(schema.expenses);
+      const ws = buildTaxWorksheet({
+        income: entries.map((e) => ({ paidAtMs: e.paidAt.getTime(), kind: e.kind, isForm: e.isForm, payer: e.payer, gross: e.gross, miles: null })),
+        expenses: expenses.map((e) => ({ spentAtMs: e.spentAt.getTime(), category: e.category, amount: e.amount })),
+        year: args.year,
+      });
+      const fuel = (await db.select().from(schema.fuelPurchases)).filter(
+        (f) => f.purchasedAt.getUTCFullYear() === args.year,
+      );
+      const trips = await db.select().from(schema.trips);
+      const days = perDiemDates(
+        trips.map((t) => ({ startedAtMs: t.startedAt.getTime(), endedAtMs: t.endedAt.getTime() })),
+        args.year,
+      );
+      const sealedTripMiles = Math.round(trips.filter((t) => t.startedAt.getUTCFullYear() === args.year).reduce((s, t) => s + (t.totalMiles ?? 0), 0) * 100) / 100;
+      return {
+        year: args.year,
+        driverName: social?.displayName?.trim() || me,
+        companyName,
+        incomeRows: ws.incomeRows,
+        w2: ws.w2,
+        ten99: ws.ten99,
+        sections: ws.sections,
+        expenseTotal: ws.expenseTotal,
+        expenseCount: ws.expenseCount,
+        fuelTotal: Math.round(fuel.reduce((s, f) => s + f.total, 0) * 100) / 100,
+        fuelGallons: Math.round(fuel.reduce((s, f) => s + f.gallons, 0) * 100) / 100,
+        fuelCount: fuel.length,
+        perDiemDays: days.length,
+        sealedTripMiles,
+      };
+    },
+  }),
+
+  // The worksheet as a downloadable text packet — same numbers the
+  // screen shows (single source: buildTaxWorksheet over the same
+  // inputs), with the W-2 warning printed ON the packet's face and a
+  // filing record on the sealed chain, exactly like the tax-year
+  // summary export above.
+  exportTaxWorksheet: defineAction({
+    description: "Export the tax worksheet for a year as a text packet for tax prep.",
+    request: z.object({ year: z.number().int().min(2020).max(2100) }),
+    response: z.object({ text: z.string(), filename: z.string() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      if (await isAccountLocked(ctx, me)) {
+        return { text: "EXPORT BLOCKED — this account is locked (lost-phone kill switch). Unlock it from the Security Center to export again.", filename: "stonemiles-tax-worksheet-blocked.txt" };
+      }
+      const social = (await db.select().from(schema.socialUsers).where(eq(schema.socialUsers.username, me)).limit(1))[0];
+      let companyName: string | null = social?.company?.trim() || null;
+      if (!companyName) {
+        const member = (await db.select().from(schema.companyMembers).where(eq(schema.companyMembers.username, me)).limit(1))[0];
+        if (member) {
+          const comp = (await db.select().from(schema.companies).where(eq(schema.companies.id, member.companyId)).limit(1))[0];
+          if (comp) companyName = comp.name;
+        }
+      }
+      const driverName = social?.displayName?.trim() || me;
+      const entries = await db.select().from(schema.payEntries);
+      const expenses = await db.select().from(schema.expenses);
+      const ws = buildTaxWorksheet({
+        income: entries.map((e) => ({ paidAtMs: e.paidAt.getTime(), kind: e.kind, isForm: e.isForm, payer: e.payer, gross: e.gross, miles: null })),
+        expenses: expenses.map((e) => ({ spentAtMs: e.spentAt.getTime(), category: e.category, amount: e.amount })),
+        year: args.year,
+      });
+      const fuel = (await db.select().from(schema.fuelPurchases)).filter(
+        (f) => f.purchasedAt.getUTCFullYear() === args.year,
+      );
+      const trips = await db.select().from(schema.trips);
+      const days = perDiemDates(
+        trips.map((t) => ({ startedAtMs: t.startedAt.getTime(), endedAtMs: t.endedAt.getTime() })),
+        args.year,
+      );
+      const sealedTripMiles = Math.round(trips.filter((t) => t.startedAt.getUTCFullYear() === args.year).reduce((s, t) => s + (t.totalMiles ?? 0), 0) * 100) / 100;
+      const chain = await db.select({ hash: schema.chainLog.hash }).from(schema.chainLog).orderBy(desc(schema.chainLog.id)).limit(1);
+      const head = chain[0]?.hash ?? GENESIS_HASH;
+      const money = (n: number) => `$${n.toFixed(2)}`;
+      const lines: string[] = [
+        `STONEMILES — TAX WORKSHEET ${args.year}`,
+        `Driver: ${driverName}${companyName ? ` · Company: ${companyName}` : ""}`,
+        "Built only from your own records in this app: the pay you logged in your Pay Book, the expenses you logged and categorised yourself, fuel purchases you logged, and your sealed trip records.",
+        "A record for tax prep — not tax advice. Hand it to your tax preparer; they apply the current rules and rates.",
+        "W-2 WARNING: per-diem and unreimbursed employee expenses are owner-operator / 1099 territory. W-2 company drivers generally cannot claim them on a federal return — per-diem was removed by the 2017 tax law change. If your pay is W-2, treat those parts of this worksheet as records only.",
+        "",
+        "— INCOME TRACKER (from your Pay Book — year-end forms are not rows; the paychecks already counted that money) —",
+        ...(ws.incomeRows.length
+          ? ws.incomeRows.map((r) => `${r.dateIso} · ${r.payer} · ${r.lane === "1099" ? "1099" : "W-2"} · miles ${r.miles != null ? r.miles.toLocaleString() : "—"} · ${money(r.gross)}`)
+          : ["No pay logged in this year."]),
+        `W-2 subtotal: ${money(ws.w2.gross)} (${ws.w2.count} payment${ws.w2.count === 1 ? "" : "s"})`,
+        `1099 subtotal: ${money(ws.ten99.gross)} (${ws.ten99.count} payment${ws.ten99.count === 1 ? "" : "s"})`,
+        "The two lanes file separately — this worksheet never adds them into one filing total.",
+        "",
+        ...ws.sections.flatMap((s) => [
+          `— ${s.title.toUpperCase()} —`,
+          ...(s.lines.some((l) => l.count > 0)
+            ? s.lines.filter((l) => l.count > 0).map((l) => `${l.label}: ${money(l.total)} (${l.count} record${l.count === 1 ? "" : "s"})`)
+            : ["No expenses logged in this section."]),
+          `Section subtotal: ${money(s.subtotal)}`,
+          "",
+        ]),
+        "— PER-DIEM DAYS —",
+        `Days out in ${args.year}: ${days.length} — counted automatically from your sealed trip records (every calendar day a sealed trip was on the road, counted once). No deduction amount is figured here: the app assumes no rate.`,
+        "",
+        "— FUEL PURCHASES (logged separately from expenses) —",
+        fuel.length
+          ? `${fuel.length} purchase${fuel.length === 1 ? "" : "s"} · ${Math.round(fuel.reduce((s, f) => s + f.gallons, 0) * 100) / 100} gal · ${money(Math.round(fuel.reduce((s, f) => s + f.total, 0) * 100) / 100)} — these also feed your IFTA quarters; they are listed here so nothing is double-counted.`
+          : "No fuel purchases logged in this year.",
+        "",
+        "— TOTALS (records for tax prep — not a filing) —",
+        `W-2 gross: ${money(ws.w2.gross)} · 1099 gross: ${money(ws.ten99.gross)} · Expenses total: ${money(ws.expenseTotal)} · Sealed trip miles in ${args.year}: ${sealedTripMiles.toLocaleString()}`,
+        "",
+        `Sealed chain head hash: ${head}`,
+      ];
+      // Filing record on the sealed chain — the Library's Filings
+      // section lists it; the artifact regenerates from the same data.
+      try {
+        await appendChain(ctx, {
+          refKind: "library",
+          refId: null,
+          sessionId: null,
+          event: "tax_worksheet_export_generated",
+          payload: { by: me, year: args.year },
+        });
+      } catch { /* the filing record never fails the export */ }
+      return { text: lines.join("\n"), filename: `stonemiles-tax-worksheet-${args.year}.txt` };
     },
   }),
 

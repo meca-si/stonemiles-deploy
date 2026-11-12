@@ -69,7 +69,7 @@ import {
 } from "./hillGrade";
 import { orderProfileBadges, tierChipFor, type FeaturedBadgeKey } from "./profileBadges";
 import appIcon from "./assets/app-icon.webp";
-import { AdvisorPanel, BriefingCard, FuelCoachCard, ChainLawPanel, DvirPanel, IftaPanel, MerkleCard, MoneyPanel, PassportPanel, PayBookPanel, PayStubSendPanel, Qr, ScalePanel, SettlementPanel, TaxPanel, US_STATES, VaultPanel, VerifyPanel, WeighIntelStrip } from "./NextLevel";
+import { AdvisorPanel, BriefingCard, FuelCoachCard, ChainLawPanel, DvirPanel, IftaPanel, MerkleCard, MoneyPanel, PassportPanel, PayBookPanel, PayStubSendPanel, Qr, ScalePanel, SettlementPanel, TaxPanel, TaxWorksheetPanel, US_STATES, VaultPanel, VerifyPanel, WeighIntelStrip } from "./NextLevel";
 import { FleetTrainingBoard, SafetyAcademyPanel } from "./SafetyAcademy";
 import { SiPanel } from "./SiPanel";
 import { LiveUpdatesPanel } from "./LiveUpdatesPanel";
@@ -859,6 +859,7 @@ type MecaDestId =
   | "scale_tickets"
   | "scale_finder"
   | "tax_records"
+  | "tax_worksheet"
   | "night_parking"
   | "sign_out";
 
@@ -945,6 +946,7 @@ const MECA_DEST_INFO: Record<MecaDestId, { label: string; blurb: string }> = {
   scale_tickets: { label: "Driver → Scale tickets", blurb: "Scale Tickets are on the Driver tab — log the weights off a scale ticket (steer / drive tandems / trailer tandems, gross figured for you, over-80,000 flagged) or snap the ticket photo; either way it fingerprints and seals. Attach the ticket to a load and it seals into that load's record and rides the load's exports. Every weight is driver-entered — you type what the ticket says; nothing pretends a sensor read it." },
   scale_finder: { label: "Drive → Explore → Scales", blurb: "The Scale Finder is the Scales chip on the Drive map (Explore): CAT Scale locations by brand, public weighbridges and weigh stations, and truck stops the map data tags as having scales — all from OpenStreetMap, the same map data as the other Explore chips. Locations only: the map data carries no live open/closed status for scales, and none is claimed. Tap a pin, then Route." },
   tax_records: { label: "Driver → Tax records", blurb: "Tax Records are on the Driver tab — your year at a glance: expenses grouped by the tax category YOU confirmed on each one (fuel, maintenance, tolls, parking, meals, supplies, and the rest), the year's fuel purchases kept separate so nothing double-counts, and the per-diem day counter: days out counted automatically from your sealed trip records. Per-diem is an owner-operator / 1099 deduction — W-2 company drivers cannot claim it (removed by the 2017 tax law change) — and the summary is a record for tax prep, not tax advice; no deduction amount is figured. The whole year downloads as one packet for your tax preparer." },
+  tax_worksheet: { label: "Driver → Tax worksheet", blurb: "The Tax Worksheet is on the Driver tab, right under Tax Records — the full paper-style worksheet on one page, built only from your own records: a header with the name/company already on your account (no tax ID is ever asked for), an income tracker from your Pay Book with W-2 and 1099 in SEPARATE lanes and per-lane subtotals (never one combined filing total), vehicle & operating expenses and equipment & supplies sections from your expense tracker (maintenance & repairs shown as one line; DOT testing/physical, licensing & fees, and software & satellite have their own lines), your per-diem day count, the year's fuel purchases kept separate so nothing double-counts, and per-lane totals. The W-2 warning prints on its face: per-diem and unreimbursed employee expenses are owner-operator / 1099 territory — W-2 company drivers generally cannot claim them federally. It downloads as a packet for your tax preparer and files itself in the Library's Filings. A record for tax prep, not tax advice." },
   night_parking: { label: "Drive → Explore → Night Parking", blurb: "The Night Parking layer is the Night Parking chip on the Drive map (Explore): truck parking, rest areas, and truck services from the map data (OpenStreetMap) in one layer. In the Stop Planner, the Night parking section lists the route stops the map data tags with truck parking nearest to where your driving clock runs out, and the full Parking planner (Gold) scans rest areas and services around you. Space counts are lot sizes from map tags — there is NO live availability feed, so nothing anywhere claims a space is free." },
   ifta: { label: "Driver → IFTA estimator", blurb: "The IFTA estimator is IFTA Complete at the top of the Driver tab — a running quarterly estimate from your sealed per-state miles and your logged fuel purchases: tax owed per state = (state miles ÷ MPG) × the state's rate, minus the tax you already paid on fuel bought in that state. Rates come from the real published IFTA, Inc. fuel tax matrix, 4th quarter 2026 (matrix dated October 15, 2026, updated November 5, 2026; not final until December 4, 2026), and the panel prints that as-of label. A jurisdiction whose rate isn't loaded (Alaska, Hawaii, DC — not IFTA members) reads 'rate not loaded' and stays out of the totals. The whole panel is labelled an estimate for planning — not a filing." },
   maintenance: { label: "Driver → Maintenance countdown", blurb: "The Maintenance Countdown is on the Driver tab — odometer-based service tracking for oil, tires, brakes, and the annual DOT inspection. You set each interval and the odometer (or date) at the last service; the miles-remaining readout runs off the newest odometer the app already records (your fuel log, DVIRs, and daily logs), with due-soon, due, and overdue states. The DOT annual can run date-based on the 12-month rule. The starting intervals shown are labelled defaults — yours to change to your truck's spec." },
@@ -9636,6 +9638,9 @@ export function App() {
     if (/ifta.*(owe|tax|quarter|estimate)|owe.*ifta|fuel tax/.test(q)) return "ifta";
     if (/maintenance|oil change|when.*(oil|tires?|brakes?).*(due|change|service)|service (due|countdown|interval)|miles (left|remaining).*(oil|service|brake|tire)|brakes? due|tires? due/.test(q)) return "maintenance";
     if (/breakdown (log|record|mode)|downtime|cost log|truck (broke|is down|went down)|broke down|repair (log|record)|tow (log|record)/.test(q)) return "breakdown_log";
+    // Tax Worksheet (2026-11-12) — the full worksheet by name,
+    // before the Tax Records rule below (which owns the summary).
+    if (/tax worksheet|worksheet.*(tax|deduction)|deduction worksheet/.test(q)) return "tax_worksheet";
     // Final Extras: Tax Records + the per-diem DAY counter —
     // before the Pay Book rules, which own per-diem PAY entries.
     if (/per[- ]?diem days?|how many days (out|away|on the road)|days out (this year|in \d{4}|so far)|tax records?|expenses? by categor|tax[- ]year summary|year[- ]end (expense|tax) summary/.test(q)) return "tax_records";
@@ -9983,6 +9988,7 @@ export function App() {
       case "facility_memory": exitConsole(); setTab("loads"); scrollToAnchor("facility-memory", 700); break;
       case "scale_tickets": exitConsole(); setTab("driver"); scrollToAnchor("scale-tickets", 700); break;
       case "tax_records": exitConsole(); setTab("driver"); scrollToAnchor("tax-records", 700); break;
+      case "tax_worksheet": exitConsole(); setTab("driver"); scrollToAnchor("tax-worksheet", 700); break;
       case "scale_finder": exitConsole(); setTab("drive"); chooseMapMode("explore"); if (exploreCat !== "scales") tapExploreCat("scales"); break;
       case "night_parking": exitConsole(); setTab("drive"); chooseMapMode("explore"); if (exploreCat !== "night") tapExploreCat("night"); break;
     }
@@ -10021,7 +10027,7 @@ export function App() {
       const whereHow = /where|how do i|how can i|how do you|take me|go to/.test(q);
       const showCheck =
         /show|open|check/.test(q) &&
-        ["hours", "trips", "fleet_board", "open_board", "broker_inbox", "shipper_portal", "broker_portal", "team_portal", "app_performance", "language", "console_dashboard", "console_fleetmap", "console_drivers", "documents", "wallet", "pay_book", "pay_book_ytd", "milestones_board", "company", "chat", "loads", "loads_tracker", "detention", "explore", "go", "road_learning", "si_layer", "live_updates", "route_weather", "sign_check", "satellite_view", "weigh_station_status", "dispatch_desk", "my_desk", "broker_desk", "owner_desk", "sign_out", "atlas", "trailer_tools", "doc_expiry", "owed_board", "true_rate", "claims_log", "ifta", "maintenance", "breakdown_log", "facility_memory", "scale_tickets", "scale_finder", "tax_records", "night_parking"].includes(navDestEarly);
+        ["hours", "trips", "fleet_board", "open_board", "broker_inbox", "shipper_portal", "broker_portal", "team_portal", "app_performance", "language", "console_dashboard", "console_fleetmap", "console_drivers", "documents", "wallet", "pay_book", "pay_book_ytd", "milestones_board", "company", "chat", "loads", "loads_tracker", "detention", "explore", "go", "road_learning", "si_layer", "live_updates", "route_weather", "sign_check", "satellite_view", "weigh_station_status", "dispatch_desk", "my_desk", "broker_desk", "owner_desk", "sign_out", "atlas", "trailer_tools", "doc_expiry", "owed_board", "true_rate", "claims_log", "ifta", "maintenance", "breakdown_log", "facility_memory", "scale_tickets", "scale_finder", "tax_records", "tax_worksheet", "night_parking"].includes(navDestEarly);
       if (whereHow || showCheck || (lang !== "en" && destForLocalizedQuery(lang, qRaw) === navDestEarly)) {
         const nav = buildMecaNav(navDestEarly, q);
         const info = MECA_DEST_INFO[navDestEarly];
@@ -10133,6 +10139,10 @@ export function App() {
       }
       const top = groups.slice(0, 3).map((g) => `${g.facility} (${g.site}) — ${g.visits.length} visit${g.visits.length === 1 ? "" : "s"}, avg detention past free time ${g.avgExcessHours.toFixed(1)} h`).join("; ");
       return `Your Facility Memory holds ${groups.length} facilit${groups.length === 1 ? "y" : "ies"} from your own sealed visits: ${top}${groups.length > 3 ? "; and more in the panel" : ""}. Name one (“how was detention at … last time”) and I'll pull its record. It's all in the Load Worth-It Advisor on the Loads tab — tap “Take me there” below.`;
+    }
+    // Tax Worksheet (2026-11-12) — the one-page worksheet answer.
+    if (navDestEarly === "tax_worksheet") {
+      return "The Tax Worksheet (Driver tab, right under Tax Records) lays your whole tax year out on one page, paper-worksheet style, from your own records only: an income tracker from your Pay Book with W-2 and 1099 in separate lanes (per-lane subtotals, never one combined filing total), vehicle & operating expenses and equipment & supplies sections from your expense tracker, your per-diem day count, and the year's fuel kept separate so nothing double-counts. The W-2 warning prints on its face — per-diem and unreimbursed employee expenses are owner-operator / 1099 territory. It downloads as a packet for your tax preparer. Tap “Take me there” below.";
     }
     // Final Extras — per-diem days + tax-year answers from the same
     // cached summary the Tax Records panel shows.
@@ -17956,6 +17966,9 @@ export function App() {
             </div>
             <div id="tax-records" className="scroll-mt-4">
               <TaxPanel setBanner={setBanner} lang={lang} />
+            </div>
+            <div id="tax-worksheet" className="scroll-mt-4">
+              <TaxWorksheetPanel setBanner={setBanner} lang={lang} />
             </div>
             <div id="doc-vault" className="scroll-mt-4">
               <VaultPanel setBanner={setBanner} lang={lang} />

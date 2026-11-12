@@ -61,6 +61,7 @@ export type ToolDestId =
   | "ifta"
   | "library"
   | "tax_records"
+  | "tax_worksheet"
   | "doc_expiry"
   | "documents"
   | "hours"
@@ -378,6 +379,12 @@ export const TOOL_GROUPS: ToolGroup[] = [
         subEn: "Expenses sorted into tax categories, the year summary, and your per-diem day counter",
         subEs: "Gastos ordenados por categoría de impuestos, el resumen del año y tu contador de días de viáticos",
         dest: "tax_records",
+      },
+      {
+        id: "tax-worksheet", icon: "📋", en: "Tax worksheet", es: "Hoja de impuestos",
+        subEn: "The full worksheet on one page — income tracker by lane, vehicle & equipment expenses, per-diem days, ready for your tax preparer",
+        subEs: "La hoja completa en una página — ingresos por línea, gastos de vehículo y equipo, días de viáticos, lista para tu preparador",
+        dest: "tax_worksheet",
       },
       {
         id: "doc-expiry", icon: "🗓️", en: "Document expiry wallet", es: "Cartera de vencimientos",

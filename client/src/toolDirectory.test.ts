@@ -71,6 +71,7 @@ describe("tool directory — the brief's tool checklist", () => {
     "scale-tickets",
     "scale-finder", // Scales finder
     "tax-records", // tax categories + per-diem counter + TaxPanel
+    "tax-worksheet", // the full one-page worksheet (2026-11-12)
     "night-parking", // night parking layer
     "language", // language picker (Settings → Appearance)
   ];
@@ -87,6 +88,14 @@ describe("tool directory — the brief's tool checklist", () => {
     for (const word of ["profile", "cold-chain", "securement", "loaded height", "axle", "dock", "wind", "pre-trip"]) {
       expect(t!.subEn.toLowerCase()).toContain(word);
     }
+  });
+
+  test("the tax worksheet row lands on the worksheet destination", () => {
+    const t = ALL_TOOL_ITEMS.find((i) => i.id === "tax-worksheet");
+    expect(t).toBeDefined();
+    expect(t!.dest).toBe("tax_worksheet");
+    expect(t!.subEn.toLowerCase()).toContain("income tracker");
+    expect(t!.subEn.toLowerCase()).toContain("per-diem");
   });
 
   test("the tax row names categories and the per-diem counter", () => {

@@ -521,7 +521,33 @@ function FuelLogForm({ setBanner }: { setBanner: Banner }) {
 
 // ---------- B) Money Truth -----------------------------------------------------
 
-const EXPENSE_CATS = ["fuel", "maintenance", "tolls", "parking", "meals", "supplies", "lumper", "insurance", "scale", "permits", "other"] as const;
+const EXPENSE_CATS = ["fuel", "maintenance", "tolls", "parking", "meals", "supplies", "lumper", "insurance", "scale", "permits", "repairs", "dot_testing", "licensing", "software", "other"] as const;
+
+/** Display names for the expense categories — the stored keys stay
+ *  the snake_case the records sealed with; the driver reads words.
+ *  (Tax Worksheet batch, 2026-11-12: repairs / DOT testing /
+ *  licensing / software joined the picker.) */
+export const EXPENSE_CAT_LABELS: Record<string, string> = {
+  fuel: "Fuel",
+  maintenance: "Maintenance",
+  tolls: "Tolls",
+  parking: "Parking",
+  meals: "Meals",
+  supplies: "Supplies",
+  lumper: "Lumper",
+  insurance: "Insurance",
+  scale: "Scale",
+  permits: "Permits",
+  repairs: "Repairs",
+  dot_testing: "DOT testing / physical",
+  licensing: "Licensing & fees",
+  software: "Software & satellite",
+  other: "Other",
+};
+
+export function expenseCategoryLabel(category: string): string {
+  return EXPENSE_CAT_LABELS[category] ?? category;
+}
 
 export function MoneyPanel({ setBanner, lang = "en" }: { setBanner: Banner; lang?: Lang }) {
   const queryClient = useQueryClient();
@@ -605,7 +631,7 @@ export function MoneyPanel({ setBanner, lang = "en" }: { setBanner: Banner; lang
           <div>
             <label className={labelCls} htmlFor="exp-cat">Category</label>
             <select id="exp-cat" className={inputCls} value={cat} aria-label="Expense category" onChange={(e) => setCat(e.target.value)}>
-              {EXPENSE_CATS.map((c) => <option key={c} value={c}>{c}</option>)}
+              {EXPENSE_CATS.map((c) => <option key={c} value={c}>{expenseCategoryLabel(c)}</option>)}
             </select>
           </div>
           <div>
@@ -642,7 +668,7 @@ export function MoneyPanel({ setBanner, lang = "en" }: { setBanner: Banner; lang
         <div className="mt-3 space-y-1.5">
           {(expList.data?.expenses ?? []).slice(0, 8).map((e) => (
             <div key={e.id} className="flex items-center justify-between gap-2 rounded-xl bg-[var(--surface2)] px-3 py-2 text-sm">
-              <span className="capitalize">{e.category} · <strong>{money(e.amount)}</strong> <span className="text-xs normal-case text-[var(--dim)]">{e.vendor ?? ""} · {new Date(e.spentAt).toLocaleDateString()}{e.hasReceipt ? " · receipt sealed" : ""}</span></span>
+              <span>{expenseCategoryLabel(e.category)} · <strong>{money(e.amount)}</strong> <span className="text-xs normal-case text-[var(--dim)]">{e.vendor ?? ""} · {new Date(e.spentAt).toLocaleDateString()}{e.hasReceipt ? " · receipt sealed" : ""}</span></span>
               <button type="button" className="shrink-0 text-xs font-bold underline" aria-label={`Delete ${e.category} expense of ${money(e.amount)}`} onClick={() => void api.deleteExpense({ id: e.id }).then(() => { void queryClient.invalidateQueries({ queryKey: ["expenses"] }); void queryClient.invalidateQueries({ queryKey: ["money-truth"] }); })}>Delete</button>
             </div>
           ))}
@@ -2581,7 +2607,7 @@ export function TaxPanel({ setBanner, lang = "en" }: { setBanner: Banner; lang?:
             <div className="mt-1.5 space-y-1.5">
               {d.expenseByCategory.map((c) => (
                 <div key={c.category} className="flex items-center justify-between rounded-xl bg-[var(--surface2)] px-3 py-2 text-sm">
-                  <span className="capitalize">{c.category} <span className="text-xs normal-case text-[var(--dim)]">· {c.count} record{c.count === 1 ? "" : "s"}</span></span>
+                  <span>{expenseCategoryLabel(c.category)} <span className="text-xs normal-case text-[var(--dim)]">· {c.count} record{c.count === 1 ? "" : "s"}</span></span>
                   <strong>{money(c.total)}</strong>
                 </div>
               ))}
@@ -2607,6 +2633,124 @@ export function TaxPanel({ setBanner, lang = "en" }: { setBanner: Banner; lang?:
             {busy ? "Building…" : `⬇ Download ${year} tax summary`}
           </button>
           <p className="mt-2 text-xs text-[var(--dim)]">A record for tax prep — not tax advice. The packet carries the per-diem W-2 note on its face so it travels with the numbers.</p>
+        </>
+      )}
+    </Section>
+  );
+}
+
+// ---------- Tax Worksheet (2026-11-12): the paper worksheet, one full view --
+// The "Tax Deduction Worksheet for Truck Driver Operators" laid out
+// like the paper form, assembled from the records already in the app
+// (getTaxWorksheet — a view, never a second store): header with the
+// name/company already on the account (no tax ID anywhere), the
+// income tracker with W-2 / 1099 in separate lanes, the worksheet's
+// expense sections, per-diem days, the fuel block kept separate, and
+// per-lane totals. The W-2 warning prints ON the worksheet's face.
+
+export function TaxWorksheetPanel({ setBanner, lang = "en" }: { setBanner: Banner; lang?: Lang }) {
+  const nowYear = new Date().getFullYear();
+  const [year, setYear] = useState(nowYear);
+  const [busy, setBusy] = useState(false);
+  const q = useQuery({ queryKey: ["tax-worksheet", year], queryFn: () => api.getTaxWorksheet({ year }) });
+  const d = q.data;
+  const lineLabel = (key: string, fallback: string) => {
+    const v = tt(lang, `extras.wsLine.${key}`);
+    return v.startsWith("extras.") ? fallback : v;
+  };
+  const sectionTitle = (key: string, fallback: string) =>
+    key === "vehicle" ? tt(lang, "extras.wsSectionVehicle") : key === "equipment" ? tt(lang, "extras.wsSectionEquipment") : fallback;
+  return (
+    <Section title={tt(lang, "extras.wsTitle")} ariaLabel="Tax worksheet — the year on one page">
+      <div className="flex flex-wrap items-center gap-2">
+        <label className={labelCls} htmlFor="tax-worksheet-year">Tax year</label>
+        <select id="tax-worksheet-year" className={`${inputCls} w-auto`} value={year} aria-label="Tax worksheet year" onChange={(e) => setYear(parseInt(e.target.value, 10))}>
+          {[nowYear, nowYear - 1, nowYear - 2].map((y) => <option key={y} value={y}>{y}</option>)}
+        </select>
+      </div>
+      {!d && <p className="mt-2 text-sm text-[var(--dim)]">Reading your records…</p>}
+      {d && (
+        <>
+          <p className="mt-3 text-sm">
+            <strong>{d.driverName}</strong>{d.companyName ? <span className="text-[var(--dim)]"> · {d.companyName}</span> : null}
+            <span className="block text-xs text-[var(--dim)]">Tax Worksheet — {year} · built only from your own records in this app. No tax ID is asked for or kept here.</span>
+          </p>
+          <p className="mt-3 rounded-xl bg-amber-900/40 px-3 py-2 text-xs leading-relaxed text-amber-200" role="note">
+            {tt(lang, "extras.wsW2Warning")}
+          </p>
+
+          <div className="mt-4">
+            <div className="text-xs font-bold uppercase tracking-wide text-[var(--dim)]">{tt(lang, "extras.wsIncome")}</div>
+            {d.incomeRows.length === 0 && <p className="mt-1 text-sm text-[var(--dim)]">No pay logged in {year} yet. Log it in the Pay Book (Money tab) — every paycheck becomes a row here, in its own lane.</p>}
+            <div className="mt-1.5 space-y-1.5">
+              {d.incomeRows.map((r, i) => (
+                <div key={`${r.dateIso}-${r.payer}-${i}`} className="flex items-center justify-between gap-2 rounded-xl bg-[var(--surface2)] px-3 py-2 text-sm">
+                  <span className="min-w-0">
+                    {new Date(`${r.dateIso}T12:00:00`).toLocaleDateString()} · <strong>{r.payer}</strong>{" "}
+                    <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold ${r.lane === "1099" ? "bg-sky-900/60 text-sky-200" : "bg-emerald-900/60 text-emerald-200"}`}>{r.lane === "1099" ? "1099" : "W-2"}</span>
+                    <span className="block text-xs text-[var(--dim)]">Miles: {r.miles != null ? r.miles.toLocaleString() : "— (pay records carry no miles; sealed trip miles stand below)"}</span>
+                  </span>
+                  <strong className="shrink-0">{money(r.gross)}</strong>
+                </div>
+              ))}
+            </div>
+            <div className="mt-2 space-y-1 text-sm">
+              <p>W-2 subtotal: <strong>{money(d.w2.gross)}</strong> <span className="text-xs text-[var(--dim)]">({d.w2.count} payment{d.w2.count === 1 ? "" : "s"})</span></p>
+              <p>1099 subtotal: <strong>{money(d.ten99.gross)}</strong> <span className="text-xs text-[var(--dim)]">({d.ten99.count} payment{d.ten99.count === 1 ? "" : "s"})</span></p>
+              <p className="text-xs text-[var(--dim)]">The two lanes file separately — this worksheet never adds them into one filing total. Year-end forms are not rows: the paychecks already counted that money.</p>
+            </div>
+          </div>
+
+          {d.sections.map((s) => (
+            <div key={s.key} className="mt-4">
+              <div className="text-xs font-bold uppercase tracking-wide text-[var(--dim)]">{sectionTitle(s.key, s.title)} — {year}</div>
+              <div className="mt-1.5 space-y-1.5">
+                {s.lines.map((l) => (
+                  <div key={l.key} className="flex items-center justify-between rounded-xl bg-[var(--surface2)] px-3 py-2 text-sm">
+                    <span>{lineLabel(l.key, l.label)} <span className="text-xs text-[var(--dim)]">· {l.count} record{l.count === 1 ? "" : "s"}</span></span>
+                    <strong>{money(l.total)}</strong>
+                  </div>
+                ))}
+              </div>
+              <p className="mt-2 text-sm">Section subtotal: <strong>{money(s.subtotal)}</strong></p>
+            </div>
+          ))}
+
+          <div className="mt-4 rounded-2xl bg-[var(--surface2)] px-3 py-3">
+            <div className="text-xs font-bold uppercase tracking-wide text-[var(--dim)]">{tt(lang, "extras.perDiemDays")}</div>
+            <div className="font-condensed text-4xl font-bold">{d.perDiemDays}</div>
+            <p className="mt-1 text-xs leading-relaxed text-[var(--dim)]">{tt(lang, "extras.perDiemNote")}</p>
+          </div>
+
+          <p className="mt-3 text-sm text-[var(--dim)]">
+            Fuel purchases logged in {year}: <strong className="text-[var(--text)]">{d.fuelCount > 0 ? `${money(d.fuelTotal)} · ${d.fuelGallons.toLocaleString()} gal · ${d.fuelCount} purchase${d.fuelCount === 1 ? "" : "s"}` : "none"}</strong> — counted from the fuel log (they feed IFTA too), kept out of the expense sections above so nothing double-counts.
+          </p>
+
+          <div className="mt-3 rounded-2xl bg-[var(--surface2)] px-3 py-3 text-sm">
+            <div className="text-xs font-bold uppercase tracking-wide text-[var(--dim)]">Totals — {year}</div>
+            <div className="mt-1.5 space-y-1">
+              <p>W-2 gross: <strong>{money(d.w2.gross)}</strong> · 1099 gross: <strong>{money(d.ten99.gross)}</strong></p>
+              <p>Expenses total: <strong>{money(d.expenseTotal)}</strong> <span className="text-xs text-[var(--dim)]">({d.expenseCount} record{d.expenseCount === 1 ? "" : "s"})</span></p>
+              <p>Sealed trip miles in {year}: <strong>{d.sealedTripMiles.toLocaleString()}</strong> <span className="text-xs text-[var(--dim)]">— from your sealed trip records</span></p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            disabled={busy}
+            className="btn-neon btn-press mt-3 w-full rounded-xl py-3 font-bold disabled:opacity-50"
+            aria-label={`Download the ${year} tax worksheet`}
+            onClick={() => {
+              setBusy(true);
+              void api.exportTaxWorksheet({ year })
+                .then((r) => { downloadTextFile(r.filename, r.text); setBanner(`Tax worksheet ${year} downloaded — hand it to your tax preparer.`); })
+                .catch(() => setBanner("Couldn't build that worksheet — try again."))
+                .finally(() => setBusy(false));
+            }}
+          >
+            {busy ? "Building…" : `⬇ Download ${year} tax worksheet`}
+          </button>
+          <p className="mt-2 text-xs text-[var(--dim)]">A record for tax prep — not tax advice. The W-2 warning above prints on the downloaded worksheet too, and the export files itself in your Library's Filings, like the tax-year summary.</p>
         </>
       )}
     </Section>
