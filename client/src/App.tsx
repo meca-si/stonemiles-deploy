@@ -69,7 +69,7 @@ import {
 } from "./hillGrade";
 import { orderProfileBadges, tierChipFor, type FeaturedBadgeKey } from "./profileBadges";
 import appIcon from "./assets/app-icon.webp";
-import { AdvisorPanel, BriefingCard, FuelCoachCard, ChainLawPanel, DvirPanel, IftaPanel, MerkleCard, MoneyPanel, PassportPanel, PayBookPanel, PayStubSendPanel, Qr, ScalePanel, SettlementPanel, TaxPanel, TaxWorksheetPanel, US_STATES, VaultPanel, VerifyPanel, WeighIntelStrip } from "./NextLevel";
+import { AdvisorPanel, BriefingCard, FuelCoachCard, ChainLawPanel, DvirPanel, IftaPanel, MerkleCard, MoneyPanel, PassportPanel, PayBookPanel, PayStubSendPanel, Qr, ScalePanel, SettlementPanel, US_STATES, VerifyPanel, WeighIntelStrip } from "./NextLevel";
 import { FleetTrainingBoard, SafetyAcademyPanel } from "./SafetyAcademy";
 import { SiPanel } from "./SiPanel";
 import { LiveUpdatesPanel } from "./LiveUpdatesPanel";
@@ -844,6 +844,7 @@ type MecaDestId =
   | "stop_planner"
   | "atlas"
   | "trailer_tools"
+  | "desk"
   | "dispatch_desk"
   | "my_desk"
   | "broker_desk"
@@ -912,7 +913,7 @@ const MECA_DEST_INFO: Record<MecaDestId, { label: string; blurb: string }> = {
   milestones_board: { label: "Chat → Milestones Board", blurb: "The Milestones Board sits right under the Chat screen — community posts, rankings, and referral levels." },
   wallet: { label: "Money → Wallet & points", blurb: "Wallet & points live on the Money tab (bottom dock) — SM Points are up top, and the Wallet & $STONER card opens below them (PIN-gated)." },
   pay_book: { label: "Money → Pay Book", blurb: "Your Pay Book is on the Money tab (bottom dock) — the Pay Book button sits right under SM Points and opens the book straight at Log pay: log each paycheck there (W-2 or 1099), or tap “Scan stub / settlement” and Meca reads a photo of the pay stub or weekly settlement and fills the form for you to check — W-2 and 1099 stay in their separate piles, per diem rides its own non-taxable line, and 1099 stub deductions come off itemized, never as tax. Per diem has its own field, and your totals, tax packets, and logged pay build below it. Deductions on any logged entry can be added, edited, or removed line by line right on the entry in Logged pay — the lines stay in that entry's own lane, are never tax withholding, and feed that lane's Year-to-Date pie; a scanned stub's printed deductions file as those lines automatically. Stubs your company sends land in the same card, under “From your company”. Pay-stub email copies are optional and OFF by default: the switch lives in Loads → All loads → Document copies settings (pay-stub toggle), and the Pay Book's Log pay card shows whether it's on — when on, confirming a stub also emails driver, dispatch, and owner; when off, stubs stay in-app and you can still share one yourself from the Pay Book. Don't confuse it with Owner Console → Send Pay Stubs — that's the owner's desk for SENDING stubs to drivers; the Pay Book is your own pay." },
-  pay_book_ytd: { label: "Money → Pay Book → Year-to-Date pies", blurb: "The Year-to-Date pies live in your Pay Book on the Money tab (bottom dock) — open the Pay Book and scroll to “Year-to-Date pies — one per lane”, right above Logged pay. W-2 and 1099 are separate lanes and each gets its OWN pie — never one combined pie and never a combined total: the W-2 pie slices that lane's gross, its per diem (its own slice, marked non-taxable), and its deductions; the 1099 pie does the same for the 1099 lane. A year picker at the top of the card (this year by default) drives both pies. It's a tracking view only — the two piles stay separate underneath and file separately." },
+  pay_book_ytd: { label: "Money → Pay Book → Year-to-Date pies", blurb: "The Year-to-Date pies live in your Pay Book on the Money tab — one pie per lane, right above Logged pay, driven by the year picker at the top of the card. W-2 and 1099 stay in separate lanes with separate totals, always; the lanes law itself is stated once, under Pay Book." },
   settings: { label: "Settings", blurb: "Settings open from the ⚙️ button at the top right — Appearance (including the GPS map's Day/Night mode: Auto, Day, Night, or Off — the same switch also lives on the map itself under Layers & display), Driving, My pay, your truck, alerts, security, and privacy. ACCOUNT SESSION lives in Settings → Security & privacy too: the Sign out button for this device (plus Face ID / fingerprint unlock where the device supports it), and the Security Center below it carries every signed-in device and Sign Out Everywhere." },
   language: { label: "Settings → Appearance → Language", blurb: "The app language picker lives in Settings → Appearance → Language: English, Español, Português, Русский, or Українська. The whole app follows the pick — dashboard, menus, tool names, and the working screens — and the choice is remembered on the account. Legal and safety text always keeps its English original beside the translation, and the English text governs. Miles, °F, and lbs stay the same in every language." },
   app_performance: { label: "Settings → Driving → App performance", blurb: "App performance lives in Settings → Driving — scroll to “⏱️ App performance”. It shows the reroute and route-request timings the app recorded itself, plus GPS fix-quality counts from your sealed trip sheets." },
@@ -933,10 +934,11 @@ const MECA_DEST_INFO: Record<MecaDestId, { label: string; blurb: string }> = {
   safety_alerts: { label: "Drive → Safety alerts (ramps, curves, crossings, winter, hazards)", blurb: "Five alert systems ride the Drive screen (Settings → Driving; the winter package has its own switch, 'Winter & weather alerts', default ON — the rest follow the grade/hazard data they ride on). 1) RUNAWAY RAMPS: on an active downgrade, escape ramps ahead on your route from OpenStreetMap data get a banner + voice call ('Runaway ramp — 0.4 miles, right side') and stay marked on the map for the whole descent — where the map holds no ramp for a descent, nothing is shown; a ramp is never guessed. 2) SHARP CURVES: the app prices every curve on your route from the road's own geometry (offline, from the stored route), and when your live speed beats the advisory for YOUR rig — a tall or heavy rig gets a lower advisory and an earlier call — you get 'Sharp curve ahead — advisory 35' with your speed on the banner, about 0.3–0.5 miles out. Curves you're already slow enough for never warn. 3) RAILROAD CROSSINGS: crossings ahead from OpenStreetMap level-crossing data (the same crossing locations the federal FRA Grade Crossing Inventory tracks) get a banner + voice call; where a crossing's profile data — the FRA inventory's vertical-profile field, when inventory records are loaded — says it's HUMPED and you're pulling a long, low trailer (step-deck, RGN/lowboy), it warns 'Humped crossing — high-center risk' — OpenStreetMap carries no profile, so an OSM-only crossing shows the plain crossing alert and never claims the hump. 4) SEVERE WEATHER + WINTER: National Weather Service warnings (free, api.weather.gov) whose areas cover your route are matched to your ETA at that stretch and pushed as banner + voice; forecast snow along the route is matched to your ETA too ('4 to 6 inches expected across your next 90 miles, starting around 2 PM'), with a plain park-it advisory at heavy accumulation; chain-law reference for your route's states lives in Road alerts, chain-up pullouts from map data show as ⛓️, and an active 'Chains required ahead' call fires ONLY from a state DOT post — the law or a forecast alone never triggers it. 5) HAZARDS: one tap on the Drive Report grid (or the Cab Mode Road alerts screen) files Traffic stopped / Debris in road / Vehicle on shoulder at your GPS spot; it shows to other drivers as 'Driver-reported' with its age for 2 HOURS, with Still there / Gone votes under the same GPS-checked rules as construction. All five mirror onto the Cab Mode Guidance screen and Road alerts list for every tier — safety warnings are never paywalled on the phone." },
   construction_zones: { label: "Drive → Construction zones", blurb: "Construction shows two ways, always labelled by source. DRIVER-REPORTED (primary): one tap on 'Report construction' (Drive screen's Report grid, or the Cab Mode Road alerts screen) pins a work zone to your GPS spot; it shows on every driver's map and Road alerts as 'Driver-reported' with its age ('reported 20 min ago'), lives 12 hours, and other drivers at the zone can tap 'Still there' (a fresh 12 hours) or 'Gone' (the reporter's own Gone retires it at once; otherwise two drivers saying gone retire it — votes count only from a driver whose GPS is at the zone). Approaching a live zone on your route fires a banner + voice call ('Construction reported ahead — 0.8 miles'), mirrored onto the Cab Mode Head Unit Guidance screen and its Road alerts list for every tier. DOT REPORTED (where genuinely free): where a state DOT publishes an OPEN work-zone feed, those zones show labelled 'DOT reported' with the DOT named and drawn square and blue so they never look like driver reports — Wisconsin DOT's 511WI WZDx feed is wired today; states without a free open feed show driver reports only, and no paid incident feed is bought (paid feeds wait for app revenue, per the standing rule)." },
   weigh_station_status: { label: "Drive → Weigh station status", blurb: "Weigh station open/closed status lives on the Drive screen, in the 'Alerts near you' list — every weigh station there carries its crowd-sourced status line ('Open — updated 12 min ago', 'Closed — updated …', or 'Status unknown'). The stations themselves come from OpenStreetMap data plus stations drivers add, and the status comes from drivers: while your trip is live and you roll to within 0.7 miles of a station whose status is unknown or over an hour old, the Drive screen pops a big one-tap prompt — OPEN / CLOSED — and your answer updates that station for every driver. No answer in 5 seconds records nothing — like every big on-map prompt, it shows for 5 seconds then disappears (x's order 2026-11-03); the app never guesses a station's status. A report your GPS verifies at the station earns road-intel points under the usual daily rules; a report from too far away still counts as status but earns nothing. Statuses older than 4 hours read as unknown again. If a station ISN'T on the map, the 'Station here — not on the map?' button on the Drive screen (and in Alerts near you) adds it in two taps: tap Station here, then OPEN or CLOSED — it's saved at your GPS spot, marked driver-reported with your name, and prompts other drivers just like a map station; if a station is already on the map within a few hundred yards, the tap updates that one instead of making a duplicate. You can turn the prompts off in Settings → Driving ('Weigh station prompts', on by default) — the status lines keep showing either way. NOT HERE (2026-11-03): if a station or any other road-intel place on the map ISN'T really there, its detail (Alerts near you, the Road intel list, the approach prompt, the Explore place card) carries a '✕ Not here' button — one tap hides it for you permanently and records the correction with your GPS position; if you created the spot it is deleted for everyone outright, and when two independent drivers mark the same spot it is retired for everyone — never shown, never prompted again." },
-  dispatch_desk: { label: "Dispatch Desk", blurb: "The Dispatch Desk is a dispatch company's home — the account kind created with 'I dispatch for others' (a company that owns no trucks and runs the desk for client fleets; RUGGS LOGISTICS is the model). It opens from Chat → My company (the 'Open the Dispatch Desk' button, for the company's Owner and Dispatch seats). A dispatch company starts as a PLAIN PROFILE — no Fleet/Owner plan, no owner badge — and the client book, desk, and public posting all work at profile level. Inside: the CLIENT BOOK — lightweight client fleet records (name, contact, MC/DOT when they have them) the owner creates and manages; the company's DRIVERS with the client each is stamped to — drivers join ONLY by single-use driver code (a code can name the client it stamps its driver to; the stamp is on the record and ends when the driver leaves), and the desk can re-stamp a driver between clients or back to company-direct; POST & ASSIGN — the desk posts loads on its own company board from a rate con photo/PDF (auto-fill, driver confirms, filing seals) and assigns them straight to its own drivers, no queue inside its walls; and PUBLIC POSTING — loads for outside carriers reach the Open Board ONLY through the Owner Console review queue (Loads → Broker Portal) under the company's own name, via the poster account the owner links from the desk — free to post, nothing public until released from the queue, and the fleet overflow door is closed to dispatch companies. ADDING DRIVERS OF ITS OWN is the one gated thing: the first driver hits a plain gate — the owner activates the Fleet Owner plan from the desk (full Fleet price, same seat math as a fleet; the owner badge lands on activation) and driver codes unlock. DISPATCHER FEE: the owner sets the company's own dispatcher fee in the desk — 0 to 20%, never more; it rides the loads the company posts, shows to the claiming carrier on the load BEFORE they claim (poster name + fee %), and the claiming carrier pays it once per load. PLATFORM FEE: while a company stays dispatch-only, each of its dispatched loads that reaches sealed delivery records a platform fee of 2% of the load's gross pay, labelled 'Platform fee 2% — invoiced at sealed delivery' — records only, shown accrued in the desk; converting to Fleet Owner ends it. Walls are absolute: a dispatch company sees only its own clients and drivers, never another company's. The desk moves NO money and handles NO freight pay — freight pay runs direct from poster to carrier; the app tracks and seals records only. Document copies follow the standing rule: filed load docs route to driver + dispatch + owner of record (the dispatch company is the dispatch seat for loads it dispatched); pay-stub copies stay OFF unless the driver opts in." },
-  my_desk: { label: "My Desk", blurb: "My Desk is the DISPATCHER's own desk — the person's workspace, layered over the company Dispatch Desk (which stays the owner's roof view of the whole company). It lives in More → My Desk and in Settings → My social profile, and it exists ONLY for dispatchers: a dispatch-seat holder in any company (fleet or dispatch), a dispatch company's owner, or a SOLO dispatcher — any profile that opens the desk solo, which is the act that makes them a dispatcher in the system. Inside: MY PIPELINE — every load I posted, in plain states (Draft → In platform review → Live on the board → Claimed → Delivered — sealed), with the approval state in plain view (waiting in the platform queue, released, or sent back with the desk's note); POST A LOAD through the existing doors (the Broker Portal into the platform review queue for public loads — nothing public until the platform desk releases it — or the company board inside a company); MY FEE — my own dispatcher fee % on my poster account, which beats my company's default when both are set (the desk shows which one is actually in effect on my loads), capped at 20% server-side, riding each released load and shown to the claiming carrier before they claim; MY PLATFORM FEES — the platform's 2% of gross on MY dispatched loads, recorded at sealed delivery ('Platform fee 2% — invoiced at sealed delivery') with the running total; for company posters the fee sits on the company's books and My Desk shows my loads' slice, and SOLO dispatcher posters accrue the same 2% owed as a person — while a shipper or broker posting direct who never opened a dispatcher desk is NOT a dispatcher and accrues nothing. Plus shortcuts to my company chats and my desk context. WALLS: My Desk shows only the person's own loads, fees, and accruals — another dispatcher's work never appears and answers as nonexistent. A dispatcher is a plain profile: no subscription, no owner badge, no drivers needed; records only — the desk moves no money and handles no freight pay. THE THREE DOORS IN for accounts that aren't dispatchers yet: join a company as dispatch (a dispatch seat opens the desk on that company's slice), start a dispatch company ('I dispatch for others' in Chat → My company), or open the desk solo right from My Desk itself. ONE DESK OR THE OTHER (x, 2026-11-02 — dispatcher exclusivity): a dispatcher runs a COMPANY desk or a SOLO desk, NEVER both — that is what prevents double booking and stops a dispatcher taking loads around a company owner. The solo door REFUSES while you hold company standing (a dispatch seat in any company, fleet or dispatch, or a dispatch company of your own): 'You're dispatching under {company} — a dispatcher runs one desk or the other, never both. Leave the company's dispatch seat to run solo.' The company doors REFUSE while your solo desk is open — an owner can't hand you a dispatch seat and you can't create a dispatch company: 'Your solo desk is open — one desk or the other. Close the solo desk first (live loads must finish or be withdrawn first).' CLOSING the solo desk (My Desk → Close my solo desk) is itself refused while you have LIVE loads on the board under your solo poster — released to the public board, the board row still standing, the delivery not yet sealed — so freight never crosses the switch; sealed or withdrawn loads don't block it, and closing deletes NOTHING: your pipeline history and every recorded platform-fee accrual stand exactly as recorded. Leaving a company dispatch seat needs no load check — company loads belong to the company and stay on its desk — but the seat must actually be gone before the solo door opens. If older data ever shows an account standing in both, the COMPANY standing wins: the solo side reads as closed, for this desk and for the 2% accrual, until the seat goes — and the stored history is never rewritten." },
-  broker_desk: { label: "Broker Desk", blurb: "The Broker Desk is the POSTER's home screen — a broker or shipper poster who is NOT operating as a dispatcher. It lives in More → Broker Desk and in Settings → My social profile, and it exists ONLY for accounts holding a linked poster account (the Broker Portal population) with no dispatcher standing. Inside: MY POSTED LOADS as a pipeline in the same plain states as My Desk (Draft → In review → Live on the board → Claimed → Delivered — sealed), with the review/queue status spelled out on every load — WHOSE queue it sits in and why (a sent load waits in its account's review queue; the named desk releases, edits, or returns it, and nothing is public until they release it; a returned load is back in the poster's hands with the desk's note); MY POSTER FEE — the existing Broker Portal fee surface shown in the desk with set/edit (the poster's own dispatcher fee %, 0–20%, which beats their dispatch company's default when both are set; it rides each load at release and shows to the claiming carrier before they claim; loads already released keep the fee they were released with); and MY TOTALS — loads posted, loads sealed, and the gross that moved through my posts (sealed loads only). The Broker Portal keeps its posting flows — the desk is the front door on top of it, with a shortcut straight in. EXCLUSIVITY (x, 2026-11-02 — one desk for the same work, never two): DISPATCHER POSTERS LIVE ON MY DESK — a solo dispatcher (their solo desk is open) or a dispatch-company poster does NOT get a Broker Desk for the same poster work; the Broker Desk explainer for them points at My Desk, because a second desk for the same loads is exactly how double booking starts. HOW TO BECOME A POSTER: poster accounts are invited by the RUGGS LOGISTICS desk — the desk creates the account under the brokerage/shipper name and links it to the poster's STONEMILES sign-in; access requests run through the Stonervision team email, stonervisionteam@gmail.com (labelled 'Stonervision team — brokers, shippers & help'). WALLS: the Broker Desk shows only the caller's own poster account's loads — another poster's work never appears and answers as nonexistent. Records only — the desk moves no money and handles no freight pay; freight pay runs direct from poster to carrier." },
-  owner_desk: { label: "Owner Desk", blurb: "The Owner Desk is the FLEET OWNER's home screen — the command screen on top of the Owner Console, which keeps its deep work (drivers, hours, documents, settlements). It lives in More → Owner Desk and in Settings → My social profile, and it exists ONLY for the owner of a kind=fleet company. DISPATCH company owners keep their Dispatch Desk as their company roof — the Owner Desk is for FLEET owners. Inside: the REVIEW QUEUE front and center — the count of poster loads waiting in the company's queue, with a jump straight into the Owner Console queue (the Broker Portal desk face, where the owner releases, edits, or returns them); the COMPANY PIPELINE — every company load by state in the same plain states as My Desk (Draft → In review → Live → Claimed → Delivered — sealed), covering the private company board AND the company's Open Board presence (overflow copies out, broker loads its desk released), each row labelled with the board it lives on; a ROSTER SNAPSHOT — drivers, driver seats used/available, and dispatch seats, against the Fleet Owner plan's included allowances (3 driver seats + the first dispatch seat; the owner counts as a driver seat, the same count the billing basis runs on); PLAN & BILLING state — the recorded plan in its locked tier words plus the billing basis computed from the current roster (base + extra seats), with the standing line that nothing is charged today and billing opens at app-store release; and COMPANY TOTALS — loads sealed and gross moved (sealed loads only). Shortcuts lead INTO the Owner Console functions (Fleet Board, review queue, My company) rather than duplicating them. INELIGIBLE accounts get the plain explainer + the two doors: create a fleet company (Chat → My company — a fleet, not 'I dispatch for others'), or the Fleet Owner plan in Plans. COEXISTENCE (round 4, undisturbed): a fleet owner who also dispatches under their own fleet holds the Owner Desk AND My Desk in company mode side by side. WALLS: the Owner Desk shows only the caller's own company — another fleet's loads, roster, and totals never appear and answer as nonexistent. Records only — no money moves." },
+  desk: { label: "Desk", blurb: "The Desk is the ONE home for every role desk — the Owner Desk (fleet owners), My Desk (dispatchers), the Broker Desk (posters), and the Dispatch Desk (dispatch companies) — and it opens on the sections for YOUR role; the Owner Console stays the desktop deep-work surface, and the Desk is its mobile home. THE RULES, stated once for every desk: ONE DESK OR THE OTHER (x, 2026-11-02 — dispatcher exclusivity): a dispatcher runs a COMPANY desk or a SOLO desk, NEVER both — that is what prevents double booking; the solo door refuses while you hold company standing, the company doors refuse while your solo desk is open, and closing a solo desk refuses while you have live loads on the board — sealed or withdrawn loads don't block it, and closing deletes nothing. DISPATCHER POSTERS LIVE ON MY DESK — a dispatcher does not get a Broker Desk for the same poster work. FEES: a dispatcher/poster fee is the poster's or company's own, 0 to 20%, never more (the person's own fee beats their company's default when both are set), shown to the claiming carrier on the load BEFORE they claim, and paid by the claiming carrier once per load; while an account stays dispatch-only, each dispatched load that reaches sealed delivery records a platform fee of 2% of gross ('Platform fee 2% — invoiced at sealed delivery') — records only, shown accrued in the desk; a shipper or broker posting direct who never opened a dispatcher desk accrues nothing. PUBLIC POSTING runs ONLY through the platform review queue — free to post, under the poster's own name, and nothing is public until the desk releases it; a returned load goes back to the poster with the desk's note. BECOME A POSTER: poster accounts are invited by the RUGGS LOGISTICS desk and linked to the poster's sign-in; access runs through the Stonervision team, stonervisionteam@gmail.com. WALLS ARE ABSOLUTE: every desk shows only its own company's or person's work — another desk's loads, roster, and totals never appear and answer as nonexistent. DOCUMENT COPIES follow the standing rule: filed load docs route to driver + dispatch + owner of record; pay-stub copies stay OFF unless the driver opts in. Records only — the desks move NO money and handle NO freight pay; freight pay runs direct from poster to carrier." },
+  dispatch_desk: { label: "Dispatch Desk", blurb: "The Dispatch Desk is a dispatch company's home — its client book, its drivers and their client stamps, post & assign, and public posting through the review queue. It is one section of the Desk now: ask Meca about 'the Desk' for the full rules, stated once there (one desk or the other, the 20% fee cap, the walls). It also opens from Chat → My company." },
+  my_desk: { label: "My Desk", blurb: "My Desk is the dispatcher's own desk — your pipeline, your fee, your platform fees. It is one section of the Desk now: ask Meca about 'the Desk' for the full rules, stated once there (one desk or the other, never both). Accounts that aren't dispatchers yet meet it as the explainer with the three doors in." },
+  broker_desk: { label: "Broker Desk", blurb: "The Broker Desk is the poster's home — your posted loads with their review status, your poster fee, your totals. It is one section of the Desk now: ask Meca about 'the Desk' for the full rules, stated once there. Dispatcher posters live on My Desk — one desk for the same work, never two." },
+  owner_desk: { label: "Owner Desk", blurb: "The Owner Desk is the fleet owner's command screen — review queue, company pipeline, roster, plan, totals — the mobile home of the Owner Console, which keeps the deep work. It is one section of the Desk now: ask Meca about 'the Desk' for the full rules, stated once there." },
   sign_out: { label: "Sign out", blurb: "Sign out lives in Settings → Security & privacy — the 'Account session — this device' card right under the App lock PIN — and in Chat → My company → My social profile. It ends THIS device's session and returns you to the sign-in screen; a signed-out device shows no account data, and your other devices stay signed in. Signing back in always takes a real credential: your app PIN if you've set one, Face ID / fingerprint if it's enrolled on the device, or the full account sign-in — email + password, Google, or a passkey. There is no one-tap way back in, and the full sign-in screen is also where you switch to a different account. For every device at once, the Security Center (same Settings section) carries Sign Out Everywhere." },
   doc_expiry: { label: "Driver → Document expiry wallet", blurb: "The Document Expiry Wallet is on the Driver tab — it tracks the five dates that can park the truck (CDL, medical card, vehicle registration, insurance, and the annual DOT inspection) from the expiry dates YOU entered, with in-app alerts at 30, 14, and 7 days out plus an expired state, and a warning strip at the top of the Driver tab whenever one is due. The document files themselves live in the Document Vault right below it. Alerts are in-app only — the app sends no push notifications." },
   owed_board: { label: "Driver → Who owes me", blurb: "The 'Who owes me' board is on the Driver tab — every delivered (POD-sealed) load whose pay hasn't been recorded yet, oldest first, with days outstanding and aging: freight plus any sealed claim events (TONU / layover / driver assist), minus the payments you've recorded against it. Recording a payment is a record only — the board tracks what's owed; it sends no invoices and moves no money. A load leaves the board when its recorded payments cover what's owed." },
@@ -946,7 +948,7 @@ const MECA_DEST_INFO: Record<MecaDestId, { label: string; blurb: string }> = {
   scale_tickets: { label: "Driver → Scale tickets", blurb: "Scale Tickets are on the Driver tab — log the weights off a scale ticket (steer / drive tandems / trailer tandems, gross figured for you, over-80,000 flagged) or snap the ticket photo; either way it fingerprints and seals. Attach the ticket to a load and it seals into that load's record and rides the load's exports. Every weight is driver-entered — you type what the ticket says; nothing pretends a sensor read it." },
   scale_finder: { label: "Drive → Explore → Scales", blurb: "The Scale Finder is the Scales chip on the Drive map (Explore): CAT Scale locations by brand, public weighbridges and weigh stations, and truck stops the map data tags as having scales — all from OpenStreetMap, the same map data as the other Explore chips. Locations only: the map data carries no live open/closed status for scales, and none is claimed. Tap a pin, then Route." },
   tax_records: { label: "Driver → Tax records", blurb: "Tax Records are on the Driver tab — your year at a glance: expenses grouped by the tax category YOU confirmed on each one (fuel, maintenance, tolls, parking, meals, supplies, and the rest), the year's fuel purchases kept separate so nothing double-counts, and the per-diem day counter: days out counted automatically from your sealed trip records. Per-diem is an owner-operator / 1099 deduction — W-2 company drivers cannot claim it (removed by the 2017 tax law change) — and the summary is a record for tax prep, not tax advice; no deduction amount is figured. The whole year downloads as one packet for your tax preparer." },
-  tax_worksheet: { label: "Driver → Tax worksheet", blurb: "The Tax Worksheet is on the Driver tab, right under Tax Records — the full paper-style worksheet on one page, built only from your own records: a header with the name/company already on your account (no tax ID is ever asked for), an income tracker from your Pay Book with W-2 and 1099 in SEPARATE lanes and per-lane subtotals (never one combined filing total), vehicle & operating expenses and equipment & supplies sections from your expense tracker (maintenance & repairs shown as one line; DOT testing/physical, licensing & fees, and software & satellite have their own lines), your per-diem day count, the year's fuel purchases kept separate so nothing double-counts, and per-lane totals. The W-2 warning prints on its face: per-diem and unreimbursed employee expenses are owner-operator / 1099 territory — W-2 company drivers generally cannot claim them federally. It downloads as a packet for your tax preparer and files itself in the Library's Filings. A record for tax prep, not tax advice." },
+  tax_worksheet: { label: "Library → Tax worksheet", blurb: "The Tax Worksheet lives in the Library, right under Tax records — the full paper-style worksheet on one page, built only from your own records, with W-2 and 1099 in separate lanes and the W-2 warning printed on its face. It downloads as a packet for your tax preparer and files itself in the Library's Filings. A record for tax prep, not tax advice. The full per-diem / W-2 rule is stated once, under Tax records." },
   night_parking: { label: "Drive → Explore → Night Parking", blurb: "The Night Parking layer is the Night Parking chip on the Drive map (Explore): truck parking, rest areas, and truck services from the map data (OpenStreetMap) in one layer. In the Stop Planner, the Night parking section lists the route stops the map data tags with truck parking nearest to where your driving clock runs out, and the full Parking planner (Gold) scans rest areas and services around you. Space counts are lot sizes from map tags — there is NO live availability feed, so nothing anywhere claims a space is free." },
   ifta: { label: "Driver → IFTA estimator", blurb: "The IFTA estimator is IFTA Complete at the top of the Driver tab — a running quarterly estimate from your sealed per-state miles and your logged fuel purchases: tax owed per state = (state miles ÷ MPG) × the state's rate, minus the tax you already paid on fuel bought in that state. Rates come from the real published IFTA, Inc. fuel tax matrix, 4th quarter 2026 (matrix dated October 15, 2026, updated November 5, 2026; not final until December 4, 2026), and the panel prints that as-of label. A jurisdiction whose rate isn't loaded (Alaska, Hawaii, DC — not IFTA members) reads 'rate not loaded' and stays out of the totals. The whole panel is labelled an estimate for planning — not a filing." },
   maintenance: { label: "Driver → Maintenance countdown", blurb: "The Maintenance Countdown is on the Driver tab — odometer-based service tracking for oil, tires, brakes, and the annual DOT inspection. You set each interval and the odometer (or date) at the last service; the miles-remaining readout runs off the newest odometer the app already records (your fuel log, DVIRs, and daily logs), with due-soon, due, and overdue states. The DOT annual can run date-based on the 12-month rule. The starting intervals shown are labelled defaults — yours to change to your truck's spec." },
@@ -2765,6 +2767,24 @@ export function App() {
   // poster's and the fleet owner's home screens, same pattern.
   const [showBrokerDesk, setShowBrokerDesk] = useState(false);
   const [showOwnerDesk, setShowOwnerDesk] = useState(false);
+  // THE DESK (Phase 2 consolidation, 2026-11-12): ONE Desk entry for
+  // every role desk. openDesk() routes to the role-appropriate sheet:
+  // exactly one eligible desk opens directly; several open the Desk
+  // chooser; none opens My Desk, whose sheet carries the explainer +
+  // doors for accounts that hold no desk yet (the long-standing
+  // meet-the-desk path). The four sheets themselves are unchanged.
+  const [showDeskMenu, setShowDeskMenu] = useState(false);
+  const openDesk = () => {
+    const eligible = [
+      ownerDeskEligible ? "owner" : null,
+      brokerDeskEligible ? "broker" : null,
+      myDeskEligible ? "mine" : null,
+    ].filter((x) => x !== null);
+    if (eligible.length > 1) { setShowDeskMenu(true); return; }
+    if (eligible[0] === "owner") { setShowOwnerDesk(true); return; }
+    if (eligible[0] === "broker") { setShowBrokerDesk(true); return; }
+    setShowMyDesk(true);
+  };
   // My Desk chat shortcuts: open one specific company chat group in
   // the Chat panel (the group-focus counterpart of chatFocusNonce).
   const [chatGroupFocus, setChatGroupFocus] = useState<{ groupId: number; n: number } | null>(null);
@@ -9650,6 +9670,10 @@ export function App() {
     // the generic detention rule (which owns the live tracker).
     if (/facility memory|what to expect|what'?s it like at|been (to|here|there) before|last time (at|i was at)|detention at|how was detention|how long.*(detention|held|wait).*(at|receiver|shipper|facility)|remember.*(receiver|shipper|facility)/.test(q)) return "facility_memory";
     if (/detention|held at (the )?(dock|shipper|receiver)|waiting at (the )?(dock|shipper|receiver)|dock (time|pay)/.test(q)) return "detention";
+    // THE DESK (Phase 2, 2026-11-12) — a bare "desk" ask lands on
+    // the one Desk entry; the specific desk rules above (owner /
+    // broker / mine / dispatch) keep their own phrasings.
+    if (/^(the |my )?desk$|open (the )?desk|go to (the )?desk/.test(q)) return "desk";
     if (/librar|all my records|my records home|delivered loads|sealed files|my filings/.test(q)) return "library";
     if (/settlement|settle|underpaid|short(ed)? me/.test(q)) return "settlements";
     if (/pay ?book|pay ?stub|paycheck|pay check|log (my )?pay|per ?diem|\bw-?2\b|\b1099\b|year-end (tax )?form|(add|edit|change|fix|itemize|itemise)\w* (the |my |a )?deduction|deduction.*(add|edit|change|fix|itemize|itemise)/.test(q)) return "pay_book";
@@ -9714,6 +9738,13 @@ export function App() {
         "The Fleet Board belongs to a company — this account isn't in one, so there's no board to open. Your own loads live in Loads → All loads, and joining a company with an owner's driver code happens in Chat → My company.";
       nav.altDest = "loads";
       nav.altLabel = MECA_DEST_INFO.loads.label;
+    }
+    if (dest === "desk") {
+      // THE DESK (Phase 2, 2026-11-12): one entry for every role
+      // desk — the note states which surface the tap lands on.
+      nav.note = (ownerDeskEligible || brokerDeskEligible || myDeskEligible)
+        ? "The Desk opens on the sections for your role — owner, poster, or dispatcher — in one place."
+        : "This account holds no desk yet, so the Desk opens on the explainer and the doors in — the same meet-the-desk path My Desk has always carried.";
     }
     if (dest === "dispatch_desk") {
       const kind = boardGateQuery.data?.companyKind ?? null;
@@ -9930,7 +9961,7 @@ export function App() {
         break;
       case "settlements":
         if (consoleActive) requestConsoleSection("settlements");
-        else { setTab("driver"); scrollToAnchor("settlement-checker"); }
+        else { setTab("money"); scrollToAnchor("settlement-checker"); }
         break;
       case "documents":
         if (consoleActive) requestConsoleSection("documents");
@@ -9954,6 +9985,7 @@ export function App() {
       case "plans": setShowPlans(true); break;
       case "parking": setShowParking(true); break;
       case "stop_planner": exitConsole(); setTab("drive"); setShowStopPlanner(true); break;
+      case "desk": exitConsole(); openDesk(); break;
       case "dispatch_desk": exitConsole(); setShowDispatchDesk(true); break;
       case "my_desk": exitConsole(); setShowMyDesk(true); break;
       case "broker_desk": exitConsole(); setShowBrokerDesk(true); break;
@@ -15701,7 +15733,7 @@ export function App() {
               type="button"
               className="btn-neon btn-press w-full rounded-2xl px-4 py-4 text-left"
               aria-label={tr("Open the Settlement Checker", "Abrir el Verificador de Liquidaciones")}
-              onClick={() => { tapFx(); setTab("driver"); scrollToAnchor("settlement-checker"); }}
+              onClick={() => { tapFx(); scrollToAnchor("settlement-checker"); }}
             >
               <span className="block font-condensed text-2xl font-bold leading-none">🧾 {tr("Settlement Checker", "Verificador de Liquidaciones")}</span>
               <span className="mt-1 block text-sm font-semibold">{tr("Compare a settlement against your sealed loads — underpayments flagged with amounts.", "Compara una liquidación contra tus cargas selladas — pagos menores marcados con montos.")}</span>
@@ -15739,6 +15771,19 @@ export function App() {
             </ExpandRow>
             <MoneyPanel setBanner={setBanner} lang={lang} />
             <PayBookPanel setBanner={setBanner} openSignal={payBookJumpNonce} lang={lang} />
+            {/* NAV CONSOLIDATION (Phase 2, 2026-11-12): Money Truth and
+                the Settlement Checker moved here from the Driver tab —
+                the Money tab is now the ONE money home: Wallet & points,
+                Pay Book, Money Truth (expenses), Settlement Checker, as
+                sections of this one tab. The settlement-checker anchor
+                id travels with the panel, so deep links still land. */}
+            <MoneyFlowHub setBanner={setBanner} mpg={profile.mpg} onOpenBreakdownHelp={() => setShowBreakdown(true)} onOpenParking={() => setShowParking(true)} lang={lang} />
+            {/* Security Pack 2 step-up: settlement views need a fresh PIN. */}
+            <div id="settlement-checker" className="scroll-mt-4">
+              <SensitiveGate area="Settlements">
+                <SettlementPanel setBanner={setBanner} lang={lang} />
+              </SensitiveGate>
+            </div>
           </div>
         )}
 
@@ -15751,60 +15796,24 @@ export function App() {
             <p className="px-1 pb-1 text-sm text-[var(--dim)]">
               {tr("Everything in STONEMILES, grouped by what it's for — your desks on top, then every tool under its header.", "Todo en STONEMILES, agrupado según para qué sirve — tus escritorios arriba, luego cada herramienta bajo su encabezado.")}
             </p>
-            {/* My Desk (round 3): visible ONLY for eligible dispatchers —
-                a dispatch seat in any company, a dispatch company's
-                owner, or a solo dispatcher who opened the desk. The
-                server decides (getMyDesk); everyone else meets the
-                desk through Ask Meca's explainer + doors. */}
-            {myDeskEligible && (
+            {/* THE DESK (Phase 2 consolidation, 2026-11-12): ONE Desk
+                entry where the three role-desk buttons used to sit.
+                Visible when the account holds ANY desk (the server
+                decides each standing, as before); the tap routes to
+                the role-appropriate sheet — or the Desk chooser when
+                the account holds several. Accounts with no desk meet
+                it through Ask Meca's explainer + doors, as before. */}
+            {(myDeskEligible || brokerDeskEligible || ownerDeskEligible) && (
               <button
                 type="button"
                 className="btn-press flex min-h-[64px] w-full items-center gap-3 rounded-2xl bg-[var(--surface)] border border-[var(--border)] px-4 py-3 text-left"
-                aria-label={tr("Open My Desk", "Abrir Mi Escritorio")}
-                onClick={() => { tapFx(); setShowMyDesk(true); }}
+                aria-label={tr("Open the Desk", "Abrir el Escritorio")}
+                onClick={() => { tapFx(); openDesk(); }}
               >
-                <span className="text-2xl" aria-hidden>🧑‍💼</span>
+                <span className="text-2xl" aria-hidden>🗄️</span>
                 <span className="min-w-0">
-                  <span className="block font-condensed text-xl font-bold leading-tight">{tr("My Desk", "Mi Escritorio")}</span>
-                  <span className="block text-xs leading-snug text-[var(--dim)]">{tr("Your dispatcher's desk — your pipeline, your fee, your platform fees", "Tu escritorio de despachador — tus cargas, tu tarifa, tus cargos de plataforma")}</span>
-                </span>
-                <span className="ml-auto shrink-0 text-[var(--dim)]" aria-hidden>→</span>
-              </button>
-            )}
-            {/* Broker Desk (round 5): visible ONLY for eligible
-                posters — a linked poster account and no dispatcher
-                standing (dispatcher posters live on My Desk). The
-                server decides (getBrokerDesk); everyone else meets
-                the desk through Ask Meca's explainer + doors. */}
-            {brokerDeskEligible && (
-              <button
-                type="button"
-                className="btn-press flex min-h-[64px] w-full items-center gap-3 rounded-2xl bg-[var(--surface)] border border-[var(--border)] px-4 py-3 text-left"
-                aria-label={tr("Open Broker Desk", "Abrir Escritorio del Corredor")}
-                onClick={() => { tapFx(); setShowBrokerDesk(true); }}
-              >
-                <span className="text-2xl" aria-hidden>🏢</span>
-                <span className="min-w-0">
-                  <span className="block font-condensed text-xl font-bold leading-tight">{tr("Broker Desk", "Escritorio del Corredor")}</span>
-                  <span className="block text-xs leading-snug text-[var(--dim)]">{tr("Your poster's desk — your posted loads, your fee, your totals", "Tu escritorio de publicador — tus cargas publicadas, tu tarifa, tus totales")}</span>
-                </span>
-                <span className="ml-auto shrink-0 text-[var(--dim)]" aria-hidden>→</span>
-              </button>
-            )}
-            {/* Owner Desk (round 5): visible ONLY for fleet company
-                owners. The server decides (getOwnerDesk); dispatch
-                company owners keep the Dispatch Desk as their roof. */}
-            {ownerDeskEligible && (
-              <button
-                type="button"
-                className="btn-press flex min-h-[64px] w-full items-center gap-3 rounded-2xl bg-[var(--surface)] border border-[var(--border)] px-4 py-3 text-left"
-                aria-label={tr("Open Owner Desk", "Abrir Escritorio del Propietario")}
-                onClick={() => { tapFx(); setShowOwnerDesk(true); }}
-              >
-                <span className="text-2xl" aria-hidden>🏢</span>
-                <span className="min-w-0">
-                  <span className="block font-condensed text-xl font-bold leading-tight">{tr("Owner Desk", "Escritorio del Propietario")}</span>
-                  <span className="block text-xs leading-snug text-[var(--dim)]">{tr("Your fleet's command screen — pipeline, review queue, roster, plan, totals", "La pantalla de mando de tu flota — cargas, cola de revisión, personal, plan, totales")}</span>
+                  <span className="block font-condensed text-xl font-bold leading-tight">{tr("Desk", "Escritorio")}</span>
+                  <span className="block text-xs leading-snug text-[var(--dim)]">{tr("Your desk — the sections for your role, in one place", "Tu escritorio — las secciones para tu rol, en un solo lugar")}</span>
                 </span>
                 <span className="ml-auto shrink-0 text-[var(--dim)]" aria-hidden>→</span>
               </button>
@@ -17945,33 +17954,23 @@ export function App() {
                 safety-training material. */}
             <SafetyAcademyPanel setBanner={setBanner} onOpenPlans={() => setShowPlans(true)} language={lang} />
             <div id="library-panel" className="scroll-mt-4">
-              <LibraryPanel setBanner={setBanner} />
+              <LibraryPanel setBanner={setBanner} lang={lang} />
             </div>
             <div id="ifta-panel" className="scroll-mt-4">
               <IftaPanel setBanner={setBanner} lang={lang} />
             </div>
-            <MoneyPanel setBanner={setBanner} lang={lang} />
-            <PayBookPanel setBanner={setBanner} openSignal={payBookJumpNonce} lang={lang} />
-            <MoneyFlowHub setBanner={setBanner} mpg={profile.mpg} onOpenBreakdownHelp={() => setShowBreakdown(true)} onOpenParking={() => setShowParking(true)} lang={lang} />
-            {/* Security Pack 2 step-up: settlement views need a fresh PIN. */}
-            <div id="settlement-checker" className="scroll-mt-4">
-              <SensitiveGate area="Settlements">
-                <SettlementPanel setBanner={setBanner} lang={lang} />
-              </SensitiveGate>
-            </div>
+            {/* NAV CONSOLIDATION (Phase 2, 2026-11-12): MoneyPanel and
+                PayBookPanel used to render here too — exact duplicates
+                of the Money tab. They now live ONLY on the Money tab.
+                MoneyFlowHub (Money Truth) and the Settlement Checker
+                moved to the Money tab as sections of the one Money
+                home. Tax records, the Tax Worksheet, and the Document
+                Vault moved inside the Library above (the one records
+                home) under their same anchor ids. */}
             <VerifyPanel setBanner={setBanner} />
             <PassportPanel setBanner={setBanner} />
             <div id="scale-tickets" className="scroll-mt-4">
               <ScalePanel setBanner={setBanner} lang={lang} />
-            </div>
-            <div id="tax-records" className="scroll-mt-4">
-              <TaxPanel setBanner={setBanner} lang={lang} />
-            </div>
-            <div id="tax-worksheet" className="scroll-mt-4">
-              <TaxWorksheetPanel setBanner={setBanner} lang={lang} />
-            </div>
-            <div id="doc-vault" className="scroll-mt-4">
-              <VaultPanel setBanner={setBanner} lang={lang} />
             </div>
             <div id="permits" className="scroll-mt-4">
               <PermitsPanel setBanner={setBanner} focusPermitId={permitFocusId} focusNonce={permitFocusNonce} diamond={diamondTier} planName={planDisplayName(myPlanId)} lang={lang} />
@@ -18045,47 +18044,82 @@ export function App() {
             {marketPulseQuery.data && (
               <MarketPulseCard pulse={marketPulseQuery.data.pulse} />
             )}
-            <div
-              className="grid gap-2"
-              style={{ gridTemplateColumns: `repeat(${3 + (boardGateQuery.data?.inCompany ? 1 : 0) + (brokerTabVisible ? 1 : 0) + (shipperTabVisible ? 1 : 0) + (brokerPortalTabVisible ? 1 : 0)}, minmax(0, 1fr))` }}
-              role="tablist"
-              aria-label="Loads views"
-            >
-              {(
-                [
-                  { key: "tracker" as const, label: "📍 Load Tracker" },
-                  { key: "list" as const, label: "📦 All loads" },
-                  ...(boardGateQuery.data?.inCompany
-                    ? [{ key: "board" as const, label: "🏢 Fleet Board" }]
-                    : []),
-                  { key: "open" as const, label: `🌐 Open Board${(openBoardQuery.data?.vetted ?? false) && (openBoardQuery.data?.board.filter((b) => b.status === "open").length ?? 0) > 0 ? ` (${openBoardQuery.data?.board.filter((b) => b.status === "open").length})` : ""}` },
-                  ...(brokerTabVisible
-                    ? [{ key: "broker" as const, label: `📥 Broker Inbox${(brokerGateQuery.data?.pendingCount ?? 0) > 0 ? ` (${brokerGateQuery.data?.pendingCount})` : ""}` }]
-                    : []),
-                  ...(shipperTabVisible
-                    ? [{ key: "shipper" as const, label: `🚚 Shipper Portal${(shipperPortalQuery.data?.reviewQueue.length ?? 0) > 0 ? ` (${shipperPortalQuery.data?.reviewQueue.length})` : ""}` }]
-                    : []),
-                  ...(brokerPortalTabVisible
-                    ? [{ key: "brokerportal" as const, label: `🏢 Broker Portal${(brokerPortalQuery.data?.reviewQueue.length ?? 0) > 0 ? ` (${brokerPortalQuery.data?.reviewQueue.length})` : ""}` }]
-                    : []),
-                ]
-              ).map((v) => (
-                <button
-                  key={v.key}
-                  type="button"
-                  role="tab"
-                  aria-selected={loadsView === v.key}
-                  onClick={() => setLoadsView(v.key)}
-                  className={`rounded-xl py-3 text-sm font-bold ${
-                    loadsView === v.key
-                      ? "bg-[var(--accent)] text-black"
-                      : "bg-[var(--surface2)] border border-[var(--border)]"
-                  }`}
-                >
-                  {v.label}
-                </button>
-              ))}
-            </div>
+            {/* LOADS SEGMENTED SWITCH (Phase 2 consolidation,
+                2026-11-12): ONE simple switch at the top — My Loads /
+                Tracker / Boards. The board family (Fleet Board, Open
+                Board, and the portal doors) lives under Boards as a
+                chips row; every underlying view and every setLoadsView
+                call site is unchanged, so deep links land exactly
+                where they always did. */}
+            {(() => {
+              const boardFamily = loadsView === "board" || loadsView === "open" || loadsView === "broker" || loadsView === "shipper" || loadsView === "brokerportal";
+              const segments = [
+                { key: "list" as const, label: tr("📦 My Loads", "📦 Mis cargas"), active: loadsView === "list" },
+                { key: "tracker" as const, label: tr("📍 Tracker", "📍 Rastreador"), active: loadsView === "tracker" },
+                { key: "boards" as const, label: tr("🗂️ Boards", "🗂️ Tableros"), active: boardFamily },
+              ];
+              return (
+                <>
+                  <div className="grid grid-cols-3 gap-2" role="tablist" aria-label="Loads views">
+                    {segments.map((s) => (
+                      <button
+                        key={s.key}
+                        type="button"
+                        role="tab"
+                        aria-selected={s.active}
+                        onClick={() => {
+                          if (s.key === "boards") setLoadsView(boardGateQuery.data?.inCompany ? "board" : "open");
+                          else setLoadsView(s.key);
+                        }}
+                        className={`rounded-xl py-3 text-sm font-bold ${
+                          s.active
+                            ? "bg-[var(--accent)] text-black"
+                            : "bg-[var(--surface2)] border border-[var(--border)]"
+                        }`}
+                      >
+                        {s.label}
+                      </button>
+                    ))}
+                  </div>
+                  {boardFamily && (
+                    <div className="flex flex-wrap gap-2" role="tablist" aria-label="Boards and portals">
+                      {(
+                        [
+                          ...(boardGateQuery.data?.inCompany
+                            ? [{ key: "board" as const, label: "🏢 Fleet Board" }]
+                            : []),
+                          { key: "open" as const, label: `🌐 Open Board${(openBoardQuery.data?.vetted ?? false) && (openBoardQuery.data?.board.filter((b) => b.status === "open").length ?? 0) > 0 ? ` (${openBoardQuery.data?.board.filter((b) => b.status === "open").length})` : ""}` },
+                          ...(brokerTabVisible
+                            ? [{ key: "broker" as const, label: `📥 Broker Inbox${(brokerGateQuery.data?.pendingCount ?? 0) > 0 ? ` (${brokerGateQuery.data?.pendingCount})` : ""}` }]
+                            : []),
+                          ...(shipperTabVisible
+                            ? [{ key: "shipper" as const, label: `🚚 Shipper Portal${(shipperPortalQuery.data?.reviewQueue.length ?? 0) > 0 ? ` (${shipperPortalQuery.data?.reviewQueue.length})` : ""}` }]
+                            : []),
+                          ...(brokerPortalTabVisible
+                            ? [{ key: "brokerportal" as const, label: `🏢 Broker Portal${(brokerPortalQuery.data?.reviewQueue.length ?? 0) > 0 ? ` (${brokerPortalQuery.data?.reviewQueue.length})` : ""}` }]
+                            : []),
+                        ]
+                      ).map((v) => (
+                        <button
+                          key={v.key}
+                          type="button"
+                          role="tab"
+                          aria-selected={loadsView === v.key}
+                          onClick={() => setLoadsView(v.key)}
+                          className={`rounded-xl px-3 py-2 text-sm font-bold ${
+                            loadsView === v.key
+                              ? "bg-[var(--accent)] text-black"
+                              : "bg-[var(--surface2)] border border-[var(--border)]"
+                          }`}
+                        >
+                          {v.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </>
+              );
+            })()}
 
             {loadsView === "tracker" && (
               <LoadTrackerView
@@ -19908,6 +19942,50 @@ export function App() {
         />
       )}
 
+      {/* THE DESK chooser (Phase 2, 2026-11-12): shown only when the
+          account holds more than one role desk — one tap on the Desk
+          entry, one tap on the section. Each row opens the existing
+          desk sheet unchanged. */}
+      {showDeskMenu && (
+        <div className="fixed inset-0 z-[900] flex items-end bg-black/70" role="dialog" aria-label={tr("Your Desk", "Tu Escritorio")}>
+          <div className="w-full space-y-2 rounded-t-3xl bg-[var(--bg)] p-4 pb-6">
+            <div className="flex items-baseline justify-between gap-2">
+              <h2 className="font-condensed text-2xl font-bold">🗄️ {tr("Your Desk", "Tu Escritorio")}</h2>
+              <button type="button" className="btn-press rounded-xl bg-[var(--surface)] border border-[var(--border)] px-3 py-2 text-sm font-bold" aria-label={tr("Close the Desk menu", "Cerrar el menú del Escritorio")} onClick={() => setShowDeskMenu(false)}>✕</button>
+            </div>
+            <p className="text-sm text-[var(--dim)]">{tr("One desk, your sections — open the one you need.", "Un escritorio, tus secciones — abre la que necesitas.")}</p>
+            {ownerDeskEligible && (
+              <button type="button" className="btn-press flex min-h-[56px] w-full items-center gap-3 rounded-2xl bg-[var(--surface)] border border-[var(--border)] px-4 py-3 text-left" onClick={() => { setShowDeskMenu(false); setShowOwnerDesk(true); }}>
+                <span className="text-2xl" aria-hidden>🏢</span>
+                <span className="min-w-0"><span className="block font-condensed text-lg font-bold leading-tight">{tr("Owner Desk", "Escritorio del Propietario")}</span><span className="block text-xs text-[var(--dim)]">{tr("Your fleet's command screen — pipeline, review queue, roster, plan, totals", "La pantalla de mando de tu flota — cargas, cola de revisión, personal, plan, totales")}</span></span>
+                <span className="ml-auto shrink-0 text-[var(--dim)]" aria-hidden>→</span>
+              </button>
+            )}
+            {myDeskEligible && (
+              <button type="button" className="btn-press flex min-h-[56px] w-full items-center gap-3 rounded-2xl bg-[var(--surface)] border border-[var(--border)] px-4 py-3 text-left" onClick={() => { setShowDeskMenu(false); setShowMyDesk(true); }}>
+                <span className="text-2xl" aria-hidden>🧑‍💼</span>
+                <span className="min-w-0"><span className="block font-condensed text-lg font-bold leading-tight">{tr("My Desk", "Mi Escritorio")}</span><span className="block text-xs text-[var(--dim)]">{tr("Your dispatcher's desk — your pipeline, your fee, your platform fees", "Tu escritorio de despachador — tus cargas, tu tarifa, tus cargos de plataforma")}</span></span>
+                <span className="ml-auto shrink-0 text-[var(--dim)]" aria-hidden>→</span>
+              </button>
+            )}
+            {myDeskEligible && (
+              <button type="button" className="btn-press flex min-h-[56px] w-full items-center gap-3 rounded-2xl bg-[var(--surface)] border border-[var(--border)] px-4 py-3 text-left" onClick={() => { setShowDeskMenu(false); setShowDispatchDesk(true); }}>
+                <span className="text-2xl" aria-hidden>🗂️</span>
+                <span className="min-w-0"><span className="block font-condensed text-lg font-bold leading-tight">{tr("Dispatch Desk", "Escritorio de Despacho")}</span><span className="block text-xs text-[var(--dim)]">{tr("Your dispatch company's roof — client book, drivers, stamps", "El techo de tu empresa de despacho — clientes, choferes, sellos")}</span></span>
+                <span className="ml-auto shrink-0 text-[var(--dim)]" aria-hidden>→</span>
+              </button>
+            )}
+            {brokerDeskEligible && (
+              <button type="button" className="btn-press flex min-h-[56px] w-full items-center gap-3 rounded-2xl bg-[var(--surface)] border border-[var(--border)] px-4 py-3 text-left" onClick={() => { setShowDeskMenu(false); setShowBrokerDesk(true); }}>
+                <span className="text-2xl" aria-hidden>🏢</span>
+                <span className="min-w-0"><span className="block font-condensed text-lg font-bold leading-tight">{tr("Broker Desk", "Escritorio del Corredor")}</span><span className="block text-xs text-[var(--dim)]">{tr("Your poster's desk — your posted loads, your fee, your totals", "Tu escritorio de publicador — tus cargas publicadas, tu tarifa, tus totales")}</span></span>
+                <span className="ml-auto shrink-0 text-[var(--dim)]" aria-hidden>→</span>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Dispatch Desk sheet (migration 0087, 2026-11-02) */}
       {showDispatchDesk && (
         <DispatchDesk
@@ -21447,40 +21525,17 @@ export function App() {
                 >
                   🚪 Sign out of this device
                 </button>
-                {/* My Desk (round 3): the profile-area door, shown only
-                    to eligible dispatchers — same server standing as
-                    the More-menu entry. */}
-                {myDeskEligible && (
+                {/* THE DESK (Phase 2, 2026-11-12): the profile-area
+                    door is ONE Desk button now — same server standings
+                    as before, routed by openDesk(). */}
+                {(myDeskEligible || brokerDeskEligible || ownerDeskEligible) && (
                   <button
                     type="button"
                     className="rounded-lg bg-[var(--surface2)] border border-[var(--border)] px-3.5 py-2 text-sm font-bold"
-                    aria-label="Open My Desk — my dispatcher's desk"
-                    onClick={() => { setShowSettings(false); setShowMyDesk(true); }}
+                    aria-label="Open the Desk — your role's desk sections"
+                    onClick={() => { setShowSettings(false); openDesk(); }}
                   >
-                    🧑‍💼 My Desk
-                  </button>
-                )}
-                {/* Broker Desk + Owner Desk (round 5): the profile-area
-                    doors, shown only to eligible accounts — same
-                    server standing as the More-menu entries. */}
-                {brokerDeskEligible && (
-                  <button
-                    type="button"
-                    className="rounded-lg bg-[var(--surface2)] border border-[var(--border)] px-3.5 py-2 text-sm font-bold"
-                    aria-label="Open Broker Desk — my poster's desk"
-                    onClick={() => { setShowSettings(false); setShowBrokerDesk(true); }}
-                  >
-                    🏢 Broker Desk
-                  </button>
-                )}
-                {ownerDeskEligible && (
-                  <button
-                    type="button"
-                    className="rounded-lg bg-[var(--surface2)] border border-[var(--border)] px-3.5 py-2 text-sm font-bold"
-                    aria-label="Open Owner Desk — my fleet's desk"
-                    onClick={() => { setShowSettings(false); setShowOwnerDesk(true); }}
-                  >
-                    🏢 Owner Desk
+                    🗄️ Desk
                   </button>
                 )}
                 <span className="text-xs text-[var(--dim)]">

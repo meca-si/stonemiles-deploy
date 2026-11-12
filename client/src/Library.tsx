@@ -18,6 +18,8 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, type ApiResponse } from "./api";
+import { TaxPanel, TaxWorksheetPanel, VaultPanel } from "./NextLevel";
+import type { Lang } from "./i18n";
 
 type Library = ApiResponse<typeof api, "getLibrary">;
 type SealedEntry = Library["sealedFiles"][number];
@@ -189,7 +191,7 @@ function Section({
 
 const rowCls = "space-y-2 rounded-xl border border-[var(--border)] bg-[var(--bg)] p-3";
 
-export function LibraryPanel({ setBanner }: { setBanner: (s: string | null) => void }) {
+export function LibraryPanel({ setBanner, lang = "en" }: { setBanner: (s: string | null) => void; lang?: Lang }) {
   const lib = useQuery({ queryKey: ["library"], queryFn: () => api.getLibrary({}) });
   const data = lib.data;
   const defaultEmail = data?.viewer.email ?? "";
@@ -450,6 +452,22 @@ export function LibraryPanel({ setBanner }: { setBanner: (s: string | null) => v
           )}
         </>
       )}
+
+      {/* RECORDS CONSOLIDATION (Phase 2, 2026-11-12): the Library is
+          the ONE records home — Tax records, the Tax Worksheet, and
+          the Document Vault live here as sections under their long-
+          standing anchor ids, so every deep link and Ask Meca
+          destination that pointed at them on the old Driver tab lands
+          in the same place it always did, now inside the Library. */}
+      <div id="tax-records" className="scroll-mt-4">
+        <TaxPanel setBanner={setBanner} lang={lang} />
+      </div>
+      <div id="tax-worksheet" className="scroll-mt-4">
+        <TaxWorksheetPanel setBanner={setBanner} lang={lang} />
+      </div>
+      <div id="doc-vault" className="scroll-mt-4">
+        <VaultPanel setBanner={setBanner} lang={lang} />
+      </div>
     </div>
   );
 }

@@ -123,6 +123,14 @@ export const PAIRS: Record<string, PairEntry> = {
   "Truck & Trailer": { pt: "Caminhão e Reboque", ru: "Грузовик и прицеп", uk: "Вантажівка і причіп" },
   "Records & Taxes": { pt: "Registros e Impostos", ru: "Записи и налоги", uk: "Записи і податки" },
   "More & Settings": { pt: "Mais e Ajustes", ru: "Ещё и настройки", uk: "Ще і налаштування" },
+  // Phase 2 consolidation (2026-11-12): the Records group and the
+  // Desk item get their names in all five languages like every other
+  // directory string ("Settings" already has an entry above).
+  "Records": { pt: "Registros", ru: "Записи", uk: "Записи" },
+  "The Library — every record in one home": { pt: "A Biblioteca — cada registro em um só lugar", ru: "Библиотека — все записи в одном месте", uk: "Бібліотека — кожен запис в одному місці" },
+  "Chat, plans, language, settings": { pt: "Chat, planos, idioma, ajustes", ru: "Чат, тарифы, язык, настройки", uk: "Чат, тарифи, мова, налаштування" },
+  "Desk": { pt: "Escritório", ru: "Рабочий стол", uk: "Робочий стіл" },
+  "Your desk — owner, dispatch, and broker sections for your role, in one place": { pt: "Seu escritório — seções de proprietário, despacho e corretor para o seu papel, em um só lugar", ru: "Ваш рабочий стол — разделы владельца, диспетчера и брокера для вашей роли в одном месте", uk: "Ваш робочий стіл — розділи власника, диспетчера і брокера для вашої ролі в одному місці" },
   "Map, routes, fuel, weather, scales, parking, Atlas": { pt: "Mapa, rotas, diesel, clima, balanças, estacionamento, Atlas", ru: "Карта, маршруты, топливо, погода, весы, стоянка, Атлас", uk: "Мапа, маршрути, пальне, погода, ваги, стоянка, Атлас" },
   "Loads, pay owed to you, true rate, claims, pay book": { pt: "Cargas, o que te devem, taxa real, reclamações, livro de pagamentos", ru: "Грузы, кто вам должен, реальная ставка, претензии, книга выплат", uk: "Вантажі, хто вам винен, реальна ставка, претензії, книга виплат" },
   "Trailer tools, maintenance, breakdown, scale tickets": { pt: "Ferramentas do reboque, manutenção, pane, tickets de balança", ru: "Инструменты прицепа, обслуживание, поломка, весовые талоны", uk: "Інструменти причепа, обслуговування, поломка, вагові талони" },

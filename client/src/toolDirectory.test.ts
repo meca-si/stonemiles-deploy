@@ -1,11 +1,16 @@
-// toolDirectory.test.ts — the dashboard cleanup contract (2026-11-06).
+// toolDirectory.test.ts — the dashboard cleanup contract (2026-11-06),
+// consolidated by the Phase 2 navigation simplification (2026-11-12).
 //
 // Pins the navigation shape x ordered: five plain-language groups,
 // every named tool present exactly once with a real landing (a Meca
 // destination Ask Meca's "Take me there" performs, or a direct sheet /
 // anchor the More menu has always opened), and every label carried
 // in the i18n catalogue so all five languages name the tool the
-// same way the dashboard does.
+// same way the dashboard does. Phase 2 adds: ONE landing per tool
+// (no two rows may share a destination — the old "Driver" catch-all
+// duplicated the Hours landing and is gone), the records tools under
+// the one Records group, HOS under Drive, Safety Academy under
+// Truck & Trailer, and the single Desk row.
 
 import { describe, expect, test } from "bun:test";
 import { ALL_TOOL_ITEMS, TOOL_GROUPS } from "./toolDirectory";
@@ -17,16 +22,38 @@ describe("tool directory — group structure", () => {
       "Drive",
       "Loads & Money",
       "Truck & Trailer",
-      "Records & Taxes",
-      "More & Settings",
+      "Records",
+      "Settings",
     ]);
     expect(TOOL_GROUPS.map((g) => g.id)).toEqual([
       "drive",
       "loads-money",
       "truck-trailer",
-      "records-taxes",
-      "more-settings",
+      "records",
+      "settings",
     ]);
+  });
+
+  test("Phase 2 consolidation: one landing per tool, single homes", () => {
+    // No two rows share a landing — a tool is listed exactly once
+    // and lands in exactly one place.
+    const landings = ALL_TOOL_ITEMS.map((i) => i.dest ?? i.direct);
+    expect(new Set(landings).size).toBe(landings.length);
+    const groupOf = (id: string) => TOOL_GROUPS.find((g) => g.items.some((i) => i.id === id))?.id;
+    // Records tools live under the one Records group.
+    for (const id of ["library", "tax-records", "tax-worksheet", "doc-vault"]) {
+      expect(groupOf(id), id).toBe("records");
+    }
+    // HOS under Drive; Safety Academy under Truck & Trailer.
+    expect(groupOf("hours")).toBe("drive");
+    expect(groupOf("academy")).toBe("truck-trailer");
+    // The old "Driver" catch-all row is gone (it duplicated Hours).
+    expect(ALL_TOOL_ITEMS.some((i) => i.id === "driver")).toBe(false);
+    // ONE Desk row, landing on the unified Desk destination.
+    const desk = ALL_TOOL_ITEMS.filter((i) => i.id === "desk");
+    expect(desk.length).toBe(1);
+    expect(desk[0]!.dest).toBe("desk");
+    expect(groupOf("desk")).toBe("loads-money");
   });
 
   test("every item is fully labelled and lands somewhere real", () => {

@@ -103,7 +103,7 @@ export interface ToolItem {
 }
 
 export interface ToolGroup {
-  id: "drive" | "loads-money" | "truck-trailer" | "records-taxes" | "more-settings";
+  id: "drive" | "loads-money" | "truck-trailer" | "records" | "settings";
   icon: string;
   en: string;
   es: string;
@@ -199,6 +199,12 @@ export const TOOL_GROUPS: ToolGroup[] = [
         subEn: "Every state's road rules — weight limits, length & width, low clearances, weigh stations, DOT & patrol contacts. Works offline",
         subEs: "Las reglas de cada estado — límites de peso, largo y ancho, alturas libres, básculas, contactos DOT y patrulla. Funciona sin señal",
         dest: "atlas",
+      },
+      {
+        id: "hours", icon: "🕐", en: "Hours & HOS", es: "Horas y HOS",
+        subEn: "Your duty status, HOS clocks, and daily logs",
+        subEs: "Tu estado de servicio, relojes HOS y registros diarios",
+        dest: "hours",
       },
     ],
   },
@@ -300,6 +306,12 @@ export const TOOL_GROUPS: ToolGroup[] = [
         subEs: "Cargas de corredores esperando tu aprobación",
         dest: "broker_inbox",
       },
+      {
+        id: "desk", icon: "🗄️", en: "Desk", es: "Escritorio",
+        subEn: "Your desk — owner, dispatch, and broker sections for your role, in one place",
+        subEs: "Tu escritorio — secciones de propietario, despacho y corredor para tu rol, en un solo lugar",
+        dest: "desk",
+      },
     ],
   },
   {
@@ -346,15 +358,21 @@ export const TOOL_GROUPS: ToolGroup[] = [
         subEs: "Escanea un permiso, archiva el expediente, conduce la ruta aprobada",
         direct: "permits",
       },
+      {
+        id: "academy", icon: "🎓", en: "Safety Academy", es: "Academia de Seguridad",
+        subEn: "10 courses, quizzes, sealed completion records",
+        subEs: "10 cursos, exámenes, registros de finalización sellados",
+        dest: "safety_academy",
+      },
     ],
   },
   {
-    id: "records-taxes",
+    id: "records",
     icon: "📁",
-    en: "Records & Taxes",
-    es: "Registros e impuestos",
-    subEn: "Trip sheets, IFTA, taxes, documents, hours",
-    subEs: "Hojas de viaje, IFTA, impuestos, documentos, horas",
+    en: "Records",
+    es: "Registros",
+    subEn: "The Library — every record in one home",
+    subEs: "La Biblioteca — cada registro en un solo lugar",
     items: [
       {
         id: "library", icon: "📚", en: "Library", es: "Biblioteca",
@@ -399,12 +417,6 @@ export const TOOL_GROUPS: ToolGroup[] = [
         dest: "documents",
       },
       {
-        id: "hours", icon: "🕐", en: "Hours & HOS", es: "Horas y HOS",
-        subEn: "Your duty status, HOS clocks, and daily logs",
-        subEs: "Tu estado de servicio, relojes HOS y registros diarios",
-        dest: "hours",
-      },
-      {
         id: "dot-inspection", icon: "🛡️", en: "DOT Inspection", es: "Inspección DOT",
         subEn: "Officer view — 8-day HOS logs, DVIR, verify code",
         subEs: "Vista del oficial — registros HOS de 8 días, DVIR, código de verificación",
@@ -416,33 +428,21 @@ export const TOOL_GROUPS: ToolGroup[] = [
         subEs: "Verificación de cadena, búsqueda de pruebas, auditorías ELD y de liquidaciones, registro de auditoría",
         direct: "verify",
       },
-      {
-        id: "academy", icon: "🎓", en: "Safety Academy", es: "Academia de Seguridad",
-        subEn: "10 courses, quizzes, sealed completion records",
-        subEs: "10 cursos, exámenes, registros de finalización sellados",
-        dest: "safety_academy",
-      },
     ],
   },
   {
-    id: "more-settings",
+    id: "settings",
     icon: "⋯",
-    en: "More & Settings",
-    es: "Más y ajustes",
-    subEn: "Chat, driver profile, plans, settings, language",
-    subEs: "Chat, perfil del chofer, planes, ajustes, idioma",
+    en: "Settings",
+    es: "Ajustes",
+    subEn: "Chat, plans, language, settings",
+    subEs: "Chat, planes, idioma, ajustes",
     items: [
       {
         id: "chat", icon: "💬", en: "Chat", es: "Chat",
         subEn: "Company chat, groups, DMs, other drivers",
         subEs: "Chat de la empresa, grupos, mensajes directos, otros choferes",
         dest: "chat",
-      },
-      {
-        id: "driver", icon: "🪪", en: "Driver", es: "Chofer",
-        subEn: "Duty status, HOS detail, scores, passport, proof & verify",
-        subEs: "Estado de servicio, detalle HOS, puntajes, pasaporte, prueba y verificación",
-        dest: "hours",
       },
       {
         id: "si", icon: "🧠", en: "STONEMILES SI", es: "STONEMILES SI",
