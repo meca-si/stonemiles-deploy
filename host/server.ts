@@ -304,6 +304,23 @@ server = Bun.serve({
 
     if (pathname === "/healthz") return json({ ok: true });
 
+    // ---- Public Preview demo (2026-11-13): preview.stonervision.io
+    // serves ONE static page — the self-contained Preview demo (fake
+    // data only, no account, nothing saves). Every GET path on that
+    // hostname short-circuits to host/preview.html; there is no API,
+    // storage, or server state behind it. app.stonervision.io and
+    // every other hostname fall through to the normal routes below,
+    // untouched.
+    if (req.method === "GET" && url.hostname === "preview.stonervision.io") {
+      const page = Bun.file(path.join(STANDALONE_ROOT, "host", "preview.html"));
+      if (await page.exists()) {
+        return new Response(page, {
+          headers: { "content-type": "text/html" },
+        });
+      }
+      return json({ error: "not found" }, 404);
+    }
+
     // ---- Public info pages (Play data-safety form): static deletion
     // instructions, served without a session like the auth pages.
     if (
