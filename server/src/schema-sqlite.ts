@@ -75,6 +75,16 @@ export const profile = sqliteTable("profile", {
   // with no load rate on file the app says so instead of inventing one.
   payBasis: text("pay_basis").notNull().default("cpm"),
   driverPayPct: real("driver_pay_pct"),
+  // The driver's OWN per-load fee percentages (migration 0115): what
+  // THEIR factoring company and THEIR dispatcher take out of a load's
+  // gross pay, in percent (0–100, 0 = they don't pay that fee). These
+  // are the driver's own costs, entered by the driver — they are NOT
+  // platform fees (the platform dispatch/platform fees live elsewhere
+  // and are never stored here). The Worth-It Advisor deducts them from
+  // a load's gross before scoring it, and True Rate shows them per
+  // load. Default 0 = no deduction, exactly the pre-0115 behaviour.
+  factoringPct: real("factoring_pct").notNull().default(0),
+  dispatcherPct: real("dispatcher_pct").notNull().default(0),
   // The driver's social handle (usernames are how people follow/DM/add).
   socialUsername: text("social_username").notNull().default("driver"),
   // Subscription plan recorded for the app-store release ("basic" |

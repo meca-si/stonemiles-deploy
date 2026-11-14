@@ -89,6 +89,13 @@ export const profile = pgTable("profile", {
   // with no load rate on file the app says so instead of inventing one.
   payBasis: text("pay_basis").notNull().default("cpm"),
   driverPayPct: doublePrecision("driver_pay_pct"),
+  // The driver's OWN per-load fee percentages (migration 0115, PG twin
+  // 0008): what THEIR factoring company and THEIR dispatcher take out
+  // of a load's gross pay, in percent (0–100, 0 = they don't pay that
+  // fee). The driver's own costs only — never platform fees. See the
+  // SQLite schema comment for the full note.
+  factoringPct: doublePrecision("factoring_pct").notNull().default(0),
+  dispatcherPct: doublePrecision("dispatcher_pct").notNull().default(0),
   // The driver's social handle (usernames are how people follow/DM/add).
   socialUsername: text("social_username").notNull().default("driver"),
   // Subscription plan recorded for the app-store release ("basic" |

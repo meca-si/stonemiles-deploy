@@ -2145,6 +2145,20 @@ export function AdvisorPanel({ setBanner, lang = "en" }: { setBanner: Banner; la
   const [deadhead, setDeadhead] = useState("");
   const [facility, setFacility] = useState("");
   const [detHours, setDetHours] = useState("");
+  // The driver's OWN factoring / dispatcher % for THIS check: prefilled
+  // from the saved settings (Settings → My pay) when they load, then
+  // freely editable — editing here never writes back to the settings.
+  const [factoring, setFactoring] = useState("");
+  const [dispatcher, setDispatcher] = useState("");
+  const [feesTouched, setFeesTouched] = useState(false);
+  const profileQ = useQuery({ queryKey: ["profile"], queryFn: () => api.getProfile({}) });
+  useEffect(() => {
+    if (feesTouched) return;
+    const p = profileQ.data?.profile;
+    if (!p) return;
+    setFactoring(p.factoringPct > 0 ? String(p.factoringPct) : "");
+    setDispatcher(p.dispatcherPct > 0 ? String(p.dispatcherPct) : "");
+  }, [profileQ.data, feesTouched]);
   const [result, setResult] = useState<ApiResponse<typeof api, "scoreLoad"> | null>(null);
   const [busy, setBusy] = useState(false);
   const fac = useQuery({ queryKey: ["facility-visits"], queryFn: () => api.getFacilityVisits({ facility: null }) });
@@ -2178,6 +2192,17 @@ export function AdvisorPanel({ setBanner, lang = "en" }: { setBanner: Banner; la
           <label className={labelCls} htmlFor="adv-det">Expected detention past free time (hours, optional)</label>
           <input id="adv-det" type="number" inputMode="decimal" className={inputCls} value={detHours} aria-label="Expected detention hours past free time" placeholder="Blank = use your facility history" onChange={(e) => setDetHours(e.target.value)} />
         </div>
+        <div>
+          <label className={labelCls} htmlFor="adv-fact">{tt(lang, "money.factoringPct")} (optional)</label>
+          <input id="adv-fact" type="number" inputMode="decimal" className={inputCls} value={factoring} aria-label="Your factoring percent for this check" placeholder="0" onChange={(e) => { setFeesTouched(true); setFactoring(e.target.value); }} />
+        </div>
+        <div>
+          <label className={labelCls} htmlFor="adv-disp">{tt(lang, "money.dispatcherPct")} (optional)</label>
+          <input id="adv-disp" type="number" inputMode="decimal" className={inputCls} value={dispatcher} aria-label="Your dispatcher percent for this check" placeholder="0" onChange={(e) => { setFeesTouched(true); setDispatcher(e.target.value); }} />
+        </div>
+        <p className="col-span-2 text-xs text-[var(--dim)]">
+          Your own factoring / dispatcher costs — prefilled from Settings → My pay; change them here for this one check only, your saved settings don't move. They come out of the rate BEFORE the score. Not STONEMILES fees.
+        </p>
       </div>
       <button
         type="button"
@@ -2186,7 +2211,7 @@ export function AdvisorPanel({ setBanner, lang = "en" }: { setBanner: Banner; la
         aria-label="Score this load"
         onClick={() => {
           setBusy(true);
-          void api.scoreLoad({ label: label.trim(), rate: parseFloat(rate), loadedMiles: parseFloat(loaded), deadheadMiles: parseFloat(deadhead || "0") || 0, facility: facility.trim() || null, expectedDetentionHours: detHours ? parseFloat(detHours) : null, detentionRatePerHour: 50 })
+          void api.scoreLoad({ label: label.trim(), rate: parseFloat(rate), loadedMiles: parseFloat(loaded), deadheadMiles: parseFloat(deadhead || "0") || 0, facility: facility.trim() || null, expectedDetentionHours: detHours ? parseFloat(detHours) : null, detentionRatePerHour: 50, factoringPct: feesTouched ? (factoring ? Math.min(100, Math.max(0, parseFloat(factoring) || 0)) : 0) : null, dispatcherPct: feesTouched ? (dispatcher ? Math.min(100, Math.max(0, parseFloat(dispatcher) || 0)) : 0) : null })
             .then((r) => {
               if (r.locked) { setResult(null); setBanner(r.lines[0] ?? "The full Worth-It Advisor comes with Diamond Driver — nothing was scored or sealed."); return; }
               setResult(r); setBanner(`Scored & sealed: ${r.verdict.toUpperCase()} — estimated profit ${money(r.profit)}.`);

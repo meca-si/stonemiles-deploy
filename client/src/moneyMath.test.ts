@@ -9,6 +9,7 @@ import {
   daysLeftFrom,
   docAlertCount,
   docAlertTier,
+  feeDeductionsFor,
   fuelBasisFor,
   iftaRowCalc,
   maintenanceStatusFor,
@@ -114,6 +115,31 @@ describe("true rate", () => {
   test("avg logged price is gallon-weighted and null when nothing logged", () => {
     expect(avgLoggedFuelPrice([])).toBeNull();
     expect(avgLoggedFuelPrice([{ gallons: 100, total: 400 }, { gallons: 50, total: 225 }])).toBe(4.167);
+  });
+  test("driver's own fees: deductions come off the pay, per line", () => {
+    const f = feeDeductionsFor(2400, 2.75, 10);
+    expect(f.factoringAmt).toBe(66);
+    expect(f.dispatcherAmt).toBe(240);
+    expect(f.totalFees).toBe(306);
+    expect(f.netPay).toBe(2094);
+    // Missing percentages are 0 — a fee is never invented.
+    expect(feeDeductionsFor(2400, null, undefined).totalFees).toBe(0);
+    expect(feeDeductionsFor(2400, 0, 0).netPay).toBe(2400);
+  });
+  test("net after fees divides the NET pay by ALL miles", () => {
+    const tr = trueRateFor({ totalPay: 2400, loadedMiles: 800, deadheadMiles: 200, factoringPct: 2.75, dispatcherPct: 10 }, { kind: "none" });
+    expect(tr.grossPerMile).toBe(2.4);
+    expect(tr.fees.totalFees).toBe(306);
+    expect(tr.netAfterFeesPerMile).toBe(2.094);
+  });
+  test("no percentages saved → no after-fees figure (gross already is it)", () => {
+    const tr = trueRateFor({ totalPay: 2400, loadedMiles: 800, deadheadMiles: 200 }, { kind: "none" });
+    expect(tr.fees.totalFees).toBe(0);
+    expect(tr.netAfterFeesPerMile).toBeNull();
+    // Out-of-range saved percentages clamp instead of exploding.
+    const clamped = trueRateFor({ totalPay: 1000, loadedMiles: 500, deadheadMiles: 0, factoringPct: 250, dispatcherPct: -3 }, { kind: "none" });
+    expect(clamped.fees.factoringPct).toBe(100);
+    expect(clamped.fees.dispatcherPct).toBe(0);
   });
 });
 

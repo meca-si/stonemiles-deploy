@@ -194,10 +194,46 @@ export function owedTotals(rows: OwedRow[]): { totalRemaining: number; loadsOwin
 
 // ---------- 3) True rate per load ---------------------------------------------
 
+export type FeeDeductions = {
+  /** The percentages applied (clamped 0–100, non-finite → 0). */
+  factoringPct: number;
+  dispatcherPct: number;
+  factoringAmt: number;
+  dispatcherAmt: number;
+  totalFees: number;
+  /** gross − totalFees. */
+  netPay: number;
+};
+
+/** The driver's OWN factoring / dispatcher deductions on one load's
+ *  gross pay — the client twin of server/src/loadFees.ts (same math,
+ *  same rounding: each fee rounds to cents on its own line and the
+ *  net is gross minus the rounded lines, so displayed lines add up).
+ *  These are the DRIVER's costs with THEIR factoring company / THEIR
+ *  dispatcher, from the driver's saved settings — never platform
+ *  fees, and never invented: a missing percentage is 0. */
+export function feeDeductionsFor(
+  grossPay: number,
+  factoringPct: number | null | undefined,
+  dispatcherPct: number | null | undefined,
+): FeeDeductions {
+  const clamp = (p: number | null | undefined) => (p == null || !Number.isFinite(p) ? 0 : Math.min(100, Math.max(0, p)));
+  const fPct = clamp(factoringPct);
+  const dPct = clamp(dispatcherPct);
+  const factoringAmt = round2((grossPay * fPct) / 100);
+  const dispatcherAmt = round2((grossPay * dPct) / 100);
+  const totalFees = round2(factoringAmt + dispatcherAmt);
+  return { factoringPct: fPct, dispatcherPct: dPct, factoringAmt, dispatcherAmt, totalFees, netPay: round2(grossPay - totalFees) };
+}
+
 export type TrueRateInput = {
   /** Total pay for the load (rate + additional charges + claim
    *  amounts the driver logged). Null = no pay on file. */
   totalPay: number | null;
+  /** The driver's OWN saved factoring / dispatcher percentages
+   *  (Settings → My pay). Omitted / 0 = no fee deduction shown. */
+  factoringPct?: number | null;
+  dispatcherPct?: number | null;
   loadedMiles: number | null;
   /** Deadhead (empty) miles the driver recorded for this load. */
   deadheadMiles: number | null;
@@ -216,6 +252,13 @@ export type TrueRate = {
   /** (total pay − fuel cost) ÷ ALL miles. Null when no fuel basis. */
   netPerMile: number | null;
   fuel: FuelBasis;
+  /** The driver's own factoring / dispatcher deductions on this
+   *  load's pay (all zeros when no percentages are saved). */
+  fees: FeeDeductions;
+  /** (total pay − the driver's own fees) ÷ ALL miles. Null without
+   *  pay + miles, and null when both percentages are 0 (the gross
+   *  rate already IS the after-fees rate — no fake second figure). */
+  netAfterFeesPerMile: number | null;
 };
 
 /**
@@ -270,7 +313,12 @@ export function trueRateFor(input: TrueRateInput, fuel: FuelBasis): TrueRate {
     grossPerMile != null && fuel.kind !== "none" && totalMiles != null && totalMiles > 0 && input.totalPay != null
       ? Math.round(((input.totalPay - fuel.fuelCost) / totalMiles) * 1000) / 1000
       : null;
-  return { totalMiles, grossPerMile, netPerMile, fuel };
+  const fees = feeDeductionsFor(input.totalPay ?? 0, input.factoringPct, input.dispatcherPct);
+  const netAfterFeesPerMile =
+    grossPerMile != null && totalMiles != null && totalMiles > 0 && input.totalPay != null && fees.totalFees > 0
+      ? Math.round((fees.netPay / totalMiles) * 1000) / 1000
+      : null;
+  return { totalMiles, grossPerMile, netPerMile, fuel, fees, netAfterFeesPerMile };
 }
 
 // ---------- 4) Claim events (TONU / layover / driver assist) ------------------

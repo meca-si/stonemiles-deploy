@@ -63,6 +63,7 @@ planFeeSync,
 roundCents,
 type GateInvoice,
 } from "./dispatchFee";
+import { loadFeeBreakdown } from "./loadFees";
 import {
 categoryForChainEntry,
 classifyProofReference,
@@ -6730,6 +6731,13 @@ const profileShape = z.object({
   driverCpm: z.number().min(0.05).max(20).nullable(),
   payBasis: z.enum(["cpm", "percent"]),
   driverPayPct: z.number().min(0.1).max(100).nullable(),
+  // The driver's OWN factoring / dispatcher percentages (migration
+  // 0115): % of a load's gross pay their factoring company / their
+  // dispatcher takes. Their own costs — never platform fees.
+  // Defaulted so older saved profiles (which predate the fields)
+  // still validate; 0 = they don't pay that fee.
+  factoringPct: z.number().min(0).max(100).default(0),
+  dispatcherPct: z.number().min(0).max(100).default(0),
   // Trailer Package (migration 0101): the ONE active trailer type on
   // this truck profile. Extends the dimension profile — same row,
   // same save — and tunes default heights, tool order, wind alerts,
@@ -18204,6 +18212,8 @@ export const Actions = {
           driverCpm: row.driverCpm ?? null,
           payBasis: row.payBasis === "percent" ? ("percent" as const) : ("cpm" as const),
           driverPayPct: row.driverPayPct ?? null,
+          factoringPct: row.factoringPct ?? 0,
+          dispatcherPct: row.dispatcherPct ?? 0,
           trailerType: (["dry_van", "reefer", "flatbed", "step_deck", "rgn"].includes(row.trailerType ?? "")
             ? row.trailerType
             : "dry_van") as "dry_van" | "reefer" | "flatbed" | "step_deck" | "rgn",
@@ -18250,6 +18260,8 @@ export const Actions = {
         driverCpm: args.driverCpm,
         payBasis: args.payBasis,
         driverPayPct: args.driverPayPct,
+        factoringPct: args.factoringPct,
+        dispatcherPct: args.dispatcherPct,
         trailerType: args.trailerType,
         updatedAt: new Date(),
       };
@@ -18284,6 +18296,8 @@ export const Actions = {
             driverCpm: values.driverCpm,
             payBasis: values.payBasis,
             driverPayPct: values.driverPayPct,
+            factoringPct: values.factoringPct,
+            dispatcherPct: values.dispatcherPct,
             trailerType: values.trailerType,
             updatedAt: values.updatedAt,
           },
@@ -38930,6 +38944,13 @@ export const Actions = {
       facility: z.string().max(200).nullable(),
       expectedDetentionHours: z.number().nonnegative().max(100).nullable(),
       detentionRatePerHour: z.number().nonnegative().max(1000).default(50),
+      // The driver's OWN factoring / dispatcher percentages for THIS
+      // check (migration 0115 settings, prefilled by the client and
+      // editable per check). Null = the client didn't send them — the
+      // handler falls back to the saved profile settings. Never
+      // platform fees.
+      factoringPct: z.number().min(0).max(100).nullable().default(null),
+      dispatcherPct: z.number().min(0).max(100).nullable().default(null),
     }),
     response: z.object({
       locked: z.boolean(),
@@ -38940,6 +38961,11 @@ export const Actions = {
       ratePerTotalMile: z.number(),
       breakEvenPerMile: z.number().nullable(),
       detentionNote: z.string().nullable(),
+      // The driver's own fee deductions applied to this score (0 when
+      // no percentages are in play).
+      factoringAmt: z.number(),
+      dispatcherAmt: z.number(),
+      netRate: z.number(),
     }),
     async handler(ctx, args) {
       // Worth-It Advisor (full) is a Diamond feature. Off-tier: locked,
@@ -38958,6 +38984,9 @@ export const Actions = {
           ratePerTotalMile: 0,
           breakEvenPerMile: null,
           detentionNote: null,
+          factoringAmt: 0,
+          dispatcherAmt: 0,
+          netRate: 0,
         };
       }
       const db = ctx.db<typeof schema>();
@@ -38974,6 +39003,17 @@ export const Actions = {
       const totalMi = args.loadedMiles + args.deadheadMiles;
       const ratePerLoaded = args.rate / args.loadedMiles;
       const ratePerTotal = args.rate / totalMi;
+      // The driver's OWN factoring / dispatcher deductions: the %s the
+      // client sent for this check win; a null falls back to the saved
+      // profile settings (migration 0115). Deducted from the gross
+      // BEFORE the break-even comparison, so the verdict judges the
+      // pay the driver actually keeps. Never platform fees.
+      const fees = loadFeeBreakdown(
+        args.rate,
+        args.factoringPct ?? profForCpm[0]?.factoringPct ?? 0,
+        args.dispatcherPct ?? profForCpm[0]?.dispatcherPct ?? 0,
+      );
+      const netRatePerTotal = fees.netRate / totalMi;
       // Facility detention history (own sealed logs only).
       let detentionNote: string | null = null;
       let histAvgExcess = 0;
@@ -39010,23 +39050,28 @@ export const Actions = {
       const lines: string[] = [];
       lines.push(`Rate: $${args.rate.toFixed(2)} for ${args.loadedMiles} loaded mi + ${args.deadheadMiles} deadhead mi = ${totalMi} total mi.`);
       lines.push(`Rate per loaded mile: $${ratePerLoaded.toFixed(2)}/mi · Rate per TOTAL mile (the honest number): $${ratePerTotal.toFixed(2)}/mi.`);
+      if (fees.factoringAmt > 0) lines.push(`Your factoring: ${fees.factoringPct}% of $${args.rate.toFixed(2)} = $${fees.factoringAmt.toFixed(2)} — what YOUR factoring company takes out of this load.`);
+      if (fees.dispatcherAmt > 0) lines.push(`Your dispatcher: ${fees.dispatcherPct}% of $${args.rate.toFixed(2)} = $${fees.dispatcherAmt.toFixed(2)} — what YOUR dispatcher takes out of this load.`);
+      if (fees.totalFees > 0) lines.push(`Pay after your fees: $${args.rate.toFixed(2)} − $${fees.totalFees.toFixed(2)} = $${fees.netRate.toFixed(2)} — the score below judges THIS number, not the gross.`);
       let profit: number;
       if (cpm != null) {
         const runCost = cpm * totalMi;
-        profit = Math.round((args.rate + detPay - runCost) * 100) / 100;
+        profit = Math.round((fees.netRate + detPay - runCost) * 100) / 100;
         lines.push(`Your break-even from your own logged costs: $${cpm.toFixed(3)}/mi × ${totalMi} mi = $${runCost.toFixed(2)} to run this load.`);
         if (detPay > 0) lines.push(`Expected detention pay: ${detHours.toFixed(1)} h × $${args.detentionRatePerHour.toFixed(0)}/h = $${detPay.toFixed(2)} (only if the carrier actually pays it — detention note below).`);
-        lines.push(`Estimated profit: $${args.rate.toFixed(2)}${detPay > 0 ? ` + $${detPay.toFixed(2)} detention` : ""} − $${runCost.toFixed(2)} cost = $${profit.toFixed(2)}.`);
+        lines.push(`Estimated profit: $${fees.netRate.toFixed(2)}${fees.totalFees > 0 ? " (rate after your fees)" : ""}${detPay > 0 ? ` + $${detPay.toFixed(2)} detention` : ""} − $${runCost.toFixed(2)} cost = $${profit.toFixed(2)}.`);
       } else {
-        profit = Math.round((args.rate + detPay) * 100) / 100;
+        profit = Math.round((fees.netRate + detPay) * 100) / 100;
         lines.push(`No break-even yet: log fuel purchases and expenses (Money Truth) and this score gets your real cost per mile. Until then the verdict uses rate per total mile alone against a $${floorRate.toFixed(2)}/mi floor — ${profForCpm[0]?.payBasis === "percent" ? `a rough guide only: you're paid ${profForCpm[0]?.driverPayPct ?? "?"}% of the load's pay, so judge the load on your cut (rate × your %), not the gross rate` : `your employer's pay rate${profForCpm[0]?.driverCpm != null ? " (your saved company CPM)" : " (the $0.55 default — set your own CPM in Settings → My pay)"} — as a rough guide only`}.`);
-        profit = Math.round((args.rate - floorRate * totalMi) * 100) / 100;
+        profit = Math.round((fees.netRate - floorRate * totalMi) * 100) / 100;
       }
       let verdict: "green" | "yellow" | "red";
       if (cpm != null) {
         verdict = profit > totalMi * 0.25 ? "green" : profit >= 0 ? "yellow" : "red";
       } else {
-        verdict = ratePerTotal >= 1.1 ? "green" : ratePerTotal >= floorRate ? "yellow" : "red";
+        // No break-even yet: the floor judges the NET rate per total
+        // mile (after the driver's own fees), never the gross.
+        verdict = netRatePerTotal >= 1.1 ? "green" : netRatePerTotal >= floorRate ? "yellow" : "red";
       }
       lines.push(
         verdict === "green"
@@ -39040,7 +39085,7 @@ export const Actions = {
         refId: null,
         sessionId: null,
         event: "load_score",
-        payload: { label: args.label, rate: args.rate, loadedMiles: args.loadedMiles, deadheadMiles: args.deadheadMiles, facility: args.facility, profit, verdict, at: new Date().toISOString() },
+        payload: { label: args.label, rate: args.rate, loadedMiles: args.loadedMiles, deadheadMiles: args.deadheadMiles, facility: args.facility, profit, verdict, factoringPct: fees.factoringPct, dispatcherPct: fees.dispatcherPct, factoringAmt: fees.factoringAmt, dispatcherAmt: fees.dispatcherAmt, netRate: fees.netRate, at: new Date().toISOString() },
       });
       void hash;
       ctx.invalidateQueries();
@@ -39053,6 +39098,9 @@ export const Actions = {
         ratePerTotalMile: Math.round(ratePerTotal * 100) / 100,
         breakEvenPerMile: cpm != null ? Math.round(cpm * 1000) / 1000 : null,
         detentionNote,
+        factoringAmt: fees.factoringAmt,
+        dispatcherAmt: fees.dispatcherAmt,
+        netRate: fees.netRate,
       };
     },
   }),

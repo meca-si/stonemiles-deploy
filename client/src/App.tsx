@@ -259,6 +259,13 @@ type ProfileT = {
   driverCpm: number | null;
   payBasis: "cpm" | "percent";
   driverPayPct: number | null;
+  // The driver's OWN factoring / dispatcher percentages (migration
+  // 0115): % of a load's gross pay THEIR factoring company / THEIR
+  // dispatcher takes. Their own costs — never platform fees. 0 = they
+  // don't pay that fee. The Worth-It Advisor deducts them before
+  // scoring; True Rate shows them per load.
+  factoringPct: number;
+  dispatcherPct: number;
   // Trailer Package (2026-11-06): the ONE active trailer type on this
   // truck profile — extends the dimension profile above (same server
   // row, same save). Tunes default heights, trailer-tool order, the
@@ -942,7 +949,7 @@ const MECA_DEST_INFO: Record<MecaDestId, { label: string; blurb: string }> = {
   sign_out: { label: "Sign out", blurb: "Sign out lives in Settings → Security & privacy — the 'Account session — this device' card right under the App lock PIN — and in Chat → My company → My social profile. It ends THIS device's session and returns you to the sign-in screen; a signed-out device shows no account data, and your other devices stay signed in. Signing back in always takes a real credential: your app PIN if you've set one, Face ID / fingerprint if it's enrolled on the device, or the full account sign-in — email + password, Google, or a passkey. There is no one-tap way back in, and the full sign-in screen is also where you switch to a different account. For every device at once, the Security Center (same Settings section) carries Sign Out Everywhere." },
   doc_expiry: { label: "Driver → Document expiry wallet", blurb: "The Document Expiry Wallet is on the Driver tab — it tracks the five dates that can park the truck (CDL, medical card, vehicle registration, insurance, and the annual DOT inspection) from the expiry dates YOU entered, with in-app alerts at 30, 14, and 7 days out plus an expired state, and a warning strip at the top of the Driver tab whenever one is due. The document files themselves live in the Document Vault right below it. Alerts are in-app only — the app sends no push notifications." },
   owed_board: { label: "Driver → Who owes me", blurb: "The 'Who owes me' board is on the Driver tab — every delivered (POD-sealed) load whose pay hasn't been recorded yet, oldest first, with days outstanding and aging: freight plus any sealed claim events (TONU / layover / driver assist), minus the payments you've recorded against it. Recording a payment is a record only — the board tracks what's owed; it sends no invoices and moves no money. A load leaves the board when its recorded payments cover what's owed." },
-  true_rate: { label: "Driver → True rate", blurb: "The True Rate panel is on the Driver tab — for every load with pay and miles on file it divides TOTAL pay by ALL miles (loaded + deadhead, the empty run to the pickup included), and shows a net-after-fuel figure: from fuel logged against that load where it exists, otherwise an estimate from your logged fuel purchases' average price and your truck's MPG, labelled an estimate plainly. With no logged fuel price anywhere, no net figure is shown — a fuel cost is never fabricated. Deadhead miles are recorded per load right in the panel (or scored before booking in the Worth-It Advisor)." },
+  true_rate: { label: "Driver → True rate", blurb: "The True Rate panel is on the Driver tab — for every load with pay and miles on file it divides TOTAL pay by ALL miles (loaded + deadhead, the empty run to the pickup included), and shows a net-after-fuel figure: from fuel logged against that load where it exists, otherwise an estimate from your logged fuel purchases' average price and your truck's MPG, labelled an estimate plainly. With no logged fuel price anywhere, no net figure is shown — a fuel cost is never fabricated. If you've saved YOUR factoring % and/or dispatcher % (Settings → My pay — your own costs, never platform fees), each load also shows those two deductions and a net-after-fees rate figured from them. Deadhead miles are recorded per load right in the panel (or scored before booking in the Worth-It Advisor)." },
   claims_log: { label: "Driver → TONU + layover logger", blurb: "The TONU + Layover Logger is on the Driver tab — one-tap claim events (TONU — truck ordered, not used; layover; driver assist) with the amount YOU enter, timestamped and sealed into the load's record, riding its exports and counting on the Who-owes-me board until the load is paid. It sits BESIDE Detention Pay, which keeps its own arrival/departure tracker on each load — the two never double up." },
   facility_memory: { label: "Loads → Facility memory", blurb: "Facility Memory lives inside the Load Worth-It Advisor on the Loads tab, and as a 'What to expect here' card inside each load's dock helper. It's built ONLY from your own sealed history: every facility where you've sealed a detention arrival + departure, with your average dwell, detention past the 2-hour free time, how your last arrival compared to the appointment, the lumper fee you recorded, and your own check-in note. No crowdsourced reviews, no other drivers' data — a facility you've never sealed a visit at shows honestly as no history." },
   scale_tickets: { label: "Driver → Scale tickets", blurb: "Scale Tickets are on the Driver tab — log the weights off a scale ticket (steer / drive tandems / trailer tandems, gross figured for you, over-80,000 flagged) or snap the ticket photo; either way it fingerprints and seals. Attach the ticket to a load and it seals into that load's record and rides the load's exports. Every weight is driver-entered — you type what the ticket says; nothing pretends a sensor read it." },
@@ -1267,6 +1274,8 @@ const DEFAULT_PROFILE: ProfileT = {
   driverCpm: null,
   payBasis: "cpm",
   driverPayPct: null,
+  factoringPct: 0,
+  dispatcherPct: 0,
   trailerType: "dry_van",
 };
 
@@ -9654,7 +9663,7 @@ export function App() {
     if (/who owes me|owed board|owes me money|unpaid loads?|loads? (not|haven'?t) paid|outstanding (pay|invoices?|loads?)|what.*(i'?m|am i) owed|money.*owed|owed.*money|receivables?/.test(q)) return "owed_board";
     if (/(cdl|med(ical)? card|registration|insurance|dot inspection|annual inspection|document).*expir|expir.*(cdl|med(ical)? card|registration|insurance|document|license|licence)|when.*(expire|due).*?(cdl|med|registration|insurance|inspection)|expiry wallet|document (expiry|wallet|expir)/.test(q)) return "doc_expiry";
     if (/\btonu\b|truck ordered|layover|driver assist|claim event/.test(q)) return "claims_log";
-    if (/true rate|rate per (all|total) mile|net after fuel|deadhead.*(rate|mile)|all miles.*rate/.test(q)) return "true_rate";
+    if (/true rate|rate per (all|total) mile|net after fuel|net after fees|factoring|dispatcher (fee|%|percent|cut)|deadhead.*(rate|mile)|all miles.*rate/.test(q)) return "true_rate";
     if (/ifta.*(owe|tax|quarter|estimate)|owe.*ifta|fuel tax/.test(q)) return "ifta";
     if (/maintenance|oil change|when.*(oil|tires?|brakes?).*(due|change|service)|service (due|countdown|interval)|miles (left|remaining).*(oil|service|brake|tire)|brakes? due|tires? due/.test(q)) return "maintenance";
     if (/breakdown (log|record|mode)|downtime|cost log|truck (broke|is down|went down)|broke down|repair (log|record)|tow (log|record)/.test(q)) return "breakdown_log";
@@ -10184,7 +10193,7 @@ export function App() {
       return `${d.perDiemDays} per-diem day${d.perDiemDays === 1 ? "" : "s"} in ${d.year} — counted automatically from your sealed trip records (every day a sealed trip was on the road, counted once). Per-diem is an owner-operator / 1099 deduction; W-2 company drivers cannot claim it — the deduction was removed by the 2017 tax law change — so treat the count as a record for tax prep, not tax advice, and no deduction amount is figured. ${d.expenseCount > 0 ? `Your ${d.year} expenses so far: ${fmtMoney(d.expenseTotal)} across ${d.expenseCount} record${d.expenseCount === 1 ? "" : "s"}, grouped by the categories you confirmed, plus ${fmtMoney(d.fuelTotal)} of logged fuel kept separate. ` : "No expenses logged yet this year. "}Tax Records (Driver tab) has the category breakdown and the downloadable year packet — tap “Take me there” below.`;
     }
     if (navDestEarly === "true_rate" || /true rate|net after fuel/.test(q)) {
-      return "The True Rate panel (Driver tab) divides each load's TOTAL pay by ALL its miles — loaded plus the deadhead run to the pickup — and shows net-after-fuel from fuel logged on the load, or an estimate from your logged fuel prices + MPG, labelled an estimate when it is one. Record a load's deadhead right in the panel. Tap “Take me there” below.";
+      return "The True Rate panel (Driver tab) divides each load's TOTAL pay by ALL its miles — loaded plus the deadhead run to the pickup — and shows net-after-fuel from fuel logged on the load, or an estimate from your logged fuel prices + MPG, labelled an estimate when it is one. If you've saved your own factoring % / dispatcher % (Settings → My pay), it also takes those out and shows a net-after-fees rate per load. Record a load's deadhead right in the panel. Tap “Take me there” below.";
     }
     if (/why|reason|pick|chose|choose/.test(q)) {
       const entries = aiLogQuery.data?.entries ?? [];
@@ -10210,7 +10219,7 @@ export function App() {
     }
     if (/worth it|score (this|a|the)? ?load|good load|take this load/.test(q)) {
       setTab("loads");
-      return "The Worth-It Advisor is at the top of the Loads tab — I just took you there. Give it the rate, loaded miles, and deadhead; it scores green/yellow/red against your own break-even and your sealed detention history at that facility, with the math line by line. The call stays yours.";
+      return "The Worth-It Advisor is at the top of the Loads tab — I just took you there. Give it the rate, loaded miles, and deadhead; it scores green/yellow/red against your own break-even and your sealed detention history at that facility, with the math line by line. Your own factoring % and dispatcher % (Settings → My pay) come out of the rate BEFORE the score — they're prefilled and you can change them for one check without touching your saved settings. The call stays yours.";
     }
     if (/find parking|parking/.test(q)) {
       setShowParking(true);
@@ -20862,6 +20871,55 @@ export function App() {
                       </div>
                     </>
                   )}
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-3">
+                  <div className="col-span-2">
+                    <span className={labelCls}>Your own load fees — taken out of a load's pay before it's yours</span>
+                    <p className="text-xs leading-relaxed text-[var(--dim)]">
+                      If YOU pay a factoring company or a dispatcher out of each load, put their % here.
+                      These are <strong>your own costs</strong> — not STONEMILES fees. The Worth-It Advisor
+                      takes them out of a load's rate before it scores the load, and True Rate shows them
+                      on every load. Leave both at 0 if you don't pay them.
+                    </p>
+                  </div>
+                  <div>
+                    <label className={labelCls} htmlFor="set-factoring-pct">Your factoring % (of load pay)</label>
+                    <input
+                      id="set-factoring-pct"
+                      type="number"
+                      inputMode="decimal"
+                      step="0.25"
+                      min="0"
+                      max="100"
+                      className={inputCls}
+                      value={profile.factoringPct || ""}
+                      placeholder="0"
+                      aria-label="Your factoring percent — what your factoring company takes from each load's pay"
+                      onChange={(e) => {
+                        const v = parseFloat(e.target.value);
+                        setProfile({ ...profile, factoringPct: Number.isFinite(v) && v > 0 ? Math.min(v, 100) : 0 });
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <label className={labelCls} htmlFor="set-dispatcher-pct">Your dispatcher % (of load pay)</label>
+                    <input
+                      id="set-dispatcher-pct"
+                      type="number"
+                      inputMode="decimal"
+                      step="0.5"
+                      min="0"
+                      max="100"
+                      className={inputCls}
+                      value={profile.dispatcherPct || ""}
+                      placeholder="0"
+                      aria-label="Your dispatcher percent — what your dispatcher takes from each load's pay"
+                      onChange={(e) => {
+                        const v = parseFloat(e.target.value);
+                        setProfile({ ...profile, dispatcherPct: Number.isFinite(v) && v > 0 ? Math.min(v, 100) : 0 });
+                      }}
+                    />
+                  </div>
                 </div>
                 {profile.payBasis === "cpm" ? (
                   <p className="mt-2 text-xs leading-relaxed text-[var(--dim)]">

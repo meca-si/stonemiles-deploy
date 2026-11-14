@@ -326,6 +326,12 @@ export function OwedBoardPanel({ setBanner, lang = "en" }: { setBanner: Banner; 
 
 export function TrueRatePanel({ setBanner, mpg, lang = "en" }: { setBanner: Banner; mpg: number; lang?: Lang }) {
   const queryClient = useQueryClient();
+  const profileQ = useQuery({ queryKey: ["profile"], queryFn: () => api.getProfile({}) });
+  // The driver's OWN saved fee percentages (Settings → My pay) — their
+  // factoring company / their dispatcher, never platform fees. Only
+  // ever what the driver saved; 0 = no deduction shown.
+  const factoringPct = profileQ.data?.profile?.factoringPct ?? 0;
+  const dispatcherPct = profileQ.data?.profile?.dispatcherPct ?? 0;
   const loadsQ = useQuery({ queryKey: ["loads"], queryFn: () => api.listLoads({ limit: 50 }) });
   const fuelQ = useQuery({ queryKey: ["fuel-purchases"], queryFn: () => api.listFuelPurchases({ limit: 200 }) });
   const expQ = useQuery({ queryKey: ["expenses-all"], queryFn: () => api.listExpenses({ limit: 300 }) });
@@ -359,7 +365,7 @@ export function TrueRatePanel({ setBanner, mpg, lang = "en" }: { setBanner: Bann
             mpg,
             avgLoggedPricePerGallon: avgPrice,
           });
-          const tr = trueRateFor({ totalPay, loadedMiles: l.loadedMiles, deadheadMiles: l.deadheadMiles }, basis);
+          const tr = trueRateFor({ totalPay, loadedMiles: l.loadedMiles, deadheadMiles: l.deadheadMiles, factoringPct, dispatcherPct }, basis);
           return (
             <div key={l.id} className="rounded-xl bg-[var(--surface2)] px-3 py-2.5 text-sm">
               <div className="flex items-baseline justify-between gap-2">
@@ -376,6 +382,11 @@ export function TrueRatePanel({ setBanner, mpg, lang = "en" }: { setBanner: Bann
                     </span>
                   )}
                   {tr.netPerMile == null && <span className="text-xs text-[var(--dim)]">Net after fuel: not shown — no fuel logged for this load and no logged fuel price to estimate from.</span>}
+                  {tr.netAfterFeesPerMile != null && (
+                    <span className="font-condensed text-lg font-bold">
+                      ${tr.netAfterFeesPerMile.toFixed(2)}/mi <span className="font-sans text-xs font-semibold text-[var(--dim)]">{tt(lang, "money.netAfterFees")} ({[tr.fees.factoringAmt > 0 ? `factoring ${tr.fees.factoringPct}% −${money(tr.fees.factoringAmt)}` : null, tr.fees.dispatcherAmt > 0 ? `dispatcher ${tr.fees.dispatcherPct}% −${money(tr.fees.dispatcherAmt)}` : null].filter(Boolean).join(" · ")})</span>
+                    </span>
+                  )}
                 </div>
               ) : (
                 <p className="mt-1 text-xs text-[var(--dim)]">
@@ -436,6 +447,9 @@ export function TrueRatePanel({ setBanner, mpg, lang = "en" }: { setBanner: Bann
           );
         })}
       </div>
+      {factoringPct <= 0 && dispatcherPct <= 0 && (
+        <p className="mt-2 text-xs text-[var(--dim)]">Pay a factoring company or a dispatcher out of each load? Set YOUR factoring / dispatcher % in Settings → My pay and this panel takes them out of every load's rate too — your own costs only, never platform fees.</p>
+      )}
       <p className="mt-2 text-xs text-[var(--dim)]">Before you book, the same math runs in the Worth-It Advisor (Loads tab) from the rate, loaded miles, and deadhead you type there. To log fuel against a specific load, file it as a fuel expense on that load in Money Truth — then its net reads "logged", not "estimate".</p>
     </Section>
   );
