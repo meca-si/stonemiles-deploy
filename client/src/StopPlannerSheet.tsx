@@ -43,6 +43,7 @@ import {
 } from "./stopPlanner";
 import { nightParkingPicks } from "./extras";
 import { t as tt, type Lang } from "./i18n";
+import type { AutoAddStop } from "./autoAddStops";
 
 export type StopPlannerProps = {
   hos: HosInput;
@@ -80,6 +81,17 @@ export type StopPlannerProps = {
   /** Open the full Parking planner (map-data rest areas + services
    *  around the truck) from the night-parking section. */
   onOpenParking?: () => void;
+  /** Auto-add stops (2026-11-13): the stops the planner already
+   *  added to this route as waypoints (App-owned state; selection in
+   *  client/src/autoAddStops.ts). They render as on-route above the
+   *  timeline, each with its Remove wired back to the app, which
+   *  re-plans without it. Absent/empty = nothing was auto-added. */
+  autoAddedStops?: AutoAddStop[];
+  onRemoveAutoStop?: (key: string) => void;
+  /** Plain note about auto-add for THIS route, when it did not run:
+   *  "permit" (locked corridor — never touched) or "off" (the
+   *  Settings → Driving switch is off — suggestions only). */
+  autoAddNote?: "permit" | "off" | null;
 };
 
 type StoredTank = { pct: number; atProgressMi: number };
@@ -292,8 +304,8 @@ export function StopPlannerSheet(props: StopPlannerProps) {
         </div>
         <p className="mt-1 text-sm text-[var(--dim)]">
           {props.payPerMile != null
-            ? "Fuel, your 30-minute break, and tonight's shutdown planned together on this route — priced against your load. Advisory only: the planner never changes your duty status."
-            : "Fuel, your 30-minute break, and tonight's shutdown planned together on this route — ranked on station price, your tank, burn under load, miles left, and detour time. No load pay on this run, and none is needed. Advisory only: the planner never changes your duty status."}
+            ? "Fuel, your 30-minute break, and tonight's shutdown planned together on this route — priced against your load. Advisory only: the planner never changes your duty status. With Auto-add stops on (Settings → Driving), these picks are also put on your route as waypoints when the route is planned — each one announced, each removable."
+            : "Fuel, your 30-minute break, and tonight's shutdown planned together on this route — ranked on station price, your tank, burn under load, miles left, and detour time. No load pay on this run, and none is needed. Advisory only: the planner never changes your duty status. With Auto-add stops on (Settings → Driving), these picks are also put on your route as waypoints when the route is planned — each one announced, each removable."}
         </p>
 
         {/* Tank state */}
@@ -438,6 +450,56 @@ export function StopPlannerSheet(props: StopPlannerProps) {
                   </p>
                 ))}
               </div>
+            )}
+
+            {/* Auto-added stops: already ON this route as waypoints
+                (the planner's picks, applied by the app — see
+                client/src/autoAddStops.ts). Each carries its Remove;
+                the manual suggestion flow below is unchanged. */}
+            {((props.autoAddedStops && props.autoAddedStops.length > 0) || props.autoAddNote) && (
+              <section className="mt-4" aria-label="Stops added to your route">
+                <h3 className="font-condensed text-lg font-bold">{tt(props.lang ?? "en", "extras.autoAddedTitle")}</h3>
+                {props.autoAddNote === "permit" && (
+                  <p className="mt-1 rounded-xl bg-[var(--surface2)] px-3 py-2.5 text-sm text-[var(--dim)]">{tt(props.lang ?? "en", "extras.autoPermitNote")}</p>
+                )}
+                {props.autoAddNote === "off" && (
+                  <p className="mt-1 rounded-xl bg-[var(--surface2)] px-3 py-2.5 text-sm text-[var(--dim)]">{tt(props.lang ?? "en", "extras.autoOffNote")}</p>
+                )}
+                {props.autoAddedStops && props.autoAddedStops.length > 0 && (
+                  <ol className="mt-2 space-y-2">
+                    {props.autoAddedStops.map((s) => {
+                      const live = candidates.find((x) => x.id === s.key) ?? driverStops.find((x) => x.id === s.key);
+                      const aheadMi = live ? Math.max(0, live.alongMi - progressMi) : s.alongMi;
+                      const why: string[] = [];
+                      if (s.kinds.includes("fuel")) {
+                        let fuelLine = `⛽ ${tt(props.lang ?? "en", "extras.autoFuel")}`;
+                        if (s.buyGal != null) fuelLine += ` · ~${Math.round(s.buyGal)} gal`;
+                        if (s.pricePerGal != null) fuelLine += ` · $${s.pricePerGal.toFixed(2)}/gal${s.priceLabel ? ` (${s.priceLabel})` : ""}`;
+                        if (s.estSaving != null) fuelLine += ` · ${tt(props.lang ?? "en", "extras.autoEstSaving")} $${s.estSaving.toFixed(2)}`;
+                        why.push(fuelLine);
+                      }
+                      if (s.kinds.includes("break")) why.push(`☕ ${tt(props.lang ?? "en", "extras.autoBreak")}`);
+                      if (s.kinds.includes("rest")) why.push(`🌙 ${tt(props.lang ?? "en", "extras.autoRest")}`);
+                      return (
+                        <li key={s.key} className="rounded-2xl border border-[var(--accent)] bg-[var(--surface2)] px-3.5 py-3">
+                          <div className="flex items-baseline justify-between gap-2">
+                            <span className="font-bold">{s.name}</span>
+                            <span className="shrink-0 font-condensed text-lg font-bold tnum">{fmtMi(aheadMi)} mi</span>
+                          </div>
+                          <p className="mt-0.5 text-sm text-[var(--dim)]">{why.join(" · ")}</p>
+                          {props.onRemoveAutoStop && (
+                            <div className="mt-2">
+                              <button type="button" className="btn-press rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-bold" aria-label={`Remove ${s.name} from the route`} onClick={() => props.onRemoveAutoStop!(s.key)}>
+                                {tt(props.lang ?? "en", "extras.autoRemove")}
+                              </button>
+                            </div>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ol>
+                )}
+              </section>
             )}
 
             {/* Timeline */}

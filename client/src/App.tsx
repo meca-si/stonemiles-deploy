@@ -195,7 +195,15 @@ import { AtlasPanel } from "./AtlasPanel";
 import { atlasStateSummary, findAtlasStateInText } from "./atlas";
 import { BrokerDesk } from "./BrokerDesk";
 import { OwnerDesk } from "./OwnerDesk";
-import type { PlannerCandidate } from "./stopPlanner";
+import {
+  buildStopPlan,
+  rankFuelStops,
+  resolveEldSlot,
+  resolveTankReading,
+  type DriverStop,
+  type PlannerCandidate,
+} from "./stopPlanner";
+import { selectAutoAddStops, type AutoAddStop } from "./autoAddStops";
 import { eldIdentitySections, eldIdentityStamp } from "./eldIdentity";
 import { TruckStopCardSheet } from "./TruckStopCard";
 import {
@@ -304,6 +312,9 @@ const DEFAULT_APP_SETTINGS: AppSettingsT = {
   weighPrompts: true,
   // Hill grade alerts (migration 0105): ON — a core safety warning.
   hillGradeAlerts: true,
+  // Auto-add stops to route (migration 0116): ON — the planner's
+  // fuel / break / rest picks ride along as waypoints by default.
+  autoAddStops: true,
   // Winter & weather alerts (migration 0107): ON — ditto.
   winterWeatherAlerts: true,
   // Drive-screen overlays (migration 0095, Repair 5): the standard
@@ -935,7 +946,7 @@ const MECA_DEST_INFO: Record<MecaDestId, { label: string; blurb: string }> = {
   si_layer: { label: "Driver → STONEMILES SI", blurb: "STONEMILES SI — the Super Intelligent autonomous layer — lives on the Driver tab, right above Road learning. It runs under the 8 SI Rules set in stone 2026-11-01: (1) public information only, no personal data ever read or accessed; (2) it heals itself — road-matching via Road learning, bad data caught as correction flags, never rewrites of sealed records; (3) it preps and files its own paperwork; (4) it chases its own fuel plan from logged purchases; (5) it preps trip sheets state by state for queued trips without being asked; (6) it vets brokers, shippers, owners, and loads against public records (the official FMCSA SAFER link) BEFORE they post to a board — while SI is on, a board post that fails a HOLD check never reaches the board; (7) duty status is asked by the prompt, never assumed — SI has no duty controls and never touches the prompt; (8) the standard house rules govern and win any collision, and no money ever moves autonomously. The panel carries the master switch, the Run-the-sweep button (one pass does all the prep/chase/catch/vet work and reports counts), the decisions inbox (the only things SI asks a human for, with Approve/Hold and Resolve/Dismiss), a public-records vetting form (company name + MC/USDOT, or a load's lane/rate/miles/weight/freight — personal data is refused before it is stored), the work SI already did, and the 8 rules verbatim." },
   live_updates: { label: "Driver → Live Updates — App Health", blurb: "Live Updates — App Health & Self-Reporting — lives on the Driver tab, right under STONEMILES SI. It is the app's self-watch (owner order 2026-11-05): the app reports its own crashes and failures here AUTOMATICALLY (error text + screen name only — no location, no documents, no personal data, no third-party tracker; the owner can turn self-reporting off in the panel and automatic reports are then dropped, while manual reports still land). A health check also runs daily and on demand — it verifies the sealed hash chain, EIA fuel-average freshness, Market Pulse freshness, the address-search state, route reliability from the app's own timings, and the open inbox, all from real state. Every failing check opens a report in the failure inbox; a check that passes again clears its own report. Each report travels the fix pipeline: app reports itself → AI diagnoses (a diagnosis + fix plan drafted from the report alone) → fix drafted → tests verify → THE OWNER APPROVES → ships through Play. The app NEVER rewrites its own code and NEVER auto-ships — the owner is the gate. The panel carries the self-reporting switch, the Run-health-check button, the pipeline, the health board, the failure inbox with Diagnose-with-AI and pipeline buttons (Approve fix to ship appears only at the tested step), a manual problem-report form, and the live feed that narrates every check, report, diagnosis, and approval with its time." },
   route_weather: { label: "Drive → Route weather", blurb: "Route weather lives in the Drive panel, right under the hours-of-service summary — it's route weather, not a city forecast. It samples public weather (Open-Meteo forecasts + National Weather Service alerts, keyless — public information only, SI Rule 1) at points ON your active route — here, 25, 60, and 120 miles ahead of the truck, and your destination — each labelled in miles ahead, with condition, temperature, wind, gusts, and visibility. WIND GUSTS are graded against the driver's own gust decision line (default 35 mph, settable 20–60 mph right in the panel — flatbed-relevant): gusts at or over the line are called out as over your line. TONIGHT AT YOUR STOP pins weather to where the HOS driving clock runs out on this route (the same reachability estimate the parking planner uses; no HOS log yet falls back to the destination; no route falls back to here and SAYS SO) and pairs it with the real stop near that point when one exists — its button opens that stop's stop card (parking count, amenities). With no route set the panel shows current-position weather only and states that plainly. RADAR: the 'Weather radar' switch in Layers & display (and in the panel) draws live NWS NEXRAD precipitation (NOAA/NWS via Iowa State Mesonet public tiles) over the map, and the map pill + Layers note report the tile state honestly — if the tiles don't answer, no overlay is shown and it says unavailable. SI KEEPS IT UPDATED (the driver's order): while SI is on, the panel re-fetches every 10 minutes, on route changes, and every ~5 miles rolled, and decision-grade weather — ice, snow, or thunderstorms ahead, gusts over the threshold, low visibility ahead, severe or freezing weather on tonight's stop — surfaces ONCE per corridor segment per 6-hour window as an SI decisions-inbox item plus a banner; benign weather is silent. While SI is off the panel still works manually (Refresh button, and it fetches when the route changes) but nothing auto-surfaces. ON THE GO MAP (added 2026-11-01 after the driver's 'no weather update' verdict — the panel alone never reached the driving screen): a live weather chip sits on the Go map at bottom-right, in the spot the map's End route button used to hold (End route lives in the pull-up trip tab; the map shows the posted limit only, no own-speed bubble) — conditions here plus the ~60-miles-ahead sample on your route, with the update time — and it refreshes on the same 10-minute / route-change / ~5-mile cadence with NO SI gate, so the driving screen always carries current weather; if the feed doesn't answer the chip says 'weather unavailable' with a Retry button. A feed that doesn't answer shows 'weather unavailable' — conditions are never invented." },
-  stop_planner: { label: "Drive → Plan my stops", blurb: "The Fuel + Stop Planner lives behind the 'Plan my stops' button on the Drive screen (and in the route panel): one timeline for the whole day — your tank (ELD live when a real ELD fuel feed exists; otherwise your entered tank minus a burn estimate that knows your load weight, always labelled which), the cheapest true-cost fuel stops on the route with FILL / SPLASH / SKIP calls ranked on price, tank, weight-adjusted burn, and remaining miles — load pay only values detour time when a load's pay is actually on file; with no load pay (no load, deadheading, pay not entered) pay drops out entirely, no pay is asked for, and detour time falls back to the driver's Detour time cost setting in the planner (a $/hr they set, or the default: minutes only, no dollar conversion), your 30-minute break point off the HOS break clock (combined with a fuel stop when one lines up, and the plan says so), the stop-for-the-day off the 11h/14h clocks with parking only from real map data, and your own added fuel / rest / sleeper stops — the plan re-checks fuel range and HOS feasibility after every add and flags plainly when a plan stops working. Prices come only from data the app already holds and are labelled estimates. Advisory only — it never touches duty status." },
+  stop_planner: { label: "Drive → Plan my stops", blurb: "The Fuel + Stop Planner lives behind the 'Plan my stops' button on the Drive screen (and in the route panel): one timeline for the whole day — your tank (ELD live when a real ELD fuel feed exists; otherwise your entered tank minus a burn estimate that knows your load weight, always labelled which), the cheapest true-cost fuel stops on the route with FILL / SPLASH / SKIP calls ranked on price, tank, weight-adjusted burn, and remaining miles — load pay only values detour time when a load's pay is actually on file; with no load pay (no load, deadheading, pay not entered) pay drops out entirely, no pay is asked for, and detour time falls back to the driver's Detour time cost setting in the planner (a $/hr they set, or the default: minutes only, no dollar conversion), your 30-minute break point off the HOS break clock (combined with a fuel stop when one lines up, and the plan says so), the stop-for-the-day off the 11h/14h clocks with parking only from real map data, and your own added fuel / rest / sleeper stops — the plan re-checks fuel range and HOS feasibility after every add and flags plainly when a plan stops working. Prices come only from data the app already holds and are labelled estimates. AUTO-ADD (the Settings → Driving switch 'Auto-add stops to my route', ON by default): when a route is planned, those same picks are added to the route itself as waypoints — the best fuel stop by true cost when the tank calls for it (with the estimated saving when the planner's own numbers support one), the 30-minute break stop (folded into the fuel stop when they line up), and a 10-hour rest stop placed before the 11/14 clocks run out, but only when that clock actually runs out on this route. The destination never changes. Each added stop is announced on a banner and a Drive card with its reason and a one-tap Remove (also removable in Plan my stops, where added stops show as on-route), and taking one out re-draws the route without it. If a plan lands while the driver is already rolling, the picks are announced as a pending card and added ONLY on the driver's tap — the app never yanks or silently re-routes a moving driver, and an off-route reroute keeps the stops the driver accepted. A permit-locked corridor route is NEVER auto-added to or altered — the planner says so plainly and its stops stay suggestions. With the switch OFF, behaviour is exactly the old way: suggestions only. Advisory only — it never touches duty status." },
   hill_grade_alerts: { label: "Drive → Hill grade alerts", blurb: "Hill grade alerts live on the Drive (Go) screen and the Cab Mode head unit. When a route is planned, the router's elevation for the route is stored with it (it survives Resume and works fully offline); the app reads the sustained grades out of that elevation and warns on any grade of 4% or more held for at least a third of a mile — 6% or more reads as a strong warning. DOWNHILL: a spoken + banner call about half a mile before the descent ('Downgrade — 6% for 1.2 miles ahead') with your LIVE speed on the banner and a gear-down / brake-check prompt; a heavier rig (by the gross weight on your truck profile) gets the call earlier — three quarters of a mile at 60,000 lbs, a full mile at 75,000 — and a second call lands at the crest. UPHILL: the same advance call ('Climb — 5% for 2.0 miles ahead') so a heavy load expects the slowdown and picks its lane early. While you're ON a grade, a small live readout (current % with an up/down arrow) sits beside the posted-limit sign. Voice rides the normal voice-guidance path — spoken where voice directions are on, banner-only where they're off or muted. The same alert mirrors onto the Cab Mode Head Unit Guidance screen in big type for every tier, and grades ahead also list on its Road alerts screen (full cab version). Safety warnings are never paywalled: the phone Drive screen shows them on every plan. Turn them off in Settings → Driving ('Hill grade alerts', on by default). HONEST LIMIT: a route whose routing answer carried no elevation shows no grades at all — the app never guesses a hill." },
   traffic_lights: { label: "Drive → Traffic lights", blurb: "Traffic lights live on the Drive map as a layer of signal LOCATIONS from OpenStreetMap (the map data's highway=traffic_signals tags, fetched with the same pass as the hazards and stored on your phone as they're fetched, so the layer keeps working offline in dead zones, Atlas-style). On an active route the next light on your line gets a small pill on the Go screen — 'Traffic light ahead — 0.4 mi'. The switch lives in Layers & display on the map and in Settings → Driving ('Traffic lights', on by default). HONESTY LAW: there is NO live red/green phase, timing, or countdown data available to this app — that data is car-company V2X territory, not open data — so the app NEVER shows a light's color, state, or timing. The marker is a plain unlit signal head (three grey dots) for exactly that reason: locations only." },
   safety_alerts: { label: "Drive → Safety alerts (ramps, curves, crossings, winter, hazards)", blurb: "Five alert systems ride the Drive screen (Settings → Driving; the winter package has its own switch, 'Winter & weather alerts', default ON — the rest follow the grade/hazard data they ride on). 1) RUNAWAY RAMPS: on an active downgrade, escape ramps ahead on your route from OpenStreetMap data get a banner + voice call ('Runaway ramp — 0.4 miles, right side') and stay marked on the map for the whole descent — where the map holds no ramp for a descent, nothing is shown; a ramp is never guessed. 2) SHARP CURVES: the app prices every curve on your route from the road's own geometry (offline, from the stored route), and when your live speed beats the advisory for YOUR rig — a tall or heavy rig gets a lower advisory and an earlier call — you get 'Sharp curve ahead — advisory 35' with your speed on the banner, about 0.3–0.5 miles out. Curves you're already slow enough for never warn. 3) RAILROAD CROSSINGS: crossings ahead from OpenStreetMap level-crossing data (the same crossing locations the federal FRA Grade Crossing Inventory tracks) get a banner + voice call; where a crossing's profile data — the FRA inventory's vertical-profile field, when inventory records are loaded — says it's HUMPED and you're pulling a long, low trailer (step-deck, RGN/lowboy), it warns 'Humped crossing — high-center risk' — OpenStreetMap carries no profile, so an OSM-only crossing shows the plain crossing alert and never claims the hump. 4) SEVERE WEATHER + WINTER: National Weather Service warnings (free, api.weather.gov) whose areas cover your route are matched to your ETA at that stretch and pushed as banner + voice; forecast snow along the route is matched to your ETA too ('4 to 6 inches expected across your next 90 miles, starting around 2 PM'), with a plain park-it advisory at heavy accumulation; chain-law reference for your route's states lives in Road alerts, chain-up pullouts from map data show as ⛓️, and an active 'Chains required ahead' call fires ONLY from a state DOT post — the law or a forecast alone never triggers it. 5) HAZARDS: one tap on the Drive Report grid (or the Cab Mode Road alerts screen) files Traffic stopped / Debris in road / Vehicle on shoulder at your GPS spot; it shows to other drivers as 'Driver-reported' with its age for 2 HOURS, with Still there / Gone votes under the same GPS-checked rules as construction. All five mirror onto the Cab Mode Guidance screen and Road alerts list for every tier — safety warnings are never paywalled on the phone." },
@@ -3564,6 +3575,30 @@ export function App() {
   const [permitFocusNonce, setPermitFocusNonce] = useState(0);
   // One spoken off-corridor alert per episode (re-arms on return).
   const permitOffSpokenRef = useRef(false);
+
+  // ---- Auto-add stops to route (2026-11-13, migration 0116) --------
+  // The Fuel + Stop Planner's picks (best fuel stop when the tank
+  // calls for it, the 30-min break stop, the 10-hr rest stop) added
+  // to the planned route as Valhalla via-points — selection lives in
+  // client/src/autoAddStops.ts over the planner engine itself. State
+  // here is App-owned because the ROUTE is App-owned: the planner
+  // sheet only displays what's on the route and wires Remove back.
+  // - autoStops: stops currently ON the route as waypoints.
+  // - pendingAutoStops: picks computed while the driver is already
+  //   rolling — announced on the card, applied only on their tap
+  //   (never yank or silently re-route a driver mid-leg).
+  // - removedAutoStopKeys: per-plan removals, so a stop the driver
+  //   took out is never re-added behind their back.
+  // - autoPlanNonce: bumped on every fresh (non-auto) plan, so the
+  //   apply effect runs once per plan and resets per plan.
+  const [autoStops, setAutoStops] = useState<AutoAddStop[]>([]);
+  const [pendingAutoStops, setPendingAutoStops] = useState<AutoAddStop[]>([]);
+  const [removedAutoStopKeys, setRemovedAutoStopKeys] = useState<string[]>([]);
+  const [autoPlanNonce, setAutoPlanNonce] = useState(0);
+  const [autoCardDismissed, setAutoCardDismissed] = useState(false);
+  const autoStopsRef = useRef<AutoAddStop[]>([]);
+  const autoHandledKeyRef = useRef<string>("");
+  const autoApplyingRef = useRef(false);
 
   // Hazards + fuel stops
   const [hazards, setHazards] = useState<Hazard[]>([]);
@@ -6978,6 +7013,13 @@ export function App() {
     alternates: number,
     headingDeg?: number | null,
     headingToleranceDeg?: number,
+    // Via-points (auto-add stops, 2026-11-13): intermediate locations
+    // the line must pass through, in order, between origin and
+    // destination. Valhalla answers with one leg per hop and
+    // buildRouteOption already merges legs (joint arrive/start
+    // maneuvers drop out) — the same merge the sectioned router and
+    // permit corridors rely on.
+    via?: LatLon[],
   ) => ({
     locations: [
       // Heading on the origin (road test #4): Valhalla snaps a bare
@@ -6993,6 +7035,7 @@ export function App() {
       headingDeg != null && Number.isFinite(headingDeg)
         ? { lat: from.lat, lon: from.lon, heading: Math.round(headingDeg), heading_tolerance: headingToleranceDeg ?? 60 }
         : { lat: from.lat, lon: from.lon },
+      ...(via ?? []).map((v) => ({ lat: v.lat, lon: v.lon })),
       { lat: to.lat, lon: to.lon },
     ],
     costing: "truck",
@@ -7126,9 +7169,12 @@ export function App() {
     from: LatLon,
     to: { label: string } & LatLon,
     tollsOverride?: boolean,
-    opts?: { fast?: boolean },
+    opts?: { fast?: boolean; via?: LatLon[]; autoApply?: boolean },
   ): Promise<boolean> => {
     const fast = opts?.fast === true;
+    // Via-points (auto-add stops): the line must pass through these
+    // stops, in order, with the final destination unchanged.
+    const via = opts?.via;
     const reqId = ++routeReqRef.current;
     const planStartedAt = Date.now();
     setRoutingState("loading");
@@ -7137,6 +7183,19 @@ export function App() {
       setRoutes([]);
       setFuelStops([]);
       lastPlanRef.current = { from, to, tollsOverride };
+      if (!opts?.autoApply) {
+        // A fresh driver plan (not the auto-add re-plan itself):
+        // auto-add starts over for it — applied stops, pending
+        // picks, removals, and the card all reset, and the nonce
+        // bump is what fires the apply effect for the new plan.
+        autoStopsRef.current = [];
+        autoHandledKeyRef.current = "";
+        setAutoStops([]);
+        setPendingAutoStops([]);
+        setRemovedAutoStopKeys([]);
+        setAutoCardDismissed(false);
+        setAutoPlanNonce((n) => n + 1);
+      }
       // The chooser prompt: up from the first moment of the plan, so
       // the driver watches progress and picks on the map itself.
       setRouteChooserSheet("half");
@@ -7186,14 +7245,23 @@ export function App() {
       // of the loop firing again later from the same spot.
       let best: { options: RouteOption[]; offMi: number } | null = null;
       let attempts = 0;
+      // A reroute keeps the route the driver accepted: stops already
+      // auto-added and not yet passed ride along as via-points (an
+      // explicit via set — the driver applying pending picks while
+      // rolling — wins). Removed or passed stops stay out.
+      const fastVia =
+        via ??
+        autoStopsRef.current
+          .filter((s) => s.alongMi > progressMi + 0.5)
+          .map((s) => ({ lat: s.lat, lon: s.lon }));
       while (attempts < 2) {
         const timeoutMs = rerouteTimeoutForAttempt(attempts, Date.now() - planStartedAt);
         if (timeoutMs <= 0) break;
         const course = currentCourseDeg();
         const attemptBody =
           attempts === 0
-            ? valhallaRouteBody(from, to, tollsOverride, 0, course)
-            : valhallaRouteBody(from, to, tollsOverride, 0, course, 30);
+            ? valhallaRouteBody(from, to, tollsOverride, 0, course, undefined, fastVia)
+            : valhallaRouteBody(from, to, tollsOverride, 0, course, 30, fastVia);
         attempts += 1;
         try {
           const data = (await fetchJson("https://valhalla1.openstreetmap.de/route", {
@@ -7232,7 +7300,7 @@ export function App() {
       );
       return false;
     }
-    const body = valhallaRouteBody(from, to, tollsOverride, 2, currentCourseDeg());
+    const body = valhallaRouteBody(from, to, tollsOverride, via && via.length > 0 ? 0 : 2, currentCourseDeg(), undefined, via);
     try {
       const data = (await fetchJson("https://valhalla1.openstreetmap.de/route", {
         method: "POST",
@@ -7251,7 +7319,10 @@ export function App() {
       if (!publish(options)) return false;
       if (fast) {
         void backfillAlternates(reqId, from, to, tollsOverride, options[0]!);
-      } else if (options.length === 1) {
+      } else if (options.length === 1 && !(via && via.length > 0)) {
+        // No variant backfill on a via-pinned line: the variant is
+        // built off this same body and could only re-draw the stops'
+        // line or drop them — one honest route is the whole offer.
         void backfillVariant(reqId, body, options[0]!);
       }
       return true;
@@ -7266,11 +7337,11 @@ export function App() {
       const straightMi = haversineMi(from, to);
       if (straightMi > 300) {
         try {
-          const sectionTrips = await routeSectioned(from, to, tollsOverride);
+          const sectionTrips = await routeSectioned(from, to, tollsOverride, via && via.length > 0 ? { via } : undefined);
           const primary = buildRouteOption(sectionTrips, 0);
           if (!primary) throw new Error("No truck-legal route found");
           if (!publish([primary])) return false;
-          if (!fast) void backfillLongHaulVariants(reqId, from, to, tollsOverride, primary);
+          if (!fast && !(via && via.length > 0)) void backfillLongHaulVariants(reqId, from, to, tollsOverride, primary);
           else void backfillAlternates(reqId, from, to, tollsOverride, primary);
           return true;
         } catch {
@@ -7525,6 +7596,18 @@ export function App() {
     setSelectedRoute(idx);
     const r = routes[idx];
     if (r) void loadFuelStops(r, routeReqRef.current);
+    if (idx !== selectedRoute && (autoStopsRef.current.length > 0 || pendingAutoStops.length > 0)) {
+      // A different line is a new plan for auto-add purposes: stops
+      // picked for the old line don't carry over — the apply effect
+      // re-runs for this line (announced, not forced, if rolling).
+      autoStopsRef.current = [];
+      autoHandledKeyRef.current = "";
+      setAutoStops([]);
+      setPendingAutoStops([]);
+      setRemovedAutoStopKeys([]);
+      setAutoCardDismissed(false);
+      setAutoPlanNonce((n) => n + 1);
+    }
   };
 
   // ---------- A→B Route Planner helpers -------------------------------------
@@ -7652,6 +7735,13 @@ export function App() {
     setRoutes([]);
     setSelectedRoute(0);
     setPermitNavId(null);
+    // Auto-add state dies with the route it belonged to.
+    autoStopsRef.current = [];
+    autoHandledKeyRef.current = "";
+    setAutoStops([]);
+    setPendingAutoStops([]);
+    setRemovedAutoStopKeys([]);
+    setAutoCardDismissed(false);
     setRouteChooserOpen(false);
     lastPlanRef.current = null;
     setDestination(null);
@@ -8080,6 +8170,235 @@ export function App() {
       }),
     [fuelStops, stopPriceById],
   );
+
+  // ---- Auto-add stops to route: compute, apply, remove --------------
+  // Selection is the planner engine's own output (buildStopPlan +
+  // rankFuelStops over the SAME inputs the planner sheet uses — the
+  // tank entry, driver stops, and detour time cost are read from the
+  // sheet's own localStorage keys, and the ELD slot resolves the
+  // same way; eldFuelReading is null today, exactly as the sheet
+  // receives it). selectAutoAddStops (autoAddStops.ts) turns that
+  // plan into waypoints; routing through them is planRoute's via
+  // support. Nothing here ever touches HOS duty status — the picks
+  // are advisory waypoints, and the stop-based auto-swap rules are a
+  // separate mechanism, untouched.
+  useEffect(() => {
+    autoStopsRef.current = autoStops;
+  }, [autoStops]);
+
+  const describeAutoStop = (s: AutoAddStop): string => {
+    const phrases: string[] = [];
+    if (s.kinds.includes("fuel")) {
+      let p = "fuel";
+      if (s.buyGal != null) p += `, ~${Math.round(s.buyGal)} gal`;
+      if (s.pricePerGal != null) p += ` at $${s.pricePerGal.toFixed(2)}/gal${s.priceLabel ? ` (${s.priceLabel})` : ""}`;
+      if (s.estSaving != null) p += `, est. saving $${s.estSaving.toFixed(2)}`;
+      phrases.push(p);
+    }
+    if (s.kinds.includes("break")) phrases.push("30-min break");
+    if (s.kinds.includes("rest")) phrases.push("10-hr rest — clock restart");
+    const icon = s.kinds.includes("fuel") ? "⛽" : s.kinds.includes("break") ? "☕" : "🌙";
+    return `${icon} ${s.name} — ${phrases.join(" + ")}`;
+  };
+
+  const computeAutoAddPicks = (): AutoAddStop[] => {
+    const sel = routes[selectedRoute];
+    if (!sel) return [];
+    const routeMiles = sel.miles;
+    const paceMph = sel.minutes > 0 ? routeMiles / (sel.minutes / 60) : 50;
+    const capacityGal = Math.max(20, Math.round(profile.tankRangeMi / Math.max(1, profile.mpg)));
+    // The planner sheet's own stored inputs (same keys, same shapes).
+    let storedTank: { pct: number; atProgressMi: number } | null = null;
+    try {
+      const raw = JSON.parse(localStorage.getItem("tgps-planner-tank") ?? "null") as { pct?: unknown; atProgressMi?: unknown } | null;
+      if (raw && typeof raw.pct === "number") {
+        storedTank = { pct: raw.pct, atProgressMi: typeof raw.atProgressMi === "number" ? raw.atProgressMi : progressMi };
+      }
+    } catch { /* storage unavailable — the defaults below stand */ }
+    let storedDriverStops: DriverStop[] = [];
+    try {
+      const raw = JSON.parse(localStorage.getItem("tgps-planner-driver-stops") ?? "[]") as unknown;
+      if (Array.isArray(raw)) {
+        storedDriverStops = raw.filter(
+          (x): x is DriverStop =>
+            !!x &&
+            typeof (x as DriverStop).name === "string" &&
+            typeof (x as DriverStop).alongMi === "number" &&
+            typeof (x as DriverStop).lat === "number" &&
+            typeof (x as DriverStop).lon === "number",
+        );
+      }
+    } catch { /* as above */ }
+    let timeCostPerHour: number | null = null;
+    try {
+      const v = Number(localStorage.getItem("tgps-planner-detour-time-cost"));
+      if (Number.isFinite(v) && v > 0) timeCostPerHour = v;
+    } catch { /* as above */ }
+    const eldSlot = resolveEldSlot({
+      adapterKey: eldConnForPlanner?.provider ?? null,
+      linked: eldConnForPlanner != null,
+      reading: null,
+    });
+    const reading = resolveTankReading({
+      eldFuelPct: eldSlot.fuelPct,
+      eldConnected: eldSlot.linkState !== "not_linked",
+      eldProviderName: eldSlot.adapter?.name ?? null,
+      manualPct: storedTank?.pct ?? 75,
+      milesSinceManualEntry: storedTank ? Math.max(0, progressMi - storedTank.atProgressMi) : 0,
+      capacityGal,
+      baseMpg: profile.mpg,
+      loadWeightLbs: activeLoad?.weightLbs ?? null,
+    });
+    const shifted = plannerCandidates
+      .map((c) => ({ ...c, alongMi: Math.max(0, c.alongMi - progressMi) }))
+      .filter((c) => c.alongMi <= routeMiles - progressMi + 0.5);
+    const shiftedDriver = storedDriverStops
+      .map((d) => ({ ...d, alongMi: Math.max(0, d.alongMi - progressMi) }))
+      .filter((d) => d.alongMi <= routeMiles - progressMi + 40);
+    const plan = buildStopPlan({
+      routeMiles: Math.max(0, routeMiles - progressMi),
+      paceMph,
+      tankPct: reading.pct,
+      capacityGal,
+      baseMpg: profile.mpg,
+      loadWeightLbs: activeLoad?.weightLbs ?? null,
+      payPerMile: activeLoad?.totalPerMile ?? null,
+      settingsTimeValuePerHour: timeCostPerHour,
+      hos,
+      candidates: shifted,
+      driverStops: shiftedDriver,
+    });
+    const ranked = rankFuelStops(
+      plannerCandidates.map((c) => ({ ...c, alongMi: Math.max(0, c.alongMi - progressMi) })),
+      {
+        effMpg: plan.effMpg,
+        paceMph,
+        payPerMile: activeLoad?.totalPerMile ?? null,
+        typicalBuyGal: 80,
+        settingsTimeValuePerHour: timeCostPerHour,
+      },
+    );
+    const selection = selectAutoAddStops({
+      plan,
+      ranked,
+      routeMiles: Math.max(0, routeMiles - progressMi),
+      enabled: true,
+      permitLocked: false,
+    });
+    // State carries ROUTE-ABSOLUTE miles (the picks were computed in
+    // miles-from-the-truck): the card's "miles ahead" and the fast
+    // reroute's keep-filter both work in route-absolute terms.
+    return selection.stops.map((s) => ({ ...s, alongMi: Math.round((s.alongMi + progressMi) * 10) / 10 }));
+  };
+
+  // Re-draw the current route through `stops` (possibly none — a
+  // plain route to the same destination). Rolling → the fast reroute
+  // path only (chooser and plan record untouched; on failure the
+  // previous line stays, per that path's own contract). Not rolling
+  // → a full re-plan, with the published options snapshotted first
+  // so a failed via request hands the driver their exact old route.
+  const replanThroughStops = async (stops: AutoAddStop[]): Promise<boolean> => {
+    const planRef = lastPlanRef.current;
+    const dest = destinationRef.current;
+    if (!planRef || !dest) return false;
+    const from = posRef.current ?? planRef.from;
+    const viaPts = stops.map((s) => ({ lat: s.lat, lon: s.lon }));
+    if (tripRef.current.active || driveMode) {
+      return planRoute(from, dest, planRef.tollsOverride, { fast: true, via: viaPts });
+    }
+    const snapshot = routesRef.current;
+    const snapshotIdx = selectedRoute;
+    const ok = await planRoute(from, dest, planRef.tollsOverride, { via: viaPts, autoApply: true });
+    if (!ok && snapshot.length > 0) {
+      setRoutes(snapshot);
+      setSelectedRoute(Math.min(snapshotIdx, snapshot.length - 1));
+      setRoutingState("idle");
+      setRouteError(null);
+      void loadFuelStops(snapshot[0]!, routeReqRef.current);
+    }
+    return ok;
+  };
+
+  const applyAutoStops = async (stops: AutoAddStop[]) => {
+    if (stops.length === 0) return;
+    autoApplyingRef.current = true;
+    setAutoStops(stops);
+    autoStopsRef.current = stops;
+    setPendingAutoStops([]);
+    setAutoCardDismissed(false);
+    const ok = await replanThroughStops(stops);
+    autoApplyingRef.current = false;
+    if (ok) {
+      setBanner(
+        `🧭 Added to your route: ${stops.map(describeAutoStop).join(" · ")}. Your destination didn't change — remove any stop from the card on Drive or in Plan my stops.`,
+      );
+    } else {
+      setAutoStops([]);
+      autoStopsRef.current = [];
+      setBanner(
+        "The route couldn't be re-drawn through the planner's stops, so nothing was added — your route is exactly as it was. The stops are still in Plan my stops as suggestions.",
+      );
+    }
+  };
+
+  const removeAutoStop = (key: string) => {
+    setRemovedAutoStopKeys((prev) => (prev.includes(key) ? prev : [...prev, key]));
+    setPendingAutoStops((prev) => prev.filter((s) => s.key !== key));
+    const next = autoStopsRef.current.filter((s) => s.key !== key);
+    if (next.length === autoStopsRef.current.length) return; // pending only — nothing on the line to re-draw
+    setAutoStops(next);
+    autoStopsRef.current = next;
+    void replanThroughStops(next).then((ok) => {
+      if (!ok) {
+        setBanner(
+          "That stop is off your list, but the line couldn't be re-drawn just now — the route on screen still passes it. Reroute from the Go screen to refresh the line.",
+        );
+      }
+    });
+  };
+
+  // The apply trigger: once per fresh plan (autoPlanNonce), when the
+  // corridor scan has settled and a route is on screen. Permit
+  // routes and the OFF setting never reach the selection. Rolling
+  // drivers get the picks ANNOUNCED as pending — applied only on
+  // their tap, never forced mid-leg.
+  useEffect(() => {
+    if (!appSettings.autoAddStops) return;
+    if (permitNavId != null) return;
+    if (autoApplyingRef.current) return;
+    const sel = routes[selectedRoute];
+    const dest = destination;
+    const planRef = lastPlanRef.current;
+    if (!sel || !dest || !planRef) return;
+    if (fuelState === "idle" || fuelState === "loading") return;
+    const key = `${autoPlanNonce}|${dest.lat.toFixed(5)},${dest.lon.toFixed(5)}|${planRef.from.lat.toFixed(5)},${planRef.from.lon.toFixed(5)}`;
+    if (autoHandledKeyRef.current === key) return;
+    autoHandledKeyRef.current = key;
+    let picks: AutoAddStop[] = [];
+    try {
+      picks = computeAutoAddPicks().filter((p) => !removedAutoStopKeys.includes(p.key));
+    } catch {
+      picks = [];
+    }
+    if (picks.length === 0) return;
+    if (tripRef.current.active || driveMode) {
+      setPendingAutoStops(picks);
+      setAutoCardDismissed(false);
+      setBanner(
+        `🧭 Stop plan ready while you roll: ${picks.map(describeAutoStop).join(" · ")}. Nothing was changed — tap Add on the Drive card to put ${picks.length === 1 ? "it" : "them"} on your route, or leave the route as it is.`,
+      );
+    } else {
+      void applyAutoStops(picks);
+    }
+    // NOTE: driveMode is read through the closure, not the dep list
+    // — its useState is declared further down the component, and a
+    // dep entry would be evaluated before that declaration runs.
+    // The remaining deps (candidates settling, fuel state, plan
+    // nonce) refire this effect across the start of guidance, and
+    // the closure then sees the current value.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoPlanNonce, routes, selectedRoute, plannerCandidates, fuelState, appSettings.autoAddStops, permitNavId, destination]);
+
   // A route counts as running when options are on screen OR a
   // destination is set (routing may still be loading) — that's when
   // the End route buttons show, right next to the GPS controls.
@@ -13113,6 +13432,68 @@ export function App() {
             <button type="button" className="btn-press shrink-0 font-bold underline" onClick={() => setBanner(null)} aria-label="Dismiss message">
               OK
             </button>
+          </div>
+        </div>
+      )}
+      {/* Auto-add stops card (2026-11-13): the announcement + control
+          surface for the planner's picks. Applied stops list as ON
+          the route, each with its one-tap Remove; picks computed
+          while rolling sit here as PENDING until the driver taps Add
+          — the route is never re-drawn behind a moving driver. */}
+      {tab === "drive" && !autoCardDismissed && (autoStops.length > 0 || pendingAutoStops.length > 0) && (
+        <div className="shrink-0 px-3 pt-2">
+          <div className="glass-pill animate-rise rounded-2xl px-4 py-3 text-sm text-sky-100" role="status">
+            <div className="flex items-center gap-2">
+              <span className="min-w-0 flex-1 font-bold">
+                {pendingAutoStops.length > 0
+                  ? "🧭 Stop plan ready — not added yet"
+                  : "🧭 Added to your route by the planner"}
+              </span>
+              <button
+                type="button"
+                className="btn-press shrink-0 font-bold underline"
+                aria-label="Dismiss the stop plan card"
+                onClick={() => {
+                  // Dismissing a PENDING plan is the driver leaving
+                  // their route as it is — the picks are dropped.
+                  // Applied stops stay on the route either way.
+                  setPendingAutoStops([]);
+                  setAutoCardDismissed(true);
+                }}
+              >
+                Dismiss
+              </button>
+            </div>
+            <ul className="mt-1.5 space-y-1.5">
+              {(pendingAutoStops.length > 0 ? pendingAutoStops : autoStops).map((s) => (
+                <li key={s.key} className="flex items-center gap-2">
+                  <span className="min-w-0 flex-1">
+                    {describeAutoStop(s)}
+                    <span className="text-sky-200/80"> · ~{fmtMi(Math.max(0, s.alongMi - progressMi))} mi ahead</span>
+                  </span>
+                  <button
+                    type="button"
+                    className="btn-press shrink-0 rounded-lg border border-sky-200/40 px-2.5 py-1 text-xs font-bold"
+                    aria-label={`Remove ${s.name} from the route`}
+                    onClick={() => removeAutoStop(s.key)}
+                  >
+                    Remove
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {pendingAutoStops.length > 0 && (
+              <button
+                type="button"
+                className="btn-neon btn-press mt-2 w-full rounded-xl px-3 py-2 text-sm font-bold"
+                onClick={() => void applyAutoStops(pendingAutoStops)}
+              >
+                Add {pendingAutoStops.length === 1 ? "this stop" : "these stops"} to my route
+              </button>
+            )}
+            {pendingAutoStops.length === 0 && (
+              <p className="mt-1 text-xs text-sky-200/80">Your destination didn't change. Stops also show in Plan my stops.</p>
+            )}
           </div>
         </div>
       )}
@@ -20139,6 +20520,9 @@ export function App() {
           eldAdapterKey={eldConnForPlanner?.provider ?? null}
           eldLinked={eldConnForPlanner != null}
           eldFuelReading={null}
+          autoAddedStops={autoStops}
+          onRemoveAutoStop={removeAutoStop}
+          autoAddNote={permitNavId != null ? "permit" : !appSettings.autoAddStops ? "off" : null}
           onClose={() => setShowStopPlanner(false)}
           onRoute={(label, lat, lon) => {
             setShowStopPlanner(false);
@@ -20671,6 +21055,12 @@ export function App() {
                     desc="Severe-weather warnings matched to YOUR route and your ETA at the warned stretch (National Weather Service, free — no paid feed), called as a banner + voice on the Drive screen instead of buried in a forecast. Plus the winter package: forecast snow depth along the route matched to when you'll be there ('4 to 6 inches expected across your next 90 miles'), a plain park-it advisory at heavy accumulation, chain-law reference for the states on your route, and the 'Chains required ahead' call when a state DOT post says a requirement is active — the law alone never triggers it. On every plan — it's a safety warning."
                     checked={appSettings.winterWeatherAlerts}
                     onToggle={() => updateAppSettings({ winterWeatherAlerts: !appSettings.winterWeatherAlerts })}
+                  />
+                  <SettingsToggle
+                    label="Auto-add stops to my route"
+                    desc="When a route is planned, the app adds the stop planner's picks to the route itself: the best fuel stop by true cost when your tank calls for it, a 30-minute break stop timed off your break clock, and a 10-hour rest stop before your 11/14 clocks run out — each announced on a banner with a one-tap remove. A permit-locked route is never touched, and adding a stop never changes your duty status. Off = the planner suggests stops and you pick your own, like before."
+                    checked={appSettings.autoAddStops}
+                    onToggle={() => updateAppSettings({ autoAddStops: !appSettings.autoAddStops })}
                   />
                   <SettingsToggle
                     label="Traffic lights"

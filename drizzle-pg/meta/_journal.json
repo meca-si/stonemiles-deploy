@@ -64,6 +64,13 @@
       "when": 1794500000000,
       "tag": "0008_driver_factoring_dispatcher_pcts",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1794600000000,
+      "tag": "0009_auto_add_stops_setting",
+      "breakpoints": true
     }
   ]
 }

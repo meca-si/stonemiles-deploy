@@ -1266,6 +1266,13 @@ export const appSettings = sqliteTable("app_settings", {
   // Weather Service data). A core safety feature on every tier;
   // default ON.
   winterWeatherAlerts: integer("winter_weather_alerts", { mode: "boolean" }).notNull().default(true),
+  // Auto-add stops to route (migration 0116): the Settings → Driving
+  // switch (default ON) — when a route is planned, the Fuel + Stop
+  // Planner's picks (best fuel stop when the tank calls for it, the
+  // 30-min break stop, the 10-hr rest stop) are added to the route as
+  // waypoints, announced on a banner, each removable with one tap.
+  // Preference only; permit-locked routes are never auto-added to.
+  autoAddStops: integer("auto_add_stops", { mode: "boolean" }).notNull().default(true),
   // Traffic lights layer (migration 0106): the Layers & display /
   // Settings → Driving switch for the OpenStreetMap traffic-signal
   // LOCATIONS layer. Locations only — no signal phase/timing data

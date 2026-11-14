@@ -1277,6 +1277,9 @@ export const appSettings = pgTable("app_settings", {
   // Weather Service data). A core safety feature on every tier;
   // default ON.
   winterWeatherAlerts: boolean("winter_weather_alerts").notNull().default(true),
+  // Auto-add stops to route (migration 0009): PG twin of the SQLite
+  // column — see schema-sqlite.ts. Default ON.
+  autoAddStops: boolean("auto_add_stops").notNull().default(true),
   // Traffic lights layer (migration 0106): the Layers & display /
   // Settings → Driving switch for the OpenStreetMap traffic-signal
   // LOCATIONS layer. Locations only — no signal phase/timing data

@@ -6664,6 +6664,10 @@ const appSettingsShape = z.object({
   hillGradeAlerts: z.boolean(),
   // Winter & weather alerts (migration 0107) — default ON, every tier.
   winterWeatherAlerts: z.boolean(),
+  // Auto-add stops to route (migration 0116) — default ON. When a
+  // route is planned, the planner's fuel / break / rest picks are
+  // added as waypoints (client/src/autoAddStops.ts). Preference only.
+  autoAddStops: z.boolean(),
   // Android Auto / Car Mode (migration 0104): the car display's own
   // switches — master on/off (default OFF until the driver turns the
   // car display on), auto-launch with guidance, spoken directions on
@@ -6691,6 +6695,7 @@ const APP_SETTINGS_DEFAULTS: AppSettingsT = {
   weighPrompts: true,
   hillGradeAlerts: true,
   winterWeatherAlerts: true,
+  autoAddStops: true,
   carModeEnabled: false,
   carModeAutoLaunch: true,
   carVoicePrompts: true,
@@ -18115,6 +18120,7 @@ export const Actions = {
           weighPrompts: row.weighPrompts ?? true,
           hillGradeAlerts: row.hillGradeAlerts ?? true,
           winterWeatherAlerts: row.winterWeatherAlerts ?? true,
+          autoAddStops: row.autoAddStops ?? true,
           carModeEnabled: row.carModeEnabled ?? false,
           carModeAutoLaunch: row.carModeAutoLaunch ?? true,
           carVoicePrompts: row.carVoicePrompts ?? true,
@@ -18154,6 +18160,7 @@ export const Actions = {
             weighPrompts: values.weighPrompts,
             hillGradeAlerts: values.hillGradeAlerts,
             winterWeatherAlerts: values.winterWeatherAlerts,
+            autoAddStops: values.autoAddStops,
             carModeEnabled: values.carModeEnabled,
             carModeAutoLaunch: values.carModeAutoLaunch,
             carVoicePrompts: values.carVoicePrompts,
