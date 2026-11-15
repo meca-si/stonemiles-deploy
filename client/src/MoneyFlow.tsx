@@ -1677,57 +1677,103 @@ export function DetentionPanel({ setBanner, lang = "en" }: { setBanner: Banner; 
   );
 }
 
-export function MoneyFlowHub({ setBanner, mpg, onOpenBreakdownHelp, onOpenParking, lang = "en" }: { setBanner: Banner; mpg: number; onOpenBreakdownHelp?: () => void; onOpenParking?: () => void; lang?: Lang }) {
+export type MoneyHubSection = "billing" | "records" | "loads" | "truck";
+
+/** Which Money-tab section each hub anchor belongs to — App's jump
+ *  machinery (and the reveal registry) keys off this one map. */
+export const MONEY_HUB_ANCHOR_SECTION: Record<string, MoneyHubSection> = {
+  "owed-board": "billing",
+  invoices: "billing",
+  receivables: "billing",
+  "accounting-sync": "billing",
+  "profit-loss": "billing",
+  "doc-expiry": "records",
+  "my-dqf": "records",
+  "my-home-time": "records",
+  "my-safety": "records",
+  "my-settlement": "loads",
+  "true-rate": "loads",
+  "claims-log": "loads",
+  "detention-timer": "loads",
+  maintenance: "truck",
+  "maintenance-log": "truck",
+  "breakdown-log": "truck",
+};
+
+export function MoneyFlowHub({ setBanner, mpg, onOpenBreakdownHelp, onOpenParking, lang = "en", section }: { setBanner: Banner; mpg: number; onOpenBreakdownHelp?: () => void; onOpenParking?: () => void; lang?: Lang; section?: MoneyHubSection }) {
+  // UI CLEANUP PASS (2026-11-15): the hub used to stack all sixteen
+  // panels into one endless scroll on the Money tab. The Money tab
+  // now shows ONE section at a time (Billing · Records · Loads ·
+  // Truck), chosen from its sticky section bar; every panel keeps
+  // its home and its anchor — only the section the driver picked is
+  // on screen. No `section` prop = the whole hub, as before.
+  const show = (s: MoneyHubSection) => section === undefined || section === s;
   return (
     <>
-      <div id="doc-expiry" className="scroll-mt-4">
-        <ExpiryWalletPanel setBanner={setBanner} lang={lang} />
-      </div>
-      <div id="my-dqf" className="scroll-mt-4">
-        <MyDqfCard />
-      </div>
-      <div id="my-home-time" className="scroll-mt-4">
-        <MyHomeTimeCard />
-      </div>
-      <div id="my-safety" className="scroll-mt-4">
-        <MySafetyCard />
-      </div>
-      <div id="owed-board" className="scroll-mt-4">
-        <OwedBoardPanel setBanner={setBanner} lang={lang} />
-      </div>
-      <div id="invoices" className="scroll-mt-4">
-        <InvoicesPanel setBanner={setBanner} lang={lang} />
-      </div>
-      <div id="receivables" className="scroll-mt-4">
-        <ReceivablesPanel />
-      </div>
-      <div id="accounting-sync" className="scroll-mt-4">
-        <AccountingPanel />
-      </div>
-      <div id="my-settlement" className="scroll-mt-4">
-        <SettlementPanel setBanner={setBanner} lang={lang} />
-      </div>
-      <div id="profit-loss" className="scroll-mt-4">
-        <ProfitLossPanel setBanner={setBanner} lang={lang} />
-      </div>
-      <div id="true-rate" className="scroll-mt-4">
-        <TrueRatePanel setBanner={setBanner} mpg={mpg} lang={lang} />
-      </div>
-      <div id="claims-log" className="scroll-mt-4">
-        <ClaimsPanel setBanner={setBanner} lang={lang} />
-      </div>
-      <div id="detention-timer" className="scroll-mt-4">
-        <DetentionPanel setBanner={setBanner} lang={lang} />
-      </div>
-      <div id="maintenance" className="scroll-mt-4">
-        <MaintenancePanel setBanner={setBanner} lang={lang} />
-      </div>
-      <div id="maintenance-log" className="scroll-mt-4">
-        <MaintenanceLogPanel setBanner={setBanner} lang={lang} />
-      </div>
-      <div id="breakdown-log" className="scroll-mt-4">
-        <BreakdownLogPanel setBanner={setBanner} onOpenBreakdownHelp={onOpenBreakdownHelp} onOpenParking={onOpenParking} lang={lang} />
-      </div>
+      {show("records") && (
+        <>
+          <div id="doc-expiry" className="scroll-mt-4">
+            <ExpiryWalletPanel setBanner={setBanner} lang={lang} />
+          </div>
+          <div id="my-dqf" className="scroll-mt-4">
+            <MyDqfCard />
+          </div>
+          <div id="my-home-time" className="scroll-mt-4">
+            <MyHomeTimeCard />
+          </div>
+          <div id="my-safety" className="scroll-mt-4">
+            <MySafetyCard />
+          </div>
+        </>
+      )}
+      {show("billing") && (
+        <>
+          <div id="owed-board" className="scroll-mt-4">
+            <OwedBoardPanel setBanner={setBanner} lang={lang} />
+          </div>
+          <div id="invoices" className="scroll-mt-4">
+            <InvoicesPanel setBanner={setBanner} lang={lang} />
+          </div>
+          <div id="receivables" className="scroll-mt-4">
+            <ReceivablesPanel />
+          </div>
+          <div id="accounting-sync" className="scroll-mt-4">
+            <AccountingPanel />
+          </div>
+          <div id="profit-loss" className="scroll-mt-4">
+            <ProfitLossPanel setBanner={setBanner} lang={lang} />
+          </div>
+        </>
+      )}
+      {show("loads") && (
+        <>
+          <div id="my-settlement" className="scroll-mt-4">
+            <SettlementPanel setBanner={setBanner} lang={lang} />
+          </div>
+          <div id="true-rate" className="scroll-mt-4">
+            <TrueRatePanel setBanner={setBanner} mpg={mpg} lang={lang} />
+          </div>
+          <div id="claims-log" className="scroll-mt-4">
+            <ClaimsPanel setBanner={setBanner} lang={lang} />
+          </div>
+          <div id="detention-timer" className="scroll-mt-4">
+            <DetentionPanel setBanner={setBanner} lang={lang} />
+          </div>
+        </>
+      )}
+      {show("truck") && (
+        <>
+          <div id="maintenance" className="scroll-mt-4">
+            <MaintenancePanel setBanner={setBanner} lang={lang} />
+          </div>
+          <div id="maintenance-log" className="scroll-mt-4">
+            <MaintenanceLogPanel setBanner={setBanner} lang={lang} />
+          </div>
+          <div id="breakdown-log" className="scroll-mt-4">
+            <BreakdownLogPanel setBanner={setBanner} onOpenBreakdownHelp={onOpenBreakdownHelp} onOpenParking={onOpenParking} lang={lang} />
+          </div>
+        </>
+      )}
     </>
   );
 }

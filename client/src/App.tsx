@@ -182,8 +182,9 @@ import {
 } from "./hazardReport";
 import { LoadTrailerSection, TrailerToolsPanel, WindAdvisoryBanner } from "./TrailerPanel";
 import { TOOL_GROUPS, type ToolItem } from "./toolDirectory";
+import { onAnchorReveal, revealAnchor } from "./anchorReveal";
 import { asLang, destForLocalizedQuery, destLabel, localeFor, pairText, t as tt, type Lang } from "./i18n";
-import { BusinessProfilePanel, MoneyFlowHub } from "./MoneyFlow";
+import { BusinessProfilePanel, MONEY_HUB_ANCHOR_SECTION, MoneyFlowHub, type MoneyHubSection } from "./MoneyFlow";
 import {
   OFFLINE_BADGE,
   OFFLINE_CAPTURED_LINE,
@@ -3366,10 +3367,26 @@ export function App() {
     }
   }, [onboardingQuery.data]);
   const scrollToAnchor = (id: string, delay = 500) => {
+    // UI cleanup pass: if the anchor lives behind a tab section or a
+    // fold, open that section first — the delayed scroll then lands
+    // on an element that actually exists (see anchorReveal.ts).
+    revealAnchor(id);
     setTimeout(() => {
       document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, delay);
   };
+  // The Money tab's sections own the money anchors: a jump to any of
+  // them lands on the Money tab with the right section showing.
+  useEffect(() => {
+    const offs: Array<() => void> = [];
+    for (const [anchor, section] of Object.entries(MONEY_HUB_ANCHOR_SECTION)) {
+      offs.push(onAnchorReveal(anchor, () => { setTab("money"); setMoneyView(section); }));
+    }
+    for (const anchor of ["settlement-checker", "pay-book-log", "pay-book-ytd-pie"]) {
+      offs.push(onAnchorReveal(anchor, () => { setTab("money"); setMoneyView("pay"); }));
+    }
+    return () => offs.forEach((off) => off());
+  }, []);
   const onboardingNav: OnboardingNav = {
     goDrive: () => {
       setShowOnboarding(false);
@@ -9360,6 +9377,16 @@ export function App() {
   }, [loadDraft, pendingDoc, pendingDocKind, extractNote, scanReview, addLoadOpen, editingLoadId]);
   const [loadDetailsOpen, setLoadDetailsOpen] = useState<Record<number, boolean>>({});
   const [moneyWalletOpen, setMoneyWalletOpen] = useState(false);
+  // UI CLEANUP PASS (2026-11-15): the Money tab is sectioned — one
+  // section on screen at a time under a sticky bar, instead of every
+  // money tool stacked into one endless scroll. "overview" is the
+  // first screen (week net, points, wallet, the two big doors);
+  // "pay" holds the Pay Book + settlement checker; the rest are the
+  // MoneyFlowHub sections.
+  const [moneyView, setMoneyView] = useState<"overview" | "pay" | MoneyHubSection>("overview");
+  // More tab: one directory group open at a time (first by default) —
+  // the group headers are the menu; tapping one again closes it.
+  const [moreOpenGroup, setMoreOpenGroup] = useState<string | null>(TOOL_GROUPS[0]?.id ?? null);
   // Bumped by every "take me to the Pay Book" jump (Ask Meca, the Money
   // tab's Pay Book button, the More list) — the PayBookPanel watches it
   // and opens itself so the jump lands on the Log pay form, not a
@@ -10644,17 +10671,17 @@ export function App() {
       case "weigh_station_status": exitConsole(); setTab("drive"); setDrivePanelOpen(true); scrollToAnchor("alerts-near-you", 700); break;
       case "atlas": exitConsole(); setAtlasJumpCode(nav?.atlasState ?? null); setAtlasNonce((n) => n + 1); setShowAtlas(true); break;
       case "trailer_tools": exitConsole(); setTab("loads"); setTrailerToolsNonce((n) => n + 1); break;
-      case "doc_expiry": exitConsole(); setTab("driver"); scrollToAnchor("doc-expiry", 700); break;
-      case "owed_board": exitConsole(); setTab("driver"); scrollToAnchor("owed-board", 700); break;
-      case "true_rate": exitConsole(); setTab("driver"); scrollToAnchor("true-rate", 700); break;
-      case "claims_log": exitConsole(); setTab("driver"); scrollToAnchor("claims-log", 700); break;
+      case "doc_expiry": exitConsole(); setTab("money"); scrollToAnchor("doc-expiry", 700); break;
+      case "owed_board": exitConsole(); setTab("money"); scrollToAnchor("owed-board", 700); break;
+      case "true_rate": exitConsole(); setTab("money"); scrollToAnchor("true-rate", 700); break;
+      case "claims_log": exitConsole(); setTab("money"); scrollToAnchor("claims-log", 700); break;
       case "ifta": exitConsole(); setTab("driver"); scrollToAnchor("ifta-panel", 700); break;
       case "library": exitConsole(); setTab("driver"); scrollToAnchor("library-panel", 700); break;
-      case "maintenance": exitConsole(); setTab("driver"); scrollToAnchor("maintenance", 700); break;
-      case "maintenance_log": exitConsole(); setTab("driver"); scrollToAnchor("maintenance-log", 700); break;
-      case "detention_timer": exitConsole(); setTab("driver"); scrollToAnchor("detention-timer", 700); break;
+      case "maintenance": exitConsole(); setTab("money"); scrollToAnchor("maintenance", 700); break;
+      case "maintenance_log": exitConsole(); setTab("money"); scrollToAnchor("maintenance-log", 700); break;
+      case "detention_timer": exitConsole(); setTab("money"); scrollToAnchor("detention-timer", 700); break;
       case "points_lanes": exitConsole(); setTab("driver"); scrollToAnchor("points-lanes", 700); break;
-      case "breakdown_log": exitConsole(); setTab("driver"); scrollToAnchor("breakdown-log", 700); break;
+      case "breakdown_log": exitConsole(); setTab("money"); scrollToAnchor("breakdown-log", 700); break;
       case "facility_memory": exitConsole(); setTab("loads"); scrollToAnchor("facility-memory", 700); break;
       case "scale_tickets": exitConsole(); setTab("driver"); scrollToAnchor("scale-tickets", 700); break;
       case "tax_records": exitConsole(); setTab("driver"); scrollToAnchor("tax-records", 700); break;
@@ -16408,7 +16435,7 @@ export function App() {
                 driver's week/month at a glance, never a card buried
                 at the bottom of another page. Credential chips open
                 the credential record in the Money tab. */}
-            <CalendarPanel onOpenCredential={() => { tapFx(); setTab("money"); }} />
+            <CalendarPanel onOpenCredential={() => { tapFx(); setTab("money"); scrollToAnchor("doc-expiry", 700); }} />
           </div>
         )}
 
@@ -16494,12 +16521,42 @@ export function App() {
               </section>
             )}
 
+            {/* MONEY SECTIONS (UI cleanup pass, 2026-11-15): a sticky
+                section bar — one section of money tools on screen at
+                a time instead of the whole stack. The bar sticks to
+                the top while the section scrolls, so switching (or
+                heading back to Overview) is always one tap, never a
+                scroll back up. */}
+            <div className="sticky top-2 z-20 flex gap-1 overflow-x-auto rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-1 shadow-lg" role="tablist" aria-label={tr("Money sections", "Secciones de dinero")}>
+              {([
+                { key: "overview", label: tr("🏠 Overview", "🏠 Resumen") },
+                { key: "pay", label: tr("💵 Pay", "💵 Pagos") },
+                { key: "billing", label: tr("🧾 Billing", "🧾 Facturación") },
+                { key: "records", label: tr("🗂️ Records", "🗂️ Registros") },
+                { key: "loads", label: tr("📦 Loads", "📦 Cargas") },
+                { key: "truck", label: tr("🔧 Truck", "🔧 Camión") },
+              ] as const).map((s) => (
+                <button
+                  key={s.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={moneyView === s.key}
+                  onClick={() => { tapFx(); setMoneyView(s.key); }}
+                  className={`btn-press flex-1 whitespace-nowrap rounded-xl px-3 py-2.5 font-condensed text-base font-bold ${moneyView === s.key ? "bg-[var(--accent)] text-black" : "text-[var(--dim)]"}`}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+
+            {moneyView === "overview" && (
+              <>
             {/* Settlement Checker — one tap */}
             <button
               type="button"
               className="btn-neon btn-press w-full rounded-2xl px-4 py-4 text-left"
               aria-label={tr("Open the Settlement Checker", "Abrir el Verificador de Liquidaciones")}
-              onClick={() => { tapFx(); scrollToAnchor("settlement-checker"); }}
+              onClick={() => { tapFx(); setMoneyView("pay"); scrollToAnchor("settlement-checker"); }}
             >
               <span className="block font-condensed text-2xl font-bold leading-none">🧾 {tr("Settlement Checker", "Verificador de Liquidaciones")}</span>
               <span className="mt-1 block text-sm font-semibold">{tr("Compare a settlement against your sealed loads — underpayments flagged with amounts.", "Compara una liquidación contra tus cargas selladas — pagos menores marcados con montos.")}</span>
@@ -16511,7 +16568,7 @@ export function App() {
               type="button"
               className="btn-neon btn-press w-full rounded-2xl px-4 py-4 text-left"
               aria-label={tr("Open the Pay Book at Log pay", "Abrir el Libro de Pagos en Registrar pago")}
-              onClick={() => { tapFx(); setPayBookJumpNonce((n) => n + 1); scrollToAnchor("pay-book-log", 400); }}
+              onClick={() => { tapFx(); setMoneyView("pay"); setPayBookJumpNonce((n) => n + 1); scrollToAnchor("pay-book-log", 400); }}
             >
               <span className="block font-condensed text-2xl font-bold leading-none">📒 {tr("Pay Book", "Libro de Pagos")}</span>
               <span className="mt-1 block text-sm font-semibold">{tr("Log a paycheck, add per diem, see your W-2 & 1099 totals, the Year-to-Date lane pies, and tax packets.", "Registra un cheque, agrega viáticos, mira tus totales W-2 y 1099, los gráficos circulares del año por carril y paquetes de impuestos.")}</span>
@@ -16535,21 +16592,32 @@ export function App() {
                 <StonerBalanceCard onOpenPlans={() => setShowPlans(true)} />
               </SensitiveGate>
             </ExpandRow>
+              </>
+            )}
+            {moneyView === "pay" && (
+              <>
             <MoneyPanel setBanner={setBanner} lang={lang} />
             <PayBookPanel setBanner={setBanner} openSignal={payBookJumpNonce} lang={lang} />
-            {/* NAV CONSOLIDATION (Phase 2, 2026-11-12): Money Truth and
-                the Settlement Checker moved here from the Driver tab —
-                the Money tab is now the ONE money home: Wallet & points,
-                Pay Book, Money Truth (expenses), Settlement Checker, as
-                sections of this one tab. The settlement-checker anchor
-                id travels with the panel, so deep links still land. */}
-            <MoneyFlowHub setBanner={setBanner} mpg={profile.mpg} onOpenBreakdownHelp={() => setShowBreakdown(true)} onOpenParking={() => setShowParking(true)} lang={lang} />
             {/* Security Pack 2 step-up: settlement views need a fresh PIN. */}
             <div id="settlement-checker" className="scroll-mt-4">
               <SensitiveGate area="Settlements">
                 <SettlementPanel setBanner={setBanner} lang={lang} />
               </SensitiveGate>
             </div>
+              </>
+            )}
+            {/* NAV CONSOLIDATION (Phase 2, 2026-11-12): Money Truth and
+                the Settlement Checker moved here from the Driver tab —
+                the Money tab is now the ONE money home. UI CLEANUP
+                (2026-11-15): its tools now sit behind the section bar
+                above — Pay Book + Settlement Checker under Pay, the
+                MoneyFlowHub panels under Billing / Records / Loads /
+                Truck — one section at a time, anchors unchanged, so
+                deep links still land (the reveal registry opens the
+                right section first). */}
+            {moneyView !== "overview" && moneyView !== "pay" && (
+              <MoneyFlowHub section={moneyView} setBanner={setBanner} mpg={profile.mpg} onOpenBreakdownHelp={() => setShowBreakdown(true)} onOpenParking={() => setShowParking(true)} lang={lang} />
+            )}
           </div>
         )}
 
@@ -16598,14 +16666,35 @@ export function App() {
                 jump Ask Meca's "Take me there" performs (goMecaDest),
                 or the direct sheet/anchor the old flat list used, so
                 a tool has one name and one landing everywhere.
-                Nothing is folded away: from Today every tool is two
-                taps — this tab (or a Find-a-tool row), then its row. */}
-            {TOOL_GROUPS.map((group) => (
+                UI CLEANUP (2026-11-15): the groups are collapsible —
+                one open at a time — so the tab opens as five headers,
+                not the whole app in one scroll; a tool is still two
+                taps from here (its group header, then its row). */}
+            {TOOL_GROUPS.map((group) => {
+              const groupOpen = moreOpenGroup === group.id;
+              return (
               <section key={group.id} id={`more-group-${group.id}`} className="scroll-mt-4 space-y-2 pt-2" aria-label={tr(group.en, group.es)}>
-                <h2 className="px-1 pt-1 font-condensed text-2xl font-bold">
-                  <span aria-hidden>{group.icon}</span> {tr(group.en, group.es)}
-                </h2>
-                {group.items.map((item) => (
+                {/* UI CLEANUP PASS (2026-11-15): group headers are
+                    toggles — one group open at a time, tap the header
+                    again to close it, so the directory opens as a
+                    short menu of five headers instead of every tool
+                    in the app stacked into one scroll. */}
+                <button
+                  type="button"
+                  aria-expanded={groupOpen}
+                  aria-label={tr(`${groupOpen ? "Collapse" : "Expand"} ${group.en}`, `${groupOpen ? "Contraer" : "Expandir"} ${group.es}`)}
+                  onClick={() => { tapFx(); setMoreOpenGroup(groupOpen ? null : group.id); }}
+                  className="btn-press flex w-full items-center gap-2 px-1 pt-1 text-left"
+                >
+                  <span className="font-condensed text-2xl font-bold">
+                    <span aria-hidden>{group.icon}</span> {tr(group.en, group.es)}
+                  </span>
+                  <span className="ml-auto flex shrink-0 items-center gap-2 text-sm font-bold text-[var(--dim)]">
+                    {group.items.length} {tr("tools", "herramientas")}
+                    <span aria-hidden className="text-lg text-[var(--accent)]">{groupOpen ? "▾" : "▸"}</span>
+                  </span>
+                </button>
+                {groupOpen && group.items.map((item) => (
                   <button
                     key={item.id}
                     type="button"
@@ -16621,8 +16710,19 @@ export function App() {
                     <span className="ml-auto shrink-0 text-[var(--dim)]" aria-hidden>→</span>
                   </button>
                 ))}
+                {groupOpen && (
+                  <button
+                    type="button"
+                    aria-label={tr(`Close ${group.en}`, `Cerrar ${group.es}`)}
+                    onClick={() => { tapFx(); setMoreOpenGroup(null); }}
+                    className="btn-press flex w-full items-center justify-center gap-1 rounded-xl bg-[var(--surface2)] px-3 py-2 text-sm font-bold text-[var(--dim)]"
+                  >
+                    Close ▴
+                  </button>
+                )}
               </section>
-            ))}
+              );
+            })}
           </div>
         )}
 
@@ -18718,7 +18818,7 @@ export function App() {
                   type="button"
                   className="btn-press flex-1 px-4 py-3 text-left"
                   aria-label={`Credential expiry alert: ${a.label} ${a.threshold === 0 ? "expired" : `expires in ${a.daysLeft} days`}. Open the expiry wallet.`}
-                  onClick={() => document.getElementById("doc-expiry")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                  onClick={() => { tapFx(); setTab("money"); scrollToAnchor("doc-expiry", 700); }}
                 >
                   {a.threshold === 0
                     ? `⛔ ${a.label} EXPIRED ${Math.abs(a.daysLeft ?? 0)} days ago`
@@ -18767,7 +18867,7 @@ export function App() {
                   type="button"
                   className={`btn-press w-full rounded-2xl px-4 py-3 text-left font-bold ${tier === "expired" || tier === "due7" ? "bg-red-900/60 text-red-100" : "bg-amber-900/50 text-amber-100"}`}
                   aria-label={`Document expiry alert: ${urgent.doc.label} ${tier === "expired" ? "expired" : `expires in ${urgent.doc.daysLeft} days`}. Open the expiry wallet.`}
-                  onClick={() => document.getElementById("doc-expiry")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                  onClick={() => { tapFx(); setTab("money"); scrollToAnchor("doc-expiry", 700); }}
                 >
                   {tier === "expired"
                     ? `⛔ ${urgent.doc.label} EXPIRED ${Math.abs(urgent.doc.daysLeft ?? 0)} days ago`
@@ -18778,26 +18878,47 @@ export function App() {
                 </button>
               );
             })()}
-            <div id="si-layer" className="scroll-mt-4">
-              <SiPanel setBanner={setBanner} />
-            </div>
-            <div id="live-updates" className="scroll-mt-4">
-              <LiveUpdatesPanel setBanner={setBanner} />
-            </div>
-            <div id="road-learning" className="scroll-mt-4">
-              <RoadLearningPanel value={roadLearning} onChange={updateRoadLearning} setBanner={setBanner} />
-            </div>
+            {/* UI CLEANUP PASS (2026-11-15): the panels below used to
+                stack under DriverPanel into one long scroll. Each now
+                sits behind its own labelled door (the wallet-door
+                pattern): the tab's first screen is DriverPanel + the
+                alert strips + this directory of doors, and every panel
+                is one tap away. Deep links still land — a jump to a
+                panel's anchor opens its door first (revealIds), then
+                scrolls. Doors close from their header or the Close row
+                at the bottom of their content. */}
+            <ExpandRow icon="🧠" title={tr("STONEMILES SI", "STONEMILES SI")} ariaLabel={tr("Open STONEMILES SI", "Abrir STONEMILES SI")} revealIds={["si-layer"]}>
+              <div id="si-layer" className="scroll-mt-4">
+                <SiPanel setBanner={setBanner} />
+              </div>
+            </ExpandRow>
+            <ExpandRow icon="📡" title={tr("Live updates", "Actualizaciones en vivo")} ariaLabel={tr("Open live updates", "Abrir actualizaciones en vivo")} revealIds={["live-updates"]}>
+              <div id="live-updates" className="scroll-mt-4">
+                <LiveUpdatesPanel setBanner={setBanner} />
+              </div>
+            </ExpandRow>
+            <ExpandRow icon="✏️" title={tr("Road learning", "Aprendizaje de rutas")} ariaLabel={tr("Open road learning", "Abrir aprendizaje de rutas")} revealIds={["road-learning"]}>
+              <div id="road-learning" className="scroll-mt-4">
+                <RoadLearningPanel value={roadLearning} onChange={updateRoadLearning} setBanner={setBanner} />
+              </div>
+            </ExpandRow>
             {/* Safety Academy course content exists in English + Spanish
                 only — for pt/ru/uk drivers it falls back to the English
                 original rather than an unreviewed translation of
                 safety-training material. */}
-            <SafetyAcademyPanel setBanner={setBanner} onOpenPlans={() => setShowPlans(true)} language={lang} />
-            <div id="library-panel" className="scroll-mt-4">
-              <LibraryPanel setBanner={setBanner} lang={lang} />
-            </div>
-            <div id="ifta-panel" className="scroll-mt-4">
-              <IftaPanel setBanner={setBanner} lang={lang} />
-            </div>
+            <ExpandRow icon="🎓" title={tr("Safety Academy", "Academia de Seguridad")} ariaLabel={tr("Open the Safety Academy", "Abrir la Academia de Seguridad")} revealIds={["safety-academy"]}>
+              <SafetyAcademyPanel setBanner={setBanner} onOpenPlans={() => setShowPlans(true)} language={lang} />
+            </ExpandRow>
+            <ExpandRow icon="📚" title={tr("Library", "Biblioteca")} sub={tr("Tax records, tax worksheet, document vault", "Registros de impuestos, hoja de impuestos, bóveda de documentos")} ariaLabel={tr("Open the Library", "Abrir la Biblioteca")} revealIds={["library-panel", "doc-vault", "tax-records", "tax-worksheet"]}>
+              <div id="library-panel" className="scroll-mt-4">
+                <LibraryPanel setBanner={setBanner} lang={lang} />
+              </div>
+            </ExpandRow>
+            <ExpandRow icon="⛽" title={tr("IFTA estimator", "Estimador IFTA")} ariaLabel={tr("Open the IFTA estimator", "Abrir el estimador IFTA")} revealIds={["ifta-panel"]}>
+              <div id="ifta-panel" className="scroll-mt-4">
+                <IftaPanel setBanner={setBanner} lang={lang} />
+              </div>
+            </ExpandRow>
             {/* NAV CONSOLIDATION (Phase 2, 2026-11-12): MoneyPanel and
                 PayBookPanel used to render here too — exact duplicates
                 of the Money tab. They now live ONLY on the Money tab.
@@ -18806,17 +18927,27 @@ export function App() {
                 home. Tax records, the Tax Worksheet, and the Document
                 Vault moved inside the Library above (the one records
                 home) under their same anchor ids. */}
-            <VerifyPanel setBanner={setBanner} />
-            <PassportPanel setBanner={setBanner} />
-            <div id="scale-tickets" className="scroll-mt-4">
-              <ScalePanel setBanner={setBanner} lang={lang} />
-            </div>
-            <div id="permits" className="scroll-mt-4">
-              <PermitsPanel setBanner={setBanner} focusPermitId={permitFocusId} focusNonce={permitFocusNonce} diamond={diamondTier} planName={planDisplayName(myPlanId)} lang={lang} />
-            </div>
-            <div id="dvir-checklists" className="scroll-mt-4">
-              <DvirPanel setBanner={setBanner} focus={dvirFocus} lang={lang} />
-            </div>
+            <ExpandRow icon="🔎" title={tr("Verify & Audit", "Verificar y auditar")} ariaLabel={tr("Open Verify and Audit", "Abrir Verificar y auditar")}>
+              <VerifyPanel setBanner={setBanner} />
+            </ExpandRow>
+            <ExpandRow icon="🛂" title={tr("Reputation Passport", "Pasaporte de reputación")} ariaLabel={tr("Open the Reputation Passport", "Abrir el Pasaporte de reputación")}>
+              <PassportPanel setBanner={setBanner} />
+            </ExpandRow>
+            <ExpandRow icon="🎫" title={tr("Scale tickets", "Tickets de báscula")} ariaLabel={tr("Open scale tickets", "Abrir tickets de báscula")} revealIds={["scale-tickets"]}>
+              <div id="scale-tickets" className="scroll-mt-4">
+                <ScalePanel setBanner={setBanner} lang={lang} />
+              </div>
+            </ExpandRow>
+            <ExpandRow icon="📜" title={tr("OS/OW Permits", "Permisos OS/OW")} ariaLabel={tr("Open OS/OW permits", "Abrir permisos OS/OW")} revealIds={["permits"]}>
+              <div id="permits" className="scroll-mt-4">
+                <PermitsPanel setBanner={setBanner} focusPermitId={permitFocusId} focusNonce={permitFocusNonce} diamond={diamondTier} planName={planDisplayName(myPlanId)} lang={lang} />
+              </div>
+            </ExpandRow>
+            <ExpandRow icon="📝" title={tr("Inspection checklists", "Listas de inspección")} ariaLabel={tr("Open inspection checklists", "Abrir listas de inspección")} revealIds={["dvir-checklists"]}>
+              <div id="dvir-checklists" className="scroll-mt-4">
+                <DvirPanel setBanner={setBanner} focus={dvirFocus} lang={lang} />
+              </div>
+            </ExpandRow>
           </div>
           </>
         )}
@@ -21330,8 +21461,8 @@ export function App() {
 
       {/* Settings sheet */}
       {showSettings && (
-        <div className="fixed inset-0 z-[900] flex items-end bg-black/70" role="dialog" aria-label="Settings">
-          <div className="animate-sheet max-h-[88dvh] w-full overflow-y-auto rounded-t-3xl bg-[var(--surface)] p-5 pb-safe">
+        <div className="fixed inset-0 z-[900] flex items-end bg-black/70" role="dialog" aria-label="Settings" onClick={() => setShowSettings(false)}>
+          <div className="animate-sheet max-h-[88dvh] w-full overflow-y-auto rounded-t-3xl bg-[var(--surface)] p-5 pb-safe" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <h2 className="font-condensed text-2xl font-bold">Settings</h2>
               <button
@@ -21453,7 +21584,7 @@ export function App() {
               <InstallAppSection />
 
               {/* Driving — units, warnings, alert channels, fuel defaults */}
-              <FoldSection title="🚛 Driving" ariaLabel="Driving settings" defaultOpen>
+              <FoldSection title="🚛 Driving" ariaLabel="Driving settings" revealIds={["app-performance"]}>
                 <SegRow
                   label="Units"
                   ariaLabel="Distance and speed units"
@@ -21614,7 +21745,7 @@ export function App() {
               </FoldSection>
 
               {/* My pay — company-driver CPM or % of load pay + charges */}
-              <FoldSection title="💰 My pay — company driver" ariaLabel="My pay — company name, CPM or percent of load pay, and additional charges" defaultOpen>
+              <FoldSection title="💰 My pay — company driver" ariaLabel="My pay — company name, CPM or percent of load pay, and additional charges">
                 <p className="text-sm leading-relaxed">
                   Driving for a company? Tell STONEMILES <strong>how your company pays you — a CPM (per-mile rate)
                   or a % of the load's pay</strong> — and it does all your pay math <em>your</em> way: route pay, the
@@ -21998,7 +22129,7 @@ export function App() {
               </FoldSection>
 
               {/* Privacy & data — who can reach you, offline cache, export, wipe */}
-              <FoldSection title="🔒 Privacy & data" ariaLabel="Privacy and data settings">
+              <FoldSection title="🔒 Privacy & data" ariaLabel="Privacy and data settings" revealIds={["settings-session"]}>
                 <div className="rounded-xl bg-[var(--surface2)] px-3 py-3">
                   <div className="font-semibold">Who can reach me</div>
                   <p className="mt-0.5 text-sm text-[var(--dim)]">
@@ -29880,15 +30011,27 @@ function FoldSection({
   badge,
   ariaLabel,
   defaultOpen = false,
+  revealIds,
   children,
 }: {
   title: string;
   badge?: ReactNode;
   ariaLabel: string;
   defaultOpen?: boolean;
+  /** Anchor ids that live inside this fold (UI cleanup pass,
+   *  2026-11-15): a deep-link jump to one of them opens the fold
+   *  first, then scrolls — see anchorReveal.ts. */
+  revealIds?: string[];
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(defaultOpen);
+  const revealKey = revealIds?.join(",") ?? "";
+  useEffect(() => {
+    if (!revealKey) return;
+    const offs = revealKey.split(",").map((id) => onAnchorReveal(id, () => setOpen(true)));
+    return () => offs.forEach((off) => off());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revealKey]);
   return (
     <section className="glass-panel p-3.5" aria-label={ariaLabel}>
       <button
@@ -29904,7 +30047,24 @@ function FoldSection({
           <span aria-hidden className="text-lg font-bold text-[var(--accent)]">{open ? "▾" : "▸"}</span>
         </span>
       </button>
-      {open && <div className="mt-2">{children}</div>}
+      {open && (
+        <div className="mt-2">
+          {children}
+          {/* QUICK-CLOSE (x's order, 2026-11-15): an open section can
+              be shut from wherever the driver has scrolled to — this
+              close row sits at the section's end, next to the content
+              they just used, so nobody scrolls back up to the header
+              just to close it. Tapping the header again also closes. */}
+          <button
+            type="button"
+            aria-label={`Close ${ariaLabel}`}
+            onClick={() => setOpen(false)}
+            className="btn-press mt-3 flex w-full items-center justify-center gap-1 rounded-xl bg-[var(--surface2)] px-3 py-2 text-sm font-bold text-[var(--dim)]"
+          >
+            Close ▴
+          </button>
+        </div>
+      )}
     </section>
   );
 }
@@ -38491,19 +38651,38 @@ function ExpandRow({
   icon,
   title,
   sub,
-  open,
+  open: openProp,
   onToggle,
   ariaLabel,
+  revealIds,
   children,
 }: {
   icon: string;
   title: string;
   sub?: string;
-  open: boolean;
-  onToggle: () => void;
+  /** Controlled mode (the wallet door): the caller owns the state.
+   *  Omit both for a self-managed door (UI cleanup pass, 2026-11-15). */
+  open?: boolean;
+  onToggle?: () => void;
   ariaLabel: string;
+  /** Anchor ids that live behind this door: a deep-link jump to one
+   *  opens the door first, then scrolls (see anchorReveal.ts). */
+  revealIds?: string[];
   children: ReactNode;
 }) {
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = openProp ?? internalOpen;
+  const toggle = onToggle ?? (() => setInternalOpen((v) => !v));
+  const close = onToggle ?? (() => setInternalOpen(false));
+  const revealKey = revealIds?.join(",") ?? "";
+  useEffect(() => {
+    if (!revealKey) return;
+    const offs = revealKey.split(",").map((id) =>
+      onAnchorReveal(id, () => { if (openProp === undefined) setInternalOpen(true); }),
+    );
+    return () => offs.forEach((off) => off());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revealKey]);
   return (
     <div>
       <button
@@ -38511,7 +38690,7 @@ function ExpandRow({
         className="btn-press flex min-h-[56px] w-full items-center gap-3 rounded-2xl bg-[var(--surface)] border border-[var(--border)] px-4 py-3 text-left"
         aria-label={ariaLabel}
         aria-expanded={open}
-        onClick={onToggle}
+        onClick={toggle}
       >
         <span className="text-2xl" aria-hidden>{icon}</span>
         <span className="min-w-0 flex-1">
@@ -38520,7 +38699,21 @@ function ExpandRow({
         </span>
         <span className="shrink-0 text-sm font-bold text-[var(--accent)]" aria-hidden>{open ? "Hide ▾" : "Details ▸"}</span>
       </button>
-      {open && <div className="mt-2">{children}</div>}
+      {open && (
+        <div className="mt-2">
+          {children}
+          {/* QUICK-CLOSE (x's order, 2026-11-15): shut the door from
+              the bottom of its content — no scrolling back up. */}
+          <button
+            type="button"
+            aria-label={`Close ${ariaLabel}`}
+            onClick={close}
+            className="btn-press mt-2 flex w-full items-center justify-center gap-1 rounded-xl bg-[var(--surface2)] px-3 py-2 text-sm font-bold text-[var(--dim)]"
+          >
+            Close ▴
+          </button>
+        </div>
+      )}
     </div>
   );
 }
