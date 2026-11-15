@@ -207,6 +207,12 @@ export const accountingSyncRecords = impl.accountingSyncRecords;
 export const recruitingDoors = impl.recruitingDoors;
 export const driverApplications = impl.driverApplications;
 export const driverApplicationNotes = impl.driverApplicationNotes;
+export const dashcamConnections = impl.dashcamConnections;
+export const dashcamEvents = impl.dashcamEvents;
+export const exonerationVaultEntries = impl.exonerationVaultEntries;
+export const faultReports = impl.faultReports;
+export const trailerConnections = impl.trailerConnections;
+export const trailerReadings = impl.trailerReadings;
 
 // Auth (Phase 2b, added at the Phase 2 merge): account + session tables.
 export const accounts = impl.accounts;

@@ -127,6 +127,17 @@
 // revoked / created / updated; application responded / created
 // / updated; note created); the OAuth token / stamp / snapshot /
 // stage columns are plain integer/text.
+// Migration 0137 (video coaching + predictive maintenance +
+// smart trailer) adds +6 tables (dashcam_connections,
+// dashcam_events, exoneration_vault_entries, fault_reports,
+// trailer_connections, trailer_readings), +6 autoincrement PKs,
+// +14 timestamp_ms (connection created/updated; event occurred /
+// reviewed / created / updated; vault removed / created; fault
+// occurred / created; trailer connection created / updated;
+// reading recorded / created), +5 REAL (fault odometer / engine
+// hours; reading lat / lon / temp), +2 booleans (the simulated
+// markers on dashcam events and fault reports); the secret /
+// clip / evidence / code columns are plain text.
 //
 //   bun run host/pg/transform-schema.ts
 
@@ -185,22 +196,22 @@ replaceAll(
   'integer mode "boolean" -> boolean',
   /integer\(("[a-z0-9_]+"), \{ mode: "boolean" \}\)/g,
   "boolean($1)",
-  110,
+  112,
 );
 replaceAll(
   'integer mode "timestamp_ms" -> timestamp(tz, date)',
   /integer\(("[a-z0-9_]+"), \{ mode: "timestamp_ms" \}\)/g,
   'timestamp($1, { withTimezone: true, mode: "date" })',
-  393,
+  407,
 );
 replaceAll(
   "autoincrement PK -> serial",
   /integer\(("[a-z0-9_]+")\)\.primaryKey\(\{ autoIncrement: true \}\)/g,
   "serial($1).primaryKey()",
-  161,
+  167,
 );
-replaceAll("sqliteTable -> pgTable", /\bsqliteTable\(/g, "pgTable(", 196);
-replaceAll("real -> doublePrecision", /\breal\(/g, "doublePrecision(", 194);
+replaceAll("sqliteTable -> pgTable", /\bsqliteTable\(/g, "pgTable(", 202);
+replaceAll("real -> doublePrecision", /\breal\(/g, "doublePrecision(", 199);
 
 // Leftovers: any of these means the source schema grew a shape this
 // transform does not know. Fail, don't guess.

@@ -78,6 +78,14 @@ export interface BundleLoadLike {
   loadedMiles: number | null;
   sealed: boolean;
   deliveredAtIso: string | null;
+  /** Smart-trailer reefer temperature log for this load (Wave 2
+   *  item 11): the device readings stored against the load, in
+   *  time order, with the range they were judged against. This
+   *  is the delivery proof a temperature claim stands on. */
+  reeferTemps?: {
+    rangeLabel: string | null;
+    readings: { atIso: string; tempF: number; source: string; verdict: string | null }[];
+  } | null;
 }
 
 export interface BundleHosDayLike {
@@ -227,6 +235,16 @@ export function buildRecordsBundle(input: RecordsBundleInput): RecordsBundle {
       }
       if (l.loadedMiles != null) bits.push(`${Math.round(l.loadedMiles)} loaded mi`);
       lines.push(bits.join(" · "));
+      if (l.reeferTemps && l.reeferTemps.readings.length > 0) {
+        lines.push(
+          `  Reefer temperature log (trailer device readings${l.reeferTemps.rangeLabel ? `, load range ${l.reeferTemps.rangeLabel}` : ", no range set on this load — readings logged without judgement"}):`,
+        );
+        for (const r of l.reeferTemps.readings) {
+          lines.push(
+            `    ${bundleDateTime(r.atIso)} — ${r.tempF}°F${r.verdict ? ` (${r.verdict === "out_of_range" ? "OUT OF RANGE" : "in range"})` : ""}${r.source === "simulated" ? " — SIMULATED test reading" : ""}`,
+          );
+        }
+      }
     }
     if (moreLine) lines.push(moreLine);
     sections.push({ heading: "Loads", lines });

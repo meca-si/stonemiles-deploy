@@ -90,6 +90,46 @@ describe("records bundle — loads", () => {
     expect(line).not.toContain("$");
   });
 
+  test("a load's reefer temperature log exports with the bundle as delivery proof (Wave 2 item 11)", () => {
+    const b = buildRecordsBundle(baseInput({
+      loads: [{
+        id: 9, shipper: "Gulf Foods", lane: "Mobile, AL → Atlanta, GA", referenceNumber: "RF-1",
+        commodity: "Frozen chicken", status: "Delivered", rate: 1800, extraCharges: 0,
+        loadedMiles: 330, sealed: true, deliveredAtIso: "2026-11-12T15:00:00.000Z",
+        reeferTemps: {
+          rangeLabel: "31°F–41°F",
+          readings: [
+            { atIso: "2026-11-12T08:00:00.000Z", tempF: 34.5, verdict: "in_range", source: "partner" },
+            { atIso: "2026-11-12T11:00:00.000Z", tempF: 44.2, verdict: "out_of_range", source: "partner" },
+            { atIso: "2026-11-12T13:00:00.000Z", tempF: 35.1, verdict: "in_range", source: "simulated" },
+          ],
+        },
+      }],
+    }));
+    const lines = section(b, "Loads");
+    const logHead = lines.find((l) => l.includes("Reefer temperature log"))!;
+    expect(logHead).toContain("load range 31°F–41°F");
+    expect(lines.some((l) => l.includes("34.5°F") && l.includes("in range"))).toBe(true);
+    expect(lines.some((l) => l.includes("44.2°F") && l.includes("OUT OF RANGE"))).toBe(true);
+    // A simulated reading is labelled simulated in the export too.
+    expect(lines.some((l) => l.includes("35.1°F") && l.includes("SIMULATED"))).toBe(true);
+  });
+
+  test("a reefer load with no range set says the readings were logged without judgement", () => {
+    const b = buildRecordsBundle(baseInput({
+      loads: [{
+        id: 10, shipper: null, lane: "A → B", referenceNumber: null, commodity: null, status: "booked",
+        rate: null, extraCharges: 0, loadedMiles: null, sealed: false, deliveredAtIso: null,
+        reeferTemps: {
+          rangeLabel: null,
+          readings: [{ atIso: "2026-11-12T08:00:00.000Z", tempF: 34.5, verdict: null, source: "partner" }],
+        },
+      }],
+    }));
+    const lines = section(b, "Loads");
+    expect(lines.some((l) => l.includes("no range set on this load"))).toBe(true);
+  });
+
   test("the loads section caps and says how many more exist", () => {
     const loads = Array.from({ length: BUNDLE_CAPS.loads + 5 }, (_, i) => ({
       id: i + 1, shipper: null, lane: "A → B", referenceNumber: null, commodity: null,

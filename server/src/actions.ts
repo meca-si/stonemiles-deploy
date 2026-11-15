@@ -285,6 +285,7 @@ import {
   type NotificationKind,
 } from "./notifications";
 import {
+  faultReportsFromPayload,
   snapshotIsSimulated,
   summarizeEldSync,
   simulatedEldPayloads,
@@ -295,6 +296,31 @@ import {
   parkingArrivalPlan,
   parkingPartnerFromEnv,
 } from "./parking";
+import {
+  DASHCAM_EVENT_KINDS,
+  DASHCAM_KIND_LABELS,
+  dashcamPartnerFromEnv,
+  dashcamPatternFlags,
+  simulatedDashcamEvent,
+  validateDashcamEventPayload,
+  type DashcamEventKind,
+} from "./dashcam";
+import {
+  FAULT_URGENCY_LABELS,
+  faultDraftsWorkOrder,
+  lookupFaultCode,
+  maintenanceDueFlags,
+  type FaultUrgency,
+} from "./faultCodes";
+import {
+  reeferRangeForLoad,
+  reeferTempVerdict,
+  simulatedTrailerReadings,
+  trailerFreshness,
+  trailerPartnerFromEnv,
+  validateTrailerReading,
+  type TrailerReading,
+} from "./trailerTelemetry";
 import {
   buildArSummary,
   factorPartnerFromEnv,
@@ -1217,6 +1243,12 @@ async function applyEldSyncBatch(
         truckJson: JSON.stringify(n.truck),
       });
     }
+    if (item.feed === "fault_codes") {
+      // Fault codes materialize into fault_reports rows (the
+      // predictive-maintenance record) — the snapshot above still
+      // stores the payload as received, like every feed.
+      await materializeEldFaults(ctx, conn, item.payload, source === "test_harness");
+    }
     results.push({ feed: item.feed, ok: true, errors: [] });
   }
   const summary = summarizeEldSync(results);
@@ -1265,6 +1297,524 @@ async function applyEldSyncBatch(
     },
   });
   return { results, ...summary, chainHash };
+}
+
+// ---- Video coaching + predictive maintenance + smart trailer ----------------
+// (Research Wave 2 item 11). The pure rules live in dashcam.ts /
+// faultCodes.ts / trailerTelemetry.ts; this half owns the rows,
+// the chain, and the scope law: these tables carry their own
+// company_id / driver_username columns (the DQF pattern), because
+// the dashcam webhook intake has no driver session to host-stamp
+// from. Every read below filters on those columns explicitly.
+
+type DashcamConnectionRow = typeof schema.dashcamConnections.$inferSelect;
+type DashcamEventRow = typeof schema.dashcamEvents.$inferSelect;
+type FaultReportRow = typeof schema.faultReports.$inferSelect;
+type TrailerConnectionRow = typeof schema.trailerConnections.$inferSelect;
+type VaultEntryRow = typeof schema.exonerationVaultEntries.$inferSelect;
+
+/** The caller's standing on the item-11 surfaces: their company
+ *  (if any) and whether they sit at its desk (owner / dispatch). */
+async function safetyDeskScope(ctx: Ctx): Promise<{
+  me: string;
+  companyId: number | null;
+  isDesk: boolean;
+  role: string | null;
+}> {
+  const me = await myUsername(ctx);
+  const mine = await myMembership(ctx, me);
+  const isDesk = !!mine && (mine.role === "owner" || mine.role === "dispatch");
+  return { me, companyId: mine?.company.id ?? null, isDesk, role: mine?.role ?? null };
+}
+
+/** Can this caller manage connections (dashcam / trailer)? The
+ *  desk manages a fleet's; a driver with no company manages their
+ *  own; a fleet driver views their own record but doesn't wire
+ *  the fleet's doors. */
+function safetyCanManage(scope: { companyId: number | null; isDesk: boolean }): boolean {
+  return scope.companyId == null || scope.isDesk;
+}
+
+/** Record one fault report — THE path, shared by the driver's
+ *  manual entry and the ELD fault_codes materialization. Dedupes
+ *  on dedupeKey when one is supplied (a device re-sending the
+ *  same fault never double-records it). A stop-now / service-soon
+ *  code auto-drafts a maintenance-log entry on the DVIR-defect
+ *  pattern; the draft lands in the recording context's profile
+ *  (the driver's own for manual entry — the ELD connection
+ *  manager's for a sync, with the fault row itself always
+ *  carrying the driver's username). */
+async function recordFaultReport(
+  ctx: Ctx,
+  args: {
+    driverUsername: string;
+    companyId: number | null;
+    code: string;
+    source: "manual" | "eld";
+    sourceNote: string | null;
+    occurredAt: Date;
+    odometer: number | null;
+    engineHours: number | null;
+    dedupeKey: string | null;
+    simulated: boolean;
+    actor: string;
+  },
+): Promise<{ row: FaultReportRow; created: boolean }> {
+  const db = ctx.db<typeof schema>();
+  if (args.dedupeKey) {
+    const existing = await db
+      .select()
+      .from(schema.faultReports)
+      .where(eq(schema.faultReports.dedupeKey, args.dedupeKey))
+      .limit(1);
+    if (existing[0]) return { row: existing[0], created: false };
+  }
+  const lookup = lookupFaultCode(args.code);
+  const ins = await db
+    .insert(schema.faultReports)
+    .values({
+      driverUsername: args.driverUsername,
+      companyId: args.companyId,
+      code: lookup.code,
+      source: args.source,
+      sourceNote: args.sourceNote,
+      meaning: lookup.meaning,
+      urgency: lookup.urgency,
+      occurredAt: args.occurredAt,
+      odometer: args.odometer,
+      engineHours: args.engineHours,
+      maintenanceEntryId: null,
+      dedupeKey: args.dedupeKey,
+      simulated: args.simulated,
+      createdAt: new Date(),
+    })
+    .returning();
+  const row = ins[0];
+  if (!row) throw new Error("recordFaultReport: insert returned no rows");
+  let draftEntryId: number | null = null;
+  if (faultDraftsWorkOrder(lookup.urgency)) {
+    const draft = await db
+      .insert(schema.maintenanceLogEntries)
+      .values({
+        performedAt: args.occurredAt,
+        odometer: args.odometer,
+        category: lookup.category ?? "other",
+        description: lookup.meaning
+          ? `Fault code ${lookup.code} — ${lookup.meaning}`.slice(0, 240)
+          : `Fault code ${lookup.code} — recorded as reported`.slice(0, 240),
+        shop: null,
+        cost: 0,
+        nextDueMiles: null,
+        nextDueAt: null,
+        notes: `Auto-drafted from a fault report (${args.source === "eld" ? "ELD sync" : "driver entry"} — ${FAULT_URGENCY_LABELS[lookup.urgency]}). Work the problem, then close this entry; closing it is the record the fault was handled. Fault report #${row.id}.`,
+        status: "draft",
+      })
+      .returning({ id: schema.maintenanceLogEntries.id });
+    draftEntryId = draft[0]?.id ?? null;
+    if (draftEntryId != null) {
+      await db
+        .update(schema.faultReports)
+        .set({ maintenanceEntryId: draftEntryId })
+        .where(eq(schema.faultReports.id, row.id));
+      row.maintenanceEntryId = draftEntryId;
+    }
+  }
+  await appendChain(ctx, {
+    refKind: "driver",
+    refId: null,
+    sessionId: null,
+    event: "fault_code_reported",
+    payload: {
+      faultId: row.id,
+      driverUsername: args.driverUsername,
+      code: lookup.code,
+      source: args.source,
+      urgency: lookup.urgency,
+      known: lookup.known,
+      draftEntryId,
+      simulated: args.simulated,
+      by: args.actor,
+      at: args.occurredAt.toISOString(),
+    },
+  });
+  return { row, created: true };
+}
+
+/** The ELD fault_codes feed's materialization: device codes →
+ *  fault_reports rows for the connection's driver, deduped per
+ *  connection (a partner fault id when the device sends one,
+ *  else the code + its timestamp). */
+async function materializeEldFaults(
+  ctx: Ctx,
+  conn: typeof schema.eldConnections.$inferSelect,
+  payload: unknown,
+  simulated: boolean,
+): Promise<void> {
+  const entries = faultReportsFromPayload(payload);
+  for (const e of entries) {
+    const lookup = lookupFaultCode(e.code);
+    await recordFaultReport(ctx, {
+      driverUsername: conn.connectedBy,
+      companyId: conn.companyId ?? null,
+      code: e.code,
+      source: "eld",
+      sourceNote: `ELD connection: ${conn.label}`,
+      occurredAt: e.occurredAtIso ? new Date(e.occurredAtIso) : new Date(),
+      odometer: e.odometerMi,
+      engineHours: e.engineHours,
+      dedupeKey: `eld:${conn.id}:${e.partnerRef ?? `${lookup.code}:${e.occurredAtIso ?? "standing"}`}`,
+      simulated,
+      actor: conn.connectedBy,
+    });
+  }
+}
+
+/** Open the reefer out-of-range autonomy exception for a load —
+ *  a managed kind in the fuel_card_mismatch shape: inserted
+ *  directly here, never derived, and excluded from the autonomy
+ *  derivation's auto-clear (see evaluateLoadAutonomy). One open
+ *  episode per load: repeat readings while it's open refresh
+ *  nothing and notify nobody twice. Returns true when a NEW
+ *  episode opened (and notifications went out). */
+async function openReeferTempException(
+  ctx: Ctx,
+  args: {
+    loadId: number;
+    driverUsername: string;
+    companyId: number | null;
+    readingId: number;
+    tempF: number;
+    minF: number;
+    maxF: number;
+    recordedAt: Date;
+    simulated: boolean;
+  },
+): Promise<boolean> {
+  const db = ctx.db<typeof schema>();
+  const dedupeKey = `${args.loadId}:reefer_temp_out_of_range`;
+  const open = await db
+    .select()
+    .from(schema.autoExceptions)
+    .where(and(eq(schema.autoExceptions.dedupeKey, dedupeKey), eq(schema.autoExceptions.status, "open")))
+    .limit(1);
+  if (open[0]) return false;
+  const detail = `Reefer temperature ${args.tempF}°F is outside the load's range (${args.minF}°F–${args.maxF}°F) — reading at ${args.recordedAt.toISOString()}${args.simulated ? " (SIMULATED test reading)" : ""}.`;
+  const ins = await db
+    .insert(schema.autoExceptions)
+    .values({
+      loadId: args.loadId,
+      kind: "reefer_temp_out_of_range",
+      severity: 2,
+      detail,
+      evidenceJson: JSON.stringify([
+        { readingId: args.readingId, tempF: args.tempF, minF: args.minF, maxF: args.maxF, recordedAt: args.recordedAt.toISOString(), simulated: args.simulated },
+      ]),
+      driverUsername: args.driverUsername,
+      companyId: args.companyId,
+      brokerAccountId: null,
+      status: "open",
+      dedupeKey,
+      fingerprint: `reading:${args.readingId}`,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .returning({ id: schema.autoExceptions.id });
+  const exceptionId = ins[0]?.id ?? null;
+  await appendChain(ctx, {
+    refKind: "load",
+    refId: args.loadId,
+    sessionId: null,
+    event: "reefer_temp_out_of_range",
+    payload: {
+      exceptionId,
+      loadId: args.loadId,
+      readingId: args.readingId,
+      tempF: args.tempF,
+      minF: args.minF,
+      maxF: args.maxF,
+      simulated: args.simulated,
+      at: args.recordedAt.toISOString(),
+    },
+  });
+  await recordNotificationSafe(ctx, {
+    username: args.driverUsername,
+    kind: "system",
+    title: "Reefer temperature out of range",
+    body: detail,
+    dedupeKey,
+    refKind: "load",
+    refId: args.loadId,
+  });
+  if (args.companyId != null) {
+    const members = await db
+      .select()
+      .from(schema.companyMembers)
+      .where(eq(schema.companyMembers.companyId, args.companyId));
+    for (const m of members) {
+      if (m.role !== "owner" && m.role !== "dispatch") continue;
+      if (m.username === args.driverUsername) continue;
+      await recordNotificationSafe(ctx, {
+        username: m.username,
+        kind: "system",
+        title: `Reefer out of range — @${args.driverUsername}`,
+        body: detail,
+        dedupeKey,
+        refKind: "load",
+        refId: args.loadId,
+      });
+    }
+  }
+  return true;
+}
+
+/** Ingest trailer readings from any source — THE path, shared by
+ *  the partner pull and the simulated test path. Every raw
+ *  reading is validated before it is stored (a partner's word is
+ *  never stored unvalidated); reefer readings tied to a load are
+ *  judged against the load's own setpoint/band when the load is
+ *  visible in this context, and an out-of-range reading opens
+ *  the autonomy exception episode. */
+async function applyTrailerReadings(
+  ctx: Ctx,
+  args: {
+    connection: TrailerConnectionRow | null;
+    driverUsername: string;
+    companyId: number | null;
+    rawReadings: readonly unknown[];
+    source: "partner" | "simulated";
+    loadId: number | null;
+    actor: string;
+  },
+): Promise<{ accepted: number; rejected: number; outOfRange: number; lines: string[] }> {
+  const db = ctx.db<typeof schema>();
+  let accepted = 0;
+  let rejected = 0;
+  let outOfRange = 0;
+  const lines: string[] = [];
+  let load: typeof schema.loads.$inferSelect | null = null;
+  if (args.loadId != null) {
+    const rows = await db.select().from(schema.loads).where(eq(schema.loads.id, args.loadId)).limit(1);
+    load = rows[0] ?? null;
+  }
+  const range = load ? reeferRangeForLoad(load) : null;
+  for (const raw of args.rawReadings) {
+    const v = validateTrailerReading(raw);
+    if (!v.ok) {
+      rejected++;
+      lines.push(`rejected — ${v.errors.join("; ")}`);
+      continue;
+    }
+    const r: TrailerReading = v.reading;
+    const ins = await db
+      .insert(schema.trailerReadings)
+      .values({
+        connectionId: args.connection?.id ?? null,
+        companyId: args.companyId,
+        driverUsername: args.driverUsername,
+        kind: r.kind,
+        lat: r.lat,
+        lon: r.lon,
+        tempF: r.tempF,
+        loadId: r.kind === "reefer_temp" ? args.loadId : null,
+        source: args.source,
+        recordedAt: new Date(r.recordedAt),
+        createdAt: new Date(),
+      })
+      .returning({ id: schema.trailerReadings.id });
+    const rowId = ins[0]?.id;
+    accepted++;
+    if (r.kind === "reefer_temp" && args.loadId != null && range && r.tempF != null && rowId != null) {
+      if (reeferTempVerdict(r.tempF, range) === "out_of_range") {
+        outOfRange++;
+        await openReeferTempException(ctx, {
+          loadId: args.loadId,
+          driverUsername: args.driverUsername,
+          companyId: args.companyId,
+          readingId: rowId,
+          tempF: r.tempF,
+          minF: range.minF,
+          maxF: range.maxF,
+          recordedAt: new Date(r.recordedAt),
+          simulated: args.source === "simulated",
+        });
+        lines.push(`reefer ${r.tempF}°F at ${r.recordedAt} — OUT OF RANGE (${range.minF}°F–${range.maxF}°F)`);
+        continue;
+      }
+      lines.push(`reefer ${r.tempF}°F at ${r.recordedAt} — in range`);
+      continue;
+    }
+    lines.push(
+      r.kind === "position"
+        ? `position ${r.lat}, ${r.lon} at ${r.recordedAt}`
+        : `reefer ${r.tempF}°F at ${r.recordedAt}${args.loadId == null ? " (no load tied)" : " (no range on the load — logged without judgement)"}`,
+    );
+  }
+  if (accepted > 0) {
+    await appendChain(ctx, {
+      refKind: "driver",
+      refId: null,
+      sessionId: null,
+      event: "trailer_readings_received",
+      payload: {
+        driverUsername: args.driverUsername,
+        connectionId: args.connection?.id ?? null,
+        source: args.source,
+        simulated: args.source === "simulated",
+        accepted,
+        rejected,
+        outOfRange,
+        loadId: args.loadId,
+        by: args.actor,
+        at: new Date().toISOString(),
+      },
+    });
+  }
+  return { accepted, rejected, outOfRange, lines };
+}
+
+/** Assemble the exoneration evidence snapshot for one event, from
+ *  the records THIS context can see (the item-9 snapshot rule):
+ *  the event itself, the duty timeline and track summary (both
+ *  username-keyed, visible to the driver and their desk), the
+ *  load's reefer log (username-keyed), and — only in the driver's
+ *  own context — the load row and nearby DVIRs, which live in the
+ *  driver's profile scope. What a context couldn't see is stated
+ *  in the snapshot, never silently absent. */
+async function assembleExonerationEvidence(
+  ctx: Ctx,
+  event: DashcamEventRow,
+  loadId: number | null,
+  actor: string,
+): Promise<Record<string, unknown>> {
+  const db = ctx.db<typeof schema>();
+  const occurredMs = event.occurredAt.getTime();
+  const windowStart = occurredMs - 12 * 60 * 60 * 1000;
+  const windowEnd = occurredMs + 12 * 60 * 60 * 1000;
+  const ownContext = actor === event.driverUsername;
+
+  const chainRows = await db
+    .select()
+    .from(schema.chainLog)
+    .where(eq(schema.chainLog.event, "duty_change"))
+    .orderBy(asc(schema.chainLog.id));
+  const dutyTimeline: { state: string; at: string }[] = [];
+  for (const row of chainRows) {
+    try {
+      const p = JSON.parse(row.payload) as { username?: unknown; state?: unknown; at?: unknown };
+      if (p.username !== event.driverUsername) continue;
+      if (typeof p.at !== "string" || typeof p.state !== "string") continue;
+      const atMs = Date.parse(p.at);
+      if (Number.isNaN(atMs) || atMs < windowStart || atMs > windowEnd) continue;
+      dutyTimeline.push({ state: p.state, at: p.at });
+    } catch { /* a malformed payload is not evidence */ }
+  }
+
+  const points = (
+    await db
+      .select()
+      .from(schema.trackPoints)
+      .where(eq(schema.trackPoints.username, event.driverUsername))
+      .orderBy(asc(schema.trackPoints.recordedAt))
+  ).filter((p) => p.recordedAt.getTime() >= windowStart && p.recordedAt.getTime() <= windowEnd);
+  let nearest: { lat: number; lon: number; atIso: string; minutesFromEvent: number } | null = null;
+  for (const p of points) {
+    const delta = Math.abs(p.recordedAt.getTime() - occurredMs);
+    if (!nearest || delta < Math.abs(Date.parse(nearest.atIso) - occurredMs)) {
+      nearest = {
+        lat: p.lat,
+        lon: p.lon,
+        atIso: p.recordedAt.toISOString(),
+        minutesFromEvent: Math.round(delta / 60000),
+      };
+    }
+  }
+
+  let load: Record<string, unknown> | null = null;
+  let dvirs: { inspectedAtIso: string; kind: string; status: string; defectCount: number }[] | null = null;
+  if (ownContext) {
+    if (loadId != null) {
+      const rows = await db.select().from(schema.loads).where(eq(schema.loads.id, loadId)).limit(1);
+      const l = rows[0];
+      if (l) {
+        load = {
+          id: l.id,
+          lane: laneTextOf(l),
+          referenceNumber: l.referenceNumber ?? null,
+          commodity: l.commodity ?? null,
+          status: l.status,
+          reeferSetpointF: l.reeferSetpointF ?? null,
+          reeferBandF: l.reeferBandF ?? null,
+        };
+      }
+    }
+    const dvirRows = await db.select().from(schema.dvirReports).orderBy(asc(schema.dvirReports.id));
+    dvirs = dvirRows
+      .filter((d) => d.inspectedAt.getTime() >= windowStart && d.inspectedAt.getTime() <= windowEnd)
+      .map((d) => {
+        let defectCount = 0;
+        try {
+          const parsed = JSON.parse(d.defectsJson) as unknown;
+          if (Array.isArray(parsed)) defectCount = parsed.length;
+        } catch { /* count stays 0 — the report row itself is the record */ }
+        return { inspectedAtIso: d.inspectedAt.toISOString(), kind: d.kind, status: d.status, defectCount };
+      });
+  }
+
+  const reeferTemps =
+    loadId != null
+      ? (
+          await db
+            .select()
+            .from(schema.trailerReadings)
+            .where(
+              and(
+                eq(schema.trailerReadings.driverUsername, event.driverUsername),
+                eq(schema.trailerReadings.loadId, loadId),
+                eq(schema.trailerReadings.kind, "reefer_temp"),
+              ),
+            )
+            .orderBy(asc(schema.trailerReadings.recordedAt))
+        ).map((r) => ({ atIso: r.recordedAt.toISOString(), tempF: r.tempF, source: r.source }))
+      : [];
+
+  const lastChain = await db
+    .select({ hash: schema.chainLog.hash })
+    .from(schema.chainLog)
+    .orderBy(desc(schema.chainLog.id))
+    .limit(1);
+
+  return {
+    assembledAt: new Date().toISOString(),
+    assembledBy: actor,
+    event: {
+      id: event.id,
+      kind: event.kind,
+      kindLabel: DASHCAM_KIND_LABELS[event.kind as DashcamEventKind] ?? event.kind,
+      severity: event.severity,
+      occurredAt: event.occurredAt.toISOString(),
+      clipRef: event.clipRef,
+      clipUrl: event.clipUrl,
+      partnerEventId: event.partnerEventId,
+      simulated: event.simulated,
+      driverNote: event.note,
+    },
+    load,
+    loadNote: ownContext
+      ? load
+        ? null
+        : "No load record was tied to this event in the driver's own scope."
+      : "Pinned from the desk: the load row and inspection reports live in the driver's own record scope, so this packet carries the event, the duty timeline, the track summary, and the reefer log. The driver can re-pin from their own account to add the load and inspection sections.",
+    dutyTimeline,
+    trackSummary: {
+      points: points.length,
+      fromIso: points[0]?.recordedAt.toISOString() ?? null,
+      toIso: points[points.length - 1]?.recordedAt.toISOString() ?? null,
+      nearest,
+    },
+    dvirs,
+    reeferTemps,
+    chainHeadAtPin: lastChain[0]?.hash ?? null,
+  };
 }
 
 // ---- STONEMILES SI helpers (2026-11-01) --------------------------------------
@@ -2750,10 +3300,17 @@ async function evaluateLoadAutonomy(
   // claim/assign/accept funnels, their loadId is a BOARD load id.
   // Fuel-card mismatch rows (kind fuel_card_mismatch, Wave 2
   // item 8) are the same shape again: managed by the geofence
-  // evaluation, their loadId is a FUEL PURCHASE id.
-  // Derivation never refreshes or auto-clears any of the three.
+  // evaluation, their loadId is a FUEL PURCHASE id. Reefer
+  // out-of-range rows (kind reefer_temp_out_of_range, Wave 2
+  // item 11) are the same shape a fourth time: managed by the
+  // trailer-reading ingest, their loadId is the reefer load id.
+  // Derivation never refreshes or auto-clears any of the four.
   const rows = (await db.select().from(schema.autoExceptions).where(eq(schema.autoExceptions.loadId, loadId))).filter(
-    (r) => r.kind !== "tender_blocked" && r.kind !== "dq_blocked" && r.kind !== "fuel_card_mismatch",
+    (r) =>
+      r.kind !== "tender_blocked" &&
+      r.kind !== "dq_blocked" &&
+      r.kind !== "fuel_card_mismatch" &&
+      r.kind !== "reefer_temp_out_of_range",
   );
   let opened = 0;
   let cleared = 0;
@@ -17833,19 +18390,51 @@ async function recordsBundleForCaller(ctx: Ctx): Promise<RecordsBundle> {
   const walk = await chainWalk(ctx);
 
   const loadRows = await db.select().from(schema.loads).orderBy(desc(schema.loads.id));
-  const loads = loadRows.map((l) => ({
-    id: l.id,
-    shipper: l.shipper,
-    lane: laneTextOf(l),
-    referenceNumber: l.referenceNumber ?? null,
-    commodity: l.commodity,
-    status: l.status,
-    rate: l.rate,
-    extraCharges: l.extraCharges ?? 0,
-    loadedMiles: l.loadedMiles,
-    sealed: !!pod.get(l.id)?.sealed,
-    deliveredAtIso: pod.get(l.id)?.sealedAt ?? null,
-  }));
+  // Smart-trailer reefer log (Wave 2 item 11): the device
+  // readings stored against each load ride the bundle as the
+  // load's temperature delivery proof.
+  const reeferRows = (
+    await db
+      .select()
+      .from(schema.trailerReadings)
+      .where(and(eq(schema.trailerReadings.driverUsername, me), eq(schema.trailerReadings.kind, "reefer_temp")))
+      .orderBy(asc(schema.trailerReadings.recordedAt))
+  ).filter((r) => r.loadId != null);
+  const reeferByLoad = new Map<number, typeof reeferRows>();
+  for (const r of reeferRows) {
+    const list = reeferByLoad.get(r.loadId!) ?? [];
+    list.push(r);
+    reeferByLoad.set(r.loadId!, list);
+  }
+  const loads = loadRows.map((l) => {
+    const temps = reeferByLoad.get(l.id) ?? [];
+    const range = reeferRangeForLoad(l);
+    return {
+      id: l.id,
+      shipper: l.shipper,
+      lane: laneTextOf(l),
+      referenceNumber: l.referenceNumber ?? null,
+      commodity: l.commodity,
+      status: l.status,
+      rate: l.rate,
+      extraCharges: l.extraCharges ?? 0,
+      loadedMiles: l.loadedMiles,
+      sealed: !!pod.get(l.id)?.sealed,
+      deliveredAtIso: pod.get(l.id)?.sealedAt ?? null,
+      reeferTemps:
+        temps.length > 0
+          ? {
+              rangeLabel: range ? `${range.minF}°F–${range.maxF}°F (setpoint ${range.setpointF}°F ± ${range.bandF}°F)` : null,
+              readings: temps.map((r) => ({
+                atIso: r.recordedAt.toISOString(),
+                tempF: r.tempF ?? 0,
+                source: r.source,
+                verdict: range && r.tempF != null ? reeferTempVerdict(r.tempF, range) : null,
+              })),
+            }
+          : null,
+    };
+  });
 
   const hosRows = await db
     .select()
@@ -18169,6 +18758,116 @@ async function resolveLibraryDocument(ctx: Ctx, ref: string): Promise<ResolvedLi
       sections: [{ heading: "Detention claim", lines: pack.text.split("\n").slice(2) }],
     });
     return { ok: true, error: null, docKind: "detention_claim", title, filename: `detention-claim-${r.id}.pdf`, mime: "application/pdf", bytes };
+  }
+
+  if (kind === "exoneration") {
+    // The exoneration packet (Wave 2 item 11): one dashcam event
+    // plus the sealed evidence snapshotted around it at pin time
+    // (event facts, duty timeline, track summary, DVIRs, reefer
+    // log) — the file a driver or fleet hands over when a claim
+    // or ticket questions what happened. Scope: the entry's own
+    // driver, or the owner/dispatch of the entry's company; a
+    // removed entry refuses with the removal fact, because a
+    // packet taken out of the vault is out.
+    const id = Number(parts[1]);
+    const rows = await db
+      .select()
+      .from(schema.exonerationVaultEntries)
+      .where(eq(schema.exonerationVaultEntries.id, id))
+      .limit(1);
+    const entry = rows[0];
+    if (!entry) return docRefused("exoneration");
+    let inScope = entry.driverUsername === me || entry.pinnedBy === me;
+    if (!inScope && entry.companyId != null) {
+      const mine = await myMembership(ctx, me);
+      inScope =
+        !!mine && mine.company.id === entry.companyId && (mine.role === "owner" || mine.role === "dispatch");
+    }
+    if (!inScope) return docRefused("exoneration");
+    if (entry.removedAt) {
+      return {
+        ...docRefused("exoneration"),
+        error: `This packet was removed from the exoneration vault on ${entry.removedAt.toISOString().slice(0, 10)}${entry.removedBy ? ` by ${entry.removedBy}` : ""}.`,
+      };
+    }
+    let ev: Record<string, unknown> = {};
+    try {
+      ev = JSON.parse(entry.evidenceJson) as Record<string, unknown>;
+    } catch { /* an unreadable snapshot renders as the entry's own facts */ }
+    const evEvent = (ev.event ?? {}) as Record<string, unknown>;
+    const duty = Array.isArray(ev.dutyTimeline) ? (ev.dutyTimeline as { state: string; at: string }[]) : [];
+    const track = (ev.trackSummary ?? {}) as { points?: number; fromIso?: string | null; toIso?: string | null; nearest?: { lat: number; lon: number; atIso: string; minutesFromEvent: number } | null };
+    const dvirs = Array.isArray(ev.dvirs) ? (ev.dvirs as { inspectedAtIso: string; kind: string; status: string; defectCount: number }[]) : null;
+    const reefer = Array.isArray(ev.reeferTemps) ? (ev.reeferTemps as { atIso: string; tempF: number | null; source: string }[]) : [];
+    const load = (ev.load ?? null) as Record<string, unknown> | null;
+    const title = `Exoneration packet - ${typeof evEvent.kindLabel === "string" ? evEvent.kindLabel : "dashcam event"} - ${entry.createdAt.toISOString().slice(0, 10)}`;
+    const bytes = libraryPdfBytes({
+      title,
+      subtitle: "Pinned in the STONEMILES exoneration vault — the dashcam event and the sealed records around it, snapshotted at pin time",
+      sections: [
+        {
+          heading: "Event",
+          lines: [
+            `Kind: ${typeof evEvent.kindLabel === "string" ? evEvent.kindLabel : String(evEvent.kind ?? "event")}`,
+            `Severity (as reported): ${String(evEvent.severity ?? "unspecified")}`,
+            `Happened: ${typeof evEvent.occurredAt === "string" ? evEvent.occurredAt : "not recorded"}`,
+            `Clip reference (held by the dashcam partner): ${String(evEvent.clipRef ?? "not recorded")}`,
+            ...(typeof evEvent.clipUrl === "string" && evEvent.clipUrl ? [`Clip link: ${evEvent.clipUrl}`] : []),
+            ...(evEvent.simulated === true ? ["THIS EVENT IS A SIMULATED TEST EVENT — it is not a real driving event."] : []),
+            ...(typeof evEvent.driverNote === "string" && evEvent.driverNote ? [`Driver's note: ${evEvent.driverNote}`] : []),
+            `Evidence snapshot hash: ${entry.evidenceHash ?? "not recorded"}`,
+          ],
+        },
+        ...(load
+          ? [
+              {
+                heading: "Load",
+                lines: [
+                  `Load #${String(load.id)} — ${String(load.lane ?? "")}`,
+                  ...(typeof load.referenceNumber === "string" ? [`Reference #: ${load.referenceNumber}`] : []),
+                  ...(typeof load.commodity === "string" ? [`Freight: ${load.commodity}`] : []),
+                  `Status: ${String(load.status ?? "")}`,
+                ],
+              },
+            ]
+          : typeof ev.loadNote === "string"
+            ? [{ heading: "Load", lines: [ev.loadNote as string] }]
+            : []),
+        {
+          heading: "Duty timeline (sealed, ±12 h around the event)",
+          lines: duty.length > 0 ? duty.map((d) => `${d.at} — ${d.state}`) : ["No sealed duty changes in the window."],
+        },
+        {
+          heading: "Track summary (recorded positions, ±12 h)",
+          lines: [
+            `Points recorded: ${track.points ?? 0}`,
+            ...(track.nearest
+              ? [`Nearest point to the event: ${track.nearest.lat}, ${track.nearest.lon} at ${track.nearest.atIso} (${track.nearest.minutesFromEvent} min from the event)`]
+              : ["No recorded position near the event."]),
+          ],
+        },
+        ...(dvirs != null
+          ? [
+              {
+                heading: "Inspection reports (DVIR, ±12 h)",
+                lines:
+                  dvirs.length > 0
+                    ? dvirs.map((d) => `${d.inspectedAtIso} — ${d.kind}, ${d.status}${d.defectCount > 0 ? `, ${d.defectCount} defect(s)` : ""}`)
+                    : ["No inspection reports in the window."],
+              },
+            ]
+          : []),
+        ...(reefer.length > 0
+          ? [
+              {
+                heading: "Reefer temperature log (trailer device)",
+                lines: reefer.map((r) => `${r.atIso} — ${r.tempF ?? "—"}°F${r.source === "simulated" ? " (SIMULATED)" : ""}`),
+              },
+            ]
+          : []),
+      ],
+    });
+    return { ok: true, error: null, docKind: "exoneration", title, filename: `exoneration-packet-${entry.id}.pdf`, mime: "application/pdf", bytes };
   }
 
   if (kind === "dqf") {
@@ -19600,6 +20299,110 @@ async function recruitingDoorFor(ctx: Ctx, companyId: number): Promise<Recruitin
 
 function recruitingDoorLive(door: RecruitingDoorRow | null, now: Date): boolean {
   return !!door && !door.revokedAt && (!door.expiresAt || door.expiresAt.getTime() > now.getTime());
+}
+
+// ---- Item-11 response shapes (video coaching / faults / trailer) -----------
+const dashcamEventShape = z.object({
+  id: z.number(),
+  driverUsername: z.string(),
+  kind: z.string(),
+  kindLabel: z.string(),
+  severity: z.string(),
+  occurredAt: z.string(),
+  clipRef: z.string(),
+  clipUrl: z.string().nullable(),
+  loadId: z.number().nullable(),
+  note: z.string().nullable(),
+  status: z.string(),
+  reviewedBy: z.string().nullable(),
+  simulated: z.boolean(),
+  partnerEventId: z.string().nullable(),
+});
+type DashcamEventShape = z.infer<typeof dashcamEventShape>;
+
+function toDashcamEventShape(r: DashcamEventRow): DashcamEventShape {
+  return {
+    id: r.id,
+    driverUsername: r.driverUsername,
+    kind: r.kind,
+    kindLabel: DASHCAM_KIND_LABELS[r.kind as DashcamEventKind] ?? r.kind,
+    severity: r.severity,
+    occurredAt: r.occurredAt.toISOString(),
+    clipRef: r.clipRef,
+    clipUrl: r.clipUrl,
+    loadId: r.loadId,
+    note: r.note,
+    status: r.status,
+    reviewedBy: r.reviewedBy,
+    simulated: r.simulated,
+    partnerEventId: r.partnerEventId,
+  };
+}
+
+const faultShape = z.object({
+  id: z.number(),
+  driverUsername: z.string(),
+  code: z.string(),
+  source: z.string(),
+  sourceNote: z.string().nullable(),
+  meaning: z.string().nullable(),
+  urgency: z.string(),
+  urgencyLabel: z.string(),
+  unknownNote: z.string().nullable(),
+  occurredAt: z.string(),
+  odometer: z.number().nullable(),
+  engineHours: z.number().nullable(),
+  maintenanceEntryId: z.number().nullable(),
+  simulated: z.boolean(),
+});
+type FaultShape = z.infer<typeof faultShape>;
+
+function toFaultShape(r: FaultReportRow): FaultShape {
+  return {
+    id: r.id,
+    driverUsername: r.driverUsername,
+    code: r.code,
+    source: r.source,
+    sourceNote: r.sourceNote,
+    meaning: r.meaning,
+    urgency: r.urgency,
+    urgencyLabel: FAULT_URGENCY_LABELS[r.urgency as FaultUrgency] ?? r.urgency,
+    unknownNote:
+      r.meaning == null
+        ? "No plain-language entry for this code yet — it's recorded exactly as reported. A shop can read it with a diagnostic tool."
+        : null,
+    occurredAt: r.occurredAt.toISOString(),
+    odometer: r.odometer,
+    engineHours: r.engineHours,
+    maintenanceEntryId: r.maintenanceEntryId,
+    simulated: r.simulated,
+  };
+}
+
+const vaultEntryShape = z.object({
+  id: z.number(),
+  eventId: z.number(),
+  loadId: z.number().nullable(),
+  driverUsername: z.string(),
+  packetRef: z.string(),
+  pinnedBy: z.string(),
+  removedAt: z.string().nullable(),
+  removedBy: z.string().nullable(),
+  createdAt: z.string(),
+});
+
+function toVaultShape(r: VaultEntryRow): z.infer<typeof vaultEntryShape> {
+  return {
+    id: r.id,
+    eventId: r.eventId,
+    loadId: r.loadId,
+    driverUsername: r.driverUsername,
+    packetRef: r.packetRef,
+    pinnedBy: r.pinnedBy,
+    removedAt: r.removedAt ? r.removedAt.toISOString() : null,
+    removedBy: r.removedBy,
+    createdAt: r.createdAt.toISOString(),
+  };
 }
 
 export const Actions = {
@@ -60296,6 +61099,1251 @@ export const Actions = {
         podSealedAt: shaped.podSealedAt,
         updatedAt: row.updatedAt.toISOString(),
       };
+    },
+  }),
+
+  // ---- Video coaching (Wave 2 item 11, Part A) ------------------------------
+  // The dashcam partner pushes events to the intake; the driver
+  // and their desk coach from the records here. The partner hosts
+  // the video — every surface below carries the clip REFERENCE,
+  // never bytes, and no response ever carries a connection's
+  // secret (last 4 at most; the full secret exists only in the
+  // create response, once).
+
+  getDashcamPanel: defineAction({
+    description:
+      "The driver's dashcam coaching panel: partner state, their events, repeat-pattern flags (facts only), and their exoneration vault entries. Managers also see their connections (secret last-4 only).",
+    request: z.object({}),
+    response: z.object({
+      partnerConfigured: z.boolean(),
+      partnerName: z.string().nullable(),
+      canManage: z.boolean(),
+      connections: z.array(
+        z.object({
+          id: z.number(),
+          label: z.string(),
+          provider: z.string().nullable(),
+          secretLast4: z.string().nullable(),
+          driverUsername: z.string().nullable(),
+          status: z.string(),
+          createdBy: z.string(),
+        }),
+      ),
+      events: z.array(dashcamEventShape),
+      patterns: z.array(
+        z.object({ kind: z.string(), label: z.string(), count: z.number(), windowDays: z.number(), line: z.string() }),
+      ),
+      vault: z.array(vaultEntryShape),
+    }),
+    async handler(ctx) {
+      const db = ctx.db<typeof schema>();
+      const scope = await safetyDeskScope(ctx);
+      const partner = dashcamPartnerFromEnv(process.env);
+      const canManage = safetyCanManage(scope);
+      let connections: DashcamConnectionRow[] = [];
+      if (canManage) {
+        const rows = await db.select().from(schema.dashcamConnections).orderBy(desc(schema.dashcamConnections.id));
+        connections = rows.filter((c) =>
+          scope.companyId != null ? c.companyId === scope.companyId : c.createdBy === scope.me,
+        );
+      }
+      const events = (
+        await db
+          .select()
+          .from(schema.dashcamEvents)
+          .where(eq(schema.dashcamEvents.driverUsername, scope.me))
+          .orderBy(desc(schema.dashcamEvents.occurredAt))
+      ).slice(0, 100);
+      const patterns = dashcamPatternFlags(
+        events.map((e) => ({ kind: e.kind, occurredAtMs: e.occurredAt.getTime() })),
+        { nowMs: Date.now() },
+      );
+      const vault = (
+        await db
+          .select()
+          .from(schema.exonerationVaultEntries)
+          .where(eq(schema.exonerationVaultEntries.driverUsername, scope.me))
+          .orderBy(desc(schema.exonerationVaultEntries.id))
+      ).slice(0, 100);
+      return {
+        partnerConfigured: partner != null,
+        partnerName: partner?.name ?? null,
+        canManage,
+        connections: connections.map((c) => ({
+          id: c.id,
+          label: c.label,
+          provider: c.provider,
+          secretLast4: c.secretLast4,
+          driverUsername: c.driverUsername,
+          status: c.status,
+          createdBy: c.createdBy,
+        })),
+        events: events.map(toDashcamEventShape),
+        patterns: patterns.map((p) => ({ kind: p.kind, label: p.label, count: p.count, windowDays: p.windowDays, line: p.line })),
+        vault: vault.map(toVaultShape),
+      };
+    },
+  }),
+
+  createDashcamConnection: defineAction({
+    description:
+      "Wire a dashcam partner webhook connection (fleet desk, or a solo driver for their own truck). Returns the shared secret ONCE — it is never shown again; the panel shows last-4 only after this.",
+    request: z.object({
+      label: z.string().min(1).max(120),
+      provider: z.string().max(60).nullable().optional(),
+      driverUsername: z.string().max(60).nullable().optional(),
+    }),
+    response: z.object({
+      ok: z.boolean(),
+      error: z.string().nullable(),
+      connectionId: z.number().nullable(),
+      secret: z.string().nullable(),
+      secretLast4: z.string().nullable(),
+    }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const scope = await safetyDeskScope(ctx);
+      if (!safetyCanManage(scope)) {
+        return { ok: false, error: "Only the fleet owner / dispatch can wire the fleet's dashcam connection.", connectionId: null, secret: null, secretLast4: null };
+      }
+      let driverUsername: string | null = null;
+      if (scope.companyId == null) {
+        driverUsername = scope.me;
+      } else if (args.driverUsername) {
+        const members = await db
+          .select()
+          .from(schema.companyMembers)
+          .where(eq(schema.companyMembers.companyId, scope.companyId));
+        if (!members.some((m) => m.username === args.driverUsername)) {
+          return { ok: false, error: "That driver isn't a member of this fleet.", connectionId: null, secret: null, secretLast4: null };
+        }
+        driverUsername = args.driverUsername;
+      }
+      const secret = base64UrlEncode(randomBytes(24));
+      const secretLast4 = secret.slice(-4);
+      const now = new Date();
+      const ins = await db
+        .insert(schema.dashcamConnections)
+        .values({
+          companyId: scope.companyId,
+          createdBy: scope.me,
+          label: args.label.trim(),
+          provider: args.provider?.trim() || null,
+          webhookSecret: secret,
+          secretLast4,
+          driverUsername,
+          status: "active",
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning({ id: schema.dashcamConnections.id });
+      const connectionId = ins[0]?.id;
+      if (connectionId == null) throw new Error("createDashcamConnection: insert returned no rows");
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "dashcam_connection_created",
+        payload: {
+          connectionId,
+          label: args.label.trim(),
+          companyId: scope.companyId,
+          driverUsername,
+          secretLast4,
+          by: scope.me,
+          at: now.toISOString(),
+        },
+      });
+      return { ok: true, error: null, connectionId, secret, secretLast4 };
+    },
+  }),
+
+  revokeDashcamConnection: defineAction({
+    description: "Revoke a dashcam connection — its webhook secret is wiped, so the partner's pushes stop landing.",
+    request: z.object({ connectionId: z.number().int().positive() }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const scope = await safetyDeskScope(ctx);
+      if (!safetyCanManage(scope)) {
+        return { ok: false, error: "Only the fleet owner / dispatch can revoke the fleet's dashcam connection." };
+      }
+      const rows = await db
+        .select()
+        .from(schema.dashcamConnections)
+        .where(eq(schema.dashcamConnections.id, args.connectionId))
+        .limit(1);
+      const conn = rows[0];
+      const inScope = !!conn && (scope.companyId != null ? conn.companyId === scope.companyId : conn.createdBy === scope.me);
+      if (!conn || !inScope) return { ok: false, error: "That connection doesn't exist in your scope." };
+      await db
+        .update(schema.dashcamConnections)
+        .set({ status: "revoked", webhookSecret: null, updatedAt: new Date() })
+        .where(eq(schema.dashcamConnections.id, conn.id));
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "dashcam_connection_revoked",
+        payload: { connectionId: conn.id, by: scope.me, at: new Date().toISOString() },
+      });
+      return { ok: true, error: null };
+    },
+  }),
+
+  ingestDashcamEvent: defineAction({
+    description:
+      "Public webhook intake (no account): a dashcam partner pushes one safety event, authenticated by the connection's shared secret. Refuses plainly — storing nothing — when no partner is configured; a re-push of the same partner event id is a duplicate, never a second record.",
+    request: z.object({
+      connectionId: z.number().int().positive(),
+      secret: z.string().min(8).max(200),
+      payload: z.record(z.string(), z.unknown()),
+    }),
+    response: z.object({
+      ok: z.boolean(),
+      error: z.string().nullable(),
+      eventId: z.number().nullable(),
+      duplicate: z.boolean(),
+    }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const partner = dashcamPartnerFromEnv(process.env);
+      if (!partner) {
+        return { ok: false, error: "Dashcam event intake isn't connected yet — no partner is configured, so nothing was stored.", eventId: null, duplicate: false };
+      }
+      const rows = await db
+        .select()
+        .from(schema.dashcamConnections)
+        .where(eq(schema.dashcamConnections.id, args.connectionId))
+        .limit(1);
+      const conn = rows[0];
+      if (!conn || conn.status !== "active" || !conn.webhookSecret || conn.webhookSecret !== args.secret) {
+        return { ok: false, error: "This webhook isn't recognized.", eventId: null, duplicate: false };
+      }
+      const v = validateDashcamEventPayload(args.payload);
+      if (!v.ok) {
+        return { ok: false, error: `That event didn't validate: ${v.errors.join("; ")}`, eventId: null, duplicate: false };
+      }
+      const ev = v.event;
+      let driverUsername: string | null = conn.driverUsername ?? ev.driverRef;
+      if (conn.driverUsername && ev.driverRef && ev.driverRef !== conn.driverUsername) {
+        return { ok: false, error: "That event names a different driver than this connection's.", eventId: null, duplicate: false };
+      }
+      if (conn.companyId != null) {
+        if (!driverUsername) {
+          return { ok: false, error: "That event doesn't name a driver.", eventId: null, duplicate: false };
+        }
+        const members = await db
+          .select()
+          .from(schema.companyMembers)
+          .where(eq(schema.companyMembers.companyId, conn.companyId));
+        if (!members.some((m) => m.username === driverUsername)) {
+          return { ok: false, error: "That event names a driver outside this fleet.", eventId: null, duplicate: false };
+        }
+      } else {
+        driverUsername = conn.driverUsername ?? conn.createdBy;
+      }
+      const existing = await db
+        .select()
+        .from(schema.dashcamEvents)
+        .where(
+          and(
+            eq(schema.dashcamEvents.connectionId, conn.id),
+            eq(schema.dashcamEvents.partnerEventId, ev.partnerEventId),
+          ),
+        )
+        .limit(1);
+      if (existing[0]) return { ok: true, error: null, eventId: existing[0].id, duplicate: true };
+      const now = new Date();
+      const ins = await db
+        .insert(schema.dashcamEvents)
+        .values({
+          connectionId: conn.id,
+          companyId: conn.companyId,
+          driverUsername,
+          partnerEventId: ev.partnerEventId,
+          kind: ev.kind,
+          severity: ev.severity,
+          occurredAt: new Date(ev.occurredAt),
+          clipRef: ev.clipRef,
+          clipUrl: ev.clipUrl,
+          loadId: null,
+          note: null,
+          status: "new",
+          reviewedBy: null,
+          reviewedAt: null,
+          simulated: false,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning({ id: schema.dashcamEvents.id });
+      const eventId = ins[0]?.id;
+      if (eventId == null) throw new Error("ingestDashcamEvent: insert returned no rows");
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "dashcam_event_received",
+        payload: {
+          eventId,
+          connectionId: conn.id,
+          driverUsername,
+          kind: ev.kind,
+          severity: ev.severity,
+          partnerEventId: ev.partnerEventId,
+          at: ev.occurredAt,
+        },
+      });
+      await recordNotificationSafe(ctx, {
+        username: driverUsername,
+        kind: "system",
+        title: "New dashcam event",
+        body: `${DASHCAM_KIND_LABELS[ev.kind]} recorded ${ev.occurredAt.slice(0, 10)} — it's in your coaching record. Add what happened while it's fresh.`,
+        refKind: "driver",
+        refId: null,
+      });
+      return { ok: true, error: null, eventId, duplicate: false };
+    },
+  }),
+
+  runDashcamTestEvent: defineAction({
+    description:
+      "Record a TEST dashcam event on the caller's own record — simulated, stamped simulated in the row itself, so the coaching flow can be tried before a partner is wired. Never presented as a real event.",
+    request: z.object({ kind: z.enum(DASHCAM_EVENT_KINDS) }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable(), eventId: z.number().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const scope = await safetyDeskScope(ctx);
+      const sim = simulatedDashcamEvent(new Date(), args.kind);
+      const now = new Date();
+      const ins = await db
+        .insert(schema.dashcamEvents)
+        .values({
+          connectionId: null,
+          companyId: scope.companyId,
+          driverUsername: scope.me,
+          partnerEventId: sim.partnerEventId,
+          kind: sim.kind,
+          severity: sim.severity,
+          occurredAt: new Date(sim.occurredAt),
+          clipRef: sim.clipRef,
+          clipUrl: null,
+          loadId: null,
+          note: null,
+          status: "new",
+          reviewedBy: null,
+          reviewedAt: null,
+          simulated: true,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning({ id: schema.dashcamEvents.id });
+      const eventId = ins[0]?.id;
+      if (eventId == null) throw new Error("runDashcamTestEvent: insert returned no rows");
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "dashcam_event_received",
+        payload: {
+          eventId,
+          connectionId: null,
+          driverUsername: scope.me,
+          kind: sim.kind,
+          severity: sim.severity,
+          simulated: true,
+          at: sim.occurredAt,
+        },
+      });
+      return { ok: true, error: null, eventId };
+    },
+  }),
+
+  noteDashcamEvent: defineAction({
+    description: "The driver attaches (or clears) their own note on a dashcam event — what happened, in their words.",
+    request: z.object({
+      eventId: z.number().int().positive(),
+      note: z.string().max(2000).nullable(),
+    }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const rows = await db
+        .select()
+        .from(schema.dashcamEvents)
+        .where(eq(schema.dashcamEvents.id, args.eventId))
+        .limit(1);
+      const ev = rows[0];
+      if (!ev || ev.driverUsername !== me) return { ok: false, error: "That event isn't on your record." };
+      await db
+        .update(schema.dashcamEvents)
+        .set({ note: args.note?.trim() || null, updatedAt: new Date() })
+        .where(eq(schema.dashcamEvents.id, ev.id));
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "dashcam_event_noted",
+        payload: { eventId: ev.id, by: me, at: new Date().toISOString() },
+      });
+      return { ok: true, error: null };
+    },
+  }),
+
+  reviewDashcamEvent: defineAction({
+    description: "Coaching workflow: mark an event reviewed or coached. The driver can mark their own; the fleet desk can mark their drivers'. Sealed either way.",
+    request: z.object({
+      eventId: z.number().int().positive(),
+      status: z.enum(["reviewed", "coached"]),
+    }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const scope = await safetyDeskScope(ctx);
+      const rows = await db
+        .select()
+        .from(schema.dashcamEvents)
+        .where(eq(schema.dashcamEvents.id, args.eventId))
+        .limit(1);
+      const ev = rows[0];
+      if (!ev) return { ok: false, error: "That event doesn't exist." };
+      const allowed =
+        ev.driverUsername === scope.me ||
+        (scope.isDesk && ev.companyId != null && ev.companyId === scope.companyId);
+      if (!allowed) return { ok: false, error: "That event isn't in your scope." };
+      const now = new Date();
+      await db
+        .update(schema.dashcamEvents)
+        .set({ status: args.status, reviewedBy: scope.me, reviewedAt: now, updatedAt: now })
+        .where(eq(schema.dashcamEvents.id, ev.id));
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "dashcam_event_reviewed",
+        payload: { eventId: ev.id, status: args.status, by: scope.me, at: now.toISOString() },
+      });
+      return { ok: true, error: null };
+    },
+  }),
+
+  pinExoneration: defineAction({
+    description:
+      "Pin a dashcam event to the exoneration vault: the event plus the sealed evidence around it (duty timeline, track summary, DVIRs, reefer log) is snapshotted into one Library packet (ref exoneration:{id}) whose hash is sealed. Idempotent — an event already pinned returns its entry.",
+    request: z.object({
+      eventId: z.number().int().positive(),
+      loadId: z.number().int().positive().nullable().optional(),
+    }),
+    response: z.object({
+      ok: z.boolean(),
+      error: z.string().nullable(),
+      entryId: z.number().nullable(),
+      packetRef: z.string().nullable(),
+    }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const scope = await safetyDeskScope(ctx);
+      const rows = await db
+        .select()
+        .from(schema.dashcamEvents)
+        .where(eq(schema.dashcamEvents.id, args.eventId))
+        .limit(1);
+      const ev = rows[0];
+      if (!ev) return { ok: false, error: "That event doesn't exist.", entryId: null, packetRef: null };
+      const allowed =
+        ev.driverUsername === scope.me ||
+        (scope.isDesk && ev.companyId != null && ev.companyId === scope.companyId);
+      if (!allowed) return { ok: false, error: "That event isn't in your scope.", entryId: null, packetRef: null };
+      const existing = await db
+        .select()
+        .from(schema.exonerationVaultEntries)
+        .where(eq(schema.exonerationVaultEntries.eventId, ev.id))
+        .orderBy(desc(schema.exonerationVaultEntries.id));
+      const active = existing.find((e) => e.removedAt == null);
+      if (active) return { ok: true, error: null, entryId: active.id, packetRef: active.packetRef };
+      const loadId = args.loadId ?? ev.loadId ?? null;
+      if (loadId != null && ev.loadId == null) {
+        await db
+          .update(schema.dashcamEvents)
+          .set({ loadId, updatedAt: new Date() })
+          .where(eq(schema.dashcamEvents.id, ev.id));
+      }
+      const evidence = await assembleExonerationEvidence(ctx, { ...ev, loadId }, loadId, scope.me);
+      const evidenceJson = JSON.stringify(evidence);
+      const evidenceHash = await sha256(evidenceJson);
+      const ins = await db
+        .insert(schema.exonerationVaultEntries)
+        .values({
+          eventId: ev.id,
+          loadId,
+          companyId: ev.companyId,
+          driverUsername: ev.driverUsername,
+          packetRef: "exoneration:pending",
+          evidenceJson,
+          evidenceHash,
+          pinnedBy: scope.me,
+          removedAt: null,
+          removedBy: null,
+          createdAt: new Date(),
+        })
+        .returning({ id: schema.exonerationVaultEntries.id });
+      const entryId = ins[0]?.id;
+      if (entryId == null) throw new Error("pinExoneration: insert returned no rows");
+      const packetRef = `exoneration:${entryId}`;
+      await db
+        .update(schema.exonerationVaultEntries)
+        .set({ packetRef })
+        .where(eq(schema.exonerationVaultEntries.id, entryId));
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "exoneration_pinned",
+        payload: { entryId, eventId: ev.id, loadId, packetRef, evidenceHash, by: scope.me, at: new Date().toISOString() },
+      });
+      return { ok: true, error: null, entryId, packetRef };
+    },
+  }),
+
+  removeExoneration: defineAction({
+    description:
+      "Remove a packet from the exoneration vault — an explicit, sealed move by the driver themselves or their fleet's owner. The entry is stamped removed, never deleted, and its packet stops resolving.",
+    request: z.object({ entryId: z.number().int().positive() }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const scope = await safetyDeskScope(ctx);
+      const rows = await db
+        .select()
+        .from(schema.exonerationVaultEntries)
+        .where(eq(schema.exonerationVaultEntries.id, args.entryId))
+        .limit(1);
+      const entry = rows[0];
+      if (!entry) return { ok: false, error: "That vault entry doesn't exist." };
+      const isOwner =
+        entry.companyId != null && scope.companyId === entry.companyId && scope.role === "owner";
+      if (entry.driverUsername !== scope.me && !isOwner) {
+        return { ok: false, error: "Only the driver, or their fleet's owner, can remove a vault packet." };
+      }
+      if (entry.removedAt) return { ok: true, error: null };
+      const now = new Date();
+      await db
+        .update(schema.exonerationVaultEntries)
+        .set({ removedAt: now, removedBy: scope.me })
+        .where(eq(schema.exonerationVaultEntries.id, entry.id));
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "exoneration_removed",
+        payload: { entryId: entry.id, eventId: entry.eventId, by: scope.me, at: now.toISOString() },
+      });
+      return { ok: true, error: null };
+    },
+  }),
+
+  // ---- Predictive maintenance (Wave 2 item 11, Part B) ----------------------
+  // Fault codes land by the driver's hand or through the ELD
+  // sync's fault_codes feed (materialized in applyEldSyncBatch).
+  // Meanings come only from the curated table in faultCodes.ts —
+  // an unknown code is recorded exactly as reported with no
+  // invented meaning. Stop-now / service-soon codes auto-draft a
+  // maintenance-log work order (recordFaultReport).
+
+  getFaultCodes: defineAction({
+    description:
+      "The driver's fault-code record plus maintenance due-soon flags computed from their sealed readings (odometer truth from the fuel log, DVIRs, daily logs, and fault reports — estimates, labelled as such).",
+    request: z.object({}),
+    response: z.object({
+      faults: z.array(faultShape),
+      dueFlags: z.array(
+        z.object({
+          item: z.string(),
+          state: z.string(),
+          milesLeft: z.number().nullable(),
+          dueAt: z.string().nullable(),
+          line: z.string(),
+        }),
+      ),
+      currentOdometer: z.number().nullable(),
+      odometerSource: z.string().nullable(),
+      latestEngineHours: z
+        .object({ value: z.number(), source: z.string(), simulated: z.boolean() })
+        .nullable(),
+    }),
+    async handler(ctx) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const faults = (
+        await db
+          .select()
+          .from(schema.faultReports)
+          .where(eq(schema.faultReports.driverUsername, me))
+          .orderBy(desc(schema.faultReports.occurredAt))
+      ).slice(0, 100);
+      // The sealed record's odometer truth — the same sources the
+      // maintenance countdown reads, plus fault reports.
+      const fuel = await db.select().from(schema.fuelPurchases);
+      const dvirs = await db.select().from(schema.dvirReports);
+      const dailyLogs = await db.select().from(schema.dailyLogs).where(eq(schema.dailyLogs.username, me));
+      let best: number | null = null;
+      let source: string | null = null;
+      const consider = (v: number | null | undefined, label: string) => {
+        if (v != null && Number.isFinite(v) && v > 0 && (best == null || v > best)) {
+          best = v;
+          source = label;
+        }
+      };
+      for (const f of fuel) consider(f.odometer, "your fuel log");
+      for (const d of dvirs) consider(d.odometer, "your DVIR");
+      for (const l of dailyLogs) {
+        consider(l.finishMiles, "your daily log");
+        consider(l.startMiles, "your daily log");
+      }
+      for (const f of faults) consider(f.odometer, "a fault report");
+      const services = await db.select().from(schema.maintenanceServices);
+      const dueFlags = maintenanceDueFlags({
+        services: services.map((s) => ({
+          item: s.item,
+          intervalMiles: s.intervalMiles,
+          lastDoneOdometer: s.lastDoneOdometer,
+          lastDoneAtMs: s.lastDoneAt ? s.lastDoneAt.getTime() : null,
+        })),
+        currentOdometer: best,
+        nowMs: Date.now(),
+      });
+      // Latest engine-hours reading: my fault reports first, then
+      // my ELD connections' vehicle_stats snapshots.
+      let latestEngineHours: { value: number; source: string; simulated: boolean } | null = null;
+      for (const f of faults) {
+        if (f.engineHours != null) {
+          latestEngineHours = { value: f.engineHours, source: "fault report", simulated: f.simulated };
+          break;
+        }
+      }
+      if (!latestEngineHours) {
+        const snaps = await db
+          .select()
+          .from(schema.eldSnapshots)
+          .where(eq(schema.eldSnapshots.feed, "vehicle_stats"))
+          .orderBy(desc(schema.eldSnapshots.id));
+        for (const s of snaps) {
+          try {
+            const p = JSON.parse(s.payloadJson) as { engineHours?: unknown; simulated?: unknown };
+            if (typeof p.engineHours === "number" && Number.isFinite(p.engineHours)) {
+              latestEngineHours = { value: p.engineHours, source: "ELD vehicle stats", simulated: p.simulated === true };
+              break;
+            }
+          } catch { /* an unreadable snapshot is not a reading */ }
+        }
+      }
+      return {
+        faults: faults.map(toFaultShape),
+        dueFlags: dueFlags.map((f) => ({
+          item: f.item,
+          state: f.state,
+          milesLeft: f.milesLeft,
+          dueAt: f.dueAtMs != null ? new Date(f.dueAtMs).toISOString() : null,
+          line: f.line,
+        })),
+        currentOdometer: best,
+        odometerSource: source,
+        latestEngineHours,
+      };
+    },
+  }),
+
+  reportFaultCode: defineAction({
+    description:
+      "Record a fault code by hand (off the dash, a scanner, a shop note). Known codes get their plain-language meaning and urgency from the curated table; a stop-now / service-soon code auto-drafts a maintenance-log work order. Unknown codes record exactly as reported.",
+    request: z.object({
+      code: z.string().min(1).max(40),
+      sourceNote: z.string().max(300).nullable().optional(),
+      odometer: z.number().nonnegative().max(10_000_000).nullable().optional(),
+      occurredAt: z.string().max(40).nullable().optional(),
+    }),
+    response: z.object({
+      ok: z.boolean(),
+      error: z.string().nullable(),
+      faultId: z.number().nullable(),
+      known: z.boolean(),
+      meaning: z.string().nullable(),
+      urgency: z.string().nullable(),
+      urgencyLabel: z.string().nullable(),
+      draftEntryId: z.number().nullable(),
+    }),
+    async handler(ctx, args) {
+      const scope = await safetyDeskScope(ctx);
+      const occurredAt =
+        args.occurredAt && Number.isFinite(Date.parse(args.occurredAt)) ? new Date(args.occurredAt) : new Date();
+      const { row } = await recordFaultReport(ctx, {
+        driverUsername: scope.me,
+        companyId: scope.companyId,
+        code: args.code,
+        source: "manual",
+        sourceNote: args.sourceNote?.trim() || null,
+        occurredAt,
+        odometer: args.odometer ?? null,
+        engineHours: null,
+        dedupeKey: null,
+        simulated: false,
+        actor: scope.me,
+      });
+      const lookup = lookupFaultCode(args.code);
+      return {
+        ok: true,
+        error: null,
+        faultId: row.id,
+        known: lookup.known,
+        meaning: lookup.meaning,
+        urgency: lookup.urgency,
+        urgencyLabel: FAULT_URGENCY_LABELS[lookup.urgency],
+        draftEntryId: row.maintenanceEntryId,
+      };
+    },
+  }),
+
+  // ---- Smart trailer (Wave 2 item 11, Part C) -------------------------------
+  // The trailer device belongs to a partner; the pairing here is
+  // the door, and the trailer itself stays the driver's My
+  // Trailer record. With no partner configured, sync refuses
+  // plainly and writes nothing — the simulated path is the only
+  // other way readings land, stamped simulated in the rows.
+
+  getTrailerTelemetry: defineAction({
+    description:
+      "The driver's smart-trailer panel: partner state, device pairings, the latest trailer position with its freshness printed, and the reefer temperature log per load (with the range each reading was judged against).",
+    request: z.object({}),
+    response: z.object({
+      partnerConfigured: z.boolean(),
+      partnerName: z.string().nullable(),
+      trailerLabel: z.string().nullable(),
+      connections: z.array(
+        z.object({
+          id: z.number(),
+          label: z.string(),
+          deviceRef: z.string().nullable(),
+          status: z.string(),
+        }),
+      ),
+      latestPosition: z
+        .object({
+          lat: z.number(),
+          lon: z.number(),
+          recordedAt: z.string(),
+          ageMinutes: z.number(),
+          freshness: z.string(),
+          line: z.string(),
+          source: z.string(),
+        })
+        .nullable(),
+      reeferLoads: z.array(
+        z.object({
+          loadId: z.number(),
+          lane: z.string(),
+          rangeLabel: z.string().nullable(),
+          readings: z.array(
+            z.object({
+              id: z.number(),
+              recordedAt: z.string(),
+              tempF: z.number(),
+              verdict: z.string().nullable(),
+              source: z.string(),
+            }),
+          ),
+        }),
+      ),
+      unattachedTempCount: z.number(),
+    }),
+    async handler(ctx) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const partner = trailerPartnerFromEnv(process.env);
+      const profRows = await db.select().from(schema.profile).where(eq(schema.profile.id, myProfileId(ctx))).limit(1);
+      const prof = profRows[0];
+      const trailerLabel = prof
+        ? [prof.trailerYear, prof.trailerMake, prof.trailerModel, prof.trailerType].filter(Boolean).join(" ") || null
+        : null;
+      const connections = (
+        await db
+          .select()
+          .from(schema.trailerConnections)
+          .where(eq(schema.trailerConnections.driverUsername, me))
+          .orderBy(desc(schema.trailerConnections.id))
+      ).map((c) => ({ id: c.id, label: c.label, deviceRef: c.deviceRef, status: c.status }));
+      const positions = await db
+        .select()
+        .from(schema.trailerReadings)
+        .where(and(eq(schema.trailerReadings.driverUsername, me), eq(schema.trailerReadings.kind, "position")))
+        .orderBy(desc(schema.trailerReadings.recordedAt));
+      const latest = positions[0];
+      const latestPosition = latest
+        ? {
+            lat: latest.lat ?? 0,
+            lon: latest.lon ?? 0,
+            recordedAt: latest.recordedAt.toISOString(),
+            ...trailerFreshness(latest.recordedAt.getTime(), Date.now()),
+            source: latest.source,
+          }
+        : null;
+      const temps = await db
+        .select()
+        .from(schema.trailerReadings)
+        .where(and(eq(schema.trailerReadings.driverUsername, me), eq(schema.trailerReadings.kind, "reefer_temp")))
+        .orderBy(asc(schema.trailerReadings.recordedAt));
+      const byLoad = new Map<number, typeof temps>();
+      let unattachedTempCount = 0;
+      for (const r of temps) {
+        if (r.loadId == null) {
+          unattachedTempCount++;
+          continue;
+        }
+        const list = byLoad.get(r.loadId) ?? [];
+        list.push(r);
+        byLoad.set(r.loadId, list);
+      }
+      const reeferLoads: {
+        loadId: number;
+        lane: string;
+        rangeLabel: string | null;
+        readings: { id: number; recordedAt: string; tempF: number; verdict: string | null; source: string }[];
+      }[] = [];
+      for (const [loadId, rows] of byLoad) {
+        const loadRows = await db.select().from(schema.loads).where(eq(schema.loads.id, loadId)).limit(1);
+        const load = loadRows[0];
+        const range = load ? reeferRangeForLoad(load) : null;
+        reeferLoads.push({
+          loadId,
+          lane: load ? laneTextOf(load) : `Load #${loadId}`,
+          rangeLabel: range ? `${range.minF}°F–${range.maxF}°F (setpoint ${range.setpointF}°F ± ${range.bandF}°F)` : null,
+          readings: rows.slice(-200).map((r) => ({
+            id: r.id,
+            recordedAt: r.recordedAt.toISOString(),
+            tempF: r.tempF ?? 0,
+            verdict: range && r.tempF != null ? reeferTempVerdict(r.tempF, range) : null,
+            source: r.source,
+          })),
+        });
+      }
+      return {
+        partnerConfigured: partner != null,
+        partnerName: partner?.name ?? null,
+        trailerLabel,
+        connections,
+        latestPosition,
+        reeferLoads,
+        unattachedTempCount,
+      };
+    },
+  }),
+
+  connectTrailerDevice: defineAction({
+    description:
+      "Pair a smart-trailer device to a driver (the desk pairs a fleet driver's; a solo driver pairs their own). The trailer itself stays the driver's My Trailer record — this is only the device door.",
+    request: z.object({
+      label: z.string().min(1).max(120),
+      deviceRef: z.string().max(120).nullable().optional(),
+      driverUsername: z.string().max(60).nullable().optional(),
+    }),
+    response: z.object({
+      ok: z.boolean(),
+      error: z.string().nullable(),
+      connectionId: z.number().nullable(),
+    }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const scope = await safetyDeskScope(ctx);
+      if (!safetyCanManage(scope)) {
+        return { ok: false, error: "Only the fleet owner / dispatch can pair the fleet's trailer devices.", connectionId: null };
+      }
+      let driverUsername = scope.me;
+      if (scope.companyId != null && args.driverUsername) {
+        const members = await db
+          .select()
+          .from(schema.companyMembers)
+          .where(eq(schema.companyMembers.companyId, scope.companyId));
+        if (!members.some((m) => m.username === args.driverUsername)) {
+          return { ok: false, error: "That driver isn't a member of this fleet.", connectionId: null };
+        }
+        driverUsername = args.driverUsername;
+      } else if (scope.companyId != null && scope.isDesk && args.driverUsername == null) {
+        driverUsername = scope.me;
+      }
+      const now = new Date();
+      const ins = await db
+        .insert(schema.trailerConnections)
+        .values({
+          companyId: scope.companyId,
+          createdBy: scope.me,
+          driverUsername,
+          label: args.label.trim(),
+          deviceRef: args.deviceRef?.trim() || null,
+          status: "active",
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning({ id: schema.trailerConnections.id });
+      const connectionId = ins[0]?.id;
+      if (connectionId == null) throw new Error("connectTrailerDevice: insert returned no rows");
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "trailer_device_connected",
+        payload: { connectionId, driverUsername, label: args.label.trim(), by: scope.me, at: now.toISOString() },
+      });
+      return { ok: true, error: null, connectionId };
+    },
+  }),
+
+  revokeTrailerDevice: defineAction({
+    description: "Revoke a trailer device pairing — its readings stop landing.",
+    request: z.object({ connectionId: z.number().int().positive() }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const scope = await safetyDeskScope(ctx);
+      const rows = await db
+        .select()
+        .from(schema.trailerConnections)
+        .where(eq(schema.trailerConnections.id, args.connectionId))
+        .limit(1);
+      const conn = rows[0];
+      if (!conn) return { ok: false, error: "That pairing doesn't exist." };
+      const allowed =
+        conn.driverUsername === scope.me ||
+        (scope.isDesk && conn.companyId != null && conn.companyId === scope.companyId);
+      if (!allowed) return { ok: false, error: "That pairing isn't in your scope." };
+      await db
+        .update(schema.trailerConnections)
+        .set({ status: "revoked", updatedAt: new Date() })
+        .where(eq(schema.trailerConnections.id, conn.id));
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "trailer_device_revoked",
+        payload: { connectionId: conn.id, by: scope.me, at: new Date().toISOString() },
+      });
+      return { ok: true, error: null };
+    },
+  }),
+
+  syncTrailerDevice: defineAction({
+    description:
+      "Pull the trailer partner's latest readings for one pairing. With no partner configured it refuses plainly and writes NOTHING. Reefer readings can be tied to one of the driver's loads (loadId) so they land in that load's temperature log.",
+    request: z.object({
+      connectionId: z.number().int().positive(),
+      loadId: z.number().int().positive().nullable().optional(),
+    }),
+    response: z.object({
+      ok: z.boolean(),
+      error: z.string().nullable(),
+      accepted: z.number(),
+      rejected: z.number(),
+      outOfRange: z.number(),
+      lines: z.array(z.string()),
+    }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const scope = await safetyDeskScope(ctx);
+      const rows = await db
+        .select()
+        .from(schema.trailerConnections)
+        .where(eq(schema.trailerConnections.id, args.connectionId))
+        .limit(1);
+      const conn = rows[0];
+      if (!conn) return { ok: false, error: "That pairing doesn't exist.", accepted: 0, rejected: 0, outOfRange: 0, lines: [] };
+      const allowed =
+        conn.driverUsername === scope.me ||
+        (scope.isDesk && conn.companyId != null && conn.companyId === scope.companyId);
+      if (!allowed) return { ok: false, error: "That pairing isn't in your scope.", accepted: 0, rejected: 0, outOfRange: 0, lines: [] };
+      if (conn.status !== "active") {
+        return { ok: false, error: "That pairing was revoked — pair the device again first.", accepted: 0, rejected: 0, outOfRange: 0, lines: [] };
+      }
+      const partner = trailerPartnerFromEnv(process.env);
+      if (!partner) {
+        return {
+          ok: false,
+          error: "No trailer partner is connected yet, so readings can't be pulled — nothing was written. The simulated test path works without a partner.",
+          accepted: 0,
+          rejected: 0,
+          outOfRange: 0,
+          lines: [],
+        };
+      }
+      if (!conn.deviceRef) {
+        return { ok: false, error: "This pairing has no device reference yet — add the partner's device id first.", accepted: 0, rejected: 0, outOfRange: 0, lines: [] };
+      }
+      const last = await db
+        .select()
+        .from(schema.trailerReadings)
+        .where(eq(schema.trailerReadings.connectionId, conn.id))
+        .orderBy(desc(schema.trailerReadings.recordedAt));
+      const sinceIso = last[0]?.recordedAt.toISOString() ?? new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      let raw: unknown[];
+      try {
+        raw = await partner.fetchReadings({ deviceRef: conn.deviceRef, sinceIso });
+      } catch (e) {
+        return { ok: false, error: `The trailer partner didn't answer: ${e instanceof Error ? e.message : "unknown error"}`, accepted: 0, rejected: 0, outOfRange: 0, lines: [] };
+      }
+      const r = await applyTrailerReadings(ctx, {
+        connection: conn,
+        driverUsername: conn.driverUsername,
+        companyId: conn.companyId,
+        rawReadings: raw,
+        source: "partner",
+        loadId: args.loadId ?? null,
+        actor: scope.me,
+      });
+      return { ok: true, error: null, ...r };
+    },
+  }),
+
+  runTrailerTestReadings: defineAction({
+    description:
+      "Run the simulated trailer device: a position + reefer reading through the real ingest path, stamped simulated in the rows themselves. Stands up a simulated pairing when none is named. Never presented as live device data.",
+    request: z.object({
+      connectionId: z.number().int().positive().nullable().optional(),
+      loadId: z.number().int().positive().nullable().optional(),
+    }),
+    response: z.object({
+      ok: z.boolean(),
+      error: z.string().nullable(),
+      accepted: z.number(),
+      rejected: z.number(),
+      outOfRange: z.number(),
+      lines: z.array(z.string()),
+      note: z.string().nullable(),
+    }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const scope = await safetyDeskScope(ctx);
+      let conn: TrailerConnectionRow | undefined;
+      if (args.connectionId != null) {
+        const rows = await db
+          .select()
+          .from(schema.trailerConnections)
+          .where(eq(schema.trailerConnections.id, args.connectionId))
+          .limit(1);
+        conn = rows[0];
+        if (!conn) return { ok: false, error: "That pairing doesn't exist.", accepted: 0, rejected: 0, outOfRange: 0, lines: [], note: null };
+        const allowed =
+          conn.driverUsername === scope.me ||
+          (scope.isDesk && conn.companyId != null && conn.companyId === scope.companyId);
+        if (!allowed) return { ok: false, error: "That pairing isn't in your scope.", accepted: 0, rejected: 0, outOfRange: 0, lines: [], note: null };
+      } else {
+        const mine = await db
+          .select()
+          .from(schema.trailerConnections)
+          .where(eq(schema.trailerConnections.driverUsername, scope.me))
+          .orderBy(desc(schema.trailerConnections.id));
+        conn = mine.find((c) => c.status === "active");
+        if (!conn) {
+          const now = new Date();
+          const ins = await db
+            .insert(schema.trailerConnections)
+            .values({
+              companyId: scope.companyId,
+              createdBy: scope.me,
+              driverUsername: scope.me,
+              label: "Simulated trailer device",
+              deviceRef: "SIMULATED",
+              status: "active",
+              createdAt: now,
+              updatedAt: now,
+            })
+            .returning();
+          conn = ins[0];
+          if (!conn) throw new Error("runTrailerTestReadings: simulated pairing insert returned no rows");
+          await appendChain(ctx, {
+            refKind: "driver",
+            refId: null,
+            sessionId: null,
+            event: "trailer_device_connected",
+            payload: { connectionId: conn.id, driverUsername: scope.me, label: "Simulated trailer device", simulated: true, by: scope.me, at: now.toISOString() },
+          });
+        }
+      }
+      const r = await applyTrailerReadings(ctx, {
+        connection: conn,
+        driverUsername: conn.driverUsername,
+        companyId: conn.companyId,
+        rawReadings: simulatedTrailerReadings(new Date()),
+        source: "simulated",
+        loadId: args.loadId ?? null,
+        actor: scope.me,
+      });
+      return {
+        ok: true,
+        error: null,
+        ...r,
+        note: "Simulated readings — test data flowed through the real ingest path and is stored stamped “simulated”. Live readings start when a trailer partner is connected.",
+      };
+    },
+  }),
+
+  setLoadReeferRange: defineAction({
+    description:
+      "Set the temperature range a load's reefer readings are judged against (stored as the load's setpoint ± band — the same pair the driver-entered reefer checks use).",
+    request: z.object({
+      loadId: z.number().int().positive(),
+      minF: z.number().min(-80).max(160),
+      maxF: z.number().min(-80).max(160),
+    }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      if (!(args.minF < args.maxF)) return { ok: false, error: "The low end of the range has to be below the high end." };
+      const rows = await db.select().from(schema.loads).where(eq(schema.loads.id, args.loadId)).limit(1);
+      const load = rows[0];
+      if (!load) return { ok: false, error: "That load doesn't exist on your record." };
+      const setpoint = Math.round(((args.minF + args.maxF) / 2) * 10) / 10;
+      const band = Math.round(((args.maxF - args.minF) / 2) * 10) / 10;
+      await db
+        .update(schema.loads)
+        .set({ reeferSetpointF: setpoint, reeferBandF: band })
+        .where(eq(schema.loads.id, load.id));
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: load.id,
+        sessionId: null,
+        event: "reefer_range_set",
+        payload: { loadId: load.id, minF: args.minF, maxF: args.maxF, setpointF: setpoint, bandF: band, at: new Date().toISOString() },
+      });
+      return { ok: true, error: null };
+    },
+  }),
+
+  // ---- Fleet safety view (Wave 2 item 11, desk) ------------------------------
+  getFleetSafety: defineAction({
+    description:
+      "The desk's safety view: per driver — dashcam events + pattern flags, exoneration vault entries, fault reports, and the latest trailer position with freshness. Facts only; no scores. Owner / dispatch of the fleet only.",
+    request: z.object({}),
+    response: z.object({
+      ok: z.boolean(),
+      error: z.string().nullable(),
+      drivers: z.array(
+        z.object({
+          username: z.string(),
+          role: z.string(),
+          events: z.array(dashcamEventShape),
+          patterns: z.array(
+            z.object({ kind: z.string(), label: z.string(), count: z.number(), windowDays: z.number(), line: z.string() }),
+          ),
+          vault: z.array(vaultEntryShape),
+          faults: z.array(faultShape),
+          trailerPosition: z
+            .object({
+              lat: z.number(),
+              lon: z.number(),
+              recordedAt: z.string(),
+              ageMinutes: z.number(),
+              freshness: z.string(),
+              line: z.string(),
+              source: z.string(),
+            })
+            .nullable(),
+        }),
+      ),
+    }),
+    async handler(ctx) {
+      const db = ctx.db<typeof schema>();
+      const scope = await safetyDeskScope(ctx);
+      if (!scope.isDesk || scope.companyId == null) {
+        return { ok: false, error: "The fleet safety view is for the fleet's owner / dispatch.", drivers: [] };
+      }
+      const members = await db
+        .select()
+        .from(schema.companyMembers)
+        .where(eq(schema.companyMembers.companyId, scope.companyId));
+      const drivers: {
+        username: string;
+        role: string;
+        events: DashcamEventShape[];
+        patterns: { kind: string; label: string; count: number; windowDays: number; line: string }[];
+        vault: z.infer<typeof vaultEntryShape>[];
+        faults: FaultShape[];
+        trailerPosition: {
+          lat: number;
+          lon: number;
+          recordedAt: string;
+          ageMinutes: number;
+          freshness: string;
+          line: string;
+          source: string;
+        } | null;
+      }[] = [];
+      for (const m of members) {
+        if (m.role !== "driver" && m.role !== "owner") continue;
+        const events = (
+          await db
+            .select()
+            .from(schema.dashcamEvents)
+            .where(
+              and(
+                eq(schema.dashcamEvents.companyId, scope.companyId),
+                eq(schema.dashcamEvents.driverUsername, m.username),
+              ),
+            )
+            .orderBy(desc(schema.dashcamEvents.occurredAt))
+        ).slice(0, 100);
+        const patterns = dashcamPatternFlags(
+          events.map((e) => ({ kind: e.kind, occurredAtMs: e.occurredAt.getTime() })),
+          { nowMs: Date.now() },
+        ).map((p) => ({ kind: p.kind, label: p.label, count: p.count, windowDays: p.windowDays, line: p.line }));
+        const vault = (
+          await db
+            .select()
+            .from(schema.exonerationVaultEntries)
+            .where(
+              and(
+                eq(schema.exonerationVaultEntries.companyId, scope.companyId),
+                eq(schema.exonerationVaultEntries.driverUsername, m.username),
+              ),
+            )
+            .orderBy(desc(schema.exonerationVaultEntries.id))
+        ).slice(0, 50);
+        const faults = (
+          await db
+            .select()
+            .from(schema.faultReports)
+            .where(
+              and(eq(schema.faultReports.companyId, scope.companyId), eq(schema.faultReports.driverUsername, m.username)),
+            )
+            .orderBy(desc(schema.faultReports.occurredAt))
+        ).slice(0, 50);
+        const positions = await db
+          .select()
+          .from(schema.trailerReadings)
+          .where(
+            and(
+              eq(schema.trailerReadings.driverUsername, m.username),
+              eq(schema.trailerReadings.kind, "position"),
+            ),
+          )
+          .orderBy(desc(schema.trailerReadings.recordedAt));
+        const latest = positions[0];
+        drivers.push({
+          username: m.username,
+          role: m.role,
+          events: events.slice(0, 20).map(toDashcamEventShape),
+          patterns,
+          vault: vault.map(toVaultShape),
+          faults: faults.map(toFaultShape),
+          trailerPosition: latest
+            ? {
+                lat: latest.lat ?? 0,
+                lon: latest.lon ?? 0,
+                recordedAt: latest.recordedAt.toISOString(),
+                ...trailerFreshness(latest.recordedAt.getTime(), Date.now()),
+                source: latest.source,
+              }
+            : null,
+        });
+      }
+      return { ok: true, error: null, drivers };
     },
   }),
 } satisfies ActionsModule;

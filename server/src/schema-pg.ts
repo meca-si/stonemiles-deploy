@@ -5623,3 +5623,170 @@ export const driverApplicationNotes = pgTable("driver_application_notes", {
     .notNull()
     .$defaultFn(() => new Date()),
 });
+
+// ---- Video coaching + predictive maintenance + smart trailer
+// (migration 0137, Research Wave 2 item 11) ----------------------
+// Company/username-scoped tables in the DQF pattern (no profileId
+// host stamp): the dashcam webhook intake has no driver session,
+// so these rows scope by their own company_id / driver_username
+// columns, enforced in the actions — the same reason
+// driver_applications is built that way.
+
+// A dashcam partner connection: one fleet (or solo driver) wires
+// one partner's webhook to it. The shared secret authenticates
+// the partner's pushes; it lives ONLY in this row, server-side —
+// actions return its last 4 at most, and the full secret is shown
+// exactly once, in the create response, so the fleet can paste it
+// into the partner's webhook config. Revoking wipes the secret.
+export const dashcamConnections = pgTable("dashcam_connections", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id"),
+  createdBy: text("created_by").notNull(),
+  label: text("label").notNull(),
+  provider: text("provider"),
+  webhookSecret: text("webhook_secret"),
+  secretLast4: text("secret_last4"),
+  // The driver every event on this connection belongs to, when
+  // the connection is one driver's (solo / single-truck setup).
+  // Null on fleet connections: the payload's driverRef names the
+  // driver and must match a fleet member.
+  driverUsername: text("driver_username"),
+  status: text("status").notNull().default("active"), // active | revoked
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+// One coaching record per dashcam event. The clip itself stays
+// with the partner — clip_ref / clip_url are the partner's
+// reference, never video bytes. status is the coaching workflow:
+// new → reviewed → coached (the desk's marks, chain-sealed).
+// simulated rows come only from the test path and carry the
+// marker in the data, like ELD test-sync snapshots.
+export const dashcamEvents = pgTable("dashcam_events", {
+  id: serial("id").primaryKey(),
+  connectionId: integer("connection_id"),
+  companyId: integer("company_id"),
+  driverUsername: text("driver_username").notNull(),
+  partnerEventId: text("partner_event_id"),
+  // harsh_braking | speeding | following_distance | collision |
+  // camera_obstruction
+  kind: text("kind").notNull(),
+  severity: text("severity").notNull().default("unspecified"),
+  occurredAt: timestamp("occurred_at", { withTimezone: true, mode: "date" }).notNull(),
+  clipRef: text("clip_ref").notNull(),
+  clipUrl: text("clip_url"),
+  loadId: integer("load_id"),
+  // The driver's own words on the event ("what happened").
+  note: text("note"),
+  status: text("status").notNull().default("new"), // new | reviewed | coached
+  reviewedBy: text("reviewed_by"),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true, mode: "date" }),
+  simulated: boolean("simulated").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+// The exoneration vault: a pinned event + the sealed evidence
+// around it, as one Library packet (ref exoneration:{id}). The
+// evidence summary is snapshotted into evidence_json AT PIN TIME
+// from the records the pinning context can see (the item-9
+// snapshot rule), with its hash sealed — the packet renders from
+// the snapshot, so it reads the same for the driver and their
+// desk. Entries are never auto-deleted; removal is an explicit
+// sealed action that stamps removed_at / removed_by.
+export const exonerationVaultEntries = pgTable("exoneration_vault_entries", {
+  id: serial("id").primaryKey(),
+  eventId: integer("event_id").notNull(),
+  loadId: integer("load_id"),
+  companyId: integer("company_id"),
+  driverUsername: text("driver_username").notNull(),
+  packetRef: text("packet_ref").notNull(),
+  evidenceJson: text("evidence_json").notNull().default("{}"),
+  evidenceHash: text("evidence_hash"),
+  pinnedBy: text("pinned_by").notNull(),
+  removedAt: timestamp("removed_at", { withTimezone: true, mode: "date" }),
+  removedBy: text("removed_by"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+// One row per fault code the truck reported — typed in by the
+// driver (source manual) or landed through the ELD sync's
+// fault_codes feed (source eld). meaning / urgency are the
+// faultCodes.ts lookup snapshotted at record time; an unknown
+// code stores meaning NULL and urgency "unknown" — recorded
+// exactly as reported, never given an invented meaning.
+// maintenance_entry_id links the work-order draft a stop-now /
+// service-soon code auto-created (the DVIR-defect pattern); the
+// driver/desk closes it through the maintenance log itself.
+export const faultReports = pgTable("fault_reports", {
+  id: serial("id").primaryKey(),
+  driverUsername: text("driver_username").notNull(),
+  companyId: integer("company_id"),
+  code: text("code").notNull(),
+  source: text("source").notNull(), // manual | eld
+  sourceNote: text("source_note"),
+  meaning: text("meaning"),
+  urgency: text("urgency").notNull().default("unknown"),
+  occurredAt: timestamp("occurred_at", { withTimezone: true, mode: "date" }).notNull(),
+  odometer: doublePrecision("odometer"),
+  engineHours: doublePrecision("engine_hours"),
+  maintenanceEntryId: integer("maintenance_entry_id"),
+  dedupeKey: text("dedupe_key"),
+  simulated: boolean("simulated").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+// A smart-trailer device pairing: the trailer telematics puck a
+// fleet runs on a trailer. Readings attribute to the pairing's
+// driver — the trailer itself is the driver's existing My
+// Trailer record; this table is only the device door, never a
+// second trailer registry.
+export const trailerConnections = pgTable("trailer_connections", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id"),
+  createdBy: text("created_by").notNull(),
+  driverUsername: text("driver_username").notNull(),
+  label: text("label").notNull(),
+  deviceRef: text("device_ref"),
+  status: text("status").notNull().default("active"), // active | revoked
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+// One row per trailer device reading: a GPS position or a reefer
+// temperature. Reefer readings taken under a load carry its id —
+// the temperature log that exports with the load's records
+// bundle as delivery proof. source partner | simulated; the
+// simulated marker is in the row, like every test path here.
+export const trailerReadings = pgTable("trailer_readings", {
+  id: serial("id").primaryKey(),
+  connectionId: integer("connection_id"),
+  companyId: integer("company_id"),
+  driverUsername: text("driver_username").notNull(),
+  kind: text("kind").notNull(), // position | reefer_temp
+  lat: doublePrecision("lat"),
+  lon: doublePrecision("lon"),
+  tempF: doublePrecision("temp_f"),
+  loadId: integer("load_id"),
+  source: text("source").notNull().default("partner"), // partner | simulated
+  recordedAt: timestamp("recorded_at", { withTimezone: true, mode: "date" }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});

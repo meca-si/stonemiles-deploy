@@ -8,6 +8,7 @@
 // Run: bun test server/src/eldSync.test.ts
 import { describe, expect, test } from "bun:test";
 import {
+  faultReportsFromPayload,
   simulatedEldPayloads,
   snapshotIsSimulated,
   summarizeEldSync,
@@ -148,5 +149,58 @@ describe("summarizeEldSync", () => {
     expect(s.rejected).toBe(1);
     expect(s.lines[0]).toBe("hos_clocks: received");
     expect(s.lines[1]).toContain("rejected");
+  });
+});
+
+describe("fault_codes — the telematics fault feed (Wave 2 item 11)", () => {
+  test("a well-formed fault payload validates", () => {
+    const v = validateEldFeedPayload("fault_codes", {
+      faults: [
+        { code: "P2463", occurredAt: "2026-11-15T09:00:00Z", odometerMi: 412000, engineHours: 11200, id: "flt-1" },
+        { code: "SPN 3216 FMI 4" },
+      ],
+    });
+    expect(v.ok).toBe(true);
+  });
+
+  test("codes must be non-empty strings; dressing fields must be sane when present", () => {
+    expect(validateEldFeedPayload("fault_codes", { faults: [{ code: "" }] }).ok).toBe(false);
+    expect(validateEldFeedPayload("fault_codes", { faults: [{ code: 42 }] }).ok).toBe(false);
+    expect(
+      validateEldFeedPayload("fault_codes", { faults: [{ code: "P0401", occurredAt: "soon" }] }).ok,
+    ).toBe(false);
+    expect(
+      validateEldFeedPayload("fault_codes", { faults: [{ code: "P0401", odometerMi: -5 }] }).ok,
+    ).toBe(false);
+    expect(
+      validateEldFeedPayload("fault_codes", { faults: [{ code: "P0401", engineHours: "many" }] }).ok,
+    ).toBe(false);
+    expect(validateEldFeedPayload("fault_codes", { faults: "P0401" }).ok).toBe(false);
+  });
+
+  test("the batch is capped at 100 entries", () => {
+    const faults = Array.from({ length: 101 }, (_, i) => ({ code: `P${1000 + i}` }));
+    const v = validateEldFeedPayload("fault_codes", { faults });
+    expect(v.ok).toBe(false);
+    if (!v.ok) expect(v.errors.join(" ")).toContain("capped at 100");
+  });
+
+  test("faultReportsFromPayload extracts entries, keeping the code exactly as reported", () => {
+    const out = faultReportsFromPayload({
+      faults: [
+        { code: "SPN 3216 FMI 4", occurredAt: "2026-11-15T09:00:00Z", odometerMi: 412000, id: "flt-9" },
+        { code: "P0401" },
+        { code: "" },
+        "junk",
+      ],
+    });
+    expect(out.length).toBe(2);
+    expect(out[0]!.code).toBe("SPN 3216 FMI 4"); // normalization happens at record time, not here
+    expect(out[0]!.partnerRef).toBe("flt-9");
+    expect(out[0]!.occurredAtIso).toBe("2026-11-15T09:00:00.000Z");
+    expect(out[1]!.occurredAtIso).toBeNull();
+    expect(out[1]!.partnerRef).toBeNull();
+    expect(faultReportsFromPayload({})).toEqual([]);
+    expect(faultReportsFromPayload(null)).toEqual([]);
   });
 });

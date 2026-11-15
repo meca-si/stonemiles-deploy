@@ -36,6 +36,18 @@
  *                    reconciliation's shape).
  * - identity:      { driver: {...}, truck: {...} } — the
  *                    eld_identity row's shape.
+ * - fault_codes:   { faults: [{ code, occurredAt?, odometerMi?,
+ *                    engineHours?, id? }] } — diagnostic trouble
+ *                    codes the device read off the truck. The
+ *                    batch applier materializes these into
+ *                    fault_reports rows (faultCodes.ts owns the
+ *                    plain-language table); the snapshot still
+ *                    stores the payload as received, like every
+ *                    feed. NOT in simulatedEldPayloads: the
+ *                    simulated set's shape is pinned by tests —
+ *                    the test path for faults is the fault
+ *                    panel's own simulated entry, stamped
+ *                    simulated in the row itself.
  *
  * Pure functions only. Unit-tested in eldSync.test.ts.
  */
@@ -47,6 +59,7 @@ export const ELD_SYNC_FEEDS = [
   "vehicle_stats",
   "ifta",
   "identity",
+  "fault_codes",
 ] as const;
 
 export type EldSyncFeed = (typeof ELD_SYNC_FEEDS)[number];
@@ -207,6 +220,65 @@ function validateIdentity(p: Record<string, unknown>): EldFeedValidation {
   return { ok: true, normalized };
 }
 
+function validateFaultCodes(p: Record<string, unknown>): EldFeedValidation {
+  if (!Array.isArray(p.faults)) return { ok: false, errors: ["faults must be an array"] };
+  if (p.faults.length > 100) return { ok: false, errors: ["faults is capped at 100 entries per sync"] };
+  const errors: string[] = [];
+  p.faults.forEach((entry, i) => {
+    if (!isRecord(entry)) {
+      errors.push(`faults[${i}] must be an object`);
+      return;
+    }
+    if (typeof entry.code !== "string" || entry.code.trim() === "") {
+      errors.push(`faults[${i}].code must be a non-empty string`);
+    }
+    if (entry.occurredAt !== undefined && (typeof entry.occurredAt !== "string" || Number.isNaN(Date.parse(entry.occurredAt)))) {
+      errors.push(`faults[${i}].occurredAt must be an ISO timestamp when present`);
+    }
+    if (entry.odometerMi !== undefined && !isFiniteNonNegative(entry.odometerMi)) {
+      errors.push(`faults[${i}].odometerMi must be a finite number ≥ 0 when present`);
+    }
+    if (entry.engineHours !== undefined && !isFiniteNonNegative(entry.engineHours)) {
+      errors.push(`faults[${i}].engineHours must be a finite number ≥ 0 when present`);
+    }
+  });
+  return errors.length > 0 ? { ok: false, errors } : { ok: true, normalized: p };
+}
+
+export interface EldFaultEntry {
+  /** The code exactly as the device reported it — normalization
+   *  and meaning live in faultCodes.ts, applied at record time. */
+  code: string;
+  occurredAtIso: string | null;
+  odometerMi: number | null;
+  engineHours: number | null;
+  /** The device's own id for this fault report, when it sends
+   *  one — half of the materialization dedupe key. */
+  partnerRef: string | null;
+}
+
+/** Pull the fault entries out of a VALIDATED fault_codes payload
+ *  (call validateEldFeedPayload first). Pure extraction — the
+ *  batch applier turns these into fault_reports rows. */
+export function faultReportsFromPayload(payload: unknown): EldFaultEntry[] {
+  if (!isRecord(payload) || !Array.isArray(payload.faults)) return [];
+  const out: EldFaultEntry[] = [];
+  for (const entry of payload.faults) {
+    if (!isRecord(entry) || typeof entry.code !== "string" || entry.code.trim() === "") continue;
+    out.push({
+      code: entry.code,
+      occurredAtIso:
+        typeof entry.occurredAt === "string" && !Number.isNaN(Date.parse(entry.occurredAt))
+          ? new Date(entry.occurredAt).toISOString()
+          : null,
+      odometerMi: isFiniteNonNegative(entry.odometerMi) ? entry.odometerMi : null,
+      engineHours: isFiniteNonNegative(entry.engineHours) ? entry.engineHours : null,
+      partnerRef: typeof entry.id === "string" && entry.id.trim() !== "" ? entry.id.trim() : null,
+    });
+  }
+  return out;
+}
+
 /** Validate one feed payload against its contract. Extra top-level
  * keys are preserved (snapshots store payloads as received); the
  * required shape is enforced strictly. */
@@ -228,6 +300,8 @@ export function validateEldFeedPayload(feed: string, payload: unknown): EldFeedV
       return validateIfta(payload);
     case "identity":
       return validateIdentity(payload);
+    case "fault_codes":
+      return validateFaultCodes(payload);
   }
 }
 

@@ -68,6 +68,8 @@ __export(exports_schema_sqlite, {
   companySetup: () => companySetup,
   credentialAlertDismissals: () => credentialAlertDismissals,
   dailyLogs: () => dailyLogs,
+  dashcamConnections: () => dashcamConnections,
+  dashcamEvents: () => dashcamEvents,
   detentionRecords: () => detentionRecords,
   dispatchFeeInvoices: () => dispatchFeeInvoices,
   dispatchFeePayments: () => dispatchFeePayments,
@@ -91,7 +93,9 @@ __export(exports_schema_sqlite, {
   eldConnections: () => eldConnections,
   eldIdentity: () => eldIdentity,
   eldSnapshots: () => eldSnapshots,
+  exonerationVaultEntries: () => exonerationVaultEntries,
   expenses: () => expenses,
+  faultReports: () => faultReports,
   filedDocCopies: () => filedDocCopies,
   fleetTrucks: () => fleetTrucks,
   follows: () => follows,
@@ -198,6 +202,8 @@ __export(exports_schema_sqlite, {
   teamSeats: () => teamSeats,
   totpCredentials: () => totpCredentials,
   trackPoints: () => trackPoints,
+  trailerConnections: () => trailerConnections,
+  trailerReadings: () => trailerReadings,
   trailerSwaps: () => trailerSwaps,
   trainingAttempts: () => trainingAttempts,
   trainingCompletions: () => trainingCompletions,
@@ -269,6 +275,8 @@ __export(exports_schema_pg, {
   companySetup: () => companySetup2,
   credentialAlertDismissals: () => credentialAlertDismissals2,
   dailyLogs: () => dailyLogs2,
+  dashcamConnections: () => dashcamConnections2,
+  dashcamEvents: () => dashcamEvents2,
   detentionRecords: () => detentionRecords2,
   dispatchFeeInvoices: () => dispatchFeeInvoices2,
   dispatchFeePayments: () => dispatchFeePayments2,
@@ -292,7 +300,9 @@ __export(exports_schema_pg, {
   eldConnections: () => eldConnections2,
   eldIdentity: () => eldIdentity2,
   eldSnapshots: () => eldSnapshots2,
+  exonerationVaultEntries: () => exonerationVaultEntries2,
   expenses: () => expenses2,
+  faultReports: () => faultReports2,
   filedDocCopies: () => filedDocCopies2,
   fleetTrucks: () => fleetTrucks2,
   follows: () => follows2,
@@ -399,6 +409,8 @@ __export(exports_schema_pg, {
   teamSeats: () => teamSeats2,
   totpCredentials: () => totpCredentials2,
   trackPoints: () => trackPoints2,
+  trailerConnections: () => trailerConnections2,
+  trailerReadings: () => trailerReadings2,
   trailerSwaps: () => trailerSwaps2,
   trainingAttempts: () => trainingAttempts2,
   trainingCompletions: () => trainingCompletions2,
@@ -10473,6 +10485,95 @@ var driverApplicationNotes = sqliteTable("driver_application_notes", {
   body: text2("body").notNull(),
   createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
 });
+var dashcamConnections = sqliteTable("dashcam_connections", {
+  id: integer3("id").primaryKey({ autoIncrement: true }),
+  companyId: integer3("company_id"),
+  createdBy: text2("created_by").notNull(),
+  label: text2("label").notNull(),
+  provider: text2("provider"),
+  webhookSecret: text2("webhook_secret"),
+  secretLast4: text2("secret_last4"),
+  driverUsername: text2("driver_username"),
+  status: text2("status").notNull().default("active"),
+  createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
+  updatedAt: integer3("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
+});
+var dashcamEvents = sqliteTable("dashcam_events", {
+  id: integer3("id").primaryKey({ autoIncrement: true }),
+  connectionId: integer3("connection_id"),
+  companyId: integer3("company_id"),
+  driverUsername: text2("driver_username").notNull(),
+  partnerEventId: text2("partner_event_id"),
+  kind: text2("kind").notNull(),
+  severity: text2("severity").notNull().default("unspecified"),
+  occurredAt: integer3("occurred_at", { mode: "timestamp_ms" }).notNull(),
+  clipRef: text2("clip_ref").notNull(),
+  clipUrl: text2("clip_url"),
+  loadId: integer3("load_id"),
+  note: text2("note"),
+  status: text2("status").notNull().default("new"),
+  reviewedBy: text2("reviewed_by"),
+  reviewedAt: integer3("reviewed_at", { mode: "timestamp_ms" }),
+  simulated: integer3("simulated", { mode: "boolean" }).notNull().default(false),
+  createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
+  updatedAt: integer3("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
+});
+var exonerationVaultEntries = sqliteTable("exoneration_vault_entries", {
+  id: integer3("id").primaryKey({ autoIncrement: true }),
+  eventId: integer3("event_id").notNull(),
+  loadId: integer3("load_id"),
+  companyId: integer3("company_id"),
+  driverUsername: text2("driver_username").notNull(),
+  packetRef: text2("packet_ref").notNull(),
+  evidenceJson: text2("evidence_json").notNull().default("{}"),
+  evidenceHash: text2("evidence_hash"),
+  pinnedBy: text2("pinned_by").notNull(),
+  removedAt: integer3("removed_at", { mode: "timestamp_ms" }),
+  removedBy: text2("removed_by"),
+  createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
+});
+var faultReports = sqliteTable("fault_reports", {
+  id: integer3("id").primaryKey({ autoIncrement: true }),
+  driverUsername: text2("driver_username").notNull(),
+  companyId: integer3("company_id"),
+  code: text2("code").notNull(),
+  source: text2("source").notNull(),
+  sourceNote: text2("source_note"),
+  meaning: text2("meaning"),
+  urgency: text2("urgency").notNull().default("unknown"),
+  occurredAt: integer3("occurred_at", { mode: "timestamp_ms" }).notNull(),
+  odometer: real2("odometer"),
+  engineHours: real2("engine_hours"),
+  maintenanceEntryId: integer3("maintenance_entry_id"),
+  dedupeKey: text2("dedupe_key"),
+  simulated: integer3("simulated", { mode: "boolean" }).notNull().default(false),
+  createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
+});
+var trailerConnections = sqliteTable("trailer_connections", {
+  id: integer3("id").primaryKey({ autoIncrement: true }),
+  companyId: integer3("company_id"),
+  createdBy: text2("created_by").notNull(),
+  driverUsername: text2("driver_username").notNull(),
+  label: text2("label").notNull(),
+  deviceRef: text2("device_ref"),
+  status: text2("status").notNull().default("active"),
+  createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
+  updatedAt: integer3("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
+});
+var trailerReadings = sqliteTable("trailer_readings", {
+  id: integer3("id").primaryKey({ autoIncrement: true }),
+  connectionId: integer3("connection_id"),
+  companyId: integer3("company_id"),
+  driverUsername: text2("driver_username").notNull(),
+  kind: text2("kind").notNull(),
+  lat: real2("lat"),
+  lon: real2("lon"),
+  tempF: real2("temp_f"),
+  loadId: integer3("load_id"),
+  source: text2("source").notNull().default("partner"),
+  recordedAt: integer3("recorded_at", { mode: "timestamp_ms" }).notNull(),
+  createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
+});
 
 // src/schema-pg.ts
 var profile2 = pgTable("profile", {
@@ -13067,6 +13168,95 @@ var driverApplicationNotes2 = pgTable("driver_application_notes", {
   body: text("body").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
 });
+var dashcamConnections2 = pgTable("dashcam_connections", {
+  id: serial("id").primaryKey(),
+  companyId: integer2("company_id"),
+  createdBy: text("created_by").notNull(),
+  label: text("label").notNull(),
+  provider: text("provider"),
+  webhookSecret: text("webhook_secret"),
+  secretLast4: text("secret_last4"),
+  driverUsername: text("driver_username"),
+  status: text("status").notNull().default("active"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
+});
+var dashcamEvents2 = pgTable("dashcam_events", {
+  id: serial("id").primaryKey(),
+  connectionId: integer2("connection_id"),
+  companyId: integer2("company_id"),
+  driverUsername: text("driver_username").notNull(),
+  partnerEventId: text("partner_event_id"),
+  kind: text("kind").notNull(),
+  severity: text("severity").notNull().default("unspecified"),
+  occurredAt: timestamp("occurred_at", { withTimezone: true, mode: "date" }).notNull(),
+  clipRef: text("clip_ref").notNull(),
+  clipUrl: text("clip_url"),
+  loadId: integer2("load_id"),
+  note: text("note"),
+  status: text("status").notNull().default("new"),
+  reviewedBy: text("reviewed_by"),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true, mode: "date" }),
+  simulated: boolean3("simulated").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
+});
+var exonerationVaultEntries2 = pgTable("exoneration_vault_entries", {
+  id: serial("id").primaryKey(),
+  eventId: integer2("event_id").notNull(),
+  loadId: integer2("load_id"),
+  companyId: integer2("company_id"),
+  driverUsername: text("driver_username").notNull(),
+  packetRef: text("packet_ref").notNull(),
+  evidenceJson: text("evidence_json").notNull().default("{}"),
+  evidenceHash: text("evidence_hash"),
+  pinnedBy: text("pinned_by").notNull(),
+  removedAt: timestamp("removed_at", { withTimezone: true, mode: "date" }),
+  removedBy: text("removed_by"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
+});
+var faultReports2 = pgTable("fault_reports", {
+  id: serial("id").primaryKey(),
+  driverUsername: text("driver_username").notNull(),
+  companyId: integer2("company_id"),
+  code: text("code").notNull(),
+  source: text("source").notNull(),
+  sourceNote: text("source_note"),
+  meaning: text("meaning"),
+  urgency: text("urgency").notNull().default("unknown"),
+  occurredAt: timestamp("occurred_at", { withTimezone: true, mode: "date" }).notNull(),
+  odometer: doublePrecision("odometer"),
+  engineHours: doublePrecision("engine_hours"),
+  maintenanceEntryId: integer2("maintenance_entry_id"),
+  dedupeKey: text("dedupe_key"),
+  simulated: boolean3("simulated").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
+});
+var trailerConnections2 = pgTable("trailer_connections", {
+  id: serial("id").primaryKey(),
+  companyId: integer2("company_id"),
+  createdBy: text("created_by").notNull(),
+  driverUsername: text("driver_username").notNull(),
+  label: text("label").notNull(),
+  deviceRef: text("device_ref"),
+  status: text("status").notNull().default("active"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
+});
+var trailerReadings2 = pgTable("trailer_readings", {
+  id: serial("id").primaryKey(),
+  connectionId: integer2("connection_id"),
+  companyId: integer2("company_id"),
+  driverUsername: text("driver_username").notNull(),
+  kind: text("kind").notNull(),
+  lat: doublePrecision("lat"),
+  lon: doublePrecision("lon"),
+  tempF: doublePrecision("temp_f"),
+  loadId: integer2("load_id"),
+  source: text("source").notNull().default("partner"),
+  recordedAt: timestamp("recorded_at", { withTimezone: true, mode: "date" }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
+});
 
 // src/schema.ts
 var impl = process.env.STONEMILES_DIALECT === "postgres" ? exports_schema_pg : exports_schema_sqlite;
@@ -13256,6 +13446,12 @@ var accountingSyncRecords3 = impl.accountingSyncRecords;
 var recruitingDoors3 = impl.recruitingDoors;
 var driverApplications3 = impl.driverApplications;
 var driverApplicationNotes3 = impl.driverApplicationNotes;
+var dashcamConnections3 = impl.dashcamConnections;
+var dashcamEvents3 = impl.dashcamEvents;
+var exonerationVaultEntries3 = impl.exonerationVaultEntries;
+var faultReports3 = impl.faultReports;
+var trailerConnections3 = impl.trailerConnections;
+var trailerReadings3 = impl.trailerReadings;
 var accounts3 = impl.accounts;
 var authSessions3 = impl.authSessions;
 var passwordResetTokens3 = impl.passwordResetTokens;
@@ -16578,6 +16774,12 @@ function buildRecordsBundle(input) {
       if (l.loadedMiles != null)
         bits.push(`${Math.round(l.loadedMiles)} loaded mi`);
       lines.push(bits.join(" \xB7 "));
+      if (l.reeferTemps && l.reeferTemps.readings.length > 0) {
+        lines.push(`  Reefer temperature log (trailer device readings${l.reeferTemps.rangeLabel ? `, load range ${l.reeferTemps.rangeLabel}` : ", no range set on this load \u2014 readings logged without judgement"}):`);
+        for (const r of l.reeferTemps.readings) {
+          lines.push(`    ${bundleDateTime(r.atIso)} \u2014 ${r.tempF}\xB0F${r.verdict ? ` (${r.verdict === "out_of_range" ? "OUT OF RANGE" : "in range"})` : ""}${r.source === "simulated" ? " \u2014 SIMULATED test reading" : ""}`);
+        }
+      }
     }
     if (moreLine)
       lines.push(moreLine);
@@ -17462,7 +17664,8 @@ var ELD_SYNC_FEEDS = [
   "dvirs",
   "vehicle_stats",
   "ifta",
-  "identity"
+  "identity",
+  "fault_codes"
 ];
 var DUTY_STATES = new Set(["off_duty", "sleeper", "on_duty", "driving"]);
 function isRecord(v) {
@@ -17626,6 +17829,49 @@ function validateIdentity(p) {
     return { ok: false, errors };
   return { ok: true, normalized };
 }
+function validateFaultCodes(p) {
+  if (!Array.isArray(p.faults))
+    return { ok: false, errors: ["faults must be an array"] };
+  if (p.faults.length > 100)
+    return { ok: false, errors: ["faults is capped at 100 entries per sync"] };
+  const errors = [];
+  p.faults.forEach((entry, i) => {
+    if (!isRecord(entry)) {
+      errors.push(`faults[${i}] must be an object`);
+      return;
+    }
+    if (typeof entry.code !== "string" || entry.code.trim() === "") {
+      errors.push(`faults[${i}].code must be a non-empty string`);
+    }
+    if (entry.occurredAt !== undefined && (typeof entry.occurredAt !== "string" || Number.isNaN(Date.parse(entry.occurredAt)))) {
+      errors.push(`faults[${i}].occurredAt must be an ISO timestamp when present`);
+    }
+    if (entry.odometerMi !== undefined && !isFiniteNonNegative(entry.odometerMi)) {
+      errors.push(`faults[${i}].odometerMi must be a finite number \u2265 0 when present`);
+    }
+    if (entry.engineHours !== undefined && !isFiniteNonNegative(entry.engineHours)) {
+      errors.push(`faults[${i}].engineHours must be a finite number \u2265 0 when present`);
+    }
+  });
+  return errors.length > 0 ? { ok: false, errors } : { ok: true, normalized: p };
+}
+function faultReportsFromPayload(payload) {
+  if (!isRecord(payload) || !Array.isArray(payload.faults))
+    return [];
+  const out = [];
+  for (const entry of payload.faults) {
+    if (!isRecord(entry) || typeof entry.code !== "string" || entry.code.trim() === "")
+      continue;
+    out.push({
+      code: entry.code,
+      occurredAtIso: typeof entry.occurredAt === "string" && !Number.isNaN(Date.parse(entry.occurredAt)) ? new Date(entry.occurredAt).toISOString() : null,
+      odometerMi: isFiniteNonNegative(entry.odometerMi) ? entry.odometerMi : null,
+      engineHours: isFiniteNonNegative(entry.engineHours) ? entry.engineHours : null,
+      partnerRef: typeof entry.id === "string" && entry.id.trim() !== "" ? entry.id.trim() : null
+    });
+  }
+  return out;
+}
 function validateEldFeedPayload(feed, payload) {
   if (!ELD_SYNC_FEEDS.includes(feed)) {
     return { ok: false, errors: [`unknown feed "${feed}"`] };
@@ -17645,6 +17891,8 @@ function validateEldFeedPayload(feed, payload) {
       return validateIfta(payload);
     case "identity":
       return validateIdentity(payload);
+    case "fault_codes":
+      return validateFaultCodes(payload);
   }
 }
 function snapshotIsSimulated(payloadJson) {
@@ -17795,6 +18043,380 @@ function parkingPartnerFromEnv(env, transport) {
       await call(`/reservations/${encodeURIComponent(partnerRef)}`, "DELETE");
     }
   };
+}
+
+// src/dashcam.ts
+var DASHCAM_EVENT_KINDS = [
+  "harsh_braking",
+  "speeding",
+  "following_distance",
+  "collision",
+  "camera_obstruction"
+];
+var DASHCAM_KIND_LABELS = {
+  harsh_braking: "Harsh braking",
+  speeding: "Speeding",
+  following_distance: "Following too close",
+  collision: "Collision",
+  camera_obstruction: "Camera obstructed"
+};
+var DASHCAM_SEVERITIES = ["low", "moderate", "high", "critical"];
+function dashcamPartnerFromEnv(env, _transport) {
+  const apiKey = env.DASHCAM_PARTNER_API_KEY?.trim();
+  if (!apiKey)
+    return null;
+  const name = env.DASHCAM_PARTNER_NAME?.trim() || "Dashcam partner";
+  return { name };
+}
+function isRecord2(v) {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+function strField(p, key) {
+  const v = p[key];
+  return typeof v === "string" && v.trim() !== "" ? v.trim() : null;
+}
+function validateDashcamEventPayload(payload) {
+  if (!isRecord2(payload))
+    return { ok: false, errors: ["payload must be a JSON object"] };
+  const errors = [];
+  const partnerEventId = strField(payload, "partnerEventId") ?? strField(payload, "eventId") ?? strField(payload, "id");
+  if (!partnerEventId)
+    errors.push("partnerEventId is required");
+  const kindRaw = strField(payload, "kind") ?? strField(payload, "eventType");
+  const kind = DASHCAM_EVENT_KINDS.includes(kindRaw ?? "") ? kindRaw : null;
+  if (!kind)
+    errors.push(`kind must be one of ${DASHCAM_EVENT_KINDS.join(", ")}`);
+  const occurredAt = strField(payload, "occurredAt") ?? strField(payload, "timestamp");
+  if (!occurredAt || Number.isNaN(Date.parse(occurredAt))) {
+    errors.push("occurredAt must be an ISO timestamp");
+  }
+  const clipRef = strField(payload, "clipRef") ?? strField(payload, "clipId") ?? strField(payload, "videoRef");
+  if (!clipRef)
+    errors.push("clipRef is required (the partner's reference for the clip)");
+  const sevRaw = strField(payload, "severity");
+  const severity = DASHCAM_SEVERITIES.includes(sevRaw ?? "") ? sevRaw : "unspecified";
+  if (errors.length > 0)
+    return { ok: false, errors };
+  return {
+    ok: true,
+    event: {
+      partnerEventId,
+      kind,
+      severity,
+      occurredAt: new Date(occurredAt).toISOString(),
+      clipRef,
+      clipUrl: strField(payload, "clipUrl"),
+      driverRef: strField(payload, "driverRef") ?? strField(payload, "driverId"),
+      loadRef: strField(payload, "loadRef")
+    }
+  };
+}
+function dashcamPatternFlags(events, opts) {
+  const windowDays = opts.windowDays ?? 30;
+  const threshold = opts.threshold ?? 3;
+  const since = opts.nowMs - windowDays * 24 * 60 * 60 * 1000;
+  const byKind = new Map;
+  for (const e of events) {
+    if (e.occurredAtMs < since || e.occurredAtMs > opts.nowMs)
+      continue;
+    if (!DASHCAM_EVENT_KINDS.includes(e.kind))
+      continue;
+    const list = byKind.get(e.kind) ?? [];
+    list.push(e.occurredAtMs);
+    byKind.set(e.kind, list);
+  }
+  const flags = [];
+  for (const [kind, times] of byKind) {
+    if (times.length < threshold)
+      continue;
+    times.sort((a, b) => a - b);
+    const label = DASHCAM_KIND_LABELS[kind];
+    flags.push({
+      kind,
+      label,
+      count: times.length,
+      windowDays,
+      firstAtIso: new Date(times[0]).toISOString(),
+      lastAtIso: new Date(times[times.length - 1]).toISOString(),
+      line: `${label}: ${times.length} events in the last ${windowDays} days.`
+    });
+  }
+  return flags.sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+}
+function simulatedDashcamEvent(now, kind) {
+  return {
+    partnerEventId: `sim-${now.getTime()}`,
+    kind,
+    severity: kind === "collision" ? "high" : "moderate",
+    occurredAt: now.toISOString(),
+    clipRef: "simulated-clip-reference",
+    clipUrl: null,
+    driverRef: null,
+    loadRef: null
+  };
+}
+
+// src/faultCodes.ts
+var E = (code, meaning, urgency, category) => ({ code, meaning, urgency, category });
+var FAULT_CODE_TABLE = [
+  E("P0217", "Engine overheating \u2014 the coolant temperature ran past the safe limit.", "stop_now", "engine"),
+  E("P0524", "Engine oil pressure too low.", "stop_now", "engine"),
+  E("P0606", "Engine computer (ECM/PCM) processor fault \u2014 the engine's own computer reported an internal failure.", "stop_now", "electrical"),
+  E("P0401", "Exhaust gas recirculation (EGR) flow too low \u2014 the EGR system isn't moving enough exhaust gas.", "service_soon", "engine"),
+  E("P0402", "Exhaust gas recirculation (EGR) flow too high \u2014 the EGR system is moving more exhaust gas than it should.", "service_soon", "engine"),
+  E("P2002", "Diesel particulate filter (DPF) efficiency below threshold \u2014 the soot filter isn't cleaning as it should.", "service_soon", "engine"),
+  E("P2459", "DPF regeneration happening too often \u2014 the filter is loading up faster than it should.", "service_soon", "engine"),
+  E("P2463", "DPF soot accumulation \u2014 the particulate filter is loaded with soot and needs regeneration or service.", "service_soon", "engine"),
+  E("P242F", "DPF restriction \u2014 ash accumulation in the particulate filter.", "service_soon", "engine"),
+  E("P207F", "DEF (reductant) quality problem \u2014 the DEF in the tank tested below standard. Bad DEF can start a derate countdown.", "service_soon", "engine"),
+  E("P20EE", "SCR NOx catalyst efficiency low \u2014 the emissions system isn't converting NOx as it should.", "service_soon", "engine"),
+  E("P229F", "NOx sensor circuit range/performance (sensor 2) \u2014 an emissions sensor is reading out of its expected range.", "service_soon", "electrical"),
+  E("P0087", "Fuel rail pressure too low \u2014 the engine isn't getting the fuel pressure it asked for.", "service_soon", "engine"),
+  E("P0088", "Fuel rail pressure too high \u2014 fuel pressure ran above the expected range.", "service_soon", "engine"),
+  E("P0300", "Random / multiple cylinder misfire \u2014 the engine is misfiring on more than one cylinder.", "service_soon", "engine"),
+  E("P0335", "Crankshaft position sensor circuit \u2014 the engine's timing reference signal has a problem.", "service_soon", "electrical"),
+  E("P0340", "Camshaft position sensor circuit \u2014 a timing sensor signal has a problem.", "service_soon", "electrical"),
+  E("P0101", "Mass air flow (MAF) sensor range/performance \u2014 the intake air reading is out of its expected range.", "service_soon", "electrical"),
+  E("P0500", "Vehicle speed sensor fault \u2014 the truck's speed signal has a problem.", "service_soon", "electrical"),
+  E("P0562", "System voltage low \u2014 charging voltage ran below the expected range.", "service_soon", "electrical"),
+  E("P0700", "Transmission control system \u2014 the transmission asked for the check-engine light. A transmission code is stored with it.", "service_soon", "transmission"),
+  E("P0715", "Transmission input / turbine speed sensor circuit \u2014 a transmission speed signal has a problem.", "service_soon", "transmission"),
+  E("P0113", "Intake air temperature sensor reading high \u2014 a sensor circuit is reading out of range.", "watch", "electrical"),
+  E("P0463", "Fuel level sensor reading high \u2014 the fuel gauge signal is out of range.", "watch", "electrical"),
+  E("P0571", "Cruise control / brake switch circuit \u2014 the brake switch signal the cruise uses has a problem.", "watch", "electrical"),
+  E("P0670", "Glow plug control module circuit \u2014 the cold-start aid system reported a problem.", "watch", "electrical"),
+  E("P0544", "Exhaust gas temperature sensor circuit (bank 1, sensor 1).", "watch", "electrical"),
+  E("P2033", "Exhaust gas temperature sensor reading high (bank 1, sensor 2).", "watch", "electrical"),
+  E("SPN3216", "Aftertreatment intake NOx sensor \u2014 the emissions sensor at the SCR inlet reported a problem.", "service_soon", "electrical"),
+  E("SPN3226", "Aftertreatment outlet NOx sensor \u2014 the emissions sensor at the SCR outlet reported a problem.", "service_soon", "electrical"),
+  E("SPN3364", "DEF (aftertreatment reductant) quality \u2014 the DEF tested below standard. Can start a derate countdown.", "service_soon", "engine"),
+  E("SPN4364", "SCR conversion efficiency low \u2014 the emissions system isn't converting NOx as it should.", "service_soon", "engine"),
+  E("SPN5246", "Aftertreatment SCR operator inducement \u2014 the emissions derate countdown is active. This is the code that precedes a speed/power derate.", "service_soon", "engine"),
+  E("SPN1761", "DEF tank level \u2014 the reductant tank level reading reported a problem or ran low.", "watch", "other"),
+  E("SPN168", "Battery / electrical potential \u2014 the truck's voltage reading reported a problem.", "watch", "electrical"),
+  E("SPN110", "Engine coolant temperature \u2014 the coolant temperature parameter reported a problem. Actual overheating is a stop-now condition.", "watch", "engine"),
+  E("SPN100", "Engine oil pressure \u2014 the oil pressure parameter reported a problem. Genuinely low oil pressure is a stop-now condition.", "watch", "engine"),
+  E("SPN102", "Intake manifold pressure \u2014 the boost pressure parameter reported a problem.", "watch", "engine")
+];
+var TABLE_BY_CODE = new Map(FAULT_CODE_TABLE.map((e) => [e.code, e]));
+function normalizeFaultCode(raw) {
+  const cleaned = raw.toUpperCase().replace(/[^A-Z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+  const spn = cleaned.match(/^SPN\s*(\d+)(?:\s+FMI\s*\d+)?$/);
+  if (spn)
+    return `SPN${spn[1]}`;
+  return cleaned.replace(/ /g, "");
+}
+function lookupFaultCode(raw) {
+  const code = normalizeFaultCode(raw);
+  const entry = TABLE_BY_CODE.get(code);
+  if (!entry) {
+    return {
+      code,
+      known: false,
+      meaning: null,
+      urgency: "unknown",
+      category: null,
+      note: "No plain-language entry for this code yet \u2014 it's recorded exactly as reported. A shop can read it with a diagnostic tool."
+    };
+  }
+  return { code, known: true, meaning: entry.meaning, urgency: entry.urgency, category: entry.category, note: null };
+}
+var FAULT_URGENCY_LABELS = {
+  stop_now: "Stop now",
+  service_soon: "Service soon",
+  watch: "Watch",
+  unknown: "Not classified"
+};
+function faultDraftsWorkOrder(urgency) {
+  return urgency === "stop_now" || urgency === "service_soon";
+}
+var MAINTENANCE_DUE_SOON_MILES = 1000;
+var MAINTENANCE_DUE_SOON_DAYS = 30;
+var TWELVE_MONTHS_MS = 365 * 24 * 60 * 60 * 1000;
+function maintenanceDueFlags(args) {
+  const soonMs = MAINTENANCE_DUE_SOON_DAYS * 24 * 60 * 60 * 1000;
+  return args.services.map((s) => {
+    const dateDueMs = s.item === "dot_inspection" && s.intervalMiles === 0 && s.lastDoneAtMs != null ? s.lastDoneAtMs + TWELVE_MONTHS_MS : null;
+    let milesLeft = null;
+    if (s.intervalMiles > 0 && s.lastDoneOdometer != null && args.currentOdometer != null) {
+      milesLeft = Math.round(s.lastDoneOdometer + s.intervalMiles - args.currentOdometer);
+    }
+    if (milesLeft == null && dateDueMs == null) {
+      return {
+        item: s.item,
+        state: "unknown",
+        milesLeft: null,
+        dueAtMs: null,
+        line: "Not enough recorded readings to place this one yet \u2014 it lands once the app has an odometer reading and a last-done mark."
+      };
+    }
+    if (milesLeft != null) {
+      if (milesLeft < 0) {
+        return {
+          item: s.item,
+          state: "overdue",
+          milesLeft,
+          dueAtMs: dateDueMs,
+          line: `About ${Math.abs(milesLeft).toLocaleString("en-US")} miles past its interval by the recorded odometer \u2014 an estimate from your own records.`
+        };
+      }
+      if (milesLeft <= MAINTENANCE_DUE_SOON_MILES) {
+        return {
+          item: s.item,
+          state: "due_soon",
+          milesLeft,
+          dueAtMs: dateDueMs,
+          line: `Due within about ${milesLeft.toLocaleString("en-US")} miles by the recorded odometer \u2014 an estimate from your own records.`
+        };
+      }
+      return {
+        item: s.item,
+        state: "ok",
+        milesLeft,
+        dueAtMs: dateDueMs,
+        line: `About ${milesLeft.toLocaleString("en-US")} miles of interval left by the recorded odometer \u2014 an estimate from your own records.`
+      };
+    }
+    const msLeft = dateDueMs - args.nowMs;
+    if (msLeft < 0) {
+      return {
+        item: s.item,
+        state: "overdue",
+        milesLeft: null,
+        dueAtMs: dateDueMs,
+        line: "Past its 12-month date by the recorded last-done date \u2014 an estimate from your own records."
+      };
+    }
+    if (msLeft <= soonMs) {
+      return {
+        item: s.item,
+        state: "due_soon",
+        milesLeft: null,
+        dueAtMs: dateDueMs,
+        line: `Due by ${new Date(dateDueMs).toISOString().slice(0, 10)} on the 12-month rule \u2014 an estimate from your own records.`
+      };
+    }
+    return {
+      item: s.item,
+      state: "ok",
+      milesLeft: null,
+      dueAtMs: dateDueMs,
+      line: `Due by ${new Date(dateDueMs).toISOString().slice(0, 10)} on the 12-month rule \u2014 an estimate from your own records.`
+    };
+  });
+}
+
+// src/trailerTelemetry.ts
+var TRAILER_FRESH_MAX_MIN = 15;
+var TRAILER_RECENT_MAX_MIN = 120;
+var REEFER_TELEMETRY_DEFAULT_BAND_F = 5;
+function trailerPartnerFromEnv(env, transport) {
+  const apiKey = env.TRAILER_PARTNER_API_KEY?.trim();
+  const baseUrl = env.TRAILER_PARTNER_BASE_URL?.trim();
+  if (!apiKey || !baseUrl)
+    return null;
+  const name = env.TRAILER_PARTNER_NAME?.trim() || "Trailer partner";
+  const fetchFn = transport ?? (async (url, init) => {
+    const r = await fetch(url, init);
+    return { ok: r.ok, status: r.status, json: () => r.json() };
+  });
+  return {
+    name,
+    async fetchReadings(req) {
+      const url = `${baseUrl.replace(/\/+$/, "")}/readings?device=${encodeURIComponent(req.deviceRef)}&since=${encodeURIComponent(req.sinceIso)}`;
+      const r = await fetchFn(url, {
+        method: "GET",
+        headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" }
+      });
+      if (!r.ok)
+        throw new Error(`trailer partner answered ${r.status}`);
+      const out = await r.json();
+      return Array.isArray(out) ? out : Array.isArray(out?.readings) ? out.readings : [];
+    }
+  };
+}
+function isRecord3(v) {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+function numIn(v, min, max) {
+  return typeof v === "number" && Number.isFinite(v) && v >= min && v <= max ? v : null;
+}
+function validateTrailerReading(raw) {
+  if (!isRecord3(raw))
+    return { ok: false, errors: ["reading must be a JSON object"] };
+  const errors = [];
+  const kindRaw = typeof raw.kind === "string" ? raw.kind : "";
+  const kind = kindRaw === "position" || kindRaw === "reefer_temp" ? kindRaw : null;
+  if (!kind)
+    errors.push("kind must be position or reefer_temp");
+  const recordedAtRaw = typeof raw.recordedAt === "string" ? raw.recordedAt : typeof raw.timestamp === "string" ? raw.timestamp : "";
+  if (!recordedAtRaw || Number.isNaN(Date.parse(recordedAtRaw))) {
+    errors.push("recordedAt must be an ISO timestamp");
+  }
+  let lat = null;
+  let lon = null;
+  let tempF = null;
+  if (kind === "position") {
+    lat = numIn(raw.lat, -90, 90);
+    lon = numIn(raw.lon, -180, 180);
+    if (lat == null || lon == null)
+      errors.push("a position reading needs a valid lat/lon pair");
+  }
+  if (kind === "reefer_temp") {
+    tempF = numIn(raw.tempF, -80, 160);
+    if (tempF == null)
+      errors.push("a reefer reading needs a plausible tempF");
+    const la = numIn(raw.lat, -90, 90);
+    const lo = numIn(raw.lon, -180, 180);
+    if (la != null && lo != null) {
+      lat = la;
+      lon = lo;
+    }
+  }
+  if (errors.length > 0 || !kind)
+    return { ok: false, errors };
+  return {
+    ok: true,
+    reading: {
+      kind,
+      lat,
+      lon,
+      tempF,
+      recordedAt: new Date(recordedAtRaw).toISOString(),
+      loadRef: typeof raw.loadRef === "string" && raw.loadRef.trim() !== "" ? raw.loadRef.trim() : null
+    }
+  };
+}
+function trailerFreshness(recordedAtMs, nowMs) {
+  const ageMinutes = Math.max(0, Math.round((nowMs - recordedAtMs) / 60000));
+  const freshness = ageMinutes <= TRAILER_FRESH_MAX_MIN ? "fresh" : ageMinutes <= TRAILER_RECENT_MAX_MIN ? "recent" : "stale";
+  const when = ageMinutes < 1 ? "just now" : ageMinutes < 60 ? `${ageMinutes} min ago` : `${Math.floor(ageMinutes / 60)} h ${ageMinutes % 60} min ago`;
+  return {
+    ageMinutes,
+    freshness,
+    line: `Last seen ${when} \u2014 the device reported then; this is not a live position.`
+  };
+}
+function reeferRangeForLoad(load) {
+  if (load.reeferSetpointF == null || !Number.isFinite(load.reeferSetpointF))
+    return null;
+  const band = load.reeferBandF != null && Number.isFinite(load.reeferBandF) && load.reeferBandF >= 0 ? load.reeferBandF : REEFER_TELEMETRY_DEFAULT_BAND_F;
+  return {
+    setpointF: load.reeferSetpointF,
+    bandF: band,
+    minF: Math.round((load.reeferSetpointF - band) * 10) / 10,
+    maxF: Math.round((load.reeferSetpointF + band) * 10) / 10
+  };
+}
+function reeferTempVerdict(tempF, range) {
+  return tempF < range.minF || tempF > range.maxF ? "out_of_range" : "in_range";
+}
+function simulatedTrailerReadings(now) {
+  const minsAgo = (m) => new Date(now.getTime() - m * 60000).toISOString();
+  return [
+    { kind: "position", lat: 30.69, lon: -88.04, tempF: null, recordedAt: minsAgo(4), loadRef: null },
+    { kind: "reefer_temp", lat: 30.69, lon: -88.04, tempF: 34.5, recordedAt: minsAgo(4), loadRef: null }
+  ];
 }
 
 // src/factoring.ts
@@ -22976,6 +23598,9 @@ async function applyEldSyncBatch(ctx, conn, batch, source) {
         truckJson: JSON.stringify(n.truck)
       });
     }
+    if (item.feed === "fault_codes") {
+      await materializeEldFaults(ctx, conn, item.payload, source === "test_harness");
+    }
     results.push({ feed: item.feed, ok: true, errors: [] });
   }
   const summary = summarizeEldSync(results);
@@ -23013,6 +23638,344 @@ async function applyEldSyncBatch(ctx, conn, batch, source) {
     }
   });
   return { results, ...summary, chainHash };
+}
+async function safetyDeskScope(ctx) {
+  const me = await myUsername(ctx);
+  const mine = await myMembership(ctx, me);
+  const isDesk = !!mine && (mine.role === "owner" || mine.role === "dispatch");
+  return { me, companyId: mine?.company.id ?? null, isDesk, role: mine?.role ?? null };
+}
+function safetyCanManage(scope) {
+  return scope.companyId == null || scope.isDesk;
+}
+async function recordFaultReport(ctx, args) {
+  const db = ctx.db();
+  if (args.dedupeKey) {
+    const existing = await db.select().from(faultReports3).where(eq(faultReports3.dedupeKey, args.dedupeKey)).limit(1);
+    if (existing[0])
+      return { row: existing[0], created: false };
+  }
+  const lookup = lookupFaultCode(args.code);
+  const ins = await db.insert(faultReports3).values({
+    driverUsername: args.driverUsername,
+    companyId: args.companyId,
+    code: lookup.code,
+    source: args.source,
+    sourceNote: args.sourceNote,
+    meaning: lookup.meaning,
+    urgency: lookup.urgency,
+    occurredAt: args.occurredAt,
+    odometer: args.odometer,
+    engineHours: args.engineHours,
+    maintenanceEntryId: null,
+    dedupeKey: args.dedupeKey,
+    simulated: args.simulated,
+    createdAt: new Date
+  }).returning();
+  const row = ins[0];
+  if (!row)
+    throw new Error("recordFaultReport: insert returned no rows");
+  let draftEntryId = null;
+  if (faultDraftsWorkOrder(lookup.urgency)) {
+    const draft = await db.insert(maintenanceLogEntries3).values({
+      performedAt: args.occurredAt,
+      odometer: args.odometer,
+      category: lookup.category ?? "other",
+      description: lookup.meaning ? `Fault code ${lookup.code} \u2014 ${lookup.meaning}`.slice(0, 240) : `Fault code ${lookup.code} \u2014 recorded as reported`.slice(0, 240),
+      shop: null,
+      cost: 0,
+      nextDueMiles: null,
+      nextDueAt: null,
+      notes: `Auto-drafted from a fault report (${args.source === "eld" ? "ELD sync" : "driver entry"} \u2014 ${FAULT_URGENCY_LABELS[lookup.urgency]}). Work the problem, then close this entry; closing it is the record the fault was handled. Fault report #${row.id}.`,
+      status: "draft"
+    }).returning({ id: maintenanceLogEntries3.id });
+    draftEntryId = draft[0]?.id ?? null;
+    if (draftEntryId != null) {
+      await db.update(faultReports3).set({ maintenanceEntryId: draftEntryId }).where(eq(faultReports3.id, row.id));
+      row.maintenanceEntryId = draftEntryId;
+    }
+  }
+  await appendChain(ctx, {
+    refKind: "driver",
+    refId: null,
+    sessionId: null,
+    event: "fault_code_reported",
+    payload: {
+      faultId: row.id,
+      driverUsername: args.driverUsername,
+      code: lookup.code,
+      source: args.source,
+      urgency: lookup.urgency,
+      known: lookup.known,
+      draftEntryId,
+      simulated: args.simulated,
+      by: args.actor,
+      at: args.occurredAt.toISOString()
+    }
+  });
+  return { row, created: true };
+}
+async function materializeEldFaults(ctx, conn, payload, simulated) {
+  const entries = faultReportsFromPayload(payload);
+  for (const e of entries) {
+    const lookup = lookupFaultCode(e.code);
+    await recordFaultReport(ctx, {
+      driverUsername: conn.connectedBy,
+      companyId: conn.companyId ?? null,
+      code: e.code,
+      source: "eld",
+      sourceNote: `ELD connection: ${conn.label}`,
+      occurredAt: e.occurredAtIso ? new Date(e.occurredAtIso) : new Date,
+      odometer: e.odometerMi,
+      engineHours: e.engineHours,
+      dedupeKey: `eld:${conn.id}:${e.partnerRef ?? `${lookup.code}:${e.occurredAtIso ?? "standing"}`}`,
+      simulated,
+      actor: conn.connectedBy
+    });
+  }
+}
+async function openReeferTempException(ctx, args) {
+  const db = ctx.db();
+  const dedupeKey = `${args.loadId}:reefer_temp_out_of_range`;
+  const open = await db.select().from(autoExceptions3).where(and(eq(autoExceptions3.dedupeKey, dedupeKey), eq(autoExceptions3.status, "open"))).limit(1);
+  if (open[0])
+    return false;
+  const detail = `Reefer temperature ${args.tempF}\xB0F is outside the load's range (${args.minF}\xB0F\u2013${args.maxF}\xB0F) \u2014 reading at ${args.recordedAt.toISOString()}${args.simulated ? " (SIMULATED test reading)" : ""}.`;
+  const ins = await db.insert(autoExceptions3).values({
+    loadId: args.loadId,
+    kind: "reefer_temp_out_of_range",
+    severity: 2,
+    detail,
+    evidenceJson: JSON.stringify([
+      { readingId: args.readingId, tempF: args.tempF, minF: args.minF, maxF: args.maxF, recordedAt: args.recordedAt.toISOString(), simulated: args.simulated }
+    ]),
+    driverUsername: args.driverUsername,
+    companyId: args.companyId,
+    brokerAccountId: null,
+    status: "open",
+    dedupeKey,
+    fingerprint: `reading:${args.readingId}`,
+    createdAt: new Date,
+    updatedAt: new Date
+  }).returning({ id: autoExceptions3.id });
+  const exceptionId = ins[0]?.id ?? null;
+  await appendChain(ctx, {
+    refKind: "load",
+    refId: args.loadId,
+    sessionId: null,
+    event: "reefer_temp_out_of_range",
+    payload: {
+      exceptionId,
+      loadId: args.loadId,
+      readingId: args.readingId,
+      tempF: args.tempF,
+      minF: args.minF,
+      maxF: args.maxF,
+      simulated: args.simulated,
+      at: args.recordedAt.toISOString()
+    }
+  });
+  await recordNotificationSafe(ctx, {
+    username: args.driverUsername,
+    kind: "system",
+    title: "Reefer temperature out of range",
+    body: detail,
+    dedupeKey,
+    refKind: "load",
+    refId: args.loadId
+  });
+  if (args.companyId != null) {
+    const members = await db.select().from(companyMembers3).where(eq(companyMembers3.companyId, args.companyId));
+    for (const m of members) {
+      if (m.role !== "owner" && m.role !== "dispatch")
+        continue;
+      if (m.username === args.driverUsername)
+        continue;
+      await recordNotificationSafe(ctx, {
+        username: m.username,
+        kind: "system",
+        title: `Reefer out of range \u2014 @${args.driverUsername}`,
+        body: detail,
+        dedupeKey,
+        refKind: "load",
+        refId: args.loadId
+      });
+    }
+  }
+  return true;
+}
+async function applyTrailerReadings(ctx, args) {
+  const db = ctx.db();
+  let accepted = 0;
+  let rejected = 0;
+  let outOfRange = 0;
+  const lines = [];
+  let load = null;
+  if (args.loadId != null) {
+    const rows = await db.select().from(loads3).where(eq(loads3.id, args.loadId)).limit(1);
+    load = rows[0] ?? null;
+  }
+  const range = load ? reeferRangeForLoad(load) : null;
+  for (const raw of args.rawReadings) {
+    const v = validateTrailerReading(raw);
+    if (!v.ok) {
+      rejected++;
+      lines.push(`rejected \u2014 ${v.errors.join("; ")}`);
+      continue;
+    }
+    const r = v.reading;
+    const ins = await db.insert(trailerReadings3).values({
+      connectionId: args.connection?.id ?? null,
+      companyId: args.companyId,
+      driverUsername: args.driverUsername,
+      kind: r.kind,
+      lat: r.lat,
+      lon: r.lon,
+      tempF: r.tempF,
+      loadId: r.kind === "reefer_temp" ? args.loadId : null,
+      source: args.source,
+      recordedAt: new Date(r.recordedAt),
+      createdAt: new Date
+    }).returning({ id: trailerReadings3.id });
+    const rowId = ins[0]?.id;
+    accepted++;
+    if (r.kind === "reefer_temp" && args.loadId != null && range && r.tempF != null && rowId != null) {
+      if (reeferTempVerdict(r.tempF, range) === "out_of_range") {
+        outOfRange++;
+        await openReeferTempException(ctx, {
+          loadId: args.loadId,
+          driverUsername: args.driverUsername,
+          companyId: args.companyId,
+          readingId: rowId,
+          tempF: r.tempF,
+          minF: range.minF,
+          maxF: range.maxF,
+          recordedAt: new Date(r.recordedAt),
+          simulated: args.source === "simulated"
+        });
+        lines.push(`reefer ${r.tempF}\xB0F at ${r.recordedAt} \u2014 OUT OF RANGE (${range.minF}\xB0F\u2013${range.maxF}\xB0F)`);
+        continue;
+      }
+      lines.push(`reefer ${r.tempF}\xB0F at ${r.recordedAt} \u2014 in range`);
+      continue;
+    }
+    lines.push(r.kind === "position" ? `position ${r.lat}, ${r.lon} at ${r.recordedAt}` : `reefer ${r.tempF}\xB0F at ${r.recordedAt}${args.loadId == null ? " (no load tied)" : " (no range on the load \u2014 logged without judgement)"}`);
+  }
+  if (accepted > 0) {
+    await appendChain(ctx, {
+      refKind: "driver",
+      refId: null,
+      sessionId: null,
+      event: "trailer_readings_received",
+      payload: {
+        driverUsername: args.driverUsername,
+        connectionId: args.connection?.id ?? null,
+        source: args.source,
+        simulated: args.source === "simulated",
+        accepted,
+        rejected,
+        outOfRange,
+        loadId: args.loadId,
+        by: args.actor,
+        at: new Date().toISOString()
+      }
+    });
+  }
+  return { accepted, rejected, outOfRange, lines };
+}
+async function assembleExonerationEvidence(ctx, event, loadId, actor) {
+  const db = ctx.db();
+  const occurredMs = event.occurredAt.getTime();
+  const windowStart = occurredMs - 12 * 60 * 60 * 1000;
+  const windowEnd = occurredMs + 12 * 60 * 60 * 1000;
+  const ownContext = actor === event.driverUsername;
+  const chainRows = await db.select().from(chainLog3).where(eq(chainLog3.event, "duty_change")).orderBy(asc(chainLog3.id));
+  const dutyTimeline = [];
+  for (const row of chainRows) {
+    try {
+      const p = JSON.parse(row.payload);
+      if (p.username !== event.driverUsername)
+        continue;
+      if (typeof p.at !== "string" || typeof p.state !== "string")
+        continue;
+      const atMs = Date.parse(p.at);
+      if (Number.isNaN(atMs) || atMs < windowStart || atMs > windowEnd)
+        continue;
+      dutyTimeline.push({ state: p.state, at: p.at });
+    } catch {}
+  }
+  const points = (await db.select().from(trackPoints3).where(eq(trackPoints3.username, event.driverUsername)).orderBy(asc(trackPoints3.recordedAt))).filter((p) => p.recordedAt.getTime() >= windowStart && p.recordedAt.getTime() <= windowEnd);
+  let nearest = null;
+  for (const p of points) {
+    const delta = Math.abs(p.recordedAt.getTime() - occurredMs);
+    if (!nearest || delta < Math.abs(Date.parse(nearest.atIso) - occurredMs)) {
+      nearest = {
+        lat: p.lat,
+        lon: p.lon,
+        atIso: p.recordedAt.toISOString(),
+        minutesFromEvent: Math.round(delta / 60000)
+      };
+    }
+  }
+  let load = null;
+  let dvirs = null;
+  if (ownContext) {
+    if (loadId != null) {
+      const rows = await db.select().from(loads3).where(eq(loads3.id, loadId)).limit(1);
+      const l = rows[0];
+      if (l) {
+        load = {
+          id: l.id,
+          lane: laneTextOf(l),
+          referenceNumber: l.referenceNumber ?? null,
+          commodity: l.commodity ?? null,
+          status: l.status,
+          reeferSetpointF: l.reeferSetpointF ?? null,
+          reeferBandF: l.reeferBandF ?? null
+        };
+      }
+    }
+    const dvirRows = await db.select().from(dvirReports3).orderBy(asc(dvirReports3.id));
+    dvirs = dvirRows.filter((d) => d.inspectedAt.getTime() >= windowStart && d.inspectedAt.getTime() <= windowEnd).map((d) => {
+      let defectCount = 0;
+      try {
+        const parsed = JSON.parse(d.defectsJson);
+        if (Array.isArray(parsed))
+          defectCount = parsed.length;
+      } catch {}
+      return { inspectedAtIso: d.inspectedAt.toISOString(), kind: d.kind, status: d.status, defectCount };
+    });
+  }
+  const reeferTemps = loadId != null ? (await db.select().from(trailerReadings3).where(and(eq(trailerReadings3.driverUsername, event.driverUsername), eq(trailerReadings3.loadId, loadId), eq(trailerReadings3.kind, "reefer_temp"))).orderBy(asc(trailerReadings3.recordedAt))).map((r) => ({ atIso: r.recordedAt.toISOString(), tempF: r.tempF, source: r.source })) : [];
+  const lastChain = await db.select({ hash: chainLog3.hash }).from(chainLog3).orderBy(desc(chainLog3.id)).limit(1);
+  return {
+    assembledAt: new Date().toISOString(),
+    assembledBy: actor,
+    event: {
+      id: event.id,
+      kind: event.kind,
+      kindLabel: DASHCAM_KIND_LABELS[event.kind] ?? event.kind,
+      severity: event.severity,
+      occurredAt: event.occurredAt.toISOString(),
+      clipRef: event.clipRef,
+      clipUrl: event.clipUrl,
+      partnerEventId: event.partnerEventId,
+      simulated: event.simulated,
+      driverNote: event.note
+    },
+    load,
+    loadNote: ownContext ? load ? null : "No load record was tied to this event in the driver's own scope." : "Pinned from the desk: the load row and inspection reports live in the driver's own record scope, so this packet carries the event, the duty timeline, the track summary, and the reefer log. The driver can re-pin from their own account to add the load and inspection sections.",
+    dutyTimeline,
+    trackSummary: {
+      points: points.length,
+      fromIso: points[0]?.recordedAt.toISOString() ?? null,
+      toIso: points[points.length - 1]?.recordedAt.toISOString() ?? null,
+      nearest
+    },
+    dvirs,
+    reeferTemps,
+    chainHeadAtPin: lastChain[0]?.hash ?? null
+  };
 }
 async function logSiEvent(ctx, args) {
   const db = ctx.db();
@@ -23922,7 +24885,7 @@ async function evaluateLoadAutonomy(ctx, loadId) {
     },
     now
   });
-  const rows = (await db.select().from(autoExceptions3).where(eq(autoExceptions3.loadId, loadId))).filter((r) => r.kind !== "tender_blocked" && r.kind !== "dq_blocked" && r.kind !== "fuel_card_mismatch");
+  const rows = (await db.select().from(autoExceptions3).where(eq(autoExceptions3.loadId, loadId))).filter((r) => r.kind !== "tender_blocked" && r.kind !== "dq_blocked" && r.kind !== "fuel_card_mismatch" && r.kind !== "reefer_temp_out_of_range");
   let opened = 0;
   let cleared = 0;
   for (const cand of candidates) {
@@ -33894,19 +34857,39 @@ async function recordsBundleForCaller(ctx) {
   const pod = await podStatusByLoad(ctx);
   const walk = await chainWalk(ctx);
   const loadRows = await db.select().from(loads3).orderBy(desc(loads3.id));
-  const loads = loadRows.map((l) => ({
-    id: l.id,
-    shipper: l.shipper,
-    lane: laneTextOf(l),
-    referenceNumber: l.referenceNumber ?? null,
-    commodity: l.commodity,
-    status: l.status,
-    rate: l.rate,
-    extraCharges: l.extraCharges ?? 0,
-    loadedMiles: l.loadedMiles,
-    sealed: !!pod.get(l.id)?.sealed,
-    deliveredAtIso: pod.get(l.id)?.sealedAt ?? null
-  }));
+  const reeferRows = (await db.select().from(trailerReadings3).where(and(eq(trailerReadings3.driverUsername, me), eq(trailerReadings3.kind, "reefer_temp"))).orderBy(asc(trailerReadings3.recordedAt))).filter((r) => r.loadId != null);
+  const reeferByLoad = new Map;
+  for (const r of reeferRows) {
+    const list = reeferByLoad.get(r.loadId) ?? [];
+    list.push(r);
+    reeferByLoad.set(r.loadId, list);
+  }
+  const loads = loadRows.map((l) => {
+    const temps = reeferByLoad.get(l.id) ?? [];
+    const range = reeferRangeForLoad(l);
+    return {
+      id: l.id,
+      shipper: l.shipper,
+      lane: laneTextOf(l),
+      referenceNumber: l.referenceNumber ?? null,
+      commodity: l.commodity,
+      status: l.status,
+      rate: l.rate,
+      extraCharges: l.extraCharges ?? 0,
+      loadedMiles: l.loadedMiles,
+      sealed: !!pod.get(l.id)?.sealed,
+      deliveredAtIso: pod.get(l.id)?.sealedAt ?? null,
+      reeferTemps: temps.length > 0 ? {
+        rangeLabel: range ? `${range.minF}\xB0F\u2013${range.maxF}\xB0F (setpoint ${range.setpointF}\xB0F \xB1 ${range.bandF}\xB0F)` : null,
+        readings: temps.map((r) => ({
+          atIso: r.recordedAt.toISOString(),
+          tempF: r.tempF ?? 0,
+          source: r.source,
+          verdict: range && r.tempF != null ? reeferTempVerdict(r.tempF, range) : null
+        }))
+      } : null
+    };
+  });
   const hosRows = await db.select().from(dailyLogs3).where(eq(dailyLogs3.username, me)).orderBy(desc(dailyLogs3.logDate));
   const hosDays = hosRows.map((d) => {
     let pretripResult = null;
@@ -34184,6 +35167,91 @@ async function resolveLibraryDocument(ctx, ref) {
 `).slice(2) }]
     });
     return { ok: true, error: null, docKind: "detention_claim", title, filename: `detention-claim-${r.id}.pdf`, mime: "application/pdf", bytes };
+  }
+  if (kind === "exoneration") {
+    const id = Number(parts[1]);
+    const rows = await db.select().from(exonerationVaultEntries3).where(eq(exonerationVaultEntries3.id, id)).limit(1);
+    const entry = rows[0];
+    if (!entry)
+      return docRefused("exoneration");
+    let inScope = entry.driverUsername === me || entry.pinnedBy === me;
+    if (!inScope && entry.companyId != null) {
+      const mine = await myMembership(ctx, me);
+      inScope = !!mine && mine.company.id === entry.companyId && (mine.role === "owner" || mine.role === "dispatch");
+    }
+    if (!inScope)
+      return docRefused("exoneration");
+    if (entry.removedAt) {
+      return {
+        ...docRefused("exoneration"),
+        error: `This packet was removed from the exoneration vault on ${entry.removedAt.toISOString().slice(0, 10)}${entry.removedBy ? ` by ${entry.removedBy}` : ""}.`
+      };
+    }
+    let ev = {};
+    try {
+      ev = JSON.parse(entry.evidenceJson);
+    } catch {}
+    const evEvent = ev.event ?? {};
+    const duty = Array.isArray(ev.dutyTimeline) ? ev.dutyTimeline : [];
+    const track = ev.trackSummary ?? {};
+    const dvirs = Array.isArray(ev.dvirs) ? ev.dvirs : null;
+    const reefer = Array.isArray(ev.reeferTemps) ? ev.reeferTemps : [];
+    const load = ev.load ?? null;
+    const title = `Exoneration packet - ${typeof evEvent.kindLabel === "string" ? evEvent.kindLabel : "dashcam event"} - ${entry.createdAt.toISOString().slice(0, 10)}`;
+    const bytes = libraryPdfBytes({
+      title,
+      subtitle: "Pinned in the STONEMILES exoneration vault \u2014 the dashcam event and the sealed records around it, snapshotted at pin time",
+      sections: [
+        {
+          heading: "Event",
+          lines: [
+            `Kind: ${typeof evEvent.kindLabel === "string" ? evEvent.kindLabel : String(evEvent.kind ?? "event")}`,
+            `Severity (as reported): ${String(evEvent.severity ?? "unspecified")}`,
+            `Happened: ${typeof evEvent.occurredAt === "string" ? evEvent.occurredAt : "not recorded"}`,
+            `Clip reference (held by the dashcam partner): ${String(evEvent.clipRef ?? "not recorded")}`,
+            ...typeof evEvent.clipUrl === "string" && evEvent.clipUrl ? [`Clip link: ${evEvent.clipUrl}`] : [],
+            ...evEvent.simulated === true ? ["THIS EVENT IS A SIMULATED TEST EVENT \u2014 it is not a real driving event."] : [],
+            ...typeof evEvent.driverNote === "string" && evEvent.driverNote ? [`Driver's note: ${evEvent.driverNote}`] : [],
+            `Evidence snapshot hash: ${entry.evidenceHash ?? "not recorded"}`
+          ]
+        },
+        ...load ? [
+          {
+            heading: "Load",
+            lines: [
+              `Load #${String(load.id)} \u2014 ${String(load.lane ?? "")}`,
+              ...typeof load.referenceNumber === "string" ? [`Reference #: ${load.referenceNumber}`] : [],
+              ...typeof load.commodity === "string" ? [`Freight: ${load.commodity}`] : [],
+              `Status: ${String(load.status ?? "")}`
+            ]
+          }
+        ] : typeof ev.loadNote === "string" ? [{ heading: "Load", lines: [ev.loadNote] }] : [],
+        {
+          heading: "Duty timeline (sealed, \xB112 h around the event)",
+          lines: duty.length > 0 ? duty.map((d) => `${d.at} \u2014 ${d.state}`) : ["No sealed duty changes in the window."]
+        },
+        {
+          heading: "Track summary (recorded positions, \xB112 h)",
+          lines: [
+            `Points recorded: ${track.points ?? 0}`,
+            ...track.nearest ? [`Nearest point to the event: ${track.nearest.lat}, ${track.nearest.lon} at ${track.nearest.atIso} (${track.nearest.minutesFromEvent} min from the event)`] : ["No recorded position near the event."]
+          ]
+        },
+        ...dvirs != null ? [
+          {
+            heading: "Inspection reports (DVIR, \xB112 h)",
+            lines: dvirs.length > 0 ? dvirs.map((d) => `${d.inspectedAtIso} \u2014 ${d.kind}, ${d.status}${d.defectCount > 0 ? `, ${d.defectCount} defect(s)` : ""}`) : ["No inspection reports in the window."]
+          }
+        ] : [],
+        ...reefer.length > 0 ? [
+          {
+            heading: "Reefer temperature log (trailer device)",
+            lines: reefer.map((r) => `${r.atIso} \u2014 ${r.tempF ?? "\u2014"}\xB0F${r.source === "simulated" ? " (SIMULATED)" : ""}`)
+          }
+        ] : []
+      ]
+    });
+    return { ok: true, error: null, docKind: "exoneration", title, filename: `exoneration-packet-${entry.id}.pdf`, mime: "application/pdf", bytes };
   }
   if (kind === "dqf") {
     const fileId = Number(parts[1]);
@@ -35334,6 +36402,98 @@ async function recruitingDoorFor(ctx, companyId) {
 }
 function recruitingDoorLive(door, now) {
   return !!door && !door.revokedAt && (!door.expiresAt || door.expiresAt.getTime() > now.getTime());
+}
+var dashcamEventShape = object({
+  id: number2(),
+  driverUsername: string2(),
+  kind: string2(),
+  kindLabel: string2(),
+  severity: string2(),
+  occurredAt: string2(),
+  clipRef: string2(),
+  clipUrl: string2().nullable(),
+  loadId: number2().nullable(),
+  note: string2().nullable(),
+  status: string2(),
+  reviewedBy: string2().nullable(),
+  simulated: boolean2(),
+  partnerEventId: string2().nullable()
+});
+function toDashcamEventShape(r) {
+  return {
+    id: r.id,
+    driverUsername: r.driverUsername,
+    kind: r.kind,
+    kindLabel: DASHCAM_KIND_LABELS[r.kind] ?? r.kind,
+    severity: r.severity,
+    occurredAt: r.occurredAt.toISOString(),
+    clipRef: r.clipRef,
+    clipUrl: r.clipUrl,
+    loadId: r.loadId,
+    note: r.note,
+    status: r.status,
+    reviewedBy: r.reviewedBy,
+    simulated: r.simulated,
+    partnerEventId: r.partnerEventId
+  };
+}
+var faultShape = object({
+  id: number2(),
+  driverUsername: string2(),
+  code: string2(),
+  source: string2(),
+  sourceNote: string2().nullable(),
+  meaning: string2().nullable(),
+  urgency: string2(),
+  urgencyLabel: string2(),
+  unknownNote: string2().nullable(),
+  occurredAt: string2(),
+  odometer: number2().nullable(),
+  engineHours: number2().nullable(),
+  maintenanceEntryId: number2().nullable(),
+  simulated: boolean2()
+});
+function toFaultShape(r) {
+  return {
+    id: r.id,
+    driverUsername: r.driverUsername,
+    code: r.code,
+    source: r.source,
+    sourceNote: r.sourceNote,
+    meaning: r.meaning,
+    urgency: r.urgency,
+    urgencyLabel: FAULT_URGENCY_LABELS[r.urgency] ?? r.urgency,
+    unknownNote: r.meaning == null ? "No plain-language entry for this code yet \u2014 it's recorded exactly as reported. A shop can read it with a diagnostic tool." : null,
+    occurredAt: r.occurredAt.toISOString(),
+    odometer: r.odometer,
+    engineHours: r.engineHours,
+    maintenanceEntryId: r.maintenanceEntryId,
+    simulated: r.simulated
+  };
+}
+var vaultEntryShape = object({
+  id: number2(),
+  eventId: number2(),
+  loadId: number2().nullable(),
+  driverUsername: string2(),
+  packetRef: string2(),
+  pinnedBy: string2(),
+  removedAt: string2().nullable(),
+  removedBy: string2().nullable(),
+  createdAt: string2()
+});
+function toVaultShape(r) {
+  return {
+    id: r.id,
+    eventId: r.eventId,
+    loadId: r.loadId,
+    driverUsername: r.driverUsername,
+    packetRef: r.packetRef,
+    pinnedBy: r.pinnedBy,
+    removedAt: r.removedAt ? r.removedAt.toISOString() : null,
+    removedBy: r.removedBy,
+    createdAt: r.createdAt.toISOString()
+  };
 }
 var Actions = {
   getBetaStatus: defineAction({
@@ -68268,6 +69428,964 @@ ${args.question}`, { schema: answerSchema });
         podSealedAt: shaped.podSealedAt,
         updatedAt: row.updatedAt.toISOString()
       };
+    }
+  }),
+  getDashcamPanel: defineAction({
+    description: "The driver's dashcam coaching panel: partner state, their events, repeat-pattern flags (facts only), and their exoneration vault entries. Managers also see their connections (secret last-4 only).",
+    request: object({}),
+    response: object({
+      partnerConfigured: boolean2(),
+      partnerName: string2().nullable(),
+      canManage: boolean2(),
+      connections: array(object({
+        id: number2(),
+        label: string2(),
+        provider: string2().nullable(),
+        secretLast4: string2().nullable(),
+        driverUsername: string2().nullable(),
+        status: string2(),
+        createdBy: string2()
+      })),
+      events: array(dashcamEventShape),
+      patterns: array(object({ kind: string2(), label: string2(), count: number2(), windowDays: number2(), line: string2() })),
+      vault: array(vaultEntryShape)
+    }),
+    async handler(ctx) {
+      const db = ctx.db();
+      const scope = await safetyDeskScope(ctx);
+      const partner = dashcamPartnerFromEnv(process.env);
+      const canManage = safetyCanManage(scope);
+      let connections = [];
+      if (canManage) {
+        const rows = await db.select().from(dashcamConnections3).orderBy(desc(dashcamConnections3.id));
+        connections = rows.filter((c) => scope.companyId != null ? c.companyId === scope.companyId : c.createdBy === scope.me);
+      }
+      const events = (await db.select().from(dashcamEvents3).where(eq(dashcamEvents3.driverUsername, scope.me)).orderBy(desc(dashcamEvents3.occurredAt))).slice(0, 100);
+      const patterns = dashcamPatternFlags(events.map((e) => ({ kind: e.kind, occurredAtMs: e.occurredAt.getTime() })), { nowMs: Date.now() });
+      const vault = (await db.select().from(exonerationVaultEntries3).where(eq(exonerationVaultEntries3.driverUsername, scope.me)).orderBy(desc(exonerationVaultEntries3.id))).slice(0, 100);
+      return {
+        partnerConfigured: partner != null,
+        partnerName: partner?.name ?? null,
+        canManage,
+        connections: connections.map((c) => ({
+          id: c.id,
+          label: c.label,
+          provider: c.provider,
+          secretLast4: c.secretLast4,
+          driverUsername: c.driverUsername,
+          status: c.status,
+          createdBy: c.createdBy
+        })),
+        events: events.map(toDashcamEventShape),
+        patterns: patterns.map((p) => ({ kind: p.kind, label: p.label, count: p.count, windowDays: p.windowDays, line: p.line })),
+        vault: vault.map(toVaultShape)
+      };
+    }
+  }),
+  createDashcamConnection: defineAction({
+    description: "Wire a dashcam partner webhook connection (fleet desk, or a solo driver for their own truck). Returns the shared secret ONCE \u2014 it is never shown again; the panel shows last-4 only after this.",
+    request: object({
+      label: string2().min(1).max(120),
+      provider: string2().max(60).nullable().optional(),
+      driverUsername: string2().max(60).nullable().optional()
+    }),
+    response: object({
+      ok: boolean2(),
+      error: string2().nullable(),
+      connectionId: number2().nullable(),
+      secret: string2().nullable(),
+      secretLast4: string2().nullable()
+    }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const scope = await safetyDeskScope(ctx);
+      if (!safetyCanManage(scope)) {
+        return { ok: false, error: "Only the fleet owner / dispatch can wire the fleet's dashcam connection.", connectionId: null, secret: null, secretLast4: null };
+      }
+      let driverUsername = null;
+      if (scope.companyId == null) {
+        driverUsername = scope.me;
+      } else if (args.driverUsername) {
+        const members = await db.select().from(companyMembers3).where(eq(companyMembers3.companyId, scope.companyId));
+        if (!members.some((m) => m.username === args.driverUsername)) {
+          return { ok: false, error: "That driver isn't a member of this fleet.", connectionId: null, secret: null, secretLast4: null };
+        }
+        driverUsername = args.driverUsername;
+      }
+      const secret = base64UrlEncode(randomBytes(24));
+      const secretLast4 = secret.slice(-4);
+      const now = new Date;
+      const ins = await db.insert(dashcamConnections3).values({
+        companyId: scope.companyId,
+        createdBy: scope.me,
+        label: args.label.trim(),
+        provider: args.provider?.trim() || null,
+        webhookSecret: secret,
+        secretLast4,
+        driverUsername,
+        status: "active",
+        createdAt: now,
+        updatedAt: now
+      }).returning({ id: dashcamConnections3.id });
+      const connectionId = ins[0]?.id;
+      if (connectionId == null)
+        throw new Error("createDashcamConnection: insert returned no rows");
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "dashcam_connection_created",
+        payload: {
+          connectionId,
+          label: args.label.trim(),
+          companyId: scope.companyId,
+          driverUsername,
+          secretLast4,
+          by: scope.me,
+          at: now.toISOString()
+        }
+      });
+      return { ok: true, error: null, connectionId, secret, secretLast4 };
+    }
+  }),
+  revokeDashcamConnection: defineAction({
+    description: "Revoke a dashcam connection \u2014 its webhook secret is wiped, so the partner's pushes stop landing.",
+    request: object({ connectionId: number2().int().positive() }),
+    response: object({ ok: boolean2(), error: string2().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const scope = await safetyDeskScope(ctx);
+      if (!safetyCanManage(scope)) {
+        return { ok: false, error: "Only the fleet owner / dispatch can revoke the fleet's dashcam connection." };
+      }
+      const rows = await db.select().from(dashcamConnections3).where(eq(dashcamConnections3.id, args.connectionId)).limit(1);
+      const conn = rows[0];
+      const inScope = !!conn && (scope.companyId != null ? conn.companyId === scope.companyId : conn.createdBy === scope.me);
+      if (!conn || !inScope)
+        return { ok: false, error: "That connection doesn't exist in your scope." };
+      await db.update(dashcamConnections3).set({ status: "revoked", webhookSecret: null, updatedAt: new Date }).where(eq(dashcamConnections3.id, conn.id));
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "dashcam_connection_revoked",
+        payload: { connectionId: conn.id, by: scope.me, at: new Date().toISOString() }
+      });
+      return { ok: true, error: null };
+    }
+  }),
+  ingestDashcamEvent: defineAction({
+    description: "Public webhook intake (no account): a dashcam partner pushes one safety event, authenticated by the connection's shared secret. Refuses plainly \u2014 storing nothing \u2014 when no partner is configured; a re-push of the same partner event id is a duplicate, never a second record.",
+    request: object({
+      connectionId: number2().int().positive(),
+      secret: string2().min(8).max(200),
+      payload: record(string2(), unknown())
+    }),
+    response: object({
+      ok: boolean2(),
+      error: string2().nullable(),
+      eventId: number2().nullable(),
+      duplicate: boolean2()
+    }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const partner = dashcamPartnerFromEnv(process.env);
+      if (!partner) {
+        return { ok: false, error: "Dashcam event intake isn't connected yet \u2014 no partner is configured, so nothing was stored.", eventId: null, duplicate: false };
+      }
+      const rows = await db.select().from(dashcamConnections3).where(eq(dashcamConnections3.id, args.connectionId)).limit(1);
+      const conn = rows[0];
+      if (!conn || conn.status !== "active" || !conn.webhookSecret || conn.webhookSecret !== args.secret) {
+        return { ok: false, error: "This webhook isn't recognized.", eventId: null, duplicate: false };
+      }
+      const v = validateDashcamEventPayload(args.payload);
+      if (!v.ok) {
+        return { ok: false, error: `That event didn't validate: ${v.errors.join("; ")}`, eventId: null, duplicate: false };
+      }
+      const ev = v.event;
+      let driverUsername = conn.driverUsername ?? ev.driverRef;
+      if (conn.driverUsername && ev.driverRef && ev.driverRef !== conn.driverUsername) {
+        return { ok: false, error: "That event names a different driver than this connection's.", eventId: null, duplicate: false };
+      }
+      if (conn.companyId != null) {
+        if (!driverUsername) {
+          return { ok: false, error: "That event doesn't name a driver.", eventId: null, duplicate: false };
+        }
+        const members = await db.select().from(companyMembers3).where(eq(companyMembers3.companyId, conn.companyId));
+        if (!members.some((m) => m.username === driverUsername)) {
+          return { ok: false, error: "That event names a driver outside this fleet.", eventId: null, duplicate: false };
+        }
+      } else {
+        driverUsername = conn.driverUsername ?? conn.createdBy;
+      }
+      const existing = await db.select().from(dashcamEvents3).where(and(eq(dashcamEvents3.connectionId, conn.id), eq(dashcamEvents3.partnerEventId, ev.partnerEventId))).limit(1);
+      if (existing[0])
+        return { ok: true, error: null, eventId: existing[0].id, duplicate: true };
+      const now = new Date;
+      const ins = await db.insert(dashcamEvents3).values({
+        connectionId: conn.id,
+        companyId: conn.companyId,
+        driverUsername,
+        partnerEventId: ev.partnerEventId,
+        kind: ev.kind,
+        severity: ev.severity,
+        occurredAt: new Date(ev.occurredAt),
+        clipRef: ev.clipRef,
+        clipUrl: ev.clipUrl,
+        loadId: null,
+        note: null,
+        status: "new",
+        reviewedBy: null,
+        reviewedAt: null,
+        simulated: false,
+        createdAt: now,
+        updatedAt: now
+      }).returning({ id: dashcamEvents3.id });
+      const eventId = ins[0]?.id;
+      if (eventId == null)
+        throw new Error("ingestDashcamEvent: insert returned no rows");
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "dashcam_event_received",
+        payload: {
+          eventId,
+          connectionId: conn.id,
+          driverUsername,
+          kind: ev.kind,
+          severity: ev.severity,
+          partnerEventId: ev.partnerEventId,
+          at: ev.occurredAt
+        }
+      });
+      await recordNotificationSafe(ctx, {
+        username: driverUsername,
+        kind: "system",
+        title: "New dashcam event",
+        body: `${DASHCAM_KIND_LABELS[ev.kind]} recorded ${ev.occurredAt.slice(0, 10)} \u2014 it's in your coaching record. Add what happened while it's fresh.`,
+        refKind: "driver",
+        refId: null
+      });
+      return { ok: true, error: null, eventId, duplicate: false };
+    }
+  }),
+  runDashcamTestEvent: defineAction({
+    description: "Record a TEST dashcam event on the caller's own record \u2014 simulated, stamped simulated in the row itself, so the coaching flow can be tried before a partner is wired. Never presented as a real event.",
+    request: object({ kind: _enum(DASHCAM_EVENT_KINDS) }),
+    response: object({ ok: boolean2(), error: string2().nullable(), eventId: number2().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const scope = await safetyDeskScope(ctx);
+      const sim = simulatedDashcamEvent(new Date, args.kind);
+      const now = new Date;
+      const ins = await db.insert(dashcamEvents3).values({
+        connectionId: null,
+        companyId: scope.companyId,
+        driverUsername: scope.me,
+        partnerEventId: sim.partnerEventId,
+        kind: sim.kind,
+        severity: sim.severity,
+        occurredAt: new Date(sim.occurredAt),
+        clipRef: sim.clipRef,
+        clipUrl: null,
+        loadId: null,
+        note: null,
+        status: "new",
+        reviewedBy: null,
+        reviewedAt: null,
+        simulated: true,
+        createdAt: now,
+        updatedAt: now
+      }).returning({ id: dashcamEvents3.id });
+      const eventId = ins[0]?.id;
+      if (eventId == null)
+        throw new Error("runDashcamTestEvent: insert returned no rows");
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "dashcam_event_received",
+        payload: {
+          eventId,
+          connectionId: null,
+          driverUsername: scope.me,
+          kind: sim.kind,
+          severity: sim.severity,
+          simulated: true,
+          at: sim.occurredAt
+        }
+      });
+      return { ok: true, error: null, eventId };
+    }
+  }),
+  noteDashcamEvent: defineAction({
+    description: "The driver attaches (or clears) their own note on a dashcam event \u2014 what happened, in their words.",
+    request: object({
+      eventId: number2().int().positive(),
+      note: string2().max(2000).nullable()
+    }),
+    response: object({ ok: boolean2(), error: string2().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const rows = await db.select().from(dashcamEvents3).where(eq(dashcamEvents3.id, args.eventId)).limit(1);
+      const ev = rows[0];
+      if (!ev || ev.driverUsername !== me)
+        return { ok: false, error: "That event isn't on your record." };
+      await db.update(dashcamEvents3).set({ note: args.note?.trim() || null, updatedAt: new Date }).where(eq(dashcamEvents3.id, ev.id));
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "dashcam_event_noted",
+        payload: { eventId: ev.id, by: me, at: new Date().toISOString() }
+      });
+      return { ok: true, error: null };
+    }
+  }),
+  reviewDashcamEvent: defineAction({
+    description: "Coaching workflow: mark an event reviewed or coached. The driver can mark their own; the fleet desk can mark their drivers'. Sealed either way.",
+    request: object({
+      eventId: number2().int().positive(),
+      status: _enum(["reviewed", "coached"])
+    }),
+    response: object({ ok: boolean2(), error: string2().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const scope = await safetyDeskScope(ctx);
+      const rows = await db.select().from(dashcamEvents3).where(eq(dashcamEvents3.id, args.eventId)).limit(1);
+      const ev = rows[0];
+      if (!ev)
+        return { ok: false, error: "That event doesn't exist." };
+      const allowed = ev.driverUsername === scope.me || scope.isDesk && ev.companyId != null && ev.companyId === scope.companyId;
+      if (!allowed)
+        return { ok: false, error: "That event isn't in your scope." };
+      const now = new Date;
+      await db.update(dashcamEvents3).set({ status: args.status, reviewedBy: scope.me, reviewedAt: now, updatedAt: now }).where(eq(dashcamEvents3.id, ev.id));
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "dashcam_event_reviewed",
+        payload: { eventId: ev.id, status: args.status, by: scope.me, at: now.toISOString() }
+      });
+      return { ok: true, error: null };
+    }
+  }),
+  pinExoneration: defineAction({
+    description: "Pin a dashcam event to the exoneration vault: the event plus the sealed evidence around it (duty timeline, track summary, DVIRs, reefer log) is snapshotted into one Library packet (ref exoneration:{id}) whose hash is sealed. Idempotent \u2014 an event already pinned returns its entry.",
+    request: object({
+      eventId: number2().int().positive(),
+      loadId: number2().int().positive().nullable().optional()
+    }),
+    response: object({
+      ok: boolean2(),
+      error: string2().nullable(),
+      entryId: number2().nullable(),
+      packetRef: string2().nullable()
+    }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const scope = await safetyDeskScope(ctx);
+      const rows = await db.select().from(dashcamEvents3).where(eq(dashcamEvents3.id, args.eventId)).limit(1);
+      const ev = rows[0];
+      if (!ev)
+        return { ok: false, error: "That event doesn't exist.", entryId: null, packetRef: null };
+      const allowed = ev.driverUsername === scope.me || scope.isDesk && ev.companyId != null && ev.companyId === scope.companyId;
+      if (!allowed)
+        return { ok: false, error: "That event isn't in your scope.", entryId: null, packetRef: null };
+      const existing = await db.select().from(exonerationVaultEntries3).where(eq(exonerationVaultEntries3.eventId, ev.id)).orderBy(desc(exonerationVaultEntries3.id));
+      const active = existing.find((e) => e.removedAt == null);
+      if (active)
+        return { ok: true, error: null, entryId: active.id, packetRef: active.packetRef };
+      const loadId = args.loadId ?? ev.loadId ?? null;
+      if (loadId != null && ev.loadId == null) {
+        await db.update(dashcamEvents3).set({ loadId, updatedAt: new Date }).where(eq(dashcamEvents3.id, ev.id));
+      }
+      const evidence = await assembleExonerationEvidence(ctx, { ...ev, loadId }, loadId, scope.me);
+      const evidenceJson = JSON.stringify(evidence);
+      const evidenceHash = await sha256(evidenceJson);
+      const ins = await db.insert(exonerationVaultEntries3).values({
+        eventId: ev.id,
+        loadId,
+        companyId: ev.companyId,
+        driverUsername: ev.driverUsername,
+        packetRef: "exoneration:pending",
+        evidenceJson,
+        evidenceHash,
+        pinnedBy: scope.me,
+        removedAt: null,
+        removedBy: null,
+        createdAt: new Date
+      }).returning({ id: exonerationVaultEntries3.id });
+      const entryId = ins[0]?.id;
+      if (entryId == null)
+        throw new Error("pinExoneration: insert returned no rows");
+      const packetRef = `exoneration:${entryId}`;
+      await db.update(exonerationVaultEntries3).set({ packetRef }).where(eq(exonerationVaultEntries3.id, entryId));
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "exoneration_pinned",
+        payload: { entryId, eventId: ev.id, loadId, packetRef, evidenceHash, by: scope.me, at: new Date().toISOString() }
+      });
+      return { ok: true, error: null, entryId, packetRef };
+    }
+  }),
+  removeExoneration: defineAction({
+    description: "Remove a packet from the exoneration vault \u2014 an explicit, sealed move by the driver themselves or their fleet's owner. The entry is stamped removed, never deleted, and its packet stops resolving.",
+    request: object({ entryId: number2().int().positive() }),
+    response: object({ ok: boolean2(), error: string2().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const scope = await safetyDeskScope(ctx);
+      const rows = await db.select().from(exonerationVaultEntries3).where(eq(exonerationVaultEntries3.id, args.entryId)).limit(1);
+      const entry = rows[0];
+      if (!entry)
+        return { ok: false, error: "That vault entry doesn't exist." };
+      const isOwner = entry.companyId != null && scope.companyId === entry.companyId && scope.role === "owner";
+      if (entry.driverUsername !== scope.me && !isOwner) {
+        return { ok: false, error: "Only the driver, or their fleet's owner, can remove a vault packet." };
+      }
+      if (entry.removedAt)
+        return { ok: true, error: null };
+      const now = new Date;
+      await db.update(exonerationVaultEntries3).set({ removedAt: now, removedBy: scope.me }).where(eq(exonerationVaultEntries3.id, entry.id));
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "exoneration_removed",
+        payload: { entryId: entry.id, eventId: entry.eventId, by: scope.me, at: now.toISOString() }
+      });
+      return { ok: true, error: null };
+    }
+  }),
+  getFaultCodes: defineAction({
+    description: "The driver's fault-code record plus maintenance due-soon flags computed from their sealed readings (odometer truth from the fuel log, DVIRs, daily logs, and fault reports \u2014 estimates, labelled as such).",
+    request: object({}),
+    response: object({
+      faults: array(faultShape),
+      dueFlags: array(object({
+        item: string2(),
+        state: string2(),
+        milesLeft: number2().nullable(),
+        dueAt: string2().nullable(),
+        line: string2()
+      })),
+      currentOdometer: number2().nullable(),
+      odometerSource: string2().nullable(),
+      latestEngineHours: object({ value: number2(), source: string2(), simulated: boolean2() }).nullable()
+    }),
+    async handler(ctx) {
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const faults = (await db.select().from(faultReports3).where(eq(faultReports3.driverUsername, me)).orderBy(desc(faultReports3.occurredAt))).slice(0, 100);
+      const fuel = await db.select().from(fuelPurchases3);
+      const dvirs = await db.select().from(dvirReports3);
+      const dailyLogs = await db.select().from(dailyLogs3).where(eq(dailyLogs3.username, me));
+      let best = null;
+      let source = null;
+      const consider = (v, label) => {
+        if (v != null && Number.isFinite(v) && v > 0 && (best == null || v > best)) {
+          best = v;
+          source = label;
+        }
+      };
+      for (const f of fuel)
+        consider(f.odometer, "your fuel log");
+      for (const d of dvirs)
+        consider(d.odometer, "your DVIR");
+      for (const l of dailyLogs) {
+        consider(l.finishMiles, "your daily log");
+        consider(l.startMiles, "your daily log");
+      }
+      for (const f of faults)
+        consider(f.odometer, "a fault report");
+      const services = await db.select().from(maintenanceServices3);
+      const dueFlags = maintenanceDueFlags({
+        services: services.map((s) => ({
+          item: s.item,
+          intervalMiles: s.intervalMiles,
+          lastDoneOdometer: s.lastDoneOdometer,
+          lastDoneAtMs: s.lastDoneAt ? s.lastDoneAt.getTime() : null
+        })),
+        currentOdometer: best,
+        nowMs: Date.now()
+      });
+      let latestEngineHours = null;
+      for (const f of faults) {
+        if (f.engineHours != null) {
+          latestEngineHours = { value: f.engineHours, source: "fault report", simulated: f.simulated };
+          break;
+        }
+      }
+      if (!latestEngineHours) {
+        const snaps = await db.select().from(eldSnapshots3).where(eq(eldSnapshots3.feed, "vehicle_stats")).orderBy(desc(eldSnapshots3.id));
+        for (const s of snaps) {
+          try {
+            const p = JSON.parse(s.payloadJson);
+            if (typeof p.engineHours === "number" && Number.isFinite(p.engineHours)) {
+              latestEngineHours = { value: p.engineHours, source: "ELD vehicle stats", simulated: p.simulated === true };
+              break;
+            }
+          } catch {}
+        }
+      }
+      return {
+        faults: faults.map(toFaultShape),
+        dueFlags: dueFlags.map((f) => ({
+          item: f.item,
+          state: f.state,
+          milesLeft: f.milesLeft,
+          dueAt: f.dueAtMs != null ? new Date(f.dueAtMs).toISOString() : null,
+          line: f.line
+        })),
+        currentOdometer: best,
+        odometerSource: source,
+        latestEngineHours
+      };
+    }
+  }),
+  reportFaultCode: defineAction({
+    description: "Record a fault code by hand (off the dash, a scanner, a shop note). Known codes get their plain-language meaning and urgency from the curated table; a stop-now / service-soon code auto-drafts a maintenance-log work order. Unknown codes record exactly as reported.",
+    request: object({
+      code: string2().min(1).max(40),
+      sourceNote: string2().max(300).nullable().optional(),
+      odometer: number2().nonnegative().max(1e7).nullable().optional(),
+      occurredAt: string2().max(40).nullable().optional()
+    }),
+    response: object({
+      ok: boolean2(),
+      error: string2().nullable(),
+      faultId: number2().nullable(),
+      known: boolean2(),
+      meaning: string2().nullable(),
+      urgency: string2().nullable(),
+      urgencyLabel: string2().nullable(),
+      draftEntryId: number2().nullable()
+    }),
+    async handler(ctx, args) {
+      const scope = await safetyDeskScope(ctx);
+      const occurredAt = args.occurredAt && Number.isFinite(Date.parse(args.occurredAt)) ? new Date(args.occurredAt) : new Date;
+      const { row } = await recordFaultReport(ctx, {
+        driverUsername: scope.me,
+        companyId: scope.companyId,
+        code: args.code,
+        source: "manual",
+        sourceNote: args.sourceNote?.trim() || null,
+        occurredAt,
+        odometer: args.odometer ?? null,
+        engineHours: null,
+        dedupeKey: null,
+        simulated: false,
+        actor: scope.me
+      });
+      const lookup = lookupFaultCode(args.code);
+      return {
+        ok: true,
+        error: null,
+        faultId: row.id,
+        known: lookup.known,
+        meaning: lookup.meaning,
+        urgency: lookup.urgency,
+        urgencyLabel: FAULT_URGENCY_LABELS[lookup.urgency],
+        draftEntryId: row.maintenanceEntryId
+      };
+    }
+  }),
+  getTrailerTelemetry: defineAction({
+    description: "The driver's smart-trailer panel: partner state, device pairings, the latest trailer position with its freshness printed, and the reefer temperature log per load (with the range each reading was judged against).",
+    request: object({}),
+    response: object({
+      partnerConfigured: boolean2(),
+      partnerName: string2().nullable(),
+      trailerLabel: string2().nullable(),
+      connections: array(object({
+        id: number2(),
+        label: string2(),
+        deviceRef: string2().nullable(),
+        status: string2()
+      })),
+      latestPosition: object({
+        lat: number2(),
+        lon: number2(),
+        recordedAt: string2(),
+        ageMinutes: number2(),
+        freshness: string2(),
+        line: string2(),
+        source: string2()
+      }).nullable(),
+      reeferLoads: array(object({
+        loadId: number2(),
+        lane: string2(),
+        rangeLabel: string2().nullable(),
+        readings: array(object({
+          id: number2(),
+          recordedAt: string2(),
+          tempF: number2(),
+          verdict: string2().nullable(),
+          source: string2()
+        }))
+      })),
+      unattachedTempCount: number2()
+    }),
+    async handler(ctx) {
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const partner = trailerPartnerFromEnv(process.env);
+      const profRows = await db.select().from(profile3).where(eq(profile3.id, myProfileId(ctx))).limit(1);
+      const prof = profRows[0];
+      const trailerLabel = prof ? [prof.trailerYear, prof.trailerMake, prof.trailerModel, prof.trailerType].filter(Boolean).join(" ") || null : null;
+      const connections = (await db.select().from(trailerConnections3).where(eq(trailerConnections3.driverUsername, me)).orderBy(desc(trailerConnections3.id))).map((c) => ({ id: c.id, label: c.label, deviceRef: c.deviceRef, status: c.status }));
+      const positions = await db.select().from(trailerReadings3).where(and(eq(trailerReadings3.driverUsername, me), eq(trailerReadings3.kind, "position"))).orderBy(desc(trailerReadings3.recordedAt));
+      const latest = positions[0];
+      const latestPosition = latest ? {
+        lat: latest.lat ?? 0,
+        lon: latest.lon ?? 0,
+        recordedAt: latest.recordedAt.toISOString(),
+        ...trailerFreshness(latest.recordedAt.getTime(), Date.now()),
+        source: latest.source
+      } : null;
+      const temps = await db.select().from(trailerReadings3).where(and(eq(trailerReadings3.driverUsername, me), eq(trailerReadings3.kind, "reefer_temp"))).orderBy(asc(trailerReadings3.recordedAt));
+      const byLoad = new Map;
+      let unattachedTempCount = 0;
+      for (const r of temps) {
+        if (r.loadId == null) {
+          unattachedTempCount++;
+          continue;
+        }
+        const list = byLoad.get(r.loadId) ?? [];
+        list.push(r);
+        byLoad.set(r.loadId, list);
+      }
+      const reeferLoads = [];
+      for (const [loadId, rows] of byLoad) {
+        const loadRows = await db.select().from(loads3).where(eq(loads3.id, loadId)).limit(1);
+        const load = loadRows[0];
+        const range = load ? reeferRangeForLoad(load) : null;
+        reeferLoads.push({
+          loadId,
+          lane: load ? laneTextOf(load) : `Load #${loadId}`,
+          rangeLabel: range ? `${range.minF}\xB0F\u2013${range.maxF}\xB0F (setpoint ${range.setpointF}\xB0F \xB1 ${range.bandF}\xB0F)` : null,
+          readings: rows.slice(-200).map((r) => ({
+            id: r.id,
+            recordedAt: r.recordedAt.toISOString(),
+            tempF: r.tempF ?? 0,
+            verdict: range && r.tempF != null ? reeferTempVerdict(r.tempF, range) : null,
+            source: r.source
+          }))
+        });
+      }
+      return {
+        partnerConfigured: partner != null,
+        partnerName: partner?.name ?? null,
+        trailerLabel,
+        connections,
+        latestPosition,
+        reeferLoads,
+        unattachedTempCount
+      };
+    }
+  }),
+  connectTrailerDevice: defineAction({
+    description: "Pair a smart-trailer device to a driver (the desk pairs a fleet driver's; a solo driver pairs their own). The trailer itself stays the driver's My Trailer record \u2014 this is only the device door.",
+    request: object({
+      label: string2().min(1).max(120),
+      deviceRef: string2().max(120).nullable().optional(),
+      driverUsername: string2().max(60).nullable().optional()
+    }),
+    response: object({
+      ok: boolean2(),
+      error: string2().nullable(),
+      connectionId: number2().nullable()
+    }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const scope = await safetyDeskScope(ctx);
+      if (!safetyCanManage(scope)) {
+        return { ok: false, error: "Only the fleet owner / dispatch can pair the fleet's trailer devices.", connectionId: null };
+      }
+      let driverUsername = scope.me;
+      if (scope.companyId != null && args.driverUsername) {
+        const members = await db.select().from(companyMembers3).where(eq(companyMembers3.companyId, scope.companyId));
+        if (!members.some((m) => m.username === args.driverUsername)) {
+          return { ok: false, error: "That driver isn't a member of this fleet.", connectionId: null };
+        }
+        driverUsername = args.driverUsername;
+      } else if (scope.companyId != null && scope.isDesk && args.driverUsername == null) {
+        driverUsername = scope.me;
+      }
+      const now = new Date;
+      const ins = await db.insert(trailerConnections3).values({
+        companyId: scope.companyId,
+        createdBy: scope.me,
+        driverUsername,
+        label: args.label.trim(),
+        deviceRef: args.deviceRef?.trim() || null,
+        status: "active",
+        createdAt: now,
+        updatedAt: now
+      }).returning({ id: trailerConnections3.id });
+      const connectionId = ins[0]?.id;
+      if (connectionId == null)
+        throw new Error("connectTrailerDevice: insert returned no rows");
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "trailer_device_connected",
+        payload: { connectionId, driverUsername, label: args.label.trim(), by: scope.me, at: now.toISOString() }
+      });
+      return { ok: true, error: null, connectionId };
+    }
+  }),
+  revokeTrailerDevice: defineAction({
+    description: "Revoke a trailer device pairing \u2014 its readings stop landing.",
+    request: object({ connectionId: number2().int().positive() }),
+    response: object({ ok: boolean2(), error: string2().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const scope = await safetyDeskScope(ctx);
+      const rows = await db.select().from(trailerConnections3).where(eq(trailerConnections3.id, args.connectionId)).limit(1);
+      const conn = rows[0];
+      if (!conn)
+        return { ok: false, error: "That pairing doesn't exist." };
+      const allowed = conn.driverUsername === scope.me || scope.isDesk && conn.companyId != null && conn.companyId === scope.companyId;
+      if (!allowed)
+        return { ok: false, error: "That pairing isn't in your scope." };
+      await db.update(trailerConnections3).set({ status: "revoked", updatedAt: new Date }).where(eq(trailerConnections3.id, conn.id));
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "trailer_device_revoked",
+        payload: { connectionId: conn.id, by: scope.me, at: new Date().toISOString() }
+      });
+      return { ok: true, error: null };
+    }
+  }),
+  syncTrailerDevice: defineAction({
+    description: "Pull the trailer partner's latest readings for one pairing. With no partner configured it refuses plainly and writes NOTHING. Reefer readings can be tied to one of the driver's loads (loadId) so they land in that load's temperature log.",
+    request: object({
+      connectionId: number2().int().positive(),
+      loadId: number2().int().positive().nullable().optional()
+    }),
+    response: object({
+      ok: boolean2(),
+      error: string2().nullable(),
+      accepted: number2(),
+      rejected: number2(),
+      outOfRange: number2(),
+      lines: array(string2())
+    }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const scope = await safetyDeskScope(ctx);
+      const rows = await db.select().from(trailerConnections3).where(eq(trailerConnections3.id, args.connectionId)).limit(1);
+      const conn = rows[0];
+      if (!conn)
+        return { ok: false, error: "That pairing doesn't exist.", accepted: 0, rejected: 0, outOfRange: 0, lines: [] };
+      const allowed = conn.driverUsername === scope.me || scope.isDesk && conn.companyId != null && conn.companyId === scope.companyId;
+      if (!allowed)
+        return { ok: false, error: "That pairing isn't in your scope.", accepted: 0, rejected: 0, outOfRange: 0, lines: [] };
+      if (conn.status !== "active") {
+        return { ok: false, error: "That pairing was revoked \u2014 pair the device again first.", accepted: 0, rejected: 0, outOfRange: 0, lines: [] };
+      }
+      const partner = trailerPartnerFromEnv(process.env);
+      if (!partner) {
+        return {
+          ok: false,
+          error: "No trailer partner is connected yet, so readings can't be pulled \u2014 nothing was written. The simulated test path works without a partner.",
+          accepted: 0,
+          rejected: 0,
+          outOfRange: 0,
+          lines: []
+        };
+      }
+      if (!conn.deviceRef) {
+        return { ok: false, error: "This pairing has no device reference yet \u2014 add the partner's device id first.", accepted: 0, rejected: 0, outOfRange: 0, lines: [] };
+      }
+      const last = await db.select().from(trailerReadings3).where(eq(trailerReadings3.connectionId, conn.id)).orderBy(desc(trailerReadings3.recordedAt));
+      const sinceIso = last[0]?.recordedAt.toISOString() ?? new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      let raw;
+      try {
+        raw = await partner.fetchReadings({ deviceRef: conn.deviceRef, sinceIso });
+      } catch (e) {
+        return { ok: false, error: `The trailer partner didn't answer: ${e instanceof Error ? e.message : "unknown error"}`, accepted: 0, rejected: 0, outOfRange: 0, lines: [] };
+      }
+      const r = await applyTrailerReadings(ctx, {
+        connection: conn,
+        driverUsername: conn.driverUsername,
+        companyId: conn.companyId,
+        rawReadings: raw,
+        source: "partner",
+        loadId: args.loadId ?? null,
+        actor: scope.me
+      });
+      return { ok: true, error: null, ...r };
+    }
+  }),
+  runTrailerTestReadings: defineAction({
+    description: "Run the simulated trailer device: a position + reefer reading through the real ingest path, stamped simulated in the rows themselves. Stands up a simulated pairing when none is named. Never presented as live device data.",
+    request: object({
+      connectionId: number2().int().positive().nullable().optional(),
+      loadId: number2().int().positive().nullable().optional()
+    }),
+    response: object({
+      ok: boolean2(),
+      error: string2().nullable(),
+      accepted: number2(),
+      rejected: number2(),
+      outOfRange: number2(),
+      lines: array(string2()),
+      note: string2().nullable()
+    }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const scope = await safetyDeskScope(ctx);
+      let conn;
+      if (args.connectionId != null) {
+        const rows = await db.select().from(trailerConnections3).where(eq(trailerConnections3.id, args.connectionId)).limit(1);
+        conn = rows[0];
+        if (!conn)
+          return { ok: false, error: "That pairing doesn't exist.", accepted: 0, rejected: 0, outOfRange: 0, lines: [], note: null };
+        const allowed = conn.driverUsername === scope.me || scope.isDesk && conn.companyId != null && conn.companyId === scope.companyId;
+        if (!allowed)
+          return { ok: false, error: "That pairing isn't in your scope.", accepted: 0, rejected: 0, outOfRange: 0, lines: [], note: null };
+      } else {
+        const mine = await db.select().from(trailerConnections3).where(eq(trailerConnections3.driverUsername, scope.me)).orderBy(desc(trailerConnections3.id));
+        conn = mine.find((c) => c.status === "active");
+        if (!conn) {
+          const now = new Date;
+          const ins = await db.insert(trailerConnections3).values({
+            companyId: scope.companyId,
+            createdBy: scope.me,
+            driverUsername: scope.me,
+            label: "Simulated trailer device",
+            deviceRef: "SIMULATED",
+            status: "active",
+            createdAt: now,
+            updatedAt: now
+          }).returning();
+          conn = ins[0];
+          if (!conn)
+            throw new Error("runTrailerTestReadings: simulated pairing insert returned no rows");
+          await appendChain(ctx, {
+            refKind: "driver",
+            refId: null,
+            sessionId: null,
+            event: "trailer_device_connected",
+            payload: { connectionId: conn.id, driverUsername: scope.me, label: "Simulated trailer device", simulated: true, by: scope.me, at: now.toISOString() }
+          });
+        }
+      }
+      const r = await applyTrailerReadings(ctx, {
+        connection: conn,
+        driverUsername: conn.driverUsername,
+        companyId: conn.companyId,
+        rawReadings: simulatedTrailerReadings(new Date),
+        source: "simulated",
+        loadId: args.loadId ?? null,
+        actor: scope.me
+      });
+      return {
+        ok: true,
+        error: null,
+        ...r,
+        note: "Simulated readings \u2014 test data flowed through the real ingest path and is stored stamped \u201Csimulated\u201D. Live readings start when a trailer partner is connected."
+      };
+    }
+  }),
+  setLoadReeferRange: defineAction({
+    description: "Set the temperature range a load's reefer readings are judged against (stored as the load's setpoint \xB1 band \u2014 the same pair the driver-entered reefer checks use).",
+    request: object({
+      loadId: number2().int().positive(),
+      minF: number2().min(-80).max(160),
+      maxF: number2().min(-80).max(160)
+    }),
+    response: object({ ok: boolean2(), error: string2().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      if (!(args.minF < args.maxF))
+        return { ok: false, error: "The low end of the range has to be below the high end." };
+      const rows = await db.select().from(loads3).where(eq(loads3.id, args.loadId)).limit(1);
+      const load = rows[0];
+      if (!load)
+        return { ok: false, error: "That load doesn't exist on your record." };
+      const setpoint = Math.round((args.minF + args.maxF) / 2 * 10) / 10;
+      const band = Math.round((args.maxF - args.minF) / 2 * 10) / 10;
+      await db.update(loads3).set({ reeferSetpointF: setpoint, reeferBandF: band }).where(eq(loads3.id, load.id));
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: load.id,
+        sessionId: null,
+        event: "reefer_range_set",
+        payload: { loadId: load.id, minF: args.minF, maxF: args.maxF, setpointF: setpoint, bandF: band, at: new Date().toISOString() }
+      });
+      return { ok: true, error: null };
+    }
+  }),
+  getFleetSafety: defineAction({
+    description: "The desk's safety view: per driver \u2014 dashcam events + pattern flags, exoneration vault entries, fault reports, and the latest trailer position with freshness. Facts only; no scores. Owner / dispatch of the fleet only.",
+    request: object({}),
+    response: object({
+      ok: boolean2(),
+      error: string2().nullable(),
+      drivers: array(object({
+        username: string2(),
+        role: string2(),
+        events: array(dashcamEventShape),
+        patterns: array(object({ kind: string2(), label: string2(), count: number2(), windowDays: number2(), line: string2() })),
+        vault: array(vaultEntryShape),
+        faults: array(faultShape),
+        trailerPosition: object({
+          lat: number2(),
+          lon: number2(),
+          recordedAt: string2(),
+          ageMinutes: number2(),
+          freshness: string2(),
+          line: string2(),
+          source: string2()
+        }).nullable()
+      }))
+    }),
+    async handler(ctx) {
+      const db = ctx.db();
+      const scope = await safetyDeskScope(ctx);
+      if (!scope.isDesk || scope.companyId == null) {
+        return { ok: false, error: "The fleet safety view is for the fleet's owner / dispatch.", drivers: [] };
+      }
+      const members = await db.select().from(companyMembers3).where(eq(companyMembers3.companyId, scope.companyId));
+      const drivers = [];
+      for (const m of members) {
+        if (m.role !== "driver" && m.role !== "owner")
+          continue;
+        const events = (await db.select().from(dashcamEvents3).where(and(eq(dashcamEvents3.companyId, scope.companyId), eq(dashcamEvents3.driverUsername, m.username))).orderBy(desc(dashcamEvents3.occurredAt))).slice(0, 100);
+        const patterns = dashcamPatternFlags(events.map((e) => ({ kind: e.kind, occurredAtMs: e.occurredAt.getTime() })), { nowMs: Date.now() }).map((p) => ({ kind: p.kind, label: p.label, count: p.count, windowDays: p.windowDays, line: p.line }));
+        const vault = (await db.select().from(exonerationVaultEntries3).where(and(eq(exonerationVaultEntries3.companyId, scope.companyId), eq(exonerationVaultEntries3.driverUsername, m.username))).orderBy(desc(exonerationVaultEntries3.id))).slice(0, 50);
+        const faults = (await db.select().from(faultReports3).where(and(eq(faultReports3.companyId, scope.companyId), eq(faultReports3.driverUsername, m.username))).orderBy(desc(faultReports3.occurredAt))).slice(0, 50);
+        const positions = await db.select().from(trailerReadings3).where(and(eq(trailerReadings3.driverUsername, m.username), eq(trailerReadings3.kind, "position"))).orderBy(desc(trailerReadings3.recordedAt));
+        const latest = positions[0];
+        drivers.push({
+          username: m.username,
+          role: m.role,
+          events: events.slice(0, 20).map(toDashcamEventShape),
+          patterns,
+          vault: vault.map(toVaultShape),
+          faults: faults.map(toFaultShape),
+          trailerPosition: latest ? {
+            lat: latest.lat ?? 0,
+            lon: latest.lon ?? 0,
+            recordedAt: latest.recordedAt.toISOString(),
+            ...trailerFreshness(latest.recordedAt.getTime(), Date.now()),
+            source: latest.source
+          } : null
+        });
+      }
+      return { ok: true, error: null, drivers };
     }
   })
 };

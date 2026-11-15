@@ -21,6 +21,7 @@ import { fileToBase64 } from "@hatch/space-sdk/client";
 import { api } from "./api";
 import { MyDqfCard } from "./DqfPanel";
 import { MyHomeTimeCard } from "./HomeTimePanel";
+import { MySafetyCard } from "./SafetyEquipmentPanel";
 import { InvoiceFactoringPanel, ReceivablesPanel } from "./FactoringPanel";
 import { AccountingPanel } from "./AccountingPanel";
 import { t as tt, type Lang } from "./i18n";
@@ -1687,6 +1688,9 @@ export function MoneyFlowHub({ setBanner, mpg, onOpenBreakdownHelp, onOpenParkin
       </div>
       <div id="my-home-time" className="scroll-mt-4">
         <MyHomeTimeCard />
+      </div>
+      <div id="my-safety" className="scroll-mt-4">
+        <MySafetyCard />
       </div>
       <div id="owed-board" className="scroll-mt-4">
         <OwedBoardPanel setBanner={setBanner} lang={lang} />

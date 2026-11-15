@@ -30,6 +30,7 @@ import { FleetBoardPanel } from "./FleetBoard";
 import { ExceptionQueuePanel } from "./AutonomyPanel";
 import { FleetDqfPanel } from "./DqfPanel";
 import { FleetHomeTimePanel } from "./HomeTimePanel";
+import { FleetSafetyPanel } from "./SafetyEquipmentPanel";
 import { RecruitingPanel } from "./RecruitingPanel";
 
 type OwnerDeskData = ApiResponse<typeof api, "getOwnerDesk">;
@@ -226,6 +227,9 @@ export function OwnerDesk({
 
             {/* Home time & retention (Wave 2 item 9) */}
             <FleetHomeTimePanel />
+
+            {/* Safety — coaching, faults, trailers (Wave 2 item 11) */}
+            <FleetSafetyPanel />
 
             {/* Recruiting — driver applications (Wave 2 item 10) */}
             <RecruitingPanel />
