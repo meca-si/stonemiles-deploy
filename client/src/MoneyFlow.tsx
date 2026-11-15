@@ -2269,3 +2269,149 @@ export function BusinessProfilePanel() {
     </div>
   );
 }
+
+// ---------- Money Overview (owner's build, 2026-11-15) -----------------------
+// The DrayageIQ-style earnings dashboard at the top of the Money
+// tab's Overview section: year-to-date up top, what you kept vs what
+// was taken out, deductions by category, real $/mile over sealed
+// loads, and the weekly earnings trend. Every number comes from the
+// driver's own Pay Book + sealed loads via getMoneyOverview — the
+// math lives server-side in moneyOverview.ts; this panel only draws.
+
+const OVERVIEW_CAT_COLORS: Record<string, string> = {
+  Fuel: "#f59e0b",
+  Operations: "#38bdf8",
+  Insurance: "#a78bfa",
+  Escrow: "#2dd4bf",
+  "Taxes withheld": "#f472b6",
+  Other: "#94a3b8",
+};
+
+export function MoneyOverviewPanel() {
+  const q = useQuery({ queryKey: ["money-overview"], queryFn: () => api.getMoneyOverview({}) });
+  const d = q.data;
+  const maxWeekNet = d ? Math.max(1, ...d.weeks.map((w) => w.net)) : 1;
+  const avgPct = d?.avgWeeklyNet != null ? Math.min(100, Math.max(0, (d.avgWeeklyNet / maxWeekNet) * 100)) : null;
+  const keptPct = d && d.ytd.gross > 0 ? Math.max(0, Math.min(100, (d.keep.kept / d.ytd.gross) * 100)) : 0;
+  return (
+    <Section title={d ? `📊 Money overview — ${d.year}` : "📊 Money overview"} ariaLabel="Money overview — year to date earnings" defaultOpen>
+      {q.isLoading && <p className="text-sm text-[var(--dim)]">Reading your Pay Book…</p>}
+      {q.isError && <p className="text-sm text-[var(--dim)]">Couldn't read your money overview just now — pull to retry in a moment.</p>}
+      {d && !d.hasData && (
+        <p className="text-sm leading-relaxed text-[var(--dim)]">
+          No pay recorded yet this year — add settlements in your Pay Book and this fills in: your year-to-date gross and net,
+          what you kept vs what was taken out, every deduction grouped by kind, and your real rate per mile.
+        </p>
+      )}
+      {d && d.hasData && (
+        <div className="space-y-4">
+          {/* YTD header — the year's story in three numbers. */}
+          <div className="grid grid-cols-3 gap-2">
+            <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface2)] p-3">
+              <div className="text-[11px] font-bold uppercase tracking-wide text-[var(--dim)]">Gross {d.year}</div>
+              <div className="font-condensed text-2xl font-bold tnum">{money(d.ytd.gross)}</div>
+            </div>
+            <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface2)] p-3">
+              <div className="text-[11px] font-bold uppercase tracking-wide text-[var(--dim)]">You kept</div>
+              <div className="font-condensed text-2xl font-bold tnum" style={{ color: "var(--ok)" }}>{money(d.ytd.net)}</div>
+            </div>
+            <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface2)] p-3">
+              <div className="text-[11px] font-bold uppercase tracking-wide text-[var(--dim)]">Margin</div>
+              <div className="font-condensed text-2xl font-bold tnum">{d.ytd.marginPct != null ? `${d.ytd.marginPct}%` : "—"}</div>
+            </div>
+          </div>
+          {d.ytd.perDiem > 0 && (
+            <p className="-mt-2 text-xs text-[var(--dim)]">Plus {money(d.ytd.perDiem)} per diem this year — non-taxable, paid separately, not counted in the gross above.</p>
+          )}
+
+          {/* Keep vs taken out — one split bar. */}
+          <div>
+            <div className="flex h-5 w-full overflow-hidden rounded-full border border-[var(--border)]" role="img" aria-label={`Of ${money(d.ytd.gross)} gross, you kept ${money(d.keep.kept)} and ${money(d.keep.takenOut)} was taken out`}>
+              <div style={{ width: `${keptPct}%`, background: "var(--ok)" }} />
+              <div className="flex-1" style={{ background: "#f87171" }} />
+            </div>
+            <div className="mt-1.5 flex justify-between text-xs font-semibold">
+              <span style={{ color: "var(--ok)" }}>Kept {money(d.keep.kept)}</span>
+              <span className="text-red-300">Taken out {money(d.keep.takenOut)}</span>
+            </div>
+          </div>
+
+          {/* Real rate per mile over sealed loads. */}
+          <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface2)] p-3">
+            {d.ytd.grossPerMile != null ? (
+              <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+                <span className="font-condensed text-xl font-bold tnum">{money(d.ytd.grossPerMile)}/mi <span className="text-sm font-semibold text-[var(--dim)]">gross</span></span>
+                <span className="font-condensed text-xl font-bold tnum">{money(d.ytd.netPerMile ?? 0)}/mi <span className="text-sm font-semibold text-[var(--dim)]">net</span></span>
+                <span className="text-sm text-[var(--dim)]">{d.ytd.miles.toLocaleString("en-US")} sealed mi this year · {d.milesThisWeek.toLocaleString("en-US")} this week · {d.milesThisMonth.toLocaleString("en-US")} this month</span>
+              </div>
+            ) : (
+              <p className="text-sm text-[var(--dim)]">No sealed-load miles on file this year yet — your real rate per mile shows here once loads seal with miles recorded.</p>
+            )}
+          </div>
+
+          {/* Deductions by category. */}
+          {d.categories.length > 0 && (
+            <div>
+              <h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-[var(--dim)]">Where the taken-out money went</h3>
+              <div className="space-y-2">
+                {d.categories.map((c) => (
+                  <div key={c.category}>
+                    <div className="flex items-baseline justify-between text-sm">
+                      <span className="font-semibold">{c.category}</span>
+                      <span className="tnum">{money(c.amount)} <span className="text-xs text-[var(--dim)]">· {c.sharePct}%</span></span>
+                    </div>
+                    <div className="mt-1 h-2.5 w-full overflow-hidden rounded-full bg-[var(--surface2)]">
+                      <div className="h-full rounded-full" style={{ width: `${c.sharePct}%`, background: OVERVIEW_CAT_COLORS[c.category] ?? "#94a3b8" }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Weekly net trend — bars with the average line. */}
+          {d.weeks.length > 0 && (
+            <div>
+              <h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-[var(--dim)]">Weekly net — earnings trend</h3>
+              <div className="relative" style={{ height: 96 }}>
+                <div className="flex h-full items-end gap-[3px]">
+                  {d.weeks.map((w) => (
+                    <div
+                      key={w.weekStartIso}
+                      className="flex-1 rounded-t"
+                      title={`Week of ${w.label}: net ${money(w.net)}${w.hasData ? "" : " — nothing recorded"}`}
+                      style={{
+                        height: `${w.hasData ? Math.max(4, (Math.max(0, w.net) / maxWeekNet) * 100) : 2}%`,
+                        background: w.hasData ? "var(--accent)" : "var(--border)",
+                        opacity: w.hasData ? 1 : 0.6,
+                      }}
+                    />
+                  ))}
+                </div>
+                {avgPct != null && (
+                  <div className="pointer-events-none absolute left-0 right-0 border-t-2 border-dashed" style={{ bottom: `${avgPct}%`, borderColor: "var(--ok)" }} />
+                )}
+              </div>
+              <div className="mt-1 flex justify-between text-[11px] text-[var(--dim)]">
+                <span>{d.weeks[0]?.label}</span>
+                {d.avgWeeklyNet != null && <span>Avg {money(d.avgWeeklyNet)}/wk (green line)</span>}
+                <span>{d.weeks[d.weeks.length - 1]?.label}</span>
+              </div>
+            </div>
+          )}
+
+          {/* Full-year projection — only when the history supports it. */}
+          {d.projection && (
+            <div className="rounded-2xl border border-dashed border-[var(--border)] p-3">
+              <div className="text-[11px] font-bold uppercase tracking-wide text-[var(--dim)]">Full-year projection — at your {d.year} pace</div>
+              <div className="mt-1 font-condensed text-xl font-bold tnum">~{money(d.projection.annualGross)} gross · ~{money(d.projection.annualNet)} net</div>
+              <p className="mt-1 text-xs text-[var(--dim)]">From pay in {d.projection.weeksWithEntries} of the {d.projection.weeksElapsed} weeks so far, carried to 52 weeks. A pace, not a promise.</p>
+            </div>
+          )}
+
+          <p className="text-[11px] leading-relaxed text-[var(--dim)]">{d.note}</p>
+        </div>
+      )}
+    </Section>
+  );
+}

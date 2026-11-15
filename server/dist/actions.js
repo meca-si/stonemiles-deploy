@@ -13794,6 +13794,158 @@ function payBookPeriodStart(period, nowMs) {
   }
 }
 
+// src/moneyOverview.ts
+function classifyDeductionLabel(label) {
+  const norm = label.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const words = norm.split(" ").filter(Boolean);
+  const hasWord = (...ws) => ws.some((w) => words.includes(w));
+  const hasPhrase = (...ps) => ps.some((p) => ` ${norm} `.includes(` ${p} `));
+  if (hasWord("escrow") || hasPhrase("reserve fund"))
+    return "Escrow";
+  if (hasWord("insurance", "bobtail", "liability", "health") || hasPhrase("physical damage", "occ acc", "workers comp", "work comp"))
+    return "Insurance";
+  if (hasWord("fuel", "diesel", "gasoline", "def"))
+    return "Fuel";
+  if (hasWord("truck", "trailer", "lease", "payment", "payments", "quickpay", "fee", "fees", "dispatch", "factoring", "toll", "tolls", "scale", "permit", "permits", "maintenance", "repair", "repairs", "tire", "tires", "eld", "lumper", "rent", "phone", "ifta", "loan", "interest", "registration", "plates") || hasPhrase("quick pay", "service fee"))
+    return "Operations";
+  return "Other";
+}
+var DAY_MS = 86400000;
+function weekStartMs(ms) {
+  const d = new Date(ms);
+  const midnight = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  const dow = new Date(midnight).getUTCDay();
+  return midnight - (dow + 6) % 7 * DAY_MS;
+}
+var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function weekLabel(startMs) {
+  const d = new Date(startMs);
+  return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`;
+}
+var round1 = (n) => Math.round(n * 10) / 10;
+function categorizeEntry(e, into) {
+  const add = (c, cents) => {
+    if (cents !== 0)
+      into.set(c, (into.get(c) ?? 0) + cents);
+  };
+  add("Taxes withheld", toCents(e.federalWithheld) + toCents(e.stateWithheld));
+  let itemizedC = 0;
+  for (const line of e.deductionLines ?? []) {
+    const c = toCents(line.amount);
+    if (c <= 0)
+      continue;
+    itemizedC += c;
+    add(classifyDeductionLabel(line.label), c);
+  }
+  const otherC = toCents(e.otherDeductions);
+  const remainderC = otherC - itemizedC;
+  if (remainderC > 0)
+    add("Other", remainderC);
+}
+function computeMoneyOverview(entries, loads, nowMs) {
+  const year = new Date(nowMs).getUTCFullYear();
+  const yearStartMs = Date.UTC(year, 0, 1);
+  const yearEndMs = Date.UTC(year + 1, 0, 1);
+  const inYear = (ms) => ms >= yearStartMs && ms < yearEndMs;
+  const checks = entries.filter((e) => !e.isForm && inYear(e.paidAtMs));
+  let grossC = 0;
+  let deductionsC = 0;
+  let perDiemC = 0;
+  const catCents = new Map;
+  for (const e of checks) {
+    grossC += toCents(e.gross);
+    deductionsC += toCents(e.federalWithheld) + toCents(e.stateWithheld) + toCents(e.otherDeductions);
+    perDiemC += toCents(e.perDiem ?? 0);
+    categorizeEntry(e, catCents);
+  }
+  const netC = grossC - deductionsC;
+  const yearLoads = loads.filter((l) => inYear(l.sealedAtMs));
+  const miles = yearLoads.reduce((s, l) => s + (l.miles > 0 ? l.miles : 0), 0);
+  const milesRounded = Math.round(miles * 10) / 10;
+  const firstWeek = weekStartMs(yearStartMs);
+  const currentWeek = weekStartMs(nowMs);
+  const elapsedWeeks = Math.floor((currentWeek - firstWeek) / (7 * DAY_MS)) + 1;
+  const weekBuckets = new Map;
+  const bucketFor = (ms) => {
+    const key = weekStartMs(ms);
+    let b = weekBuckets.get(key);
+    if (!b) {
+      b = { grossC: 0, dedC: 0, miles: 0, has: false };
+      weekBuckets.set(key, b);
+    }
+    return b;
+  };
+  const entryWeeks = new Set;
+  for (const e of checks) {
+    const b = bucketFor(e.paidAtMs);
+    b.grossC += toCents(e.gross);
+    b.dedC += toCents(e.federalWithheld) + toCents(e.stateWithheld) + toCents(e.otherDeductions);
+    b.has = true;
+    entryWeeks.add(weekStartMs(e.paidAtMs));
+  }
+  for (const l of yearLoads) {
+    const b = bucketFor(l.sealedAtMs);
+    b.miles += l.miles > 0 ? l.miles : 0;
+    if (l.miles > 0)
+      b.has = true;
+  }
+  const weeksWithEntries = entryWeeks.size;
+  const displayStartIdx = Math.max(0, elapsedWeeks - 26);
+  const weeks = [];
+  for (let i = displayStartIdx;i < elapsedWeeks; i++) {
+    const start = firstWeek + i * 7 * DAY_MS;
+    const b = weekBuckets.get(start);
+    const g = b ? b.grossC : 0;
+    const d = b ? b.dedC : 0;
+    weeks.push({
+      weekStartMs: start,
+      label: weekLabel(start),
+      gross: fromCents(g),
+      deductions: fromCents(d),
+      net: fromCents(g - d),
+      miles: Math.round((b?.miles ?? 0) * 10) / 10,
+      hasData: b?.has ?? false
+    });
+  }
+  const nowD = new Date(nowMs);
+  const monthStartMs = Date.UTC(nowD.getUTCFullYear(), nowD.getUTCMonth(), 1);
+  const milesThisWeek = yearLoads.filter((l) => weekStartMs(l.sealedAtMs) === currentWeek).reduce((s, l) => s + (l.miles > 0 ? l.miles : 0), 0);
+  const milesThisMonth = yearLoads.filter((l) => l.sealedAtMs >= monthStartMs).reduce((s, l) => s + (l.miles > 0 ? l.miles : 0), 0);
+  const categories = [...catCents.entries()].filter(([, c]) => c !== 0).map(([category, c]) => ({
+    category,
+    amount: fromCents(c),
+    sharePct: deductionsC > 0 ? round1(c / deductionsC * 100) : 0
+  })).sort((a, b) => b.amount - a.amount);
+  const hasData = checks.length > 0;
+  return {
+    year,
+    hasData,
+    ytd: {
+      gross: fromCents(grossC),
+      deductions: fromCents(deductionsC),
+      net: fromCents(netC),
+      perDiem: fromCents(perDiemC),
+      marginPct: grossC > 0 ? round1(netC / grossC * 100) : null,
+      miles: milesRounded,
+      grossPerMile: miles > 0 ? Math.round(fromCents(grossC) / miles * 100) / 100 : null,
+      netPerMile: miles > 0 ? Math.round(fromCents(netC) / miles * 100) / 100 : null,
+      entryCount: checks.length
+    },
+    keep: { kept: fromCents(netC), takenOut: fromCents(deductionsC) },
+    categories,
+    milesThisWeek: Math.round(milesThisWeek * 10) / 10,
+    milesThisMonth: Math.round(milesThisMonth * 10) / 10,
+    weeks,
+    avgWeeklyNet: hasData ? fromCents(Math.round(netC / elapsedWeeks)) : null,
+    projection: hasData && weeksWithEntries >= 4 ? {
+      annualGross: fromCents(Math.round(grossC / elapsedWeeks * 52)),
+      annualNet: fromCents(Math.round(netC / elapsedWeeks * 52)),
+      weeksElapsed: elapsedWeeks,
+      weeksWithEntries
+    } : null
+  };
+}
+
 // src/payStub.ts
 function shouldAutoEmailPayStub(args) {
   return args.payStubEmailEnabled && args.hasStubFile;
@@ -14546,7 +14698,7 @@ async function fetchExplorePois(lat, lon, category) {
 }
 
 // src/taxYear.ts
-var DAY_MS = 86400000;
+var DAY_MS2 = 86400000;
 function utcDateKey(ms) {
   return new Date(ms).toISOString().slice(0, 10);
 }
@@ -14555,10 +14707,10 @@ function perDiemDates(trips, year) {
   for (const t of trips) {
     if (!Number.isFinite(t.startedAtMs))
       continue;
-    const startDay = Math.floor(t.startedAtMs / DAY_MS) * DAY_MS;
+    const startDay = Math.floor(t.startedAtMs / DAY_MS2) * DAY_MS2;
     const endMs = Number.isFinite(t.endedAtMs) && t.endedAtMs >= t.startedAtMs ? t.endedAtMs : t.startedAtMs;
-    const endDay = Math.floor(endMs / DAY_MS) * DAY_MS;
-    for (let d = startDay;d <= endDay; d += DAY_MS) {
+    const endDay = Math.floor(endMs / DAY_MS2) * DAY_MS2;
+    for (let d = startDay;d <= endDay; d += DAY_MS2) {
       const key = utcDateKey(d);
       if (Number(key.slice(0, 4)) === year)
         days.add(key);
@@ -14795,7 +14947,7 @@ var COLLECTION_WINDOW_DAYS = 7;
 var REVOKE_DAYS = 10;
 var DISPATCH_FEE_CRYPTO_ADDRESS = "0x3a6fEBE311F98629C9A98452dB0968C315930447";
 var DISPATCH_FEE_CARD_LINK = null;
-var DAY_MS2 = 86400000;
+var DAY_MS3 = 86400000;
 var CENT_EPSILON = 0.005;
 function roundCents(n) {
   return Math.round(n * 100) / 100;
@@ -14809,7 +14961,7 @@ function dispatchFeeFor(freightAmount) {
   return roundCents(freightAmount * DISPATCH_FEE_RATE);
 }
 function daysOutstandingFor(deliveredAtMs, nowMs) {
-  return Math.max(0, Math.floor((nowMs - deliveredAtMs) / DAY_MS2));
+  return Math.max(0, Math.floor((nowMs - deliveredAtMs) / DAY_MS3));
 }
 function ladderFor(input) {
   const balanceDue = roundCents(Math.max(0, input.feeAmount - input.paidAmount));
@@ -15212,7 +15364,7 @@ function formatMoneyFromCents(cents) {
   const abs = Math.abs(cents);
   return `${sign}$${Math.floor(abs / 100).toLocaleString("en-US")}.${String(abs % 100).padStart(2, "0")}`;
 }
-var MONTHS = {
+var MONTHS2 = {
   JAN: 1,
   FEB: 2,
   MAR: 3,
@@ -15236,9 +15388,9 @@ function parseWindow(raw) {
     const year = m[3].length === 2 ? `20${m[3]}` : m[3];
     date = `${year}-${m[1].padStart(2, "0")}-${m[2].padStart(2, "0")}`;
   } else if (m = text.match(/\b(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z]*\s+(\d{1,2})(?:ST|ND|RD|TH)?,?\s+(\d{4})/)) {
-    date = `${m[3]}-${String(MONTHS[m[1]] ?? 0).padStart(2, "0")}-${m[2].padStart(2, "0")}`;
+    date = `${m[3]}-${String(MONTHS2[m[1]] ?? 0).padStart(2, "0")}-${m[2].padStart(2, "0")}`;
   } else if (m = text.match(/\b(\d{1,2})(?:ST|ND|RD|TH)?\s+(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z]*\s+(\d{4})/)) {
-    date = `${m[3]}-${String(MONTHS[m[2]] ?? 0).padStart(2, "0")}-${m[1].padStart(2, "0")}`;
+    date = `${m[3]}-${String(MONTHS2[m[2]] ?? 0).padStart(2, "0")}-${m[1].padStart(2, "0")}`;
   }
   let minutes = null;
   const t = text.match(/(\d{1,2}):(\d{2})\s*(AM|PM)?/) ?? text.match(/(\d{1,2})\s*(AM|PM)\b/);
@@ -16174,7 +16326,7 @@ function howToEarnLayer2() {
   ];
 }
 var LAYER2_TZ = "America/Chicago";
-var DAY_MS3 = 86400000;
+var DAY_MS4 = 86400000;
 function layer2DayKey(ms) {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: LAYER2_TZ,
@@ -16211,11 +16363,11 @@ function weekdayOfDayStart(dayStartMs) {
 function weekFromDayStart(dayStartMs) {
   const wd = weekdayOfDayStart(dayStartMs);
   const back = (wd + 6) % 7;
-  const startMs = dayStartMs - back * DAY_MS3;
+  const startMs = dayStartMs - back * DAY_MS4;
   const dayKeys = [];
   for (let i = 0;i < 7; i++)
-    dayKeys.push(layer2DayKey(startMs + i * DAY_MS3 + 12 * 3600000));
-  return { startMs, endMs: startMs + 7 * DAY_MS3, mondayKey: dayKeys[0], dayKeys };
+    dayKeys.push(layer2DayKey(startMs + i * DAY_MS4 + 12 * 3600000));
+  return { startMs, endMs: startMs + 7 * DAY_MS4, mondayKey: dayKeys[0], dayKeys };
 }
 function calendarWeekOf(ms) {
   return weekFromDayStart(layer2DayStartMs(ms));
@@ -16256,7 +16408,7 @@ function birthdayAwardFor(birth, nowMs) {
   const { year } = layer2DayParts(nowMs);
   for (const y of [year, year - 1]) {
     const start = monthDayStartMs(y, birth.month, birth.day);
-    if (nowMs >= start && nowMs < start + (1 + LAYER2_CALENDAR_GRACE_DAYS) * DAY_MS3) {
+    if (nowMs >= start && nowMs < start + (1 + LAYER2_CALENDAR_GRACE_DAYS) * DAY_MS4) {
       return {
         refKey: `layer2-birthday-${y}`,
         source: LAYER2_BIRTHDAY_SOURCE,
@@ -16277,7 +16429,7 @@ function anniversaryAwardFor(createdMs, nowMs) {
     if (years < 1)
       continue;
     const start = monthDayStartMs(y, c.month, c.day);
-    if (nowMs >= start && nowMs < start + (1 + LAYER2_CALENDAR_GRACE_DAYS) * DAY_MS3) {
+    if (nowMs >= start && nowMs < start + (1 + LAYER2_CALENDAR_GRACE_DAYS) * DAY_MS4) {
       return {
         refKey: `layer2-anniversary-${years}`,
         source: LAYER2_ANNIVERSARY_SOURCE,
@@ -16493,7 +16645,7 @@ function evaluateMaintenance(entries, services, sealedOdometerMax) {
     const chain = chains.get(e.category);
     if (chain) {
       const dueByOdo = chain.nextDueOdo != null && e.odometer != null && e.odometer >= chain.nextDueOdo - LAYER2_MAINTENANCE_DUE_EARLY_TOLERANCE_MI;
-      const dueByDate = chain.nextDueAt != null && e.performedMs >= chain.nextDueAt - LAYER2_MAINTENANCE_DUE_EARLY_TOLERANCE_DAYS * DAY_MS3;
+      const dueByDate = chain.nextDueAt != null && e.performedMs >= chain.nextDueAt - LAYER2_MAINTENANCE_DUE_EARLY_TOLERANCE_DAYS * DAY_MS4;
       if (dueByOdo || dueByDate) {
         const cycleKey = chain.nextDueOdo != null ? `m${Math.round(chain.nextDueOdo)}` : chain.nextDueAt != null ? `d${chain.nextDueAt}` : "open";
         const odoBad = e.odometer == null || contradicts;
@@ -16771,12 +16923,12 @@ var CREDENTIAL_LABELS = {
   medical: "Medical card",
   twic: "TWIC"
 };
-var DAY_MS4 = 86400000;
+var DAY_MS5 = 86400000;
 function expiryInstantMs(expiresOn) {
   return Date.parse(`${expiresOn}T12:00:00.000Z`);
 }
 function credentialDaysLeft(expiresOn, nowMs) {
-  return Math.ceil((expiryInstantMs(expiresOn) - nowMs) / DAY_MS4);
+  return Math.ceil((expiryInstantMs(expiresOn) - nowMs) / DAY_MS5);
 }
 function credentialThresholdFor(daysLeft) {
   if (daysLeft == null)
@@ -17076,7 +17228,7 @@ function buildProfitLoss(input) {
 }
 
 // src/fleetVisibility.ts
-var round1 = (n) => Math.round(n * 10) / 10;
+var round12 = (n) => Math.round(n * 10) / 10;
 function haversineMi(a, b) {
   const R = 3958.8;
   const dLat = (b.lat - a.lat) * Math.PI / 180;
@@ -17123,8 +17275,8 @@ function cleanStops(input) {
 }
 function rankAssignCandidates(candidates, pickup) {
   const ranked = candidates.map((c) => {
-    const deadheadNowMi = pickup && c.currentPos ? round1(haversineMi(c.currentPos, pickup)) : null;
-    const deadheadEndMi = pickup && c.routeEnd ? round1(haversineMi(c.routeEnd, pickup)) : null;
+    const deadheadNowMi = pickup && c.currentPos ? round12(haversineMi(c.currentPos, pickup)) : null;
+    const deadheadEndMi = pickup && c.routeEnd ? round12(haversineMi(c.routeEnd, pickup)) : null;
     const fromRouteEnd = c.hasActiveLoad && c.routeEnd != null;
     const effectiveMi = fromRouteEnd ? deadheadEndMi : deadheadNowMi;
     const basis = fromRouteEnd ? "route_end" : c.currentPos != null ? "current" : "unknown";
@@ -17154,12 +17306,12 @@ function trackShareStateFor(args) {
 
 // src/recordsBundle.ts
 var money2 = (n) => n.toLocaleString("en-US", { style: "currency", currency: "USD" });
-var MONTHS2 = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+var MONTHS3 = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 function bundleDate(iso) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime()))
     return iso.slice(0, 10);
-  return `${MONTHS2[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`;
+  return `${MONTHS3[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`;
 }
 function bundleDateTime(iso) {
   const d = new Date(iso);
@@ -17836,7 +17988,7 @@ function capSearchGroup(items) {
 var HOUR_MS = 3600000;
 var WINDOW_MS = 14 * HOUR_MS;
 var RESET_MS = 10 * HOUR_MS;
-var round12 = (n) => Math.round(n * 10) / 10;
+var round13 = (n) => Math.round(n * 10) / 10;
 var weekdayOf = (ms) => new Date(ms).toLocaleString("en-US", { weekday: "short", timeZone: "UTC" });
 var whenOf = (ms) => new Date(ms).toLocaleString("en-US", {
   weekday: "short",
@@ -17869,7 +18021,7 @@ function deadheadLeg(facts, candidate) {
       }
     };
   }
-  const mi = round12(haversineMi(anchor, candidate.pickupPoint));
+  const mi = round13(haversineMi(anchor, candidate.pickupPoint));
   return {
     mi,
     leg: {
@@ -18216,12 +18368,12 @@ function bondNotification(args) {
     body: `Your BMC-84 broker bond expires${args.expiresOn ? ` on ${args.expiresOn}` : ""} \u2014 ${days} day${days === 1 ? "" : "s"} left. Renew it and update the expiry date on your broker identity before tenders are held.`
   };
 }
-var MONTHS3 = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+var MONTHS4 = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 function monthYearOf(yyyyMmDd) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(yyyyMmDd.trim());
   if (!m)
     return null;
-  const month = MONTHS3[Number(m[2]) - 1];
+  const month = MONTHS4[Number(m[2]) - 1];
   if (!month)
     return null;
   return `${month} ${m[1]}`;
@@ -19308,7 +19460,7 @@ function factorPartnerFromEnv(env, transport) {
 
 // src/brokerCredit.ts
 var BROKER_CREDIT_MIN_SAMPLE = 3;
-var round13 = (n) => Math.round(n * 10) / 10;
+var round14 = (n) => Math.round(n * 10) / 10;
 function brokerCreditSummary(facts) {
   const loadsCarried = facts.filter((f) => f.delivered).length;
   const spans = [];
@@ -19320,7 +19472,7 @@ function brokerCreditSummary(facts) {
     spans.push(Math.max(0, (f.paidAtMs - f.issuedAtMs) / 86400000));
   }
   const paidLoads = spans.length;
-  const avgDaysToPay = paidLoads > 0 ? round13(spans.reduce((s, d) => s + d, 0) / paidLoads) : null;
+  const avgDaysToPay = paidLoads > 0 ? round14(spans.reduce((s, d) => s + d, 0) / paidLoads) : null;
   const hasScore = paidLoads >= BROKER_CREDIT_MIN_SAMPLE && avgDaysToPay != null;
   let label;
   if (paidLoads === 0) {
@@ -20045,7 +20197,7 @@ function dqfAlertNotification(args) {
 }
 
 // src/homeTime.ts
-var DAY_MS5 = 86400000;
+var DAY_MS6 = 86400000;
 var HOUR_MS2 = 3600000;
 var RETURN_ALLOWANCE_SAME_STATE_MS = 6 * HOUR_MS2;
 var RETURN_ALLOWANCE_OUT_OF_STATE_MS = 24 * HOUR_MS2;
@@ -20088,7 +20240,7 @@ function commitmentDeadlines(c, fromMs, toMs) {
     const anchor = ms(c.anchorAt);
     const n = c.everyNDays;
     if (anchor != null && n != null && Number.isFinite(n) && n >= 1) {
-      const step = Math.floor(n) * DAY_MS5;
+      const step = Math.floor(n) * DAY_MS6;
       const kMin = Math.ceil((fromMs - anchor) / step);
       const kMax = Math.floor((toMs - 1 - anchor) / step);
       for (let k = kMin;k <= kMax; k++)
@@ -20099,10 +20251,10 @@ function commitmentDeadlines(c, fromMs, toMs) {
     d.setUTCHours(0, 0, 0, 0);
     let t = d.getTime();
     while (new Date(t).getUTCDay() !== 6)
-      t += DAY_MS5;
+      t += DAY_MS6;
     if (t < fromMs)
-      t += 7 * DAY_MS5;
-    for (;t < toMs; t += 7 * DAY_MS5)
+      t += 7 * DAY_MS6;
+    for (;t < toMs; t += 7 * DAY_MS6)
       push(t);
   }
   return out.sort((a, b) => a - b);
@@ -20116,7 +20268,7 @@ function allDeadlines(commitments, fromMs, toMs) {
   return out.sort((a, b) => a.deadlineAt - b.deadlineAt);
 }
 function nextHomeDeadline(commitments, nowMs) {
-  const all = allDeadlines(commitments, nowMs - DEADLINE_LOOKBACK_MS, nowMs + 366 * DAY_MS5);
+  const all = allDeadlines(commitments, nowMs - DEADLINE_LOOKBACK_MS, nowMs + 366 * DAY_MS6);
   return all[0] ?? null;
 }
 function describeCommitment(c) {
@@ -20293,7 +20445,7 @@ function retentionSignals(f) {
   }
   return out;
 }
-var PULSE_EPISODE_MS = 14 * DAY_MS5;
+var PULSE_EPISODE_MS = 14 * DAY_MS6;
 var PULSE_MIN_RESPONDENTS = 3;
 var PULSE_QUESTIONS = [
   { key: "home_time", label: "How is home time holding up lately?", low: "Rough", high: "Great" },
@@ -21544,7 +21696,7 @@ function cleanReferenceNumber(input) {
 }
 
 // src/driverCalendar.ts
-var DAY_MS6 = 86400000;
+var DAY_MS7 = 86400000;
 var HOUR_MS3 = 3600000;
 var DEFAULT_DISPATCH_MODE = "offered";
 var DEFAULT_SAFETY_WINDOW_HOURS = 24;
@@ -21617,7 +21769,7 @@ var OFF_DUTY_REQUEST_LABELS = {
   reset: "34-hour reset"
 };
 var RESET_MIN_MS = 34 * HOUR_MS3;
-var OFF_DUTY_MAX_MS = 60 * DAY_MS6;
+var OFF_DUTY_MAX_MS = 60 * DAY_MS7;
 function validateOffDutyRequest(input) {
   if (typeof input.type !== "string" || !OFF_DUTY_REQUEST_TYPES.includes(input.type)) {
     return { ok: false, error: "Pick what the time off is for \u2014 home time, medical, family, personal, or a 34-hour reset." };
@@ -21653,8 +21805,8 @@ function projectPaydays(settings, fromMs, toMs) {
   if (settings.payCycleKind === "weekly") {
     let t = utcDayStart(fromMs);
     while (new Date(t).getUTCDay() !== settings.payWeekday)
-      t += DAY_MS6;
-    for (;t < toMs; t += 7 * DAY_MS6)
+      t += DAY_MS7;
+    for (;t < toMs; t += 7 * DAY_MS7)
       out.push(t);
     return out;
   }
@@ -21664,7 +21816,7 @@ function projectPaydays(settings, fromMs, toMs) {
     const anchor = utcDayStart(expiryInstantMs(settings.payAnchorOn));
     if (!Number.isFinite(anchor))
       return [];
-    const step = 14 * DAY_MS6;
+    const step = 14 * DAY_MS7;
     const kMin = Math.ceil((utcDayStart(fromMs) - anchor) / step);
     const kMax = Math.floor((utcDayStart(toMs) - anchor) / step);
     for (let k = kMin;k <= kMax; k++) {
@@ -21692,7 +21844,7 @@ function credentialCalendarMarkers(statuses, fromMs, toMs, nowMs) {
       out.push({ credentialKey: s.key, label: s.label, kind: "expiry", atMs: expiryMs, daysBefore: 0, expiresOn: s.expiresOn, daysLeft });
     }
     for (const d of CREDENTIAL_WARNING_DAYS) {
-      const atMs = expiryMs - d * DAY_MS6;
+      const atMs = expiryMs - d * DAY_MS7;
       if (atMs >= fromMs && atMs < toMs) {
         out.push({ credentialKey: s.key, label: s.label, kind: "warning", atMs, daysBefore: d, expiresOn: s.expiresOn, daysLeft });
       }
@@ -23565,7 +23717,7 @@ var EIA_SEED = {
   source: "EIA weekly on-highway diesel averages via the Oct 22, 2026 research snapshot (seed \u2014 awaiting the first live weekly refresh)",
   fetchedAt: new Date("2026-10-22T12:00:00Z")
 };
-var MONTHS4 = [
+var MONTHS5 = [
   "Jan",
   "Feb",
   "Mar",
@@ -23581,7 +23733,7 @@ var MONTHS4 = [
 ];
 function eiaWeekLabel(weekOfIso) {
   const [y = 1970, m = 1, d = 1] = weekOfIso.split("-").map(Number);
-  return `week of ${MONTHS4[(m - 1 + 12) % 12]} ${d}, ${y}`;
+  return `week of ${MONTHS5[(m - 1 + 12) % 12]} ${d}, ${y}`;
 }
 function parseEiaDieselPage(html, seriesId) {
   if (!html || !seriesId)
@@ -23739,7 +23891,7 @@ function orderedEquipment(rec) {
     ...rec[key]
   }));
 }
-var MONTHS5 = [
+var MONTHS6 = [
   "Jan",
   "Feb",
   "Mar",
@@ -23755,7 +23907,7 @@ var MONTHS5 = [
 ];
 function marketPulseEndingShort(weekEndingIso) {
   const [, m = 1, d = 1] = weekEndingIso.split("-").map(Number);
-  return `${MONTHS5[(m - 1 + 12) % 12]} ${d}`;
+  return `${MONTHS6[(m - 1 + 12) % 12]} ${d}`;
 }
 function marketPulseWeekLabel(weekEndingIso, weekNumber) {
   const [y = 1970] = weekEndingIso.split("-").map(Number);
@@ -35111,7 +35263,7 @@ async function retentionFactsFor(ctx, profileId, nowMs) {
   for (const r of det) {
     if (!r.departedAt)
       continue;
-    if (r.arrivedAt.getTime() < nowMs - 90 * DAY_MS5)
+    if (r.arrivedAt.getTime() < nowMs - 90 * DAY_MS6)
       continue;
     if (r.departedAt.getTime() - r.arrivedAt.getTime() > r.graceMinutes * 60000)
       detentionOverruns90++;
@@ -35121,9 +35273,9 @@ async function retentionFactsFor(ctx, profileId, nowMs) {
   let milesPrior30 = 0;
   for (const t of tripRows) {
     const ended = t.endedAt.getTime();
-    if (ended >= nowMs - 30 * DAY_MS5 && ended < nowMs)
+    if (ended >= nowMs - 30 * DAY_MS6 && ended < nowMs)
       milesRecent30 += t.totalMiles;
-    else if (ended >= nowMs - 60 * DAY_MS5 && ended < nowMs - 30 * DAY_MS5)
+    else if (ended >= nowMs - 60 * DAY_MS6 && ended < nowMs - 30 * DAY_MS6)
       milesPrior30 += t.totalMiles;
   }
   return { detentionOverruns90, milesRecent30, milesPrior30 };
@@ -35136,7 +35288,7 @@ async function homeTimePictureFor(ctx, companyId, driverUsername, opts) {
   const active = likes.filter((c) => c.voidedAt == null);
   const next = nextHomeDeadline(active, nowMs);
   const home = await homeProfileFor(ctx, driverUsername);
-  const deadlines = allDeadlines(likes, nowMs - 90 * DAY_MS5, nowMs);
+  const deadlines = allDeadlines(likes, nowMs - 90 * DAY_MS6, nowMs);
   const overrideRows = await homeTimeOverrideRowsFor(ctx, companyId, driverUsername);
   const dutyEvents = await driverDutyEventsFor(ctx, driverUsername);
   const seals = await driverDeliverySealsMs(ctx, driverUsername);
@@ -59184,6 +59336,97 @@ ${args.question}`, { schema: answerSchema });
       };
     }
   }),
+  getMoneyOverview: defineAction({
+    description: "The caller's own year-to-date money overview: gross, deductions by category, net, keep split, real $/mile over sealed loads, weekly trend, and a gated full-year projection.",
+    request: object({}),
+    response: object({
+      year: number2(),
+      hasData: boolean2(),
+      ytd: object({
+        gross: number2(),
+        deductions: number2(),
+        net: number2(),
+        perDiem: number2(),
+        marginPct: number2().nullable(),
+        miles: number2(),
+        grossPerMile: number2().nullable(),
+        netPerMile: number2().nullable(),
+        entryCount: number2()
+      }),
+      keep: object({ kept: number2(), takenOut: number2() }),
+      categories: array(object({ category: string2(), amount: number2(), sharePct: number2() })),
+      milesThisWeek: number2(),
+      milesThisMonth: number2(),
+      weeks: array(object({
+        weekStartIso: string2(),
+        label: string2(),
+        gross: number2(),
+        deductions: number2(),
+        net: number2(),
+        miles: number2(),
+        hasData: boolean2()
+      })),
+      avgWeeklyNet: number2().nullable(),
+      projection: object({
+        annualGross: number2(),
+        annualNet: number2(),
+        weeksElapsed: number2(),
+        weeksWithEntries: number2()
+      }).nullable(),
+      note: string2()
+    }),
+    async handler(ctx) {
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const rows = (await db.select().from(payEntries3)).filter((e) => e.username === me);
+      const loads = await db.select().from(loads3);
+      const pods = await podStatusByLoad(ctx);
+      const sealedLoads = [];
+      for (const l of loads) {
+        const pod = pods.get(l.id);
+        if (!pod?.sealed || !pod.sealedAt)
+          continue;
+        if (l.loadedMiles == null)
+          continue;
+        const miles = l.loadedMiles + (l.deadheadMiles ?? 0);
+        if (!(miles > 0))
+          continue;
+        sealedLoads.push({ sealedAtMs: Date.parse(pod.sealedAt), miles });
+      }
+      const o = computeMoneyOverview(rows.map((e) => ({
+        paidAtMs: e.paidAt.getTime(),
+        kind: e.kind,
+        isForm: e.isForm,
+        gross: e.gross,
+        federalWithheld: e.federalWithheld,
+        stateWithheld: e.stateWithheld,
+        otherDeductions: e.otherDeductions,
+        perDiem: e.perDiem ?? 0,
+        deductionLines: parseDeductionLines(e.deductionLines)
+      })), sealedLoads, Date.now());
+      return {
+        year: o.year,
+        hasData: o.hasData,
+        ytd: o.ytd,
+        keep: o.keep,
+        categories: o.categories,
+        milesThisWeek: o.milesThisWeek,
+        milesThisMonth: o.milesThisMonth,
+        weeks: o.weeks.map((w) => ({
+          weekStartIso: new Date(w.weekStartMs).toISOString(),
+          label: w.label,
+          gross: w.gross,
+          deductions: w.deductions,
+          net: w.net,
+          miles: w.miles,
+          hasData: w.hasData
+        })),
+        avgWeeklyNet: o.avgWeeklyNet,
+        projection: o.projection,
+        note: "Your own records only: paychecks from your Pay Book and miles from your sealed loads. Deduction categories are grouped from the labels on your stubs \u2014 anything unlabelled sits in Other, and nothing here is estimated. The projection, when it shows, is your year-to-date weekly pace carried to 52 weeks \u2014 a pace, not a promise."
+      };
+    }
+  }),
   sendPayStub: defineAction({
     description: "Send pay stub.",
     request: object({
@@ -62148,7 +62391,7 @@ ${args.question}`, { schema: answerSchema });
         });
       }
       drivers.sort((a, b) => a.username.localeCompare(b.username));
-      const since = new Date(Date.now() - 28 * DAY_MS5);
+      const since = new Date(Date.now() - 28 * DAY_MS6);
       const pulseRows = await db.select({ driverUsername: pulseResponses3.driverUsername, answersJson: pulseResponses3.answersJson }).from(pulseResponses3).where(and(eq(pulseResponses3.companyId, mine.company.id), eq(pulseResponses3.status, "answered"), gte(pulseResponses3.createdAt, since)));
       const parsed = [];
       for (const r of pulseRows) {

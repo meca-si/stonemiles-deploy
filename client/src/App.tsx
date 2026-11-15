@@ -186,7 +186,7 @@ import { LoadTrailerSection, TrailerToolsPanel, WindAdvisoryBanner } from "./Tra
 import { TOOL_GROUPS, type ToolItem } from "./toolDirectory";
 import { onAnchorReveal, revealAnchor } from "./anchorReveal";
 import { asLang, destForLocalizedQuery, destLabel, localeFor, pairText, t as tt, type Lang } from "./i18n";
-import { BusinessProfilePanel, MONEY_HUB_ANCHOR_SECTION, MoneyFlowHub, type MoneyHubSection } from "./MoneyFlow";
+import { BusinessProfilePanel, MONEY_HUB_ANCHOR_SECTION, MoneyFlowHub, MoneyOverviewPanel, type MoneyHubSection } from "./MoneyFlow";
 import {
   OFFLINE_BADGE,
   OFFLINE_CAPTURED_LINE,
@@ -16628,6 +16628,11 @@ export function App() {
 
             {moneyView === "overview" && (
               <>
+            {/* Money Overview (2026-11-15): the year-to-date earnings
+                dashboard leads the Overview section — YTD gross/net,
+                keep-vs-taken-out, deduction categories, real $/mile,
+                weekly trend, from the driver's own records. */}
+            <MoneyOverviewPanel />
             {/* Settlement Checker — one tap */}
             <button
               type="button"

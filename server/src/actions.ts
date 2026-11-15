@@ -18,6 +18,7 @@ sumDeductionLines,
 summarizePayBook,
 type DeductionLine,
 } from "./payBook";
+import { computeMoneyOverview } from "./moneyOverview";
 import {
 acceptGate,
 deliveryToPayEntry,
@@ -48317,6 +48318,114 @@ export const Actions = {
           otherDeductions: s.ten99.otherDeductions,
         },
         note: "Tracking view only — two separate lane pies, one per pile, and no combined total across them: W-2 and 1099 stay separate lanes and file separately. Per diem rides its own slice in each lane — it is non-taxable and was paid separately, never part of that lane's filing gross. A lane's deductions already came out of that lane's gross, so each pie's total is just its three slices added for size comparison, not a filing number.",
+      };
+    },
+  }),
+
+  // Money Overview (owner's build, 2026-11-15): the DrayageIQ-style
+  // earnings dashboard for the top of the Money tab — year-to-date
+  // gross / deductions / net, the keep-vs-taken-out split, deductions
+  // by category, real $/mile over the caller's SEALED loads, and the
+  // weekly trend. Read-only; every figure comes from the caller's own
+  // Pay Book entries + sealed loads (host-scoped reads, like
+  // getPayBook / getMySettlement). All math lives in moneyOverview.ts.
+  getMoneyOverview: defineAction({
+    description: "The caller's own year-to-date money overview: gross, deductions by category, net, keep split, real $/mile over sealed loads, weekly trend, and a gated full-year projection.",
+    request: z.object({}),
+    response: z.object({
+      year: z.number(),
+      hasData: z.boolean(),
+      ytd: z.object({
+        gross: z.number(),
+        deductions: z.number(),
+        net: z.number(),
+        perDiem: z.number(),
+        marginPct: z.number().nullable(),
+        miles: z.number(),
+        grossPerMile: z.number().nullable(),
+        netPerMile: z.number().nullable(),
+        entryCount: z.number(),
+      }),
+      keep: z.object({ kept: z.number(), takenOut: z.number() }),
+      categories: z.array(z.object({ category: z.string(), amount: z.number(), sharePct: z.number() })),
+      milesThisWeek: z.number(),
+      milesThisMonth: z.number(),
+      weeks: z.array(
+        z.object({
+          weekStartIso: z.string(),
+          label: z.string(),
+          gross: z.number(),
+          deductions: z.number(),
+          net: z.number(),
+          miles: z.number(),
+          hasData: z.boolean(),
+        }),
+      ),
+      avgWeeklyNet: z.number().nullable(),
+      projection: z
+        .object({
+          annualGross: z.number(),
+          annualNet: z.number(),
+          weeksElapsed: z.number(),
+          weeksWithEntries: z.number(),
+        })
+        .nullable(),
+      note: z.string(),
+    }),
+    async handler(ctx) {
+      const db = ctx.db<typeof schema>();
+      // payEntries is a username-keyed table (no profile_id), so the
+      // caller's scope is applied here, the myUsername() pattern the
+      // other Pay Book readers use. Loads carry profile_id and are
+      // scoped by ctx.db itself.
+      const me = await myUsername(ctx);
+      const rows = (await db.select().from(schema.payEntries)).filter((e) => e.username === me);
+      const loads = await db.select().from(schema.loads);
+      const pods = await podStatusByLoad(ctx);
+      const sealedLoads: { sealedAtMs: number; miles: number }[] = [];
+      for (const l of loads) {
+        const pod = pods.get(l.id);
+        if (!pod?.sealed || !pod.sealedAt) continue; // sealed loads only
+        if (l.loadedMiles == null) continue; // no miles on file — never guessed
+        const miles = l.loadedMiles + (l.deadheadMiles ?? 0);
+        if (!(miles > 0)) continue;
+        sealedLoads.push({ sealedAtMs: Date.parse(pod.sealedAt), miles });
+      }
+      const o = computeMoneyOverview(
+        rows.map((e) => ({
+          paidAtMs: e.paidAt.getTime(),
+          kind: e.kind,
+          isForm: e.isForm,
+          gross: e.gross,
+          federalWithheld: e.federalWithheld,
+          stateWithheld: e.stateWithheld,
+          otherDeductions: e.otherDeductions,
+          perDiem: e.perDiem ?? 0,
+          deductionLines: parseDeductionLines(e.deductionLines),
+        })),
+        sealedLoads,
+        Date.now(),
+      );
+      return {
+        year: o.year,
+        hasData: o.hasData,
+        ytd: o.ytd,
+        keep: o.keep,
+        categories: o.categories,
+        milesThisWeek: o.milesThisWeek,
+        milesThisMonth: o.milesThisMonth,
+        weeks: o.weeks.map((w) => ({
+          weekStartIso: new Date(w.weekStartMs).toISOString(),
+          label: w.label,
+          gross: w.gross,
+          deductions: w.deductions,
+          net: w.net,
+          miles: w.miles,
+          hasData: w.hasData,
+        })),
+        avgWeeklyNet: o.avgWeeklyNet,
+        projection: o.projection,
+        note: "Your own records only: paychecks from your Pay Book and miles from your sealed loads. Deduction categories are grouped from the labels on your stubs — anything unlabelled sits in Other, and nothing here is estimated. The projection, when it shows, is your year-to-date weekly pace carried to 52 weeks — a pace, not a promise.",
       };
     },
   }),
