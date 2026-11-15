@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>STONEMILES — Track your freight</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:#050a1a; color:#e8ecf4; }
+  main { max-width: 560px; margin: 5vh auto; padding: 16px; }
+  .card { background:#0b1226; border:1px solid #1d2a4a; border-radius:16px; padding:24px; }
+  h1 { font-size: 20px; margin: 0 0 6px; }
+  h2 { font-size: 15px; margin: 22px 0 8px; }
+  p, li { color:#c6d2e8; font-size: 15px; line-height: 1.55; }
+  .dim { color:#8fa1c4; font-size:13px; }
+  .kv { display:flex; justify-content:space-between; gap:16px; padding:6px 0; border-bottom:1px solid #16223f; font-size:15px; }
+  .kv span:first-child { color:#8fa1c4; }
+  .kv span:last-child { text-align:right; }
+  .ok { background:#0d2b1a; border:1px solid #1f5136; border-radius:12px; padding:14px; }
+  .err { background:#2b0d0d; border:1px solid #5c1f1f; border-radius:12px; padding:14px; }
+  .status { display:inline-block; background:#16223f; border-radius:999px; padding:4px 12px; font-size:13px; font-weight:600; color:#c6d2e8; }
+  ol.stops { margin: 6px 0 0; padding-left: 22px; }
+  ol.stops li { padding: 2px 0; }
+  a.map { color:#7db4ff; }
+  button {
+    width:100%; margin-top:16px; background:#16223f; color:#c6d2e8; border:0; border-radius:12px;
+    padding:12px; font-size:15px; font-weight:600; cursor:pointer;
+  }
+</style>
+</head>
+<body>
+<main>
+  <div class="card" id="app">
+    <h1>Track your freight</h1>
+    <p class="dim">Loading your shipment…</p>
+  </div>
+  <p class="dim" style="text-align:center; margin-top:14px;">STONEMILES by Stonervision — shared by the carrier for this load</p>
+</main>
+<script>
+const app = document.getElementById("app");
+const parts = location.pathname.split("/").filter(Boolean);
+const token = parts[1] || "";
+let timer = null;
+
+async function call(action, args) {
+  const res = await fetch("/actions", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ action, args }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (body && body.error) throw new Error(body.error);
+  return body.data;
+}
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+function kv(label, value) {
+  if (value == null || value === "") return "";
+  return `<div class="kv"><span>${esc(label)}</span><span>${esc(value)}</span></div>`;
+}
+function invalidPage() {
+  if (timer) clearInterval(timer);
+  app.innerHTML = `<h1>Track your freight</h1><div class="err"><p style="margin:0;">This tracking link isn't valid anymore. Ask the driver or the shipping desk for a fresh link.</p></div>`;
+}
+
+function render(info) {
+  if (info.state === "delivered") {
+    if (timer) clearInterval(timer);
+    app.innerHTML = `
+      <h1>Delivered ✓</h1>
+      <div class="ok"><p style="margin:0;">This load has been delivered — the tracking share ends here, the way it was set up to. The signed delivery record lives with the carrier.</p></div>
+      <h2>Shipment</h2>
+      ${kv("Lane", info.lane)}
+      ${kv("Shipper", info.shipperName)}
+      ${kv("Commodity", info.commodity)}
+      ${kv("Carrier", info.fleetName)}
+      ${kv("Driver", info.driverFirstName)}`;
+    return;
+  }
+  const stops = (info.stops || []).length
+    ? `<h2>Route stops</h2><ol class="stops">${info.stops.map((s) => `<li>${esc(s)}</li>`).join("")}</ol>`
+    : "";
+  const eta = info.etaAt ? new Date(info.etaAt).toLocaleString() : null;
+  const position = info.positionVisible
+    ? `<h2>Truck location</h2>
+       <p style="margin:0;">Last reported ${esc(info.positionFreshness || "")}.
+       <a class="map" href="https://www.openstreetmap.org/?mlat=${encodeURIComponent(info.lat)}&mlon=${encodeURIComponent(info.lon)}#map=10/${encodeURIComponent(info.lat)}/${encodeURIComponent(info.lon)}" target="_blank" rel="noopener">See it on a map</a></p>`
+    : `<h2>Truck location</h2><p style="margin:0;">No live location reported yet — check back shortly.</p>`;
+  app.innerHTML = `
+    <h1>Track your freight</h1>
+    <p><span class="status">${esc(info.statusLabel || "In progress")}</span></p>
+    <h2>Shipment</h2>
+    ${kv("Lane", info.lane)}
+    ${kv("Pickup", info.pickupLabel)}
+    ${kv("Pickup window", info.pickupText)}
+    ${kv("Deliver to", info.deliveryLabel)}
+    ${kv("Delivery window", info.deliveryText)}
+    ${kv("Appointment / ETA", eta)}
+    ${kv("Shipper", info.shipperName)}
+    ${kv("Commodity", info.commodity)}
+    ${kv("Carrier", info.fleetName)}
+    ${kv("Driver", info.driverFirstName)}
+    ${stops}
+    ${position}
+    <button id="refreshBtn" type="button">Refresh</button>
+    <p class="dim">This page updates itself every minute while the load is on the road.</p>`;
+  document.getElementById("refreshBtn").addEventListener("click", () => void load());
+}
+
+async function load() {
+  try {
+    const info = await call("getTrackInfo", { token });
+    if (!info || !info.valid) { invalidPage(); return; }
+    render(info);
+  } catch {
+    invalidPage();
+  }
+}
+
+(async () => {
+  if (!token) { invalidPage(); return; }
+  await load();
+  timer = setInterval(() => void load(), 60000);
+})();
+</script>
+</body>
+</html>

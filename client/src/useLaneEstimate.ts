@@ -33,7 +33,7 @@ function cityKey(city: string, state: string | null): string {
   return `${city.trim().toLowerCase()},${(state ?? "").trim().toLowerCase()}`;
 }
 
-async function geocodeCity(city: string, state: string | null): Promise<LatLon | null> {
+export async function geocodeCity(city: string, state: string | null): Promise<LatLon | null> {
   const key = cityKey(city, state);
   if (cityCache.has(key)) return cityCache.get(key) ?? null;
   const pending = cityInflight.get(key);

@@ -3319,6 +3319,35 @@ export const driverPositions = pgTable("driver_positions", {
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull(),
 });
 
+// Fleet-visibility share-up pipe (migration 0127, TMS queue item 4):
+// the driver's app PUBLISHES this snapshot of the load they are
+// running — lane, status, ordered stop labels, the route end (city
+// + the coordinates off the driver's own planned route), and an
+// ETA — so the fleet's owner + dispatch seats can read it from a
+// shared table. A driver's private load rows stay inside their own
+// profile scope; this snapshot is what crosses, and it carries NO
+// rate and NO money field by construction. One row per driver,
+// upserted on publish; a cleared row (load_id null) means "no
+// active load published". Global table (no profile_id), keyed by
+// username exactly like driver_positions; the position itself stays
+// in driver_positions and keeps its own privacy rule.
+export const driverFleetStatus = pgTable("driver_fleet_status", {
+  username: text("username").primaryKey(),
+  loadId: integer("load_id"),
+  loadStatus: text("load_status"), // booked | picked_up | null
+  pickupCity: text("pickup_city"),
+  pickupState: text("pickup_state"),
+  deliveryCity: text("delivery_city"),
+  deliveryState: text("delivery_state"),
+  // JSON: ordered stop labels for the active route (its own plan).
+  stopsJson: text("stops_json").notNull().default("[]"),
+  routeLabel: text("route_label"),
+  endLat: doublePrecision("end_lat"),
+  endLon: doublePrecision("end_lon"),
+  etaAt: timestamp("eta_at", { withTimezone: true, mode: "date" }),
+  publishedAt: timestamp("published_at", { withTimezone: true, mode: "date" }).notNull(),
+});
+
 // Per-account security preferences: auto-lock timer (minutes of
 // inactivity; 0 = off) and raw-track retention (days).
 export const securityPrefs = pgTable("security_prefs", {
@@ -4584,7 +4613,7 @@ export const credentialAlertDismissals = pgTable("credential_alert_dismissals", 
     .$defaultFn(() => new Date()),
 });
 
-// Load invoices (migration 0019, TMS queue item 3): one branded
+// Load invoices (migration 0126, TMS queue item 3): one branded
 // invoice per sealed load — the who-owes-me entry wearing a suit.
 // The row SNAPSHOTS the bill at creation (bill-to, lane, reference,
 // line items, amount) so a later edit to the load can never rewrite

@@ -122,6 +122,97 @@ function SignaturePad({ onChange }: { onChange: (jpegBase64: string | null) => v
   );
 }
 
+/**
+ * Outward tracking share (TMS queue item 4): the opt-in, per-load
+ * link a shipper / receiver / outside dispatcher watches — route,
+ * stops, ETA, and the truck's location with its freshness. Never
+ * the rate. It ends on its own at delivery and can be killed here
+ * any time. The switch belongs to the load's driver or the fleet
+ * desk whose board the load came through (server-gated).
+ */
+function TrackShareBlock({ loadId, setBanner }: { loadId: number; setBanner: (s: string) => void }) {
+  const queryClient = useQueryClient();
+  const shareQuery = useQuery({
+    queryKey: ["load-share-links", loadId],
+    queryFn: () => api.getLoadShareLinks({ loadId }),
+  });
+  const [busy, setBusy] = useState(false);
+  const data = shareQuery.data;
+  if (!data?.ok) return null;
+  const live = data.links.find((l) => l.state === "live");
+  const refresh = () => void queryClient.invalidateQueries({ queryKey: ["load-share-links", loadId] });
+  return (
+    <div>
+      <div className="text-xs font-bold text-[var(--dim)]">TRACKING SHARE — let the shipper or receiver watch this load roll in</div>
+      <p className="mt-1 text-xs leading-relaxed text-[var(--dim)]">
+        Opt-in, this load only. The page shows the route, stops, ETA, and your truck&rsquo;s location with its
+        freshness — never the rate. It ends on its own at delivery, and you can kill it any time.
+      </p>
+      {live ? (
+        <div className="mt-1 flex flex-wrap items-center gap-2">
+          <span className="min-w-0 flex-1 truncate rounded-lg bg-[var(--surface)] px-2 py-2 text-xs">{live.url}</span>
+          <button
+            type="button"
+            className="rounded-lg bg-[var(--surface)] border border-[var(--border)] px-3 py-2 text-xs font-bold"
+            onClick={() => {
+              void navigator.clipboard?.writeText(live.url).then(() => setBanner("Tracking link copied — send it to whoever's watching this freight."));
+            }}
+          >
+            📋 Copy link
+          </button>
+          <button
+            type="button"
+            className="rounded-lg bg-[var(--surface)] border border-[var(--border)] px-3 py-2 text-xs font-bold"
+            onClick={() => {
+              if (navigator.share) void navigator.share({ title: "Track this load", url: live.url }).catch(() => undefined);
+              else void navigator.clipboard?.writeText(live.url).then(() => setBanner("Tracking link copied."));
+            }}
+          >
+            ↗ Share
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            className="rounded-lg bg-[var(--surface)] border border-[var(--border)] px-3 py-2 text-xs font-bold text-red-300 disabled:opacity-50"
+            onClick={() => {
+              setBusy(true);
+              void api
+                .revokeLoadShareLink({ loadId, linkId: live.id })
+                .then((r) => {
+                  if (r.ok) setBanner("Tracking share stopped — that link is dead now.");
+                  else setBanner(r.error ?? "Couldn't stop the share.");
+                  refresh();
+                })
+                .finally(() => setBusy(false));
+            }}
+          >
+            ✕ Stop sharing
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          disabled={busy}
+          className="mt-1 rounded-lg bg-[var(--surface)] border border-[var(--border)] px-3 py-2 text-xs font-bold disabled:opacity-50"
+          onClick={() => {
+            setBusy(true);
+            void api
+              .createLoadShareLink({ loadId })
+              .then((r) => {
+                if (r.ok) setBanner("Tracking share is live — copy the link and send it to whoever's watching this freight.");
+                else setBanner(r.error ?? "Couldn't start the share.");
+                refresh();
+              })
+              .finally(() => setBusy(false));
+          }}
+        >
+          📍 Share tracking for this load
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function DeliveryCloseout({ loadId, setBanner }: { loadId: number; setBanner: (s: string) => void }) {
   const queryClient = useQueryClient();
   const linkQuery = useQuery({
@@ -263,6 +354,7 @@ export function DeliveryCloseout({ loadId, setBanner }: { loadId: number; setBan
         </div>
       ) : (
         <div className="mt-2 space-y-3">
+          <TrackShareBlock loadId={loadId} setBanner={setBanner} />
           <div>
             <div className="text-xs font-bold text-[var(--dim)]">1 · RECEIVE LINK — the receiver confirms on their own phone</div>
             <div className="mt-1 flex flex-wrap items-center gap-2">

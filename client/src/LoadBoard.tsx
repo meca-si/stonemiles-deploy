@@ -22,7 +22,7 @@ import { classifyDocFile, extractFromPdfPages, pdfUnreadableMessage, renderPdfPa
 import { PdfViewer } from "@hatch/space-sdk/pdf";
 import { api, type ApiResponse } from "./api";
 import { laneEstimateFor, rankBoardLoads, totalPerMile, type BoardSortKey } from "./loadRate";
-import { laneKey, useLaneEstimates } from "./useLaneEstimate";
+import { geocodeCity, laneKey, useLaneEstimates } from "./useLaneEstimate";
 import { BoardSortControl, PerMileLine } from "./RatePerMile";
 
 type BoardData = ApiResponse<typeof api, "getLoadBoard">;
@@ -442,6 +442,119 @@ export function RuggsLogisticsLedgerPanel({ setBanner }: { setBanner: (s: string
         data.invoices.map((inv) => (
           <FeeInvoiceCard key={inv.id} inv={inv} canRecord setBanner={setBanner} onRecorded={refresh} />
         ))
+      )}
+    </div>
+  );
+}
+
+type AssignCandidates = ApiResponse<typeof api, "getAssignCandidates">;
+type AssignCandidate = AssignCandidates["candidates"][number];
+
+/**
+ * Assign ranking by deadhead (TMS queue item 4): ranks the fleet's
+ * trucks for THIS load's pickup — a truck finishing near the pickup
+ * outranks an empty truck sitting farther away, because the ranking
+ * spends the route end for a loaded truck and the current position
+ * for an empty one. The pickup is geocoded here through the app's
+ * existing geocode chain; if the city can't be located, the server
+ * returns the drivers unranked with their facts and no invented
+ * distances. Picking a row fills the assign select above it.
+ */
+function AssignRanking({
+  row,
+  onPick,
+}: {
+  row: BoardRow;
+  onPick: (username: string) => void;
+}) {
+  const [state, setState] = useState<
+    | { kind: "idle" }
+    | { kind: "loading" }
+    | { kind: "done"; data: AssignCandidates; located: boolean }
+    | { kind: "error"; message: string }
+  >({ kind: "idle" });
+
+  const run = async () => {
+    setState({ kind: "loading" });
+    try {
+      const point = row.pickupCity ? await geocodeCity(row.pickupCity, row.pickupState) : null;
+      const data = await api.getAssignCandidates({
+        boardLoadId: row.id,
+        pickupLat: point?.lat ?? null,
+        pickupLon: point?.lon ?? null,
+      });
+      if (!data.ok) {
+        setState({ kind: "error", message: data.error ?? "Couldn't rank the trucks for this load." });
+        return;
+      }
+      setState({ kind: "done", data, located: point != null });
+    } catch {
+      setState({ kind: "error", message: "Couldn't rank the trucks for this load." });
+    }
+  };
+
+  return (
+    <div className="w-full">
+      <button
+        type="button"
+        className="btn-press rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3.5 py-2.5 text-sm font-bold disabled:opacity-50"
+        disabled={state.kind === "loading"}
+        aria-label={`Rank trucks by deadhead for ${laneOf(row)}`}
+        onClick={() => void run()}
+      >
+        {state.kind === "loading" ? "Ranking trucks…" : "📍 Rank trucks by deadhead"}
+      </button>
+      {state.kind === "error" && (
+        <p className="mt-1.5 text-xs leading-relaxed text-[var(--dim)]">{state.message}</p>
+      )}
+      {state.kind === "done" && (
+        <div className="mt-2 rounded-xl bg-[var(--surface)] px-3 py-2.5">
+          <p className="text-xs leading-relaxed text-[var(--dim)]">
+            {state.located
+              ? `Deadhead to the ${state.data.pickupLabel ?? "pickup"} pickup, cheapest first. A truck finishing a load is ranked from where its route ends — that's the deadhead it will actually drive.`
+              : "The pickup city couldn't be located, so no distances were figured — here are your drivers and where they stand. Nothing is guessed."}
+          </p>
+          <ul className="mt-1.5 space-y-1.5">
+            {state.data.candidates.map((c: AssignCandidate) => (
+              <li key={c.username} className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="font-semibold">@{c.username}</span>
+                {c.effectiveMi != null ? (
+                  <span className="rounded-full bg-[var(--surface2)] px-2.5 py-0.5 text-xs font-bold text-[var(--accent)]">
+                    ≈ {c.effectiveMi.toLocaleString()} mi deadhead
+                  </span>
+                ) : (
+                  <span className="rounded-full bg-[var(--surface2)] px-2.5 py-0.5 text-xs font-bold">
+                    position unknown
+                  </span>
+                )}
+                <span className="text-xs leading-relaxed text-[var(--dim)]">
+                  {[
+                    c.currentStatusLabel,
+                    c.currentLane,
+                    c.routeEndLabel ? `ends ${c.routeEndLabel}` : null,
+                    c.etaAt
+                      ? `ETA ${new Date(c.etaAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`
+                      : null,
+                    c.positionFreshness ? `location ${c.positionFreshness}` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </span>
+                <button
+                  type="button"
+                  className="btn-press ml-auto rounded-lg border border-[var(--border)] bg-[var(--surface2)] px-2.5 py-1.5 text-xs font-bold"
+                  aria-label={`Choose @${c.username} in the assign picker`}
+                  onClick={() => onPick(c.username)}
+                >
+                  Use this truck
+                </button>
+              </li>
+            ))}
+          </ul>
+          {state.data.candidates.length === 0 && (
+            <p className="mt-1.5 text-xs leading-relaxed text-[var(--dim)]">No drivers on the roster yet.</p>
+          )}
+        </div>
       )}
     </div>
   );
@@ -983,6 +1096,7 @@ export function FleetLoadBoardPanel({
               {twoTap(`withdraw-${r.id}`, "Withdraw", () =>
                 void act(`withdraw-${r.id}`, () => api.withdrawBoardLoad({ id: r.id }), "Load withdrawn — it's off the board."),
               )}
+              <AssignRanking row={r} onPick={(u) => setAssignPick((p) => ({ ...p, [r.id]: u }))} />
             </>
           )}
           {r.status === "open" && data.canPost && data.companyKind === "dispatch" && (
@@ -1120,6 +1234,7 @@ export function FleetLoadBoardPanel({
               {twoTap(`unassign-${r.id}`, "Cancel assignment", () =>
                 void act(`unassign-${r.id}`, () => api.unassignBoardLoad({ id: r.id }), "Assignment cancelled — the load is open on the board again."),
               )}
+              <AssignRanking row={r} onPick={(u) => setAssignPick((p) => ({ ...p, [r.id]: u }))} />
             </>
           )}
           {r.status === "taken" && isMine && r.loadId != null && (

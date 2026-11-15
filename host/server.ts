@@ -372,6 +372,21 @@ server = Bun.serve({
       return json({ error: "not found" }, 404);
     }
 
+    // ---- Tracking-share page (2026-11-15, TMS queue item 4):
+    // /track/<token> is the view-only public page for an outward
+    // tracking share — route, stops, ETA, and the truck's location
+    // with its freshness; never a rate. It talks to the PUBLIC
+    // getTrackInfo action. No session.
+    if (req.method === "GET" && pathname.startsWith("/track/")) {
+      const page = Bun.file(path.join(STANDALONE_ROOT, "host", "track.html"));
+      if (await page.exists()) {
+        return new Response(page, {
+          headers: { "content-type": "text/html" },
+        });
+      }
+      return json({ error: "not found" }, 404);
+    }
+
     // ---- Auth routes (Phase 2b): host routes, not actions — they run
     // before a session exists and set the session cookie themselves.
     if (pathname.startsWith("/auth/")) {

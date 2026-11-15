@@ -221,6 +221,16 @@ plPeriodRange,
 type PlPeriodKind,
 } from "./invoicing";
 import {
+  cleanStops,
+  freshnessFor,
+  laneLabel,
+  plainLoadStatus,
+  rankAssignCandidates,
+  snapshotFreshFor,
+  trackShareStateFor,
+  type LatLonLike,
+} from "./fleetVisibility";
+import {
 SEASON_EPOCH,
 SEASON_MS,
 pointsBalanceFromLedger,
@@ -1507,8 +1517,11 @@ function receiveUrlFor(token: string): string {
 function copyUrlFor(token: string): string {
   return `${APP_PUBLIC_ORIGIN}/pod/${token}`;
 }
-function newReceiveToken(kind: "action" | "copy"): string {
-  return `${kind === "copy" ? "cpy" : "rcv"}_${Buffer.from(randomBytes(16)).toString("hex")}`;
+function trackUrlFor(token: string): string {
+  return `${APP_PUBLIC_ORIGIN}/track/${token}`;
+}
+function newReceiveToken(kind: "action" | "copy" | "track"): string {
+  return `${kind === "copy" ? "cpy" : kind === "track" ? "trk" : "rcv"}_${Buffer.from(randomBytes(16)).toString("hex")}`;
 }
 
 function deliveryPathLabel(path: string): string {
@@ -1592,6 +1605,107 @@ async function ensureCopyLink(ctx: Ctx, loadId: number, createdBy: string): Prom
     .values({ loadId, token: newReceiveToken("copy"), kind: "copy", status: "active", createdBy })
     .returning();
   return ins[0]!;
+}
+
+/** The outward TRACKING share link for a load (kind "track", TMS
+ *  queue item 4): one active token per load, issued only on an
+ *  explicit opt-in (createLoadShareLink), revocable at any time,
+ *  and expiring at delivery — the expiry is derived from the load's
+ *  delivery confirmation at read time, never a stored flag. */
+async function ensureTrackLink(
+  ctx: Ctx,
+  loadId: number,
+  createdBy: string,
+): Promise<{ row: ReceiveLinkRow; created: boolean }> {
+  const db = ctx.db<typeof schema>();
+  const rows = await db
+    .select()
+    .from(schema.receiveLinks)
+    .where(and(eq(schema.receiveLinks.loadId, loadId), eq(schema.receiveLinks.kind, "track"), eq(schema.receiveLinks.status, "active")))
+    .orderBy(desc(schema.receiveLinks.id));
+  if (rows[0]) return { row: rows[0], created: false };
+  const ins = await db
+    .insert(schema.receiveLinks)
+    .values({ loadId, token: newReceiveToken("track"), kind: "track", status: "active", createdBy })
+    .returning();
+  return { row: ins[0]!, created: true };
+}
+
+// ---- Fleet visibility (TMS queue item 4) -----------------------------------
+// The share-up pipe + the position gate shared by the fleet board
+// and the assign ranking. A driver's published snapshot naming an
+// undelivered load is the server-verifiable "on an active trip"
+// signal for their row; the caller's OWN row also follows their
+// live duty picture, exactly as getCompanyLocations rules it.
+
+type FleetStatusRow = typeof schema.driverFleetStatus.$inferSelect;
+
+async function fleetStatusFor(ctx: Ctx, username: string): Promise<FleetStatusRow | null> {
+  const db = ctx.db<typeof schema>();
+  const rows = await db
+    .select()
+    .from(schema.driverFleetStatus)
+    .where(eq(schema.driverFleetStatus.username, username))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+function snapshotStops(row: FleetStatusRow | null): string[] {
+  if (!row) return [];
+  try {
+    const parsed: unknown = JSON.parse(row.stopsJson);
+    return Array.isArray(parsed) ? cleanStops(parsed.filter((s): s is string => typeof s === "string")) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Whether a fleet-status snapshot currently names a live load:
+ *  a load id is published and that load has no delivery
+ *  confirmation standing (a delivered load ends the trip). */
+async function snapshotActiveLoad(ctx: Ctx, row: FleetStatusRow | null): Promise<boolean> {
+  if (!row || row.loadId == null) return false;
+  const confirmation = await deliveryConfirmationFor(ctx, row.loadId);
+  return confirmation == null;
+}
+
+interface FleetPositionGate {
+  visible: boolean;
+  label: string;
+}
+
+/** The fleet-board position gate: coordinates leave the server
+ *  only while the driver is on duty or on an active trip — the
+ *  standing location-privacy rule — resolved through the signals
+ *  the server can actually verify for another member's row: a
+ *  published snapshot naming an undelivered load IS their active
+ *  trip; a FRESH snapshot (the driver's app republishing alongside
+ *  its position reports, per x's fleet access law — membership in
+ *  the fleet is the visibility grant) is their live in-fleet
+ *  presence; and the caller's own row also follows their live duty
+ *  picture, exactly as getCompanyLocations rules it. */
+function fleetPositionGate(args: {
+  isMe: boolean;
+  duty: { onDuty: boolean; tripActive: boolean };
+  snapshotActive: boolean;
+  snapshotFresh: boolean;
+  hasPos: boolean;
+}): FleetPositionGate {
+  const activeTrip = args.snapshotActive || (args.isMe && args.duty.tripActive);
+  const onDuty = args.isMe && args.duty.onDuty;
+  const visible = args.hasPos && (activeTrip || onDuty || args.snapshotFresh);
+  return {
+    visible,
+    label: visible
+      ? activeTrip
+        ? "On an active trip — location shared"
+        : onDuty
+          ? "On duty — location shared"
+          : "Shared with the fleet — driver's app is reporting"
+      : !args.hasPos
+        ? "No live location reported"
+        : "Off duty — location private",
+  };
 }
 
 /** Resolve a receive/copy token to its link + load. Revoked tokens and
@@ -21937,6 +22051,9 @@ export const Actions = {
       }
       receiveThrottleOk(args.token);
       const { link, load } = resolved;
+      // A track share token belongs to the tracking page only — it
+      // is not a receive/copy credential and never resolves here.
+      if (link.kind === "track") return invalid;
       const db = ctx.db<typeof schema>();
       const confirmation = await deliveryConfirmationFor(ctx, load.id);
       // Board row (pieces + fleet company) via the load_saved chain link.
@@ -22093,7 +22210,7 @@ export const Actions = {
     response: z.object({ ok: z.boolean(), error: z.string().nullable(), copyUrl: z.string().nullable(), copyToken: z.string().nullable() }),
     async handler(ctx, args) {
       const resolved = await resolveReceiveToken(ctx, args.token);
-      if (!resolved) return { ok: false, error: "This link isn't valid.", copyUrl: null, copyToken: null };
+      if (!resolved || resolved.link.kind === "track") return { ok: false, error: "This link isn't valid.", copyUrl: null, copyToken: null };
       const confirmation = await deliveryConfirmationFor(ctx, resolved.load.id);
       if (!confirmation) return { ok: false, error: "This delivery hasn't been confirmed yet.", copyUrl: null, copyToken: null };
       const copy = await ensureCopyLink(ctx, resolved.load.id, (await driverUsernameForLoad(ctx, resolved.load)) ?? "receiver");
@@ -22113,7 +22230,7 @@ export const Actions = {
     }),
     async handler(ctx, args) {
       const resolved = await resolveReceiveToken(ctx, args.token);
-      if (!resolved) return { ok: false, error: "This link isn't valid.", filename: null, mime: null, dataBase64: null };
+      if (!resolved || resolved.link.kind === "track") return { ok: false, error: "This link isn't valid.", filename: null, mime: null, dataBase64: null };
       const confirmation = await deliveryConfirmationFor(ctx, resolved.load.id);
       if (!confirmation) return { ok: false, error: "This delivery hasn't been confirmed yet.", filename: null, mime: null, dataBase64: null };
       const pdf = await buildSignedPodPdf(ctx, resolved.load, confirmation);
@@ -22123,6 +22240,234 @@ export const Actions = {
         filename: `signed-pod-load-${resolved.load.id}.pdf`,
         mime: "application/pdf",
         dataBase64: Buffer.from(pdf.bytes).toString("base64"),
+      };
+    },
+  }),
+
+  // ---- Outward tracking shares (TMS queue item 4) --------------------------
+  // Opt-in per-load share links, extending the receive-link family
+  // (kind "track"). The switch belongs to the data owner: the driver
+  // the load belongs to, or the owner/dispatch of the fleet whose
+  // board the load came through (libraryLoadScope — the same gate
+  // the Library documents use). A share shows route, stops, ETA and
+  // the truck's location with its freshness — NEVER the rate: no
+  // payload in this section reads a money field at all. Shares
+  // expire at delivery (derived from the standing confirmation).
+
+  getLoadShareLinks: defineAction({
+    description: "This load's outward tracking share links + their live state (owner of the load, or its fleet's desk).",
+    request: z.object({ loadId: z.number().int().positive() }),
+    response: z.object({
+      ok: z.boolean(),
+      error: z.string().nullable(),
+      delivered: z.boolean(),
+      links: z.array(
+        z.object({
+          id: z.number(),
+          url: z.string(),
+          state: z.string(),
+          createdBy: z.string(),
+          createdAt: z.string(),
+        }),
+      ),
+    }),
+    async handler(ctx, args) {
+      const fail = { ok: false, error: "That load isn't in your scope.", delivered: false, links: [] };
+      const scope = await libraryLoadScope(ctx, args.loadId);
+      if (!scope) return fail;
+      const db = ctx.db<typeof schema>();
+      const delivered = (await deliveryConfirmationFor(ctx, args.loadId)) != null;
+      const rows = await db
+        .select()
+        .from(schema.receiveLinks)
+        .where(and(eq(schema.receiveLinks.loadId, args.loadId), eq(schema.receiveLinks.kind, "track")))
+        .orderBy(desc(schema.receiveLinks.id));
+      return {
+        ok: true,
+        error: null,
+        delivered,
+        links: rows.map((r) => ({
+          id: r.id,
+          url: trackUrlFor(r.token),
+          state: trackShareStateFor({ linkStatus: r.status, delivered }),
+          createdBy: r.createdBy,
+          createdAt: r.createdAt.toISOString(),
+        })),
+      };
+    },
+  }),
+
+  createLoadShareLink: defineAction({
+    description: "Opt in: create (or return) this load's outward tracking share link. Sealed; never carries the rate.",
+    request: z.object({ loadId: z.number().int().positive() }),
+    response: z.object({
+      ok: z.boolean(),
+      error: z.string().nullable(),
+      url: z.string().nullable(),
+      state: z.string().nullable(),
+    }),
+    async handler(ctx, args) {
+      const scope = await libraryLoadScope(ctx, args.loadId);
+      if (!scope) return { ok: false, error: "That load isn't in your scope.", url: null, state: null };
+      const delivered = (await deliveryConfirmationFor(ctx, args.loadId)) != null;
+      if (delivered)
+        return {
+          ok: false,
+          error: "This load is already delivered — tracking shares end at delivery. The receiver's copy link is the record now.",
+          url: null,
+          state: null,
+        };
+      const me = await myUsername(ctx);
+      const { row, created } = await ensureTrackLink(ctx, args.loadId, me);
+      if (created) {
+        await appendChain(ctx, {
+          refKind: "load",
+          refId: args.loadId,
+          sessionId: null,
+          event: "load_share_created",
+          payload: { loadId: args.loadId, by: me, via: scope.via, at: new Date().toISOString() },
+        });
+      }
+      ctx.invalidateQueries();
+      return { ok: true, error: null, url: trackUrlFor(row.token), state: "live" };
+    },
+  }),
+
+  revokeLoadShareLink: defineAction({
+    description: "Revoke one of this load's tracking share links — the link dies immediately, everywhere.",
+    request: z.object({ loadId: z.number().int().positive(), linkId: z.number().int().positive() }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable() }),
+    async handler(ctx, args) {
+      const scope = await libraryLoadScope(ctx, args.loadId);
+      if (!scope) return { ok: false, error: "That load isn't in your scope." };
+      const db = ctx.db<typeof schema>();
+      const rows = await db
+        .select()
+        .from(schema.receiveLinks)
+        .where(and(eq(schema.receiveLinks.id, args.linkId), eq(schema.receiveLinks.loadId, args.loadId), eq(schema.receiveLinks.kind, "track")))
+        .limit(1);
+      const row = rows[0];
+      if (!row) return { ok: false, error: "That share link isn't on this load." };
+      if (row.status === "revoked") return { ok: true, error: null };
+      await db
+        .update(schema.receiveLinks)
+        .set({ status: "revoked", revokedAt: new Date() })
+        .where(eq(schema.receiveLinks.id, row.id));
+      const me = await myUsername(ctx);
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: args.loadId,
+        sessionId: null,
+        event: "load_share_revoked",
+        payload: { loadId: args.loadId, linkId: row.id, by: me, via: scope.via, at: new Date().toISOString() },
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
+    },
+  }),
+
+  getTrackInfo: defineAction({
+    description: "PUBLIC: tracking view for a shared load — route, stops, ETA, location + freshness. Never any rate or money field. Expires at delivery.",
+    request: z.object({ token: z.string().min(8).max(80) }),
+    response: z.object({
+      valid: z.boolean(),
+      state: z.string().nullable(),
+      shipperName: z.string().nullable(),
+      commodity: z.string().nullable(),
+      lane: z.string().nullable(),
+      pickupLabel: z.string().nullable(),
+      deliveryLabel: z.string().nullable(),
+      pickupText: z.string().nullable(),
+      deliveryText: z.string().nullable(),
+      statusLabel: z.string().nullable(),
+      stops: z.array(z.string()),
+      etaAt: z.string().nullable(),
+      fleetName: z.string().nullable(),
+      driverFirstName: z.string().nullable(),
+      positionVisible: z.boolean(),
+      lat: z.number().nullable(),
+      lon: z.number().nullable(),
+      positionAt: z.string().nullable(),
+      positionFreshness: z.string().nullable(),
+    }),
+    async handler(ctx, args) {
+      const invalid = {
+        valid: false, state: null, shipperName: null, commodity: null, lane: null,
+        pickupLabel: null, deliveryLabel: null, pickupText: null, deliveryText: null,
+        statusLabel: null, stops: [] as string[], etaAt: null, fleetName: null,
+        driverFirstName: null, positionVisible: false, lat: null, lon: null,
+        positionAt: null, positionFreshness: null,
+      };
+      if (receiveThrottleBlocked(args.token)) return invalid;
+      const resolved = await resolveReceiveToken(ctx, args.token);
+      if (!resolved || resolved.link.kind !== "track") {
+        receiveThrottleFail(args.token);
+        return invalid;
+      }
+      receiveThrottleOk(args.token);
+      const { load } = resolved;
+      const db = ctx.db<typeof schema>();
+      const confirmation = await deliveryConfirmationFor(ctx, load.id);
+      const state = trackShareStateFor({ linkStatus: resolved.link.status, delivered: confirmation != null });
+      const driverUsername = await driverUsernameForLoad(ctx, load);
+      const driver = driverUsername
+        ? (await db.select().from(schema.socialUsers).where(eq(schema.socialUsers.username, driverUsername)).limit(1))[0]
+        : undefined;
+      const driverName = driver?.displayName?.trim() || driverUsername || "";
+      // Route facts ride the driver's published fleet snapshot when
+      // it names this load; otherwise the load's own trip-queue plan.
+      const snapshot = driverUsername ? await fleetStatusFor(ctx, driverUsername) : null;
+      const snapForLoad = snapshot && snapshot.loadId === load.id ? snapshot : null;
+      let stops = snapshotStops(snapForLoad);
+      if (stops.length === 0) {
+        const queue = await db.select().from(schema.tripQueue).where(eq(schema.tripQueue.loadId, load.id));
+        for (const q of queue) {
+          try {
+            const parsed: unknown = JSON.parse(q.stopsJson);
+            if (Array.isArray(parsed)) stops = cleanStops(parsed.filter((s): s is string => typeof s === "string"));
+          } catch { /* stops are decoration — the page stands without them */ }
+          if (stops.length > 0) break;
+        }
+      }
+      // Location: only while the share is live (never after
+      // delivery), and always printed WITH its freshness — a stale
+      // dot never poses as a live one.
+      let positionVisible = false;
+      let lat: number | null = null;
+      let lon: number | null = null;
+      let positionAt: string | null = null;
+      let positionFreshness: string | null = null;
+      if (state === "live" && driverUsername) {
+        const pos = (await db.select().from(schema.driverPositions).where(eq(schema.driverPositions.username, driverUsername)).limit(1))[0];
+        if (pos) {
+          positionVisible = true;
+          lat = pos.lat;
+          lon = pos.lon;
+          positionAt = pos.updatedAt.toISOString();
+          positionFreshness = freshnessFor(pos.updatedAt, new Date()).label;
+        }
+      }
+      const side = (city: string | null, st: string | null) => [city, st].filter(Boolean).join(", ") || null;
+      return {
+        valid: true,
+        state,
+        shipperName: load.shipper ?? null,
+        commodity: load.commodity ?? null,
+        lane: laneLabel(load.pickupCity, load.pickupState, load.deliveryCity, load.deliveryState),
+        pickupLabel: side(load.pickupCity, load.pickupState),
+        deliveryLabel: side(load.deliveryCity, load.deliveryState),
+        pickupText: load.pickupText ?? null,
+        deliveryText: load.deliveryText ?? null,
+        statusLabel: confirmation ? "Delivered" : plainLoadStatus(load.status),
+        stops,
+        etaAt: load.dockApptAt?.toISOString() ?? snapForLoad?.etaAt?.toISOString() ?? null,
+        fleetName: driver?.company ?? "STONEMILES carrier",
+        driverFirstName: driverName.split(/\s+/)[0] ?? null,
+        positionVisible,
+        lat,
+        lon,
+        positionAt,
+        positionFreshness,
       };
     },
   }),
@@ -22137,7 +22482,7 @@ export const Actions = {
     privileged: [privileged.docEmailConfig, privileged.sendDocEmail],
     async handler(ctx, args) {
       const resolved = await resolveReceiveToken(ctx, args.token);
-      if (!resolved) return { ok: false, error: "This link isn't valid.", status: null };
+      if (!resolved || resolved.link.kind === "track") return { ok: false, error: "This link isn't valid.", status: null };
       const { load } = resolved;
       const confirmation = await deliveryConfirmationFor(ctx, load.id);
       if (!confirmation) return { ok: false, error: "This delivery hasn't been confirmed yet.", status: null };
@@ -46845,6 +47190,82 @@ export const Actions = {
     },
   }),
 
+  // Fleet-visibility share-up pipe (TMS queue item 4): my app
+  // publishes the load I am running — lane, status, ordered stops,
+  // route end, ETA — into the shared snapshot my fleet's owner +
+  // dispatch seats read on the fleet board. The lane and status are
+  // derived from MY OWN load row here, never trusted from the
+  // client; the client contributes only what it alone knows (the
+  // planned stops, the route end off its own planned route, an
+  // ETA). A delivered load clears the snapshot instead of pointing
+  // the fleet at a finished run. The snapshot carries no rate and
+  // no money field — the fleet board never sees either.
+  publishFleetStatus: defineAction({
+    description: "Publish my fleet-visibility snapshot (current load, lane, stops, route end, ETA) for my fleet's desk.",
+    request: z.object({
+      loadId: z.number().int().positive().nullable(),
+      stops: z.array(z.string().max(120)).max(24).default([]),
+      routeLabel: z.string().max(120).nullable().default(null),
+      endLat: z.number().min(-90).max(90).nullable().default(null),
+      endLon: z.number().min(-180).max(180).nullable().default(null),
+      etaAt: z.string().max(40).nullable().default(null),
+    }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable(), hasActiveLoad: z.boolean() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      let load: LoadRow | null = null;
+      if (args.loadId != null) {
+        const rows = await db.select().from(schema.loads).where(eq(schema.loads.id, args.loadId)).limit(1);
+        load = rows[0] ?? null;
+        if (!load) return { ok: false, error: "That load isn't in your scope.", hasActiveLoad: false };
+        if ((await deliveryConfirmationFor(ctx, load.id)) != null) load = null;
+      }
+      const etaParsed = args.etaAt ? new Date(args.etaAt) : null;
+      const etaAt = load
+        ? etaParsed && !Number.isNaN(etaParsed.getTime())
+          ? etaParsed
+          : (load.dockApptAt ?? null)
+        : null;
+      const values = {
+        username: me,
+        loadId: load?.id ?? null,
+        loadStatus: load ? load.status : null,
+        pickupCity: load?.pickupCity ?? null,
+        pickupState: load?.pickupState ?? null,
+        deliveryCity: load?.deliveryCity ?? null,
+        deliveryState: load?.deliveryState ?? null,
+        stopsJson: JSON.stringify(cleanStops(args.stops)),
+        routeLabel: args.routeLabel?.trim() ? args.routeLabel.trim().slice(0, 120) : null,
+        endLat: load ? args.endLat : null,
+        endLon: load ? args.endLon : null,
+        etaAt,
+        publishedAt: new Date(),
+      };
+      await db
+        .insert(schema.driverFleetStatus)
+        .values(values)
+        .onConflictDoUpdate({
+          target: schema.driverFleetStatus.username,
+          set: {
+            loadId: values.loadId,
+            loadStatus: values.loadStatus,
+            pickupCity: values.pickupCity,
+            pickupState: values.pickupState,
+            deliveryCity: values.deliveryCity,
+            deliveryState: values.deliveryState,
+            stopsJson: values.stopsJson,
+            routeLabel: values.routeLabel,
+            endLat: values.endLat,
+            endLon: values.endLon,
+            etaAt: values.etaAt,
+            publishedAt: values.publishedAt,
+          },
+        });
+      return { ok: true, error: null, hasActiveLoad: load != null };
+    },
+  }),
+
   // ---- App performance timings (first-party only) ------------------------------
   // The app records its own measured timings — how long a reroute took
   // to publish a corrected route, how long each route request took —
@@ -47170,6 +47591,304 @@ export const Actions = {
           takenBoard: taken.length,
           positionsLive: drivers.filter((d) => d.positionVisible).length,
         },
+      };
+    },
+  }),
+
+  // ---- Fleet board (TMS queue item 4) ---------------------------------------
+  // The per-fleet live board: owner + dispatch seats only, scoped to
+  // the caller's OWN company — another fleet's drivers answer as
+  // nonexistent, and platform staff get no fleet truck locations
+  // through this tool (no team seat passes the membership gate).
+  // Per-truck card: truck, driver, current load + status, the route
+  // stops in order, last location WITH its freshness, and the
+  // route-end city/time. Sources: the drivers' published snapshots
+  // (the share-up pipe), the company's taken board rows as fallback,
+  // and driver_positions under the standing location-privacy rule.
+  // NO rate or money field is read or returned — board rows carry a
+  // rate, and it deliberately never crosses into this payload.
+  getFleetBoard: defineAction({
+    description: "Get fleet board.",
+    request: z.object({}),
+    response: z.object({
+      canView: z.boolean(),
+      companyName: z.string().nullable(),
+      cards: z.array(
+        z.object({
+          username: z.string(),
+          role: z.string(),
+          displayName: z.string().nullable(),
+          isMe: z.boolean(),
+          truckLine: z.string().nullable(),
+          hasActiveLoad: z.boolean(),
+          loadId: z.number().nullable(),
+          lane: z.string().nullable(),
+          loadStatus: z.string().nullable(),
+          loadStatusLabel: z.string().nullable(),
+          stops: z.array(z.string()),
+          routeEndLabel: z.string().nullable(),
+          etaAt: z.string().nullable(),
+          snapshotAt: z.string().nullable(),
+          positionVisible: z.boolean(),
+          positionLabel: z.string(),
+          lat: z.number().nullable(),
+          lon: z.number().nullable(),
+          positionAt: z.string().nullable(),
+          positionFreshness: z.string().nullable(),
+        }),
+      ),
+    }),
+    async handler(ctx) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const mine = await myMembership(ctx, me);
+      if (!mine || (mine.role !== "owner" && mine.role !== "dispatch")) {
+        return { canView: false, companyName: null, cards: [] };
+      }
+      const members = await db
+        .select()
+        .from(schema.companyMembers)
+        .where(eq(schema.companyMembers.companyId, mine.company.id));
+      const duty = await dutyPicture(ctx);
+      const positions = await db.select().from(schema.driverPositions);
+      const boardRows = await db
+        .select()
+        .from(schema.boardLoads)
+        .where(eq(schema.boardLoads.companyId, mine.company.id));
+      const taken = boardRows.filter((b) => b.status === "taken");
+      const now = new Date();
+      const cards = [];
+      for (const m of members) {
+        if (m.role === "dispatch") continue; // dispatch doesn't haul — no truck card
+        const isMe = m.username === me;
+        const profile = (
+          await db.select().from(schema.profile).where(eq(schema.profile.socialUsername, m.username)).limit(1)
+        )[0];
+        const social = (
+          await db.select().from(schema.socialUsers).where(eq(schema.socialUsers.username, m.username)).limit(1)
+        )[0];
+        let truckLine: string | null = null;
+        if (profile) {
+          const rig = [profile.truckYear, profile.truckMake, profile.truckModel].filter(Boolean).join(" ");
+          const unit = profile.truckUnitNumber ? `Unit ${profile.truckUnitNumber}` : "";
+          truckLine = [rig, unit].filter(Boolean).join(" · ") || null;
+        }
+        const snap = await fleetStatusFor(ctx, m.username);
+        const snapActive = await snapshotActiveLoad(ctx, snap);
+        let hasActiveLoad = false;
+        let loadId: number | null = null;
+        let lane: string | null = null;
+        let loadStatus: string | null = null;
+        let loadStatusLabel: string | null = null;
+        let stops: string[] = [];
+        let routeEndLabel: string | null = null;
+        let etaAt: string | null = null;
+        let snapshotAt: string | null = null;
+        if (snap && snapActive) {
+          hasActiveLoad = true;
+          loadId = snap.loadId;
+          lane = laneLabel(snap.pickupCity, snap.pickupState, snap.deliveryCity, snap.deliveryState);
+          loadStatus = snap.loadStatus;
+          loadStatusLabel = plainLoadStatus(snap.loadStatus);
+          stops = snapshotStops(snap);
+          routeEndLabel = [snap.deliveryCity, snap.deliveryState].filter(Boolean).join(", ") || null;
+          etaAt = snap.etaAt?.toISOString() ?? null;
+          snapshotAt = snap.publishedAt.toISOString();
+        } else {
+          const board = taken.find((b) => b.claimedBy === m.username) ?? null;
+          if (board) {
+            hasActiveLoad = true;
+            loadId = board.loadId ?? null;
+            lane = laneLabel(board.pickupCity, board.pickupState, board.deliveryCity, board.deliveryState);
+            loadStatusLabel = "Accepted — on a company load";
+            routeEndLabel = [board.deliveryCity, board.deliveryState].filter(Boolean).join(", ") || null;
+            etaAt = board.deliveryApptAt?.toISOString() ?? null;
+          }
+        }
+        const pos = positions.find((p) => p.username === m.username) ?? null;
+        const gate = fleetPositionGate({
+          isMe,
+          duty,
+          snapshotActive: snapActive,
+          snapshotFresh: snapshotFreshFor(snap?.publishedAt ?? null, now),
+          hasPos: pos != null,
+        });
+        cards.push({
+          username: m.username,
+          role: m.role,
+          displayName: social?.displayName ?? null,
+          isMe,
+          truckLine,
+          hasActiveLoad,
+          loadId,
+          lane,
+          loadStatus,
+          loadStatusLabel,
+          stops,
+          routeEndLabel,
+          etaAt,
+          snapshotAt,
+          positionVisible: gate.visible,
+          positionLabel: gate.label,
+          lat: gate.visible && pos ? pos.lat : null,
+          lon: gate.visible && pos ? pos.lon : null,
+          positionAt: gate.visible && pos ? pos.updatedAt.toISOString() : null,
+          positionFreshness: gate.visible && pos ? freshnessFor(pos.updatedAt, now).label : null,
+        });
+      }
+      cards.sort((a, b) =>
+        a.hasActiveLoad === b.hasActiveLoad ? a.username.localeCompare(b.username) : a.hasActiveLoad ? -1 : 1,
+      );
+      return { canView: true, companyName: mine.company.name, cards };
+    },
+  }),
+
+  // Assign ranking by deadhead (TMS queue item 4): for one of the
+  // company's board loads, rank its assignable drivers by the
+  // deadhead the assignment would actually cost — from the route
+  // end for a truck finishing a load, from its current position for
+  // an empty one (fleetVisibility.rankAssignCandidates). The pickup
+  // point is geocoded by the desk's client through the app's
+  // existing geocode chain and passed in; without it the candidates
+  // come back unranked with their facts and no invented distances.
+  // Positions follow the same privacy gate as the fleet board, and
+  // no rate or money field is read or returned.
+  getAssignCandidates: defineAction({
+    description: "Rank this company's drivers by deadhead for assigning a board load.",
+    request: z.object({
+      boardLoadId: z.number().int().positive(),
+      pickupLat: z.number().min(-90).max(90).nullable().default(null),
+      pickupLon: z.number().min(-180).max(180).nullable().default(null),
+    }),
+    response: z.object({
+      ok: z.boolean(),
+      error: z.string().nullable(),
+      lane: z.string().nullable(),
+      pickupLabel: z.string().nullable(),
+      rankedByDeadhead: z.boolean(),
+      candidates: z.array(
+        z.object({
+          username: z.string(),
+          displayName: z.string().nullable(),
+          role: z.string(),
+          hasActiveLoad: z.boolean(),
+          currentLane: z.string().nullable(),
+          currentStatusLabel: z.string().nullable(),
+          routeEndLabel: z.string().nullable(),
+          etaAt: z.string().nullable(),
+          deadheadNowMi: z.number().nullable(),
+          deadheadEndMi: z.number().nullable(),
+          effectiveMi: z.number().nullable(),
+          basis: z.string(),
+          basisLabel: z.string(),
+          positionFreshness: z.string().nullable(),
+        }),
+      ),
+    }),
+    async handler(ctx, args) {
+      const fail = { ok: false, error: null as string | null, lane: null, pickupLabel: null, rankedByDeadhead: false, candidates: [] };
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const mine = await myMembership(ctx, me);
+      if (!mine || (mine.role !== "owner" && mine.role !== "dispatch"))
+        return { ...fail, error: "Only the owner or dispatch can rank trucks for an assignment." };
+      const rows = await db.select().from(schema.boardLoads).where(eq(schema.boardLoads.id, args.boardLoadId)).limit(1);
+      const row = rows[0];
+      if (!row || row.companyId !== mine.company.id)
+        return { ...fail, error: "That load isn't on your company's board." };
+      if (row.status === "taken")
+        return { ...fail, error: `Already taken by @${row.claimedBy} — unassign it back to the board first if it needs a different driver.` };
+      if (row.status !== "open" && row.status !== "assigned")
+        return { ...fail, error: "That load isn't in a state that takes an assignment." };
+      const members = await db
+        .select()
+        .from(schema.companyMembers)
+        .where(eq(schema.companyMembers.companyId, mine.company.id));
+      const duty = await dutyPicture(ctx);
+      const positions = await db.select().from(schema.driverPositions);
+      const taken = await db
+        .select()
+        .from(schema.boardLoads)
+        .where(and(eq(schema.boardLoads.companyId, mine.company.id), eq(schema.boardLoads.status, "taken")));
+      const now = new Date();
+      const inputs = [];
+      const facts = new Map<string, { displayName: string | null; role: string; currentLane: string | null; currentStatusLabel: string | null; routeEndLabel: string | null; etaAt: string | null; positionFreshness: string | null }>();
+      for (const m of members) {
+        if (m.role === "dispatch") continue; // dispatch doesn't haul loads
+        const social = (
+          await db.select().from(schema.socialUsers).where(eq(schema.socialUsers.username, m.username)).limit(1)
+        )[0];
+        const snap = await fleetStatusFor(ctx, m.username);
+        const snapActive = await snapshotActiveLoad(ctx, snap);
+        const board = taken.find((b) => b.claimedBy === m.username) ?? null;
+        const hasActiveLoad = snapActive || board != null;
+        const pos = positions.find((p) => p.username === m.username) ?? null;
+        const gate = fleetPositionGate({
+          isMe: m.username === me,
+          duty,
+          snapshotActive: snapActive,
+          snapshotFresh: snapshotFreshFor(snap?.publishedAt ?? null, now),
+          hasPos: pos != null,
+        });
+        inputs.push({
+          username: m.username,
+          currentPos: gate.visible && pos ? { lat: pos.lat, lon: pos.lon } : null,
+          routeEnd:
+            snapActive && snap && snap.endLat != null && snap.endLon != null
+              ? { lat: snap.endLat, lon: snap.endLon }
+              : null,
+          hasActiveLoad,
+        });
+        facts.set(m.username, {
+          displayName: social?.displayName ?? null,
+          role: m.role,
+          currentLane: snapActive && snap
+            ? laneLabel(snap.pickupCity, snap.pickupState, snap.deliveryCity, snap.deliveryState)
+            : board
+              ? laneLabel(board.pickupCity, board.pickupState, board.deliveryCity, board.deliveryState)
+              : null,
+          currentStatusLabel: snapActive && snap
+            ? plainLoadStatus(snap.loadStatus)
+            : board
+              ? "Accepted — on a company load"
+              : "Empty — no current load",
+          routeEndLabel: snapActive && snap
+            ? [snap.deliveryCity, snap.deliveryState].filter(Boolean).join(", ") || null
+            : board
+              ? [board.deliveryCity, board.deliveryState].filter(Boolean).join(", ") || null
+              : null,
+          etaAt: snapActive && snap ? (snap.etaAt?.toISOString() ?? null) : (board?.deliveryApptAt?.toISOString() ?? null),
+          positionFreshness: gate.visible && pos ? freshnessFor(pos.updatedAt, now).label : null,
+        });
+      }
+      const pickup: LatLonLike | null =
+        args.pickupLat != null && args.pickupLon != null ? { lat: args.pickupLat, lon: args.pickupLon } : null;
+      const ranked = rankAssignCandidates(inputs, pickup);
+      return {
+        ok: true,
+        error: null,
+        lane: laneLabel(row.pickupCity, row.pickupState, row.deliveryCity, row.deliveryState),
+        pickupLabel: [row.pickupCity, row.pickupState].filter(Boolean).join(", ") || null,
+        rankedByDeadhead: pickup != null,
+        candidates: ranked.map((c) => {
+          const f = facts.get(c.username)!;
+          return {
+            username: c.username,
+            displayName: f.displayName,
+            role: f.role,
+            hasActiveLoad: c.hasActiveLoad,
+            currentLane: f.currentLane,
+            currentStatusLabel: f.currentStatusLabel,
+            routeEndLabel: f.routeEndLabel,
+            etaAt: f.etaAt,
+            deadheadNowMi: c.deadheadNowMi,
+            deadheadEndMi: c.deadheadEndMi,
+            effectiveMi: c.effectiveMi,
+            basis: c.basis,
+            basisLabel: c.basisLabel,
+            positionFreshness: f.positionFreshness,
+          };
+        }),
       };
     },
   }),

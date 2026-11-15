@@ -26,6 +26,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { api, type ApiResponse } from "./api";
+import { FleetBoardPanel } from "./FleetBoard";
 
 type OwnerDeskData = ApiResponse<typeof api, "getOwnerDesk">;
 type PipelineRow = OwnerDeskData["pipeline"][number];
@@ -209,6 +210,9 @@ export function OwnerDesk({
                 </button>
               </div>
             </section>
+
+            {/* Fleet board — live trucks (TMS queue item 4) */}
+            <FleetBoardPanel />
 
             {/* Roster snapshot */}
             <section className="mt-3 rounded-xl border border-[var(--glass-border)] bg-[var(--surface2)] px-3 py-3" aria-label="Roster snapshot">

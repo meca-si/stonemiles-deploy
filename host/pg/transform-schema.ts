@@ -62,7 +62,15 @@
 // (points_safety_holds) with +1 autoincrement PK and +2 timestamp_ms
 // (created/updated); the profile birth_month / birth_day columns are
 // plain integers and ride the unchanged integer rule (there is no
-// birth-year column by design).
+// birth-year column by design). Migrations 0125 (credential alerts)
+// and 0126 (invoicing) were hand-mirrored into the PG schema without
+// re-running this transform, which left its expected counts stale;
+// the 0127 run re-baselines them against the source (0125/0126
+// account for +2 autoincrement PKs, +7 timestamp_ms, +1 REAL).
+// Migration 0127 (fleet visibility) adds +1 table
+// (driver_fleet_status) with a text primary key (rides the unchanged
+// text rule), +2 timestamp_ms (eta_at, published_at), and +2 REAL
+// (end_lat, end_lon); its remaining columns are plain integer/text.
 //
 //   bun run host/pg/transform-schema.ts
 
@@ -127,16 +135,16 @@ replaceAll(
   'integer mode "timestamp_ms" -> timestamp(tz, date)',
   /integer\(("[a-z0-9_]+"), \{ mode: "timestamp_ms" \}\)/g,
   'timestamp($1, { withTimezone: true, mode: "date" })',
-  318,
+  327,
 );
 replaceAll(
   "autoincrement PK -> serial",
   /integer\(("[a-z0-9_]+")\)\.primaryKey\(\{ autoIncrement: true \}\)/g,
   "serial($1).primaryKey()",
-  141,
+  143,
 );
-replaceAll("sqliteTable -> pgTable", /\bsqliteTable\(/g, "pgTable(", 173);
-replaceAll("real -> doublePrecision", /\breal\(/g, "doublePrecision(", 183);
+replaceAll("sqliteTable -> pgTable", /\bsqliteTable\(/g, "pgTable(", 176);
+replaceAll("real -> doublePrecision", /\breal\(/g, "doublePrecision(", 186);
 
 // Leftovers: any of these means the source schema grew a shape this
 // transform does not know. Fail, don't guess.

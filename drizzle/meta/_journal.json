@@ -883,6 +883,13 @@
       "when": 1795600000000,
       "tag": "0126_invoicing_pl",
       "breakpoints": true
+    },
+    {
+      "idx": 126,
+      "version": "6",
+      "when": 1795700000000,
+      "tag": "0127_fleet_visibility",
+      "breakpoints": true
     }
   ]
 }

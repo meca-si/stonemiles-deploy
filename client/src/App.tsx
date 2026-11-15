@@ -2280,6 +2280,15 @@ export function App() {
       ? { id: activeQueueTrip.id, name: activeQueueTrip.name, payRate: activeQueueTrip.payRate, payBasis: activeQueueTrip.payBasis === "percent" ? "percent" : "cpm", payPercent: activeQueueTrip.payPercent, loadId: activeQueueTrip.loadId, extraCharges: activeQueueTrip.extraCharges, extraChargesNote: activeQueueTrip.extraChargesNote }
       : null;
   }, [activeQueueTrip]);
+  // Fleet visibility (TMS queue item 4): the publish effect further
+  // down reads the active trip's load + planned stops + route label
+  // through this ref (the share-up pipe's client half).
+  const fleetPublishRef = useRef<{ loadId: number | null; stops: string[]; routeLabel: string | null } | null>(null);
+  useEffect(() => {
+    fleetPublishRef.current = activeQueueTrip
+      ? { loadId: activeQueueTrip.loadId, stops: activeQueueTrip.stops, routeLabel: activeQueueTrip.routeLabel }
+      : null;
+  }, [activeQueueTrip]);
 
   const saveProfileMut = useMutation({
     mutationFn: (p: ProfileT) => api.saveProfile(p),
@@ -6682,6 +6691,37 @@ export function App() {
     if (now - lastPosReportRef.current < 25000) return;
     lastPosReportRef.current = now;
     void api.reportPosition({ lat: pos.lat, lon: pos.lon }).catch(() => undefined);
+  }, [pos, gpsOn]);
+
+  // Fleet visibility (TMS queue item 4): while GPS is on, publish
+  // the fleet-status snapshot my fleet's owner + dispatch read on
+  // the fleet board (throttled to ~60s) — the load I'm running (the
+  // active trip's load, else the picked-up load), its planned
+  // stops, and the route end off my own geocoded delivery point.
+  // The server derives the lane/status from my load row and clears
+  // the snapshot when the load delivers. No rate is ever published:
+  // the snapshot has no money field.
+  const lastFleetPublishRef = useRef(0);
+  useEffect(() => {
+    if (!pos || !gpsOn) return;
+    const now = Date.now();
+    if (now - lastFleetPublishRef.current < 60000) return;
+    lastFleetPublishRef.current = now;
+    const pub = fleetPublishRef.current;
+    const running =
+      loadsRef.current.find((l) => (l.status === "picked_up" || l.id === activeLoadIdRef.current) && !l.podSealed) ?? null;
+    const loadId = pub?.loadId ?? running?.id ?? null;
+    const end = loadId != null ? deliveryGeoRef.current.get(loadId) ?? null : null;
+    void api
+      .publishFleetStatus({
+        loadId,
+        stops: pub?.stops ?? [],
+        routeLabel: pub?.routeLabel ?? null,
+        endLat: end?.lat ?? null,
+        endLon: end?.lon ?? null,
+        etaAt: null,
+      })
+      .catch(() => undefined);
   }, [pos, gpsOn]);
 
   // ---------- Routing ----------------------------------------------------------

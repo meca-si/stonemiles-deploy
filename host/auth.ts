@@ -1864,4 +1864,10 @@ export const PUBLIC_ACTIONS = new Set<string>([
   "getPodCopyDocument",
   "emailReceiverCopy",
   "logReceiverCopyTextOffer",
+  // Outward tracking share (2026-11-15, TMS queue item 4): the
+  // per-load "track" token is the same capability pattern — it
+  // returns route/stops/ETA/location-with-freshness for that one
+  // load only, never a rate or any money field, and the share
+  // expires at delivery. See server action getTrackInfo.
+  "getTrackInfo",
 ]);

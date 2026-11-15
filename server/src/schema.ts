@@ -136,6 +136,7 @@ export const stepupState = impl.stepupState;
 export const recordAccessLog = impl.recordAccessLog;
 export const trackPoints = impl.trackPoints;
 export const driverPositions = impl.driverPositions;
+export const driverFleetStatus = impl.driverFleetStatus;
 export const securityPrefs = impl.securityPrefs;
 export const moneyHolds = impl.moneyHolds;
 export const ownerGiveaways = impl.ownerGiveaways;
