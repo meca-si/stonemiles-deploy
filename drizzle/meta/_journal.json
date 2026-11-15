@@ -848,6 +848,13 @@
       "when": 1795100000000,
       "tag": "0121_points_earning_lanes",
       "breakpoints": true
+    },
+    {
+      "idx": 121,
+      "version": "6",
+      "when": 1795200000000,
+      "tag": "0122_dvir_detention",
+      "breakpoints": true
     }
   ]
 }

@@ -180,6 +180,8 @@ export const maintenanceLogAttachments = impl.maintenanceLogAttachments;
 export const vehiclePhotos = impl.vehiclePhotos;
 export const posterReferrals = impl.posterReferrals;
 export const sealedLanes = impl.sealedLanes;
+export const dvirDefectLinks = impl.dvirDefectLinks;
+export const detentionRecords = impl.detentionRecords;
 export const breakdownLogs = impl.breakdownLogs;
 
 // Auth (Phase 2b, added at the Phase 2 merge): account + session tables.

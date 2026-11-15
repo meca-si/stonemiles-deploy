@@ -48,6 +48,13 @@
 // text lane key and rides the unchanged text rule), +3 timestamp_ms
 // (poster_referrals created/landed + sealed_lanes first_sealed_at);
 // the fuel_price_reports.reporter column is plain text.
+// Migration 0122 (DVIR completion + detention timer) adds +2 tables
+// (dvir_defect_links, detention_records), +2 autoincrement PKs,
+// +6 timestamp_ms (defect link created; detention appt/arrived/
+// departed/created/updated), +6 REAL (DVIR lat/lon; detention
+// arrive/depart lat/lon), +1 boolean (dvir safe_to_operate); the
+// dvir truck/trailer label columns, the maintenance status column,
+// and detention place/chain-hash text ride the unchanged text rule.
 //
 //   bun run host/pg/transform-schema.ts
 
@@ -106,22 +113,22 @@ replaceAll(
   'integer mode "boolean" -> boolean',
   /integer\(("[a-z0-9_]+"), \{ mode: "boolean" \}\)/g,
   "boolean($1)",
-  108,
+  109,
 );
 replaceAll(
   'integer mode "timestamp_ms" -> timestamp(tz, date)',
   /integer\(("[a-z0-9_]+"), \{ mode: "timestamp_ms" \}\)/g,
   'timestamp($1, { withTimezone: true, mode: "date" })',
-  310,
+  316,
 );
 replaceAll(
   "autoincrement PK -> serial",
   /integer\(("[a-z0-9_]+")\)\.primaryKey\(\{ autoIncrement: true \}\)/g,
   "serial($1).primaryKey()",
-  138,
+  140,
 );
-replaceAll("sqliteTable -> pgTable", /\bsqliteTable\(/g, "pgTable(", 170);
-replaceAll("real -> doublePrecision", /\breal\(/g, "doublePrecision(", 177);
+replaceAll("sqliteTable -> pgTable", /\bsqliteTable\(/g, "pgTable(", 172);
+replaceAll("real -> doublePrecision", /\breal\(/g, "doublePrecision(", 183);
 
 // Leftovers: any of these means the source schema grew a shape this
 // transform does not know. Fail, don't guess.

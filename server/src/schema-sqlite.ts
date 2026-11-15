@@ -2788,6 +2788,17 @@ export const dvirReports = sqliteTable("dvir_reports", {
   signedName: text("signed_name").notNull(),
   status: text("status").notNull().default("signed"), // signed | defects_reported | cleared
   odometer: real("odometer"),
+  // DVIR completion (migration 0122): where the inspection happened,
+  // the truck/trailer identity snapshot from My Truck / My Trailer at
+  // signing time (identity can change later; the signed record keeps
+  // what was true when it was signed), and the driver's safe-to-
+  // operate attestation (false when a safety-critical defect was
+  // signed with the truck not attested safe).
+  lat: real("lat"),
+  lon: real("lon"),
+  truckLabel: text("truck_label"),
+  trailerLabel: text("trailer_label"),
+  safeToOperate: integer("safe_to_operate", { mode: "boolean" }),
   createdAt: integer("created_at", { mode: "timestamp_ms" })
     .notNull()
     .$defaultFn(() => new Date()),
@@ -4400,6 +4411,12 @@ export const maintenanceLogEntries = sqliteTable("maintenance_log_entries", {
   cost: real("cost").notNull().default(0),
   nextDueMiles: real("next_due_miles"),
   nextDueAt: integer("next_due_at", { mode: "timestamp_ms" }),
+  // Workflow state (migration 0122): "logged" for a normal entry,
+  // "draft" for an entry a signed DVIR auto-created from a defect
+  // (the driver confirms it by editing/saving, which flips it to
+  // "logged"), "closed" when the work is done — closing a DVIR
+  // draft is what clears its open defect.
+  status: text("status").notNull().default("logged"), // logged | draft | closed
   notes: text("notes"),
   createdAt: integer("created_at", { mode: "timestamp_ms" })
     .notNull()
@@ -4713,4 +4730,51 @@ export const betaJoinRequests = sqliteTable("beta_join_requests", {
   // the auth_mail_queue row that carries its link (queued or sent).
   inviteId: integer("invite_id"),
   mailQueueId: integer("mail_queue_id"),
+});
+
+// DVIR defect links (migration 0122): one row per defect on a signed
+// DVIR, tying the defect to the maintenance-log entry it auto-drafted
+// (dvir.ts). The defect is OPEN until that entry is closed (or the
+// entry is deleted, which leaves the defect open — the defect was
+// real even if the draft was discarded). The defect's own note/photo
+// live on the DVIR + the draft entry's attachments; this table is
+// only the link and the item name.
+export const dvirDefectLinks = sqliteTable("dvir_defect_links", {
+  profileId: integer("profile_id"),
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  dvirId: integer("dvir_id").notNull(),
+  item: text("item").notNull(),
+  maintenanceEntryId: integer("maintenance_entry_id").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+// Detention records (migration 0122, detention.ts): one row per dock
+// visit clocked by the detention timer — ARRIVE opens it, DONE closes
+// and seals it (chain_hash = the detention_departure chain event's
+// hash). Appointment and grace are snapshotted at ARRIVE so the
+// record proves the wait against what was agreed when it started.
+// Time only — no rate or money column exists on this table by design.
+export const detentionRecords = sqliteTable("detention_records", {
+  profileId: integer("profile_id"),
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  loadId: integer("load_id"), // null = standalone at a stop
+  site: text("site").notNull(), // pickup | delivery | stop
+  placeLabel: text("place_label"),
+  apptAt: integer("appt_at", { mode: "timestamp_ms" }),
+  graceMinutes: integer("grace_minutes").notNull().default(120),
+  arrivedAt: integer("arrived_at", { mode: "timestamp_ms" }).notNull(),
+  departedAt: integer("departed_at", { mode: "timestamp_ms" }),
+  arriveLat: real("arrive_lat"),
+  arriveLon: real("arrive_lon"),
+  departLat: real("depart_lat"),
+  departLon: real("depart_lon"),
+  chainHash: text("chain_hash"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
 });
