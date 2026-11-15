@@ -55,6 +55,7 @@ export type ToolDestId =
   | "broker_inbox"
   | "trailer_tools"
   | "maintenance"
+  | "maintenance_log"
   | "breakdown_log"
   | "scale_tickets"
   | "trips"
@@ -333,6 +334,12 @@ export const TOOL_GROUPS: ToolGroup[] = [
         subEn: "Oil, tires, brakes, DOT inspection — counted down off your odometer",
         subEs: "Aceite, llantas, frenos, inspección DOT — la cuenta atrás sale de tu odómetro",
         dest: "maintenance",
+      },
+      {
+        id: "maintenance-log", icon: "📓", en: "Maintenance log", es: "Registro de mantenimiento",
+        subEn: "Every service + repair on your truck, receipts + paperwork attached, downloadable as one truck record",
+        subEs: "Cada servicio y reparación de tu camión, recibos y documentos adjuntos, descargable como un solo registro del camión",
+        dest: "maintenance_log",
       },
       {
         id: "breakdown", icon: "🛠️", en: "Breakdown mode", es: "Modo avería",

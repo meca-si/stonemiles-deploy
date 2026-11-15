@@ -85,6 +85,20 @@ export const profile = sqliteTable("profile", {
   // load. Default 0 = no deduction, exactly the pre-0115 behaviour.
   factoringPct: real("factoring_pct").notNull().default(0),
   dispatcherPct: real("dispatcher_pct").notNull().default(0),
+  // My Truck identity (migration 0118): the driver's own truck, typed
+  // in by the driver — year, make, model, unit number, VIN, plate,
+  // engine, transmission. All optional, all free text except the year.
+  // This is the truck the maintenance log (below) keeps records for;
+  // until now make/model/year only ever arrived read-only on an ELD
+  // snapshot. Same profile row, same save path as the dimensions.
+  truckYear: integer("truck_year"),
+  truckMake: text("truck_make"),
+  truckModel: text("truck_model"),
+  truckUnitNumber: text("truck_unit_number"),
+  truckVin: text("truck_vin"),
+  truckPlate: text("truck_plate"),
+  truckEngine: text("truck_engine"),
+  truckTransmission: text("truck_transmission"),
   // The driver's social handle (usernames are how people follow/DM/add).
   socialUsername: text("social_username").notNull().default("driver"),
   // Subscription plan recorded for the app-store release ("basic" |
@@ -4338,6 +4352,52 @@ export const maintenanceServices = sqliteTable("maintenance_services", {
 // warranty/claim record. It logs and locates — it never dispatches
 // or pays anyone (the Drive-screen Breakdown sheet does the locating
 // from the same map data the app already uses).
+// Maintenance log (migration 0118): one row per service or repair
+// event on the driver's own truck — the full record, not just the
+// countdown above. Date, odometer, category, what was done, who did
+// it, what it cost, when it's next due, and the driver's notes.
+// Receipts and paperwork ride as attachment rows (below) whose files
+// live in the same blob store the Document Vault uses. The whole log
+// plus the truck identity exports as one truck record.
+export const maintenanceLogEntries = sqliteTable("maintenance_log_entries", {
+  // Auth Phase 2b: owning profile (host-stamped on insert, host-filtered
+  // on read/update/delete — see host/ctx.ts scopedDb). Null only on
+  // pre-auth rows; migration 0108 backfills them to profile 1.
+  profileId: integer("profile_id"),
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  performedAt: integer("performed_at", { mode: "timestamp_ms" }).notNull(),
+  odometer: real("odometer"),
+  category: text("category").notNull(), // oil | tires | brakes | dot_inspection | engine | transmission | suspension | electrical | ac | other
+  description: text("description").notNull(),
+  shop: text("shop"),
+  cost: real("cost").notNull().default(0),
+  nextDueMiles: real("next_due_miles"),
+  nextDueAt: integer("next_due_at", { mode: "timestamp_ms" }),
+  notes: text("notes"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+// Receipts / paperwork for one maintenance log entry: the file itself
+// is a blob (same store as personal_docs — blob key + mime on the
+// row, bytes in ctx.blobs), so each attachment downloads individually
+// exactly the way a vault document does.
+export const maintenanceLogAttachments = sqliteTable("maintenance_log_attachments", {
+  profileId: integer("profile_id"),
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  entryId: integer("entry_id").notNull(),
+  label: text("label").notNull(),
+  blobKey: text("blob_key"),
+  mime: text("mime"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
 export const breakdownLogs = sqliteTable("breakdown_logs", {
   // Auth Phase 2b: owning profile (host-stamped on insert, host-filtered
   // on read/update/delete — see host/ctx.ts scopedDb). Null only on

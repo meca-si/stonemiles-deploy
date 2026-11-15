@@ -12,8 +12,11 @@ import {
   feeDeductionsFor,
   fuelBasisFor,
   iftaRowCalc,
+  maintenanceLogCategoryLabel,
+  maintenanceLogTotal,
   maintenanceStatusFor,
   mostUrgentDoc,
+  truckSummaryLine,
   owedTotals,
   trueRateFor,
 } from "./moneyMath";
@@ -219,5 +222,29 @@ describe("breakdownTotals + export", () => {
     expect(text).toContain("Total cost: $700.00");
     expect(text).toContain("does not dispatch or pay anyone");
     expect(text).toContain("abc123");
+  });
+});
+
+describe("maintenance log helpers (migration 0118)", () => {
+  test("total sums costs cents-exact and ignores bad values", () => {
+    expect(maintenanceLogTotal([{ cost: 129.1 }, { cost: 0.2 }, { cost: 450 }])).toBe(579.3);
+    expect(maintenanceLogTotal([{ cost: Number.NaN }, { cost: -5 }, { cost: 10 }])).toBe(10);
+    expect(maintenanceLogTotal([])).toBe(0);
+  });
+  test("category labels resolve, unknown falls back to Other", () => {
+    expect(maintenanceLogCategoryLabel("dot_inspection")).toBe("Annual DOT inspection");
+    expect(maintenanceLogCategoryLabel("ac")).toBe("A/C & heating");
+    expect(maintenanceLogCategoryLabel("mystery")).toBe("Other");
+  });
+  test("truck summary line joins name, unit, transmission", () => {
+    expect(
+      truckSummaryLine({ truckYear: 2021, truckMake: "Kenworth", truckModel: "W900", truckUnitNumber: "12", truckTransmission: "18-speed" }),
+    ).toBe("2021 Kenworth W900 · Unit 12 · 18-speed");
+    expect(
+      truckSummaryLine({ truckYear: null, truckMake: null, truckModel: null, truckUnitNumber: null, truckTransmission: null }),
+    ).toBe("");
+    expect(
+      truckSummaryLine({ truckYear: null, truckMake: "Peterbilt", truckModel: null, truckUnitNumber: null, truckTransmission: null }),
+    ).toBe("Peterbilt");
   });
 });

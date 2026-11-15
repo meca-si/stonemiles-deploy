@@ -15,14 +15,16 @@
 
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { fileToBase64 } from "@hatch/space-sdk/client";
 import { api } from "./api";
 import { t as tt, type Lang } from "./i18n";
-import { Section, XBar, money } from "./NextLevel";
+import { Section, XBar, downloadTextFile, money } from "./NextLevel";
 import {
   AGING_LABEL,
   CLAIM_KINDS,
   DOC_TIER_LABEL,
   MAINTENANCE_ITEMS,
+  MAINTENANCE_LOG_CATEGORIES,
   WALLET_DOC_KINDS,
   avgLoggedFuelPrice,
   breakdownTotals,
@@ -31,11 +33,15 @@ import {
   currentOdometerFrom,
   docAlertTier,
   fuelBasisFor,
+  maintenanceLogCategoryLabel,
+  maintenanceLogTotal,
   maintenanceStatusFor,
   owedTotals,
   trueRateFor,
+  truckSummaryLine,
   type ClaimKind,
   type MaintenanceItemKey,
+  type MaintenanceLogCategory,
 } from "./moneyMath";
 
 type Banner = (s: string | null) => void;
@@ -590,6 +596,10 @@ export function MaintenancePanel({ setBanner, lang = "en" }: { setBanner: Banner
       <p className="text-sm text-[var(--dim)]">
         Service tracked the way trucks actually wear: by miles. Set each interval and the odometer at the last service; the countdown runs off the newest odometer the app already records{q.data?.odometerSource ? ` (right now: ${q.data.odometerSource})` : ""}. The annual DOT inspection also counts down by its 12-month date when you run it date-based. Intervals are <strong className="text-[var(--text)]">yours to set</strong> — the starting numbers below are labelled defaults, not gospel.
       </p>
+      <p className="mt-2 text-sm">
+        <a href="#maintenance-log" className="font-bold underline">📓 Maintenance log — every repair, with receipts ↓</a>
+        <span className="text-[var(--dim)]"> The countdown says when; the log below keeps what was actually done, what it cost, and the paperwork — all of it downloads as one truck record.</span>
+      </p>
       <div className="mt-3 rounded-xl bg-[var(--surface2)] px-3 py-2.5 text-sm">
         <span className="text-[var(--dim)]">Current odometer (from your records): </span>
         <strong className="font-condensed text-lg">{currentOdo != null ? `${currentOdo.toLocaleString()} mi` : "no odometer reading recorded yet"}</strong>
@@ -705,6 +715,299 @@ export function MaintenancePanel({ setBanner, lang = "en" }: { setBanner: Banner
             </div>
           );
         })}
+      </div>
+    </Section>
+  );
+}
+
+// ---------- 5b) Maintenance log — the truck's full record -----------------------
+// Beside the countdown above: the countdown says WHEN service comes
+// due; this log is WHAT WAS DONE — every service and repair on the
+// driver's own truck, with the receipt or paperwork attached (same
+// blob store as the Document Vault) and the whole record — truck
+// identity + specs + log — downloadable as one file.
+
+type LogForm = {
+  performedAt: string;
+  odometer: string;
+  category: MaintenanceLogCategory;
+  description: string;
+  shop: string;
+  cost: string;
+  nextDueMiles: string;
+  nextDueAt: string;
+  notes: string;
+};
+
+const EMPTY_LOG_FORM: LogForm = { performedAt: "", odometer: "", category: "oil", description: "", shop: "", cost: "", nextDueMiles: "", nextDueAt: "", notes: "" };
+
+export function MaintenanceLogPanel({ setBanner, lang = "en" }: { setBanner: Banner; lang?: Lang }) {
+  const queryClient = useQueryClient();
+  const q = useQuery({ queryKey: ["maintenance-log"], queryFn: () => api.listMaintenanceLog({}) });
+  const entries = q.data?.entries ?? [];
+  const total = q.data ? maintenanceLogTotal(entries) : 0;
+  const truckLine = q.data ? truckSummaryLine(q.data.truck) : "";
+  const [form, setForm] = useState<LogForm>(EMPTY_LOG_FORM);
+  const [editId, setEditId] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [attachFor, setAttachFor] = useState<number | null>(null);
+  const [attachLabel, setAttachLabel] = useState("Receipt");
+  const [attachFile, setAttachFile] = useState<{ base64: string; mime: string } | null>(null);
+  const set = (patch: Partial<LogForm>) => setForm((f) => ({ ...f, ...patch }));
+  const invalidate = () => void queryClient.invalidateQueries({ queryKey: ["maintenance-log"] });
+
+  const viewAttachment = (id: number) => {
+    void api.getMaintenanceLogAttachmentFile({ id }).then((r) => {
+      if (r.url) window.open(r.url, "_blank");
+      else setBanner("That attachment has no file — it's a label-only note on the entry.");
+    });
+  };
+
+  return (
+    <Section title={tt(lang, "money.maintenanceLogTitle")} ariaLabel="Maintenance log">
+      <p className="text-sm text-[var(--dim)]">
+        Every service and repair on your truck, in one record — what was done, where, what it cost, and the receipt or paperwork filed on the entry. The countdown above says when the next service comes due; this log is the proof of the ones already done. Name your truck in <strong className="text-[var(--text)]">Settings → Truck → My Truck</strong> and this record — and its download — carries that truck's name.
+      </p>
+      {truckLine && <p className="mt-2 text-sm font-bold">🚛 {truckLine}</p>}
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <span className="rounded-xl bg-[var(--surface2)] px-3 py-2 text-sm">
+          Total logged cost: <strong className="font-condensed text-lg">{money(total)}</strong> · {entries.length} entr{entries.length === 1 ? "y" : "ies"}
+        </span>
+        <button
+          type="button"
+          className="btn-neon btn-press rounded-xl px-4 py-2.5 font-bold"
+          aria-label="Download truck record — truck identity, specs, and the full maintenance log as a spreadsheet"
+          onClick={() => {
+            void api.exportTruckRecord({})
+              .then((r) => {
+                downloadTextFile("stonemiles-truck-record.csv", r.csv, "text/csv");
+                setBanner(`Truck record downloaded: stonemiles-truck-record.csv — your truck's identity and specs over the full maintenance log (${r.entryCount} entries, ${money(r.totalCost)} total).`);
+              })
+              .catch(() => setBanner("Couldn't build the truck record — try again."));
+          }}
+        >
+          ⬇ Download truck record
+        </button>
+        <button
+          type="button"
+          className={smallBtn}
+          aria-label="Download the printable text version of the truck record"
+          onClick={() => {
+            void api.exportTruckRecord({})
+              .then((r) => {
+                downloadTextFile("stonemiles-truck-record.txt", r.text);
+                setBanner("Printable truck record downloaded: stonemiles-truck-record.txt.");
+              })
+              .catch(() => setBanner("Couldn't build the truck record — try again."));
+          }}
+        >
+          Printable version
+        </button>
+      </div>
+      <div className="mt-3 space-y-2">
+        {entries.map((e) => (
+          <div key={e.id} className="rounded-xl bg-[var(--surface2)] px-3 py-2.5 text-sm">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-bold">{maintenanceLogCategoryLabel(e.category)} — {e.description}</span>
+              <span className="shrink-0 font-condensed text-lg font-bold">{money(e.cost)}</span>
+            </div>
+            <div className="mt-0.5 text-xs text-[var(--dim)]">
+              {new Date(e.performedAt).toLocaleDateString()}
+              {e.odometer != null ? ` · ${e.odometer.toLocaleString()} mi` : ""}
+              {e.shop ? ` · ${e.shop}` : ""}
+              {e.nextDueMiles != null ? ` · next due ${e.nextDueMiles.toLocaleString()} mi` : ""}
+              {e.nextDueAt ? ` · next due ${new Date(e.nextDueAt).toLocaleDateString()}` : ""}
+            </div>
+            {e.notes && <p className="mt-1 text-xs">{e.notes}</p>}
+            {e.attachments.length > 0 && (
+              <div className="mt-1.5 flex flex-wrap gap-2">
+                {e.attachments.map((a) => (
+                  <span key={a.id} className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--surface)] px-2 py-1 text-xs font-semibold">
+                    📎 {a.label}
+                    {a.hasFile && (
+                      <button type="button" className="underline" aria-label={`Download ${a.label}`} onClick={() => viewAttachment(a.id)}>Download</button>
+                    )}
+                    <button
+                      type="button"
+                      className="underline"
+                      aria-label={`Remove attachment ${a.label}`}
+                      onClick={() => void api.deleteMaintenanceLogAttachment({ id: a.id }).then(() => { setBanner("Attachment removed."); invalidate(); }).catch(() => setBanner("Couldn't remove that attachment — try again."))}
+                    >
+                      Remove
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button
+                type="button"
+                className={smallBtn}
+                aria-label={`Edit log entry ${e.description}`}
+                onClick={() => {
+                  setEditId(e.id);
+                  setForm({
+                    performedAt: e.performedAt.slice(0, 10),
+                    odometer: e.odometer != null ? String(e.odometer) : "",
+                    category: (MAINTENANCE_LOG_CATEGORIES.some((c) => c.key === e.category) ? e.category : "other") as MaintenanceLogCategory,
+                    description: e.description,
+                    shop: e.shop ?? "",
+                    cost: String(e.cost),
+                    nextDueMiles: e.nextDueMiles != null ? String(e.nextDueMiles) : "",
+                    nextDueAt: e.nextDueAt ? e.nextDueAt.slice(0, 10) : "",
+                    notes: e.notes ?? "",
+                  });
+                }}
+              >
+                ✏️ Edit
+              </button>
+              <button
+                type="button"
+                className={smallBtn}
+                aria-label={`Attach a receipt or paperwork to ${e.description}`}
+                onClick={() => { setAttachFor(attachFor === e.id ? null : e.id); setAttachLabel("Receipt"); setAttachFile(null); }}
+              >
+                📎 Attach receipt / paperwork
+              </button>
+              <button
+                type="button"
+                className={smallBtn}
+                aria-label={`Delete log entry ${e.description}`}
+                onClick={() => void api.deleteMaintenanceLogEntry({ id: e.id }).then(() => { setBanner("Log entry deleted."); if (editId === e.id) { setEditId(null); setForm(EMPTY_LOG_FORM); } invalidate(); }).catch(() => setBanner("Couldn't delete that entry — try again."))}
+              >
+                Delete
+              </button>
+            </div>
+            {attachFor === e.id && (
+              <div className="mt-2 flex flex-wrap items-end gap-2 border-t border-[var(--border)] pt-2">
+                <div className="min-w-[140px] flex-1">
+                  <label className={labelCls} htmlFor={`ml-att-label-${e.id}`}>Paperwork label</label>
+                  <input id={`ml-att-label-${e.id}`} className={inputCls} value={attachLabel} aria-label="Attachment label" placeholder="Receipt, invoice, DOT form…" onChange={(ev) => setAttachLabel(ev.target.value)} />
+                </div>
+                <label className="btn-press cursor-pointer rounded-xl bg-[var(--surface)] border border-[var(--border)] px-3 py-2.5 text-sm font-bold">
+                  📎 Choose file
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,application/pdf"
+                    className="hidden"
+                    aria-label="Attach the receipt or paperwork file"
+                    onChange={(ev) => {
+                      const f = ev.target.files?.[0];
+                      ev.target.value = "";
+                      if (!f) return;
+                      if (f.type === "image/jpeg" || f.type === "image/png" || f.type === "application/pdf") {
+                        void fileToBase64(f).then((enc) => setAttachFile({ base64: enc.dataBase64, mime: f.type }));
+                      } else setBanner("Attach a JPEG, PNG, or PDF.");
+                    }}
+                  />
+                </label>
+                {attachFile && <span className="pb-2.5 text-xs font-semibold text-emerald-300">File attached ✓</span>}
+                <button
+                  type="button"
+                  disabled={busy || !attachLabel.trim()}
+                  className="btn-neon btn-press rounded-xl px-4 py-2.5 font-bold disabled:opacity-50"
+                  aria-label="Save this attachment to the log entry"
+                  onClick={() => {
+                    setBusy(true);
+                    void api.addMaintenanceLogAttachment({ entryId: e.id, label: attachLabel.trim(), dataBase64: attachFile?.base64 ?? null, mime: attachFile?.mime ?? null })
+                      .then((r) => {
+                        if (r.error) { setBanner(r.error); return; }
+                        setBanner("Paperwork filed on the entry — it downloads from here any time.");
+                        setAttachFor(null);
+                        setAttachFile(null);
+                        invalidate();
+                      })
+                      .catch(() => setBanner("Couldn't attach that file — try again."))
+                      .finally(() => setBusy(false));
+                  }}
+                >
+                  {busy ? "Saving…" : "Save attachment"}
+                </button>
+              </div>
+            )}
+          </div>
+        ))}
+        {entries.length === 0 && !q.isLoading && <p className="text-xs text-[var(--dim)]">Nothing logged yet — add the first service or repair below and this becomes the truck's record.</p>}
+      </div>
+      <div className="mt-3 border-t border-[var(--border)] pt-3">
+        <p className="text-sm font-bold">{editId != null ? "Edit log entry" : "Add a log entry"}</p>
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          <div>
+            <label className={labelCls} htmlFor="ml-date">Date</label>
+            <input id="ml-date" type="date" className={inputCls} value={form.performedAt} aria-label="Date of service or repair" onChange={(e) => set({ performedAt: e.target.value })} />
+          </div>
+          <div>
+            <label className={labelCls} htmlFor="ml-odo">Odometer (mi)</label>
+            <input id="ml-odo" type="number" inputMode="decimal" className={inputCls} value={form.odometer} aria-label="Odometer at this service" placeholder="e.g. 512400" onChange={(e) => set({ odometer: e.target.value })} />
+          </div>
+          <div>
+            <label className={labelCls} htmlFor="ml-cat">Category</label>
+            <select id="ml-cat" className={inputCls} value={form.category} aria-label="Maintenance category" onChange={(e) => set({ category: e.target.value as MaintenanceLogCategory })}>
+              {MAINTENANCE_LOG_CATEGORIES.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className={labelCls} htmlFor="ml-cost">Cost ($)</label>
+            <input id="ml-cost" type="number" inputMode="decimal" step="0.01" className={inputCls} value={form.cost} aria-label="Cost in dollars" placeholder="0.00" onChange={(e) => set({ cost: e.target.value })} />
+          </div>
+          <div className="col-span-2">
+            <label className={labelCls} htmlFor="ml-desc">What was done</label>
+            <input id="ml-desc" className={inputCls} value={form.description} aria-label="Description of the work" placeholder="e.g. Oil + both filters, Rotella 15W-40" onChange={(e) => set({ description: e.target.value })} />
+          </div>
+          <div>
+            <label className={labelCls} htmlFor="ml-shop">Shop / vendor</label>
+            <input id="ml-shop" className={inputCls} value={form.shop} aria-label="Shop or vendor" placeholder="e.g. Speedco, Mobile AL" onChange={(e) => set({ shop: e.target.value })} />
+          </div>
+          <div>
+            <label className={labelCls} htmlFor="ml-notes">Notes</label>
+            <input id="ml-notes" className={inputCls} value={form.notes} aria-label="Notes on this entry" placeholder="Optional" onChange={(e) => set({ notes: e.target.value })} />
+          </div>
+          <div>
+            <label className={labelCls} htmlFor="ml-due-mi">Next due (mi)</label>
+            <input id="ml-due-mi" type="number" inputMode="decimal" className={inputCls} value={form.nextDueMiles} aria-label="Odometer when this is next due" placeholder="Optional" onChange={(e) => set({ nextDueMiles: e.target.value })} />
+          </div>
+          <div>
+            <label className={labelCls} htmlFor="ml-due-date">Next due (date)</label>
+            <input id="ml-due-date" type="date" className={inputCls} value={form.nextDueAt} aria-label="Date when this is next due" onChange={(e) => set({ nextDueAt: e.target.value })} />
+          </div>
+        </div>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={busy || !form.description.trim()}
+            className="btn-neon btn-press rounded-xl px-4 py-2.5 font-bold disabled:opacity-50"
+            aria-label={editId != null ? "Save the edited log entry" : "Add this entry to the maintenance log"}
+            onClick={() => {
+              setBusy(true);
+              void api.saveMaintenanceLogEntry({
+                id: editId,
+                performedAt: form.performedAt ? new Date(form.performedAt + "T12:00:00").toISOString() : new Date().toISOString(),
+                odometer: form.odometer.trim() === "" ? null : parseFloat(form.odometer),
+                category: form.category,
+                description: form.description.trim(),
+                shop: form.shop.trim() || null,
+                cost: form.cost.trim() === "" ? 0 : parseFloat(form.cost) || 0,
+                nextDueMiles: form.nextDueMiles.trim() === "" ? null : parseFloat(form.nextDueMiles),
+                nextDueAt: form.nextDueAt ? new Date(form.nextDueAt + "T12:00:00").toISOString() : null,
+                notes: form.notes.trim() || null,
+              })
+                .then(() => {
+                  setBanner(editId != null ? "Log entry updated & sealed." : "Logged & sealed — the truck's record grows.");
+                  setEditId(null);
+                  setForm(EMPTY_LOG_FORM);
+                  invalidate();
+                  void queryClient.invalidateQueries({ queryKey: ["maintenance"] });
+                })
+                .catch(() => setBanner("Couldn't save that entry — try again."))
+                .finally(() => setBusy(false));
+            }}
+          >
+            {busy ? "Saving…" : editId != null ? "Save entry" : "Add to log"}
+          </button>
+          {editId != null && (
+            <button type="button" className={smallBtn} aria-label="Cancel editing this log entry" onClick={() => { setEditId(null); setForm(EMPTY_LOG_FORM); }}>Cancel edit</button>
+          )}
+        </div>
       </div>
     </Section>
   );
@@ -882,6 +1185,9 @@ export function MoneyFlowHub({ setBanner, mpg, onOpenBreakdownHelp, onOpenParkin
       </div>
       <div id="maintenance" className="scroll-mt-4">
         <MaintenancePanel setBanner={setBanner} lang={lang} />
+      </div>
+      <div id="maintenance-log" className="scroll-mt-4">
+        <MaintenanceLogPanel setBanner={setBanner} lang={lang} />
       </div>
       <div id="breakdown-log" className="scroll-mt-4">
         <BreakdownLogPanel setBanner={setBanner} onOpenBreakdownHelp={onOpenBreakdownHelp} onOpenParking={onOpenParking} lang={lang} />

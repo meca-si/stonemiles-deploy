@@ -33,6 +33,12 @@
 // Migration 0117 (chat email alerts) adds +1 table (chat_member_reads)
 // with a composite (group_id, username) primaryKey — the primaryKey
 // builder name is identical in both dialects and rides through.
+// Migration 0118 (My Truck + maintenance log) adds +2 tables
+// (maintenance_log_entries, maintenance_log_attachments), +2
+// autoincrement PKs, +5 timestamp_ms (entries performed/next-due/
+// created/updated + attachments created), +3 REAL (entry odometer,
+// cost, next-due miles); the 8 profile truck-identity columns are
+// plain integer/text and ride the unchanged rules.
 //
 //   bun run host/pg/transform-schema.ts
 
@@ -97,16 +103,16 @@ replaceAll(
   'integer mode "timestamp_ms" -> timestamp(tz, date)',
   /integer\(("[a-z0-9_]+"), \{ mode: "timestamp_ms" \}\)/g,
   'timestamp($1, { withTimezone: true, mode: "date" })',
-  301,
+  306,
 );
 replaceAll(
   "autoincrement PK -> serial",
   /integer\(("[a-z0-9_]+")\)\.primaryKey\(\{ autoIncrement: true \}\)/g,
   "serial($1).primaryKey()",
-  134,
+  136,
 );
-replaceAll("sqliteTable -> pgTable", /\bsqliteTable\(/g, "pgTable(", 165);
-replaceAll("real -> doublePrecision", /\breal\(/g, "doublePrecision(", 174);
+replaceAll("sqliteTable -> pgTable", /\bsqliteTable\(/g, "pgTable(", 167);
+replaceAll("real -> doublePrecision", /\breal\(/g, "doublePrecision(", 177);
 
 // Leftovers: any of these means the source schema grew a shape this
 // transform does not know. Fail, don't guess.

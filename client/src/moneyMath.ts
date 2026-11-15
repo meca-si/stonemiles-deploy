@@ -384,6 +384,58 @@ export const MAINTENANCE_ITEMS = [
 
 export type MaintenanceItemKey = (typeof MAINTENANCE_ITEMS)[number]["key"];
 
+// ---------- 6b) Maintenance log (migration 0118) -------------------------------
+// The full service/repair record beside the countdown: categories for
+// one log entry, the running cost total, and the one-line truck
+// summary ("2021 Kenworth W900 · Unit 12 · 18-speed") the Settings →
+// Truck fold shows once the driver names their truck.
+
+export const MAINTENANCE_LOG_CATEGORIES = [
+  { key: "oil", label: "Oil & filters" },
+  { key: "tires", label: "Tires" },
+  { key: "brakes", label: "Brakes" },
+  { key: "dot_inspection", label: "Annual DOT inspection" },
+  { key: "engine", label: "Engine" },
+  { key: "transmission", label: "Transmission" },
+  { key: "suspension", label: "Suspension & steering" },
+  { key: "electrical", label: "Electrical" },
+  { key: "ac", label: "A/C & heating" },
+  { key: "other", label: "Other" },
+] as const;
+
+export type MaintenanceLogCategory = (typeof MAINTENANCE_LOG_CATEGORIES)[number]["key"];
+
+export function maintenanceLogCategoryLabel(key: string): string {
+  return MAINTENANCE_LOG_CATEGORIES.find((c) => c.key === key)?.label ?? "Other";
+}
+
+/** Running total of a maintenance log's costs, cents-exact. Bad
+ *  values (NaN / negative) count as 0 — a log total never invents. */
+export function maintenanceLogTotal(entries: { cost: number }[]): number {
+  return round2(entries.reduce((s, e) => s + (Number.isFinite(e.cost) && e.cost > 0 ? e.cost : 0), 0));
+}
+
+export type TruckIdentityLike = {
+  truckYear: number | null;
+  truckMake: string | null;
+  truckModel: string | null;
+  truckUnitNumber: string | null;
+  truckTransmission: string | null;
+};
+
+/** One-line summary of the driver's truck identity, e.g.
+ *  "2021 Kenworth W900 · Unit 12 · 18-speed". Empty string when the
+ *  driver hasn't named the truck yet. */
+export function truckSummaryLine(t: TruckIdentityLike): string {
+  const name = [t.truckYear ?? null, t.truckMake?.trim() || null, t.truckModel?.trim() || null].filter(Boolean).join(" ");
+  const parts = [
+    name || null,
+    t.truckUnitNumber?.trim() ? `Unit ${t.truckUnitNumber.trim()}` : null,
+    t.truckTransmission?.trim() || null,
+  ].filter(Boolean);
+  return parts.join(" · ");
+}
+
 /** The annual DOT inspection runs on TIME as well as miles: federal
  *  rule is every 12 months. When an interval of 0 is stored for it,
  *  the countdown is date-based (last done + 12 months). */

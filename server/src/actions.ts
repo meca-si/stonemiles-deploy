@@ -6789,10 +6789,70 @@ const profileShape = z.object({
   // and the pre-trip checklist. Defaulted so older saved profiles
   // (which predate the field) still validate.
   trailerType: z.enum(["dry_van", "reefer", "flatbed", "step_deck", "rgn"]).default("dry_van"),
+  // My Truck identity (migration 0118): the driver's own truck —
+  // year, make, model, unit number, VIN, plate, engine, transmission.
+  // All optional; defaulted so older saved profiles still validate.
+  truckYear: z.number().int().min(1950).max(2100).nullable().default(null),
+  truckMake: z.string().max(60).nullable().default(null),
+  truckModel: z.string().max(60).nullable().default(null),
+  truckUnitNumber: z.string().max(40).nullable().default(null),
+  truckVin: z.string().max(40).nullable().default(null),
+  truckPlate: z.string().max(30).nullable().default(null),
+  truckEngine: z.string().max(80).nullable().default(null),
+  truckTransmission: z.string().max(80).nullable().default(null),
 });
 
 const profileResponse = z.object({
   profile: profileShape.extend({ pinSet: z.boolean() }).nullable(),
+});
+
+// Maintenance log (migration 0118): categories for one service /
+// repair event on the driver's own truck. The first four mirror the
+// countdown items; the rest cover the repairs a countdown never sees.
+const maintenanceLogCategory = z.enum([
+  "oil", "tires", "brakes", "dot_inspection", "engine", "transmission",
+  "suspension", "electrical", "ac", "other",
+]);
+
+const maintenanceLogAttachmentShape = z.object({
+  id: z.number(),
+  label: z.string(),
+  mime: z.string().nullable(),
+  hasFile: z.boolean(),
+  createdAt: z.string(),
+});
+
+const maintenanceLogEntryShape = z.object({
+  id: z.number(),
+  performedAt: z.string(),
+  odometer: z.number().nullable(),
+  category: z.string(),
+  description: z.string(),
+  shop: z.string().nullable(),
+  cost: z.number(),
+  nextDueMiles: z.number().nullable(),
+  nextDueAt: z.string().nullable(),
+  notes: z.string().nullable(),
+  attachments: z.array(maintenanceLogAttachmentShape),
+  createdAt: z.string(),
+});
+
+// The truck this log belongs to: identity + routing specs off the
+// one profile row (null profile = nothing saved yet, all nulls).
+const truckRecordIdentityShape = z.object({
+  truckYear: z.number().nullable(),
+  truckMake: z.string().nullable(),
+  truckModel: z.string().nullable(),
+  truckUnitNumber: z.string().nullable(),
+  truckVin: z.string().nullable(),
+  truckPlate: z.string().nullable(),
+  truckEngine: z.string().nullable(),
+  truckTransmission: z.string().nullable(),
+  heightFt: z.number().nullable(),
+  heightIn: z.number().nullable(),
+  weightLbs: z.number().nullable(),
+  lengthFt: z.number().nullable(),
+  trailerType: z.string().nullable(),
 });
 
 const learningResponse = z.object({
@@ -18264,6 +18324,14 @@ export const Actions = {
           trailerType: (["dry_van", "reefer", "flatbed", "step_deck", "rgn"].includes(row.trailerType ?? "")
             ? row.trailerType
             : "dry_van") as "dry_van" | "reefer" | "flatbed" | "step_deck" | "rgn",
+          truckYear: row.truckYear ?? null,
+          truckMake: row.truckMake ?? null,
+          truckModel: row.truckModel ?? null,
+          truckUnitNumber: row.truckUnitNumber ?? null,
+          truckVin: row.truckVin ?? null,
+          truckPlate: row.truckPlate ?? null,
+          truckEngine: row.truckEngine ?? null,
+          truckTransmission: row.truckTransmission ?? null,
           pinSet: row.pinHash != null,
         },
       };
@@ -18310,6 +18378,14 @@ export const Actions = {
         factoringPct: args.factoringPct,
         dispatcherPct: args.dispatcherPct,
         trailerType: args.trailerType,
+        truckYear: args.truckYear,
+        truckMake: args.truckMake?.trim() || null,
+        truckModel: args.truckModel?.trim() || null,
+        truckUnitNumber: args.truckUnitNumber?.trim() || null,
+        truckVin: args.truckVin?.trim() || null,
+        truckPlate: args.truckPlate?.trim() || null,
+        truckEngine: args.truckEngine?.trim() || null,
+        truckTransmission: args.truckTransmission?.trim() || null,
         updatedAt: new Date(),
       };
       await db
@@ -18346,6 +18422,14 @@ export const Actions = {
             factoringPct: values.factoringPct,
             dispatcherPct: values.dispatcherPct,
             trailerType: values.trailerType,
+            truckYear: values.truckYear,
+            truckMake: values.truckMake,
+            truckModel: values.truckModel,
+            truckUnitNumber: values.truckUnitNumber,
+            truckVin: values.truckVin,
+            truckPlate: values.truckPlate,
+            truckEngine: values.truckEngine,
+            truckTransmission: values.truckTransmission,
             updatedAt: values.updatedAt,
           },
         });
@@ -41106,6 +41190,323 @@ export const Actions = {
         ...(r.chainHash ? [`Seal (chain hash): ${r.chainHash}`] : []),
       ];
       return { text: lines.join("\n"), filename: `stonemiles-breakdown-${r.id}.txt` };
+    },
+  }),
+
+  // ---- Maintenance log (migration 0118) -----------------------------------
+  // The full service/repair record for the driver's own truck, beside
+  // the interval countdown (which keeps its own actions above).
+  // Entries are the owning account's only — the scoped db filters by
+  // profile on every read/write, exactly like the breakdown log.
+  // Receipts/paperwork reuse the Document Vault's blob path: base64
+  // in, ctx.blobs.put under a generated key, blob key + mime on the
+  // attachment row, ctx.blobs.getUrl back out for download. Records
+  // only: no action here moves money or files anything.
+
+  listMaintenanceLog: defineAction({
+    description: "Maintenance log entries (newest first) with attachments, the running total cost, and the truck identity they belong to.",
+    request: z.object({}),
+    response: z.object({
+      entries: z.array(maintenanceLogEntryShape),
+      totalCost: z.number(),
+      truck: truckRecordIdentityShape,
+    }),
+    async handler(ctx): Promise<{ entries: z.infer<typeof maintenanceLogEntryShape>[]; totalCost: number; truck: z.infer<typeof truckRecordIdentityShape> }> {
+      const db = ctx.db<typeof schema>();
+      const rows = await db.select().from(schema.maintenanceLogEntries).orderBy(desc(schema.maintenanceLogEntries.performedAt), desc(schema.maintenanceLogEntries.id));
+      const atts = await db.select().from(schema.maintenanceLogAttachments).orderBy(asc(schema.maintenanceLogAttachments.id));
+      const byEntry = new Map<number, z.infer<typeof maintenanceLogAttachmentShape>[]>();
+      for (const a of atts) {
+        const list = byEntry.get(a.entryId) ?? [];
+        list.push({ id: a.id, label: a.label, mime: a.mime, hasFile: a.blobKey != null, createdAt: a.createdAt.toISOString() });
+        byEntry.set(a.entryId, list);
+      }
+      const totalCost = Math.round(rows.reduce((s, r) => s + (r.cost || 0), 0) * 100) / 100;
+      const prof = await db.select().from(schema.profile).where(eq(schema.profile.id, myProfileId(ctx))).limit(1);
+      const p = prof[0];
+      return {
+        entries: rows.map((r) => ({
+          id: r.id,
+          performedAt: r.performedAt.toISOString(),
+          odometer: r.odometer ?? null,
+          category: r.category,
+          description: r.description,
+          shop: r.shop ?? null,
+          cost: r.cost || 0,
+          nextDueMiles: r.nextDueMiles ?? null,
+          nextDueAt: r.nextDueAt ? r.nextDueAt.toISOString() : null,
+          notes: r.notes ?? null,
+          attachments: byEntry.get(r.id) ?? [],
+          createdAt: r.createdAt.toISOString(),
+        })),
+        totalCost,
+        truck: {
+          truckYear: p?.truckYear ?? null,
+          truckMake: p?.truckMake ?? null,
+          truckModel: p?.truckModel ?? null,
+          truckUnitNumber: p?.truckUnitNumber ?? null,
+          truckVin: p?.truckVin ?? null,
+          truckPlate: p?.truckPlate ?? null,
+          truckEngine: p?.truckEngine ?? null,
+          truckTransmission: p?.truckTransmission ?? null,
+          heightFt: p?.heightFt ?? null,
+          heightIn: p?.heightIn ?? null,
+          weightLbs: p?.weightLbs ?? null,
+          lengthFt: p?.lengthFt ?? null,
+          trailerType: p?.trailerType ?? null,
+        },
+      };
+    },
+  }),
+
+  saveMaintenanceLogEntry: defineAction({
+    description: "Add or edit one maintenance log entry (driver's own record, sealed).",
+    request: z.object({
+      id: z.number().int().positive().nullable(),
+      performedAt: z.string().min(1).max(40),
+      odometer: z.number().nonnegative().max(10_000_000).nullable(),
+      category: maintenanceLogCategory,
+      description: z.string().min(1).max(300),
+      shop: z.string().max(160).nullable(),
+      cost: z.number().nonnegative().max(1_000_000),
+      nextDueMiles: z.number().nonnegative().max(10_000_000).nullable(),
+      nextDueAt: z.string().max(40).nullable(),
+      notes: z.string().max(500).nullable(),
+    }),
+    response: z.object({ id: z.number() }),
+    async handler(ctx, args): Promise<{ id: number }> {
+      const db = ctx.db<typeof schema>();
+      const performedAt = Number.isFinite(Date.parse(args.performedAt)) ? new Date(args.performedAt) : new Date();
+      const values = {
+        performedAt,
+        odometer: args.odometer,
+        category: args.category,
+        description: args.description.trim(),
+        shop: args.shop?.trim() || null,
+        cost: Math.round(args.cost * 100) / 100,
+        nextDueMiles: args.nextDueMiles,
+        nextDueAt: args.nextDueAt && Number.isFinite(Date.parse(args.nextDueAt)) ? new Date(args.nextDueAt) : null,
+        notes: args.notes?.trim() || null,
+        updatedAt: new Date(),
+      };
+      let id = args.id ?? 0;
+      if (args.id != null) {
+        const existing = await db.select().from(schema.maintenanceLogEntries).where(eq(schema.maintenanceLogEntries.id, args.id)).limit(1);
+        if (!existing[0]) throw new Error("saveMaintenanceLogEntry: no such entry");
+        await db.update(schema.maintenanceLogEntries).set(values).where(eq(schema.maintenanceLogEntries.id, args.id));
+      } else {
+        const ins = await db.insert(schema.maintenanceLogEntries).values(values).returning({ id: schema.maintenanceLogEntries.id });
+        const row = ins[0];
+        if (!row) throw new Error("saveMaintenanceLogEntry: insert returned no rows");
+        id = row.id;
+      }
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "maintenance_log_entry_saved",
+        payload: { entryId: id, category: args.category, cost: values.cost, performedAt: performedAt.toISOString(), edited: args.id != null },
+      });
+      ctx.invalidateQueries();
+      return { id };
+    },
+  }),
+
+  deleteMaintenanceLogEntry: defineAction({
+    description: "Delete one maintenance log entry and its attachments (the removal itself is sealed).",
+    request: z.object({ id: z.number().int().positive() }),
+    response: z.object({ ok: z.literal(true) }),
+    async handler(ctx, args): Promise<{ ok: true }> {
+      const db = ctx.db<typeof schema>();
+      const rows = await db.select().from(schema.maintenanceLogEntries).where(eq(schema.maintenanceLogEntries.id, args.id)).limit(1);
+      const row = rows[0];
+      if (row) {
+        const atts = await db.select().from(schema.maintenanceLogAttachments).where(eq(schema.maintenanceLogAttachments.entryId, args.id));
+        for (const a of atts) {
+          if (a.blobKey) {
+            try { await ctx.blobs.delete(a.blobKey); } catch { /* already gone */ }
+          }
+        }
+        await db.delete(schema.maintenanceLogAttachments).where(eq(schema.maintenanceLogAttachments.entryId, args.id));
+        await db.delete(schema.maintenanceLogEntries).where(eq(schema.maintenanceLogEntries.id, args.id));
+        await appendChain(ctx, {
+          refKind: "driver",
+          refId: null,
+          sessionId: null,
+          event: "maintenance_log_entry_deleted",
+          payload: { entryId: args.id, category: row.category, cost: row.cost, at: new Date().toISOString() },
+        });
+      }
+      ctx.invalidateQueries();
+      return { ok: true };
+    },
+  }),
+
+  addMaintenanceLogAttachment: defineAction({
+    description: "Attach a receipt / paperwork file (photo or PDF) to a maintenance log entry — same blob path as the Document Vault.",
+    request: z.object({
+      entryId: z.number().int().positive(),
+      label: z.string().min(1).max(160),
+      dataBase64: z.string().max(14_000_000).nullable(),
+      mime: z.string().max(100).nullable(),
+    }),
+    response: z.object({ id: z.number(), error: z.string().nullable() }),
+    async handler(ctx, args): Promise<{ id: number; error: string | null }> {
+      const db = ctx.db<typeof schema>();
+      const entries = await db.select().from(schema.maintenanceLogEntries).where(eq(schema.maintenanceLogEntries.id, args.entryId)).limit(1);
+      if (!entries[0]) return { id: 0, error: "That maintenance log entry doesn't exist — nothing was attached." };
+      let blobKey: string | null = null;
+      if (args.dataBase64 && args.mime) {
+        blobKey = `maintenance-log-${args.entryId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        await ctx.blobs.put(blobKey, base64ToBytes(args.dataBase64), { contentType: args.mime });
+      }
+      const res = await db
+        .insert(schema.maintenanceLogAttachments)
+        .values({ entryId: args.entryId, label: args.label.trim(), blobKey, mime: args.mime })
+        .returning({ id: schema.maintenanceLogAttachments.id });
+      const row = res[0];
+      if (!row) throw new Error("addMaintenanceLogAttachment: insert returned no rows");
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "maintenance_log_attachment_added",
+        payload: { entryId: args.entryId, attachmentId: row.id, label: args.label.trim(), hasFile: blobKey != null },
+      });
+      ctx.invalidateQueries();
+      return { id: row.id, error: null };
+    },
+  }),
+
+  deleteMaintenanceLogAttachment: defineAction({
+    description: "Remove one receipt / paperwork attachment from a maintenance log entry.",
+    request: z.object({ id: z.number().int().positive() }),
+    response: z.object({ ok: z.literal(true) }),
+    async handler(ctx, args): Promise<{ ok: true }> {
+      const db = ctx.db<typeof schema>();
+      const rows = await db.select().from(schema.maintenanceLogAttachments).where(eq(schema.maintenanceLogAttachments.id, args.id)).limit(1);
+      const row = rows[0];
+      if (row?.blobKey) {
+        try { await ctx.blobs.delete(row.blobKey); } catch { /* already gone */ }
+      }
+      await db.delete(schema.maintenanceLogAttachments).where(eq(schema.maintenanceLogAttachments.id, args.id));
+      if (row) {
+        await appendChain(ctx, {
+          refKind: "driver",
+          refId: null,
+          sessionId: null,
+          event: "maintenance_log_attachment_deleted",
+          payload: { entryId: row.entryId, attachmentId: args.id, at: new Date().toISOString() },
+        });
+      }
+      ctx.invalidateQueries();
+      return { ok: true };
+    },
+  }),
+
+  getMaintenanceLogAttachmentFile: defineAction({
+    description: "Download URL for one maintenance log attachment (receipt / paperwork).",
+    request: z.object({ id: z.number().int().positive() }),
+    response: z.object({ url: z.string().nullable(), mime: z.string().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const rows = await db.select().from(schema.maintenanceLogAttachments).where(eq(schema.maintenanceLogAttachments.id, args.id)).limit(1);
+      const row = rows[0];
+      if (!row?.blobKey) return { url: null, mime: null };
+      const url = await ctx.blobs.getUrl(row.blobKey);
+      return { url, mime: row.mime };
+    },
+  }),
+
+  exportTruckRecord: defineAction({
+    description: "Download the truck record: truck identity + specs headed CSV of the full maintenance log, plus a printable text version.",
+    request: z.object({}),
+    response: z.object({ csv: z.string(), text: z.string(), entryCount: z.number(), totalCost: z.number() }),
+    async handler(ctx) {
+      const db = ctx.db<typeof schema>();
+      if (await isAccountLocked(ctx, await myUsername(ctx))) {
+        const note = "EXPORT BLOCKED — this account is locked (lost-phone kill switch). Unlock it from the Security Center to export again.";
+        return { csv: note, text: note, entryCount: 0, totalCost: 0 };
+      }
+      const log = await (async () => {
+        const rows = await db.select().from(schema.maintenanceLogEntries).orderBy(desc(schema.maintenanceLogEntries.performedAt), desc(schema.maintenanceLogEntries.id));
+        const atts = await db.select().from(schema.maintenanceLogAttachments).orderBy(asc(schema.maintenanceLogAttachments.id));
+        return { rows, atts };
+      })();
+      const prof = await db.select().from(schema.profile).where(eq(schema.profile.id, myProfileId(ctx))).limit(1);
+      const p = prof[0];
+      const attNames = new Map<number, string[]>();
+      for (const a of log.atts) {
+        const list = attNames.get(a.entryId) ?? [];
+        list.push(a.label);
+        attNames.set(a.entryId, list);
+      }
+      const totalCost = Math.round(log.rows.reduce((s, r) => s + (r.cost || 0), 0) * 100) / 100;
+      const truckName = [p?.truckYear ?? null, p?.truckMake ?? null, p?.truckModel ?? null].filter(Boolean).join(" ") || "Truck not named yet";
+      const catLabel = (k: string) =>
+        k === "oil" ? "Oil & filters" : k === "tires" ? "Tires" : k === "brakes" ? "Brakes" : k === "dot_inspection" ? "Annual DOT inspection" : k === "engine" ? "Engine" : k === "transmission" ? "Transmission" : k === "suspension" ? "Suspension & steering" : k === "electrical" ? "Electrical" : k === "ac" ? "A/C & heating" : "Other";
+      const q = (v: string | number): string => {
+        const s = String(v);
+        return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+      };
+      const day = (d: Date) => d.toISOString().slice(0, 10);
+      const identityRows: [string, string][] = [
+        ["Truck", truckName],
+        ["Unit number", p?.truckUnitNumber ?? ""],
+        ["VIN", p?.truckVin ?? ""],
+        ["Plate", p?.truckPlate ?? ""],
+        ["Engine", p?.truckEngine ?? ""],
+        ["Transmission", p?.truckTransmission ?? ""],
+        ["Height", p ? `${p.heightFt} ft ${p.heightIn} in` : ""],
+        ["Gross weight (lbs)", p?.weightLbs != null ? String(p.weightLbs) : ""],
+        ["Trailer length (ft)", p?.lengthFt != null ? String(p.lengthFt) : ""],
+        ["Trailer type", p?.trailerType ?? ""],
+        ["MPG (default)", p?.mpg != null ? String(p.mpg) : ""],
+        ["Tank range (mi)", p?.tankRangeMi != null ? String(p.tankRangeMi) : ""],
+      ];
+      const csvRows: string[] = [
+        "STONEMILES — TRUCK RECORD",
+        `Exported,${new Date().toISOString()}`,
+        ...identityRows.map(([k, v]) => `${q(k)},${q(v)}`),
+        "",
+        "Date,Odometer (mi),Category,Description,Shop / vendor,Cost (USD),Next due (mi),Next due (date),Notes,Attachments",
+        ...log.rows.map((r) =>
+          [
+            day(r.performedAt),
+            r.odometer ?? "",
+            catLabel(r.category),
+            r.description,
+            r.shop ?? "",
+            (r.cost || 0).toFixed(2),
+            r.nextDueMiles ?? "",
+            r.nextDueAt ? day(r.nextDueAt) : "",
+            r.notes ?? "",
+            (attNames.get(r.id) ?? []).join("; "),
+          ].map((v) => q(v as string)).join(","),
+        ),
+        ["TOTAL", "", "", `${log.rows.length} log entries`, "", totalCost.toFixed(2), "", "", "", ""].map((v) => q(v)).join(","),
+      ];
+      const textLines: string[] = [
+        "STONEMILES — TRUCK RECORD",
+        `Exported: ${new Date().toISOString()}`,
+        "",
+        ...identityRows.map(([k, v]) => `${k}: ${v || "—"}`),
+        "",
+        "MAINTENANCE LOG",
+        ...(log.rows.length > 0
+          ? log.rows.flatMap((r) => [
+              `${day(r.performedAt)} · ${catLabel(r.category)} — ${r.description}`,
+              `  Odometer: ${r.odometer != null ? `${r.odometer.toLocaleString()} mi` : "—"} · Shop: ${r.shop ?? "—"} · Cost: $${(r.cost || 0).toFixed(2)}`,
+              ...(r.nextDueMiles != null || r.nextDueAt ? [`  Next due: ${r.nextDueMiles != null ? `${r.nextDueMiles.toLocaleString()} mi` : ""}${r.nextDueMiles != null && r.nextDueAt ? " · " : ""}${r.nextDueAt ? day(r.nextDueAt) : ""}`] : []),
+              ...(r.notes ? [`  Notes: ${r.notes}`] : []),
+              ...((attNames.get(r.id) ?? []).length > 0 ? [`  Paperwork: ${(attNames.get(r.id) ?? []).join("; ")} (files stay in the app — download them from the entry)`] : []),
+            ])
+          : ["  (no maintenance logged yet)"]),
+        "",
+        `TOTAL LOGGED COST: $${totalCost.toFixed(2)} across ${log.rows.length} entr${log.rows.length === 1 ? "y" : "ies"}`,
+        "The driver's own records, kept in STONEMILES. Receipts and paperwork files are attached to their entries in the app and download from there.",
+      ];
+      return { csv: csvRows.join("\n"), text: textLines.join("\n"), entryCount: log.rows.length, totalCost };
     },
   }),
 

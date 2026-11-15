@@ -183,7 +183,7 @@ import { LoadTrailerSection, TrailerToolsPanel, WindAdvisoryBanner } from "./Tra
 import { TOOL_GROUPS, type ToolItem } from "./toolDirectory";
 import { asLang, destForLocalizedQuery, destLabel, localeFor, pairText, t as tt, type Lang } from "./i18n";
 import { MoneyFlowHub } from "./MoneyFlow";
-import { docAlertCount, docAlertTier, mostUrgentDoc } from "./moneyMath";
+import { docAlertCount, docAlertTier, mostUrgentDoc, truckSummaryLine } from "./moneyMath";
 import { fmtHeightIn as fmtTrailerHeightIn, heightInUse as trailerHeightInUse, type TrailerType } from "./trailer";
 import { PermitsPanel, PermitPlacardChips } from "./PermitsPanel";
 import { corridorReturn, permitOfferFor, type PermitDocket } from "./permit";
@@ -279,6 +279,18 @@ type ProfileT = {
   // row, same save). Tunes default heights, trailer-tool order, the
   // pre-trip checklist, and empty-trailer wind advisories.
   trailerType: TrailerType;
+  // My Truck identity (migration 0118): the driver's own truck, typed
+  // in by the driver — year, make, model, unit number, VIN, plate,
+  // engine, transmission. All optional; the maintenance log keeps its
+  // records for this truck.
+  truckYear: number | null;
+  truckMake: string | null;
+  truckModel: string | null;
+  truckUnitNumber: string | null;
+  truckVin: string | null;
+  truckPlate: string | null;
+  truckEngine: string | null;
+  truckTransmission: string | null;
 };
 
 type AppSettingsT = ApiResponse<typeof api, "getAppSettings">["settings"];
@@ -873,6 +885,7 @@ type MecaDestId =
   | "claims_log"
   | "ifta"
   | "maintenance"
+  | "maintenance_log"
   | "breakdown_log"
   | "facility_memory"
   | "scale_tickets"
@@ -970,6 +983,7 @@ const MECA_DEST_INFO: Record<MecaDestId, { label: string; blurb: string }> = {
   night_parking: { label: "Drive → Explore → Night Parking", blurb: "The Night Parking layer is the Night Parking chip on the Drive map (Explore): truck parking, rest areas, and truck services from the map data (OpenStreetMap) in one layer. In the Stop Planner, the Night parking section lists the route stops the map data tags with truck parking nearest to where your driving clock runs out, and the full Parking planner (Gold) scans rest areas and services around you. Space counts are lot sizes from map tags — there is NO live availability feed, so nothing anywhere claims a space is free." },
   ifta: { label: "Driver → IFTA estimator", blurb: "The IFTA estimator is IFTA Complete at the top of the Driver tab — a running quarterly estimate from your sealed per-state miles and your logged fuel purchases: tax owed per state = (state miles ÷ MPG) × the state's rate, minus the tax you already paid on fuel bought in that state. Rates come from the real published IFTA, Inc. fuel tax matrix, 4th quarter 2026 (matrix dated October 15, 2026, updated November 5, 2026; not final until December 4, 2026), and the panel prints that as-of label. A jurisdiction whose rate isn't loaded (Alaska, Hawaii, DC — not IFTA members) reads 'rate not loaded' and stays out of the totals. The whole panel is labelled an estimate for planning — not a filing." },
   maintenance: { label: "Driver → Maintenance countdown", blurb: "The Maintenance Countdown is on the Driver tab — odometer-based service tracking for oil, tires, brakes, and the annual DOT inspection. You set each interval and the odometer (or date) at the last service; the miles-remaining readout runs off the newest odometer the app already records (your fuel log, DVIRs, and daily logs), with due-soon, due, and overdue states. The DOT annual can run date-based on the 12-month rule. The starting intervals shown are labelled defaults — yours to change to your truck's spec." },
+  maintenance_log: { label: "Driver → Maintenance log", blurb: "The Maintenance Log is on the Driver tab, right under the Maintenance Countdown — the full record of every service and repair on your truck: date, odometer, category, what was done, the shop, the cost, when it's next due, and your notes, each entry sealed. Receipts and paperwork (photos or PDFs) attach to an entry and download from it any time — the same document storage as the Document Vault. The whole thing — your truck's identity and specs (Settings → Truck → My Truck) over the full log — downloads as one truck record (spreadsheet or printable text) from the panel's Download truck record button." },
   breakdown_log: { label: "Driver → Breakdown mode", blurb: "Breakdown Mode has two halves. For help NOW: the Drive screen's Breakdown button finds the nearest repair shops, tow services, and safe parking from the app's map data, with your coordinates big and copyable. For the record: the Breakdown Log on the Driver tab times the downtime (start/end), collects the cost entries (tow, repair, parts, hotel), seals it all, and exports it in the shape warranty and claim paperwork needs. It logs and locates — it dispatches nobody and pays nobody." },
   trailer_tools: { label: "Loads → Trailer tools", blurb: "The Trailer Package lives in the Loads tab → 'Trailer tools' panel, and inside each load's details. It hangs off the ONE trailer profile on the truck profile (Settings → Truck → Trailer type, or the picker at the top of the Trailer tools panel): Dry Van, Reefer, Flatbed, Step Deck, or RGN — one active profile per truck, switchable any time; the profile tunes default heights, which tools surface first, and the pre-trip checklist. The tools: REEFER COLD-CHAIN LOG (reefer loads — setpoint + the driver's own ± band, temperature check-ins the DRIVER types in at stops, sealed into the load's record with time and location and carried in the load's paperwork export; every temp is driver-entered — the app has NO reefer sensor feed and never calls them sensor readings; a check outside the band warns on the spot). SECUREMENT CALCULATOR (flatbed / step deck first) — the published FMCSA general-freight minimums: 49 CFR 393.110 tiedown counts by article length & weight, blocked vs unblocked, and 393.106(d)'s aggregate working load limit of at least 50% of cargo weight (indirect tiedowns count full WLL, direct count half); labelled a planning guide, not legal advice, and special freight (logs, coils, paper rolls, pipe, autos, boulders) is out of its scope. LOADED-HEIGHT TRACKER (flatbed / step deck / RGN) — the driver records the load's actual loaded height on the load, and THAT height drives the trip's low-bridge alerts while it's set; the truck profile's empty height is the fallback and the app labels which height is in use. AXLE WEIGHT & SPACING CALCULATOR (RGN / heavy haul) — the federal Bridge Formula, 23 CFR 658.17: allowed vs actual per axle group (single 20,000 lb, tandem ≤8 ft apart 34,000 lb, gross 80,000 lb), planning guidance that sits beside Permit Mode and never replaces a permit. DOCK HELPER (all trailers, dry van first) — delivery appointment, dock door, lumper fee, and the lumper receipt scan filed on the load record. PRE-TRIP INSPECTION — the checklist for the active trailer type (reefer unit & setpoint for reefer, deck/chains/winches for flatbed, neck & hydraulics for RGN, doors & seals for van), defects noted per item, an optional photo, sealed into the record. HIGH-WIND ADVISORY — on the Drive (Go) screen, when gusts reach the 40 mph advisory threshold AND the trailer is an empty dry van or reefer, a blow-over-risk advisory shows; it labels itself a STONEMILES advisory, not an official warning. All trailer tools are core driver tools on every plan — nothing here moves money." },
   atlas: { label: "Atlas", blurb: "The Atlas lives under More → Atlas — a state-by-state road reference built into the app: one page for each of the 50 states with weight limits, length & width basics, low-clearance highlights, weigh/inspection stations, and state DOT and highway patrol contacts. The federal Interstate baseline prints on every page — 80,000 lb gross, 20,000 lb single axle, 34,000 lb tandem, 102-inch width — and a state note is added only where a state's own rule is a well-established public fact (Michigan's 164,000 lb axle-table law, Maine and Vermont's 100,000 lb Interstate exception, California's 40-ft and Florida's 41-ft kingpin rules, New York City's 55-ft length cap); every other entry is labelled 'Federal standard — verify state specifics before you roll.' Low-clearance highlights name only famous, sourced traps (Durham's Can Opener bridge, New York's car-only parkways, Boston's Storrow Drive) — everything else points at the real OpenStreetMap clearance tags the Drive map reads around the truck, and no clearance is ever invented. Weigh stations are NOT a second list inside the Atlas: the state page hands you to the app's one station list on the Drive screen, with the same driver-reported OPEN/CLOSED status. Phone numbers print only where the agency's real published line is verified (Caltrans and the CHP in California, TxDOT in Texas, and the cell-phone patrol lines in Florida, Georgia, Missouri, and Ohio); everywhere else the number is omitted rather than guessed, and 511 reaches travel information in most states. The Atlas is BUNDLED and STATIC — it works fully offline in dead zones, on every plan tier (a core driver safety reference, never paywalled), and every page carries the standing label: 'Reference only — posted signs, your permit, and your ELD govern.' Ask for a state by name — 'open the Texas atlas page' — and the Take me there jump lands on that state's page." },
@@ -1288,6 +1302,14 @@ const DEFAULT_PROFILE: ProfileT = {
   factoringPct: 0,
   dispatcherPct: 0,
   trailerType: "dry_van",
+  truckYear: null,
+  truckMake: null,
+  truckModel: null,
+  truckUnitNumber: null,
+  truckVin: null,
+  truckPlate: null,
+  truckEngine: null,
+  truckTransmission: null,
 };
 
 // ---------- Small helpers ---------------------------------------------------
@@ -9984,6 +10006,7 @@ export function App() {
     if (/\btonu\b|truck ordered|layover|driver assist|claim event/.test(q)) return "claims_log";
     if (/true rate|rate per (all|total) mile|net after fuel|net after fees|factoring|dispatcher (fee|%|percent|cut)|deadhead.*(rate|mile)|all miles.*rate/.test(q)) return "true_rate";
     if (/ifta.*(owe|tax|quarter|estimate)|owe.*ifta|fuel tax/.test(q)) return "ifta";
+    if (/maintenance log|repair (log|record|history)|service (log|record|history)|truck record|repair receipts?/.test(q)) return "maintenance_log";
     if (/maintenance|oil change|when.*(oil|tires?|brakes?).*(due|change|service)|service (due|countdown|interval)|miles (left|remaining).*(oil|service|brake|tire)|brakes? due|tires? due/.test(q)) return "maintenance";
     if (/breakdown (log|record|mode)|downtime|cost log|truck (broke|is down|went down)|broke down|repair (log|record)|tow (log|record)/.test(q)) return "breakdown_log";
     // Tax Worksheet (2026-11-12) — the full worksheet by name,
@@ -10344,6 +10367,7 @@ export function App() {
       case "ifta": exitConsole(); setTab("driver"); scrollToAnchor("ifta-panel", 700); break;
       case "library": exitConsole(); setTab("driver"); scrollToAnchor("library-panel", 700); break;
       case "maintenance": exitConsole(); setTab("driver"); scrollToAnchor("maintenance", 700); break;
+      case "maintenance_log": exitConsole(); setTab("driver"); scrollToAnchor("maintenance-log", 700); break;
       case "breakdown_log": exitConsole(); setTab("driver"); scrollToAnchor("breakdown-log", 700); break;
       case "facility_memory": exitConsole(); setTab("loads"); scrollToAnchor("facility-memory", 700); break;
       case "scale_tickets": exitConsole(); setTab("driver"); scrollToAnchor("scale-tickets", 700); break;
@@ -10387,7 +10411,7 @@ export function App() {
       const whereHow = /where|how do i|how can i|how do you|take me|go to/.test(q);
       const showCheck =
         /show|open|check/.test(q) &&
-        ["hours", "trips", "fleet_board", "open_board", "broker_inbox", "shipper_portal", "broker_portal", "team_portal", "app_performance", "language", "console_dashboard", "console_fleetmap", "console_drivers", "documents", "wallet", "pay_book", "pay_book_ytd", "milestones_board", "company", "chat", "loads", "loads_tracker", "detention", "explore", "go", "road_learning", "si_layer", "live_updates", "route_weather", "sign_check", "satellite_view", "weigh_station_status", "dispatch_desk", "my_desk", "broker_desk", "owner_desk", "sign_out", "atlas", "trailer_tools", "doc_expiry", "owed_board", "true_rate", "claims_log", "ifta", "maintenance", "breakdown_log", "facility_memory", "scale_tickets", "scale_finder", "tax_records", "tax_worksheet", "night_parking"].includes(navDestEarly);
+        ["hours", "trips", "fleet_board", "open_board", "broker_inbox", "shipper_portal", "broker_portal", "team_portal", "app_performance", "language", "console_dashboard", "console_fleetmap", "console_drivers", "documents", "wallet", "pay_book", "pay_book_ytd", "milestones_board", "company", "chat", "loads", "loads_tracker", "detention", "explore", "go", "road_learning", "si_layer", "live_updates", "route_weather", "sign_check", "satellite_view", "weigh_station_status", "dispatch_desk", "my_desk", "broker_desk", "owner_desk", "sign_out", "atlas", "trailer_tools", "doc_expiry", "owed_board", "true_rate", "claims_log", "ifta", "maintenance", "maintenance_log", "breakdown_log", "facility_memory", "scale_tickets", "scale_finder", "tax_records", "tax_worksheet", "night_parking"].includes(navDestEarly);
       if (whereHow || showCheck || (lang !== "en" && destForLocalizedQuery(lang, qRaw) === navDestEarly)) {
         const nav = buildMecaNav(navDestEarly, q);
         const info = MECA_DEST_INFO[navDestEarly];
@@ -10464,6 +10488,9 @@ export function App() {
       return r.totalNet != null
         ? `Your running IFTA estimate for Q${qtr} ${new Date().getFullYear()}: ${fmtMoney(Math.abs(r.totalNet))} ${r.totalNet >= 0 ? "owed" : "credit"} — from ${r.totalMiles.toFixed(1)} sealed miles and ${r.totalGallonsBought.toFixed(2)} gal logged${r.fleetMpg != null ? ` at ${r.fleetMpg.toFixed(2)} fleet MPG` : ""}${notLoaded.length ? `. Rate not loaded for ${notLoaded.join(", ")} (not IFTA members), so those states are left out rather than guessed` : ""}. Rates: IFTA, Inc. matrix, Q4 2026 (dated Oct 15, 2026; not final until Dec 4, 2026). Estimate for planning only — not a filing. The full per-state table is in IFTA Complete on the Driver tab — tap “Take me there” below.`
         : `Your Q${qtr} IFTA picture so far: ${r.totalMiles.toFixed(1)} sealed miles, ${r.totalGallonsBought.toFixed(2)} gal bought — the net can't be figured until fuel is logged for the quarter (the MPG comes from your purchases). The estimator is IFTA Complete on the Driver tab — tap “Take me there” below.`;
+    }
+    if (navDestEarly === "maintenance_log" || /maintenance log|repair (log|record|history)|service (log|record|history)|truck record|repair receipts?/.test(q)) {
+      return "The Maintenance Log (Driver tab, right under the Maintenance Countdown) is your truck's full record: every service and repair with its date, odometer, cost, and the receipt or paperwork attached to the entry — photos and PDFs, stored like the Document Vault and downloadable from the entry. Your truck itself — year, make, model, unit, VIN, plate, engine, transmission — goes in Settings → Truck → My Truck, and the panel's Download truck record button pulls identity + specs + the whole log down as one file. Tap “Take me there” below.";
     }
     if (navDestEarly === "maintenance" || /maintenance|oil change|service (due|countdown)|miles (left|remaining).*(oil|service)/.test(q)) {
       const svc = maintenanceQuery.data;
@@ -21348,6 +21375,51 @@ export function App() {
                   Every route, bridge, weight limit, and truck ban is checked against these numbers. They save
                   with SAVE SETTINGS at the bottom.
                 </p>
+            {/* My Truck identity (migration 0118): the truck itself —
+                year, make, model, unit, VIN, plate, engine, gearbox.
+                The maintenance log (Driver tab) keeps its records for
+                this truck, and the truck record download heads with it. */}
+            <div className="mt-4 rounded-2xl border border-[var(--glass-border)] bg-[var(--surface2)] p-3">
+              <span className={labelCls}>My Truck — the truck itself</span>
+              {truckSummaryLine(profile) && (
+                <p className="text-sm font-bold" aria-label="Your truck summary">🚛 {truckSummaryLine(profile)}</p>
+              )}
+              <div className="mt-2 grid grid-cols-2 gap-3">
+                <div>
+                  <label className={labelCls} htmlFor="set-truck-year">Year</label>
+                  <input id="set-truck-year" type="number" inputMode="numeric" className={inputCls} value={profile.truckYear ?? ""} placeholder="e.g. 2021" aria-label="Truck year" onChange={(e) => { const v = parseInt(e.target.value || "", 10); setProfile({ ...profile, truckYear: Number.isFinite(v) ? v : null }); }} />
+                </div>
+                <div>
+                  <label className={labelCls} htmlFor="set-truck-unit">Unit number</label>
+                  <input id="set-truck-unit" className={inputCls} value={profile.truckUnitNumber ?? ""} placeholder="e.g. 12" aria-label="Truck unit number" onChange={(e) => setProfile({ ...profile, truckUnitNumber: e.target.value || null })} />
+                </div>
+                <div>
+                  <label className={labelCls} htmlFor="set-truck-make">Make</label>
+                  <input id="set-truck-make" className={inputCls} value={profile.truckMake ?? ""} placeholder="e.g. Kenworth" aria-label="Truck make" onChange={(e) => setProfile({ ...profile, truckMake: e.target.value || null })} />
+                </div>
+                <div>
+                  <label className={labelCls} htmlFor="set-truck-model">Model</label>
+                  <input id="set-truck-model" className={inputCls} value={profile.truckModel ?? ""} placeholder="e.g. W900" aria-label="Truck model" onChange={(e) => setProfile({ ...profile, truckModel: e.target.value || null })} />
+                </div>
+                <div>
+                  <label className={labelCls} htmlFor="set-truck-engine">Engine</label>
+                  <input id="set-truck-engine" className={inputCls} value={profile.truckEngine ?? ""} placeholder="e.g. Cummins X15" aria-label="Truck engine" onChange={(e) => setProfile({ ...profile, truckEngine: e.target.value || null })} />
+                </div>
+                <div>
+                  <label className={labelCls} htmlFor="set-truck-trans">Transmission</label>
+                  <input id="set-truck-trans" className={inputCls} value={profile.truckTransmission ?? ""} placeholder="e.g. 18-speed" aria-label="Truck transmission" onChange={(e) => setProfile({ ...profile, truckTransmission: e.target.value || null })} />
+                </div>
+                <div>
+                  <label className={labelCls} htmlFor="set-truck-vin">VIN</label>
+                  <input id="set-truck-vin" className={inputCls} value={profile.truckVin ?? ""} placeholder="Full VIN" aria-label="Truck VIN" onChange={(e) => setProfile({ ...profile, truckVin: e.target.value || null })} />
+                </div>
+                <div>
+                  <label className={labelCls} htmlFor="set-truck-plate">Plate</label>
+                  <input id="set-truck-plate" className={inputCls} value={profile.truckPlate ?? ""} placeholder="Plate number" aria-label="Truck plate" onChange={(e) => setProfile({ ...profile, truckPlate: e.target.value || null })} />
+                </div>
+              </div>
+              <p className="mt-1.5 text-xs text-[var(--dim)]">Your truck, in your words — every field optional. The maintenance log on the Driver tab keeps this truck's records, and the truck record download starts with these. Saves with SAVE SETTINGS at the bottom.</p>
+            </div>
             <ConnectTruckSection className="mt-3 rounded-2xl border border-[var(--glass-border)] bg-[var(--surface2)] p-3" onOpenPlans={() => setShowPlans(true)} />
             <CurrentTrailerCard queryClient={queryClient} setBanner={setBanner} />
             <div className="mt-4">

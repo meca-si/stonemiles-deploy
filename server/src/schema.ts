@@ -175,6 +175,8 @@ export const passportPrefs = impl.passportPrefs;
 export const loadPayments = impl.loadPayments;
 export const claimEvents = impl.claimEvents;
 export const maintenanceServices = impl.maintenanceServices;
+export const maintenanceLogEntries = impl.maintenanceLogEntries;
+export const maintenanceLogAttachments = impl.maintenanceLogAttachments;
 export const breakdownLogs = impl.breakdownLogs;
 
 // Auth (Phase 2b, added at the Phase 2 merge): account + session tables.
