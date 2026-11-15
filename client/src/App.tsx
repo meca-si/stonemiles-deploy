@@ -291,6 +291,14 @@ type ProfileT = {
   truckPlate: string | null;
   truckEngine: string | null;
   truckTransmission: string | null;
+  // My Trailer identity (migration 0120): the trailer as its own
+  // piece of equipment — year, make, VIN, plate. All optional. Type
+  // and length are the routing specs (trailerType / length above),
+  // not repeated here.
+  trailerYear: number | null;
+  trailerMake: string | null;
+  trailerVin: string | null;
+  trailerPlate: string | null;
 };
 
 type AppSettingsT = ApiResponse<typeof api, "getAppSettings">["settings"];
@@ -1310,6 +1318,10 @@ const DEFAULT_PROFILE: ProfileT = {
   truckPlate: null,
   truckEngine: null,
   truckTransmission: null,
+  trailerYear: null,
+  trailerMake: null,
+  trailerVin: null,
+  trailerPlate: null,
 };
 
 // ---------- Small helpers ---------------------------------------------------
@@ -21421,6 +21433,35 @@ export function App() {
                 </div>
               </div>
               <p className="mt-1.5 text-xs text-[var(--dim)]">Your truck, in your words — every field optional. The maintenance log on the Driver tab keeps this truck's records, and the truck record download starts with these. Saves with SAVE SETTINGS at the bottom.</p>
+              <VehiclePhotosSection kind="truck" queryClient={queryClient} setBanner={setBanner} />
+            </div>
+            {/* My Trailer identity (migration 0120): the trailer as its
+                own piece of equipment, beside My Truck — year, make,
+                VIN, plate. Type and length stay in the routing specs
+                below (Trailer type + Trailer length), not duplicated
+                here. VIN and plate are owner-only, like the truck's. */}
+            <div className="mt-4 rounded-2xl border border-[var(--glass-border)] bg-[var(--surface2)] p-3">
+              <span className={labelCls}>My Trailer — the trailer itself</span>
+              <div className="mt-2 grid grid-cols-2 gap-3">
+                <div>
+                  <label className={labelCls} htmlFor="set-trailer-year">Year</label>
+                  <input id="set-trailer-year" type="number" inputMode="numeric" className={inputCls} value={profile.trailerYear ?? ""} placeholder="e.g. 2022" aria-label="Trailer year" onChange={(e) => { const v = parseInt(e.target.value || "", 10); setProfile({ ...profile, trailerYear: Number.isFinite(v) ? v : null }); }} />
+                </div>
+                <div>
+                  <label className={labelCls} htmlFor="set-trailer-make">Make</label>
+                  <input id="set-trailer-make" className={inputCls} value={profile.trailerMake ?? ""} placeholder="e.g. Great Dane" aria-label="Trailer make" onChange={(e) => setProfile({ ...profile, trailerMake: e.target.value || null })} />
+                </div>
+                <div>
+                  <label className={labelCls} htmlFor="set-trailer-vin">VIN</label>
+                  <input id="set-trailer-vin" className={inputCls} value={profile.trailerVin ?? ""} placeholder="Full VIN" aria-label="Trailer VIN" onChange={(e) => setProfile({ ...profile, trailerVin: e.target.value || null })} />
+                </div>
+                <div>
+                  <label className={labelCls} htmlFor="set-trailer-plate">Plate</label>
+                  <input id="set-trailer-plate" className={inputCls} value={profile.trailerPlate ?? ""} placeholder="Plate number" aria-label="Trailer plate" onChange={(e) => setProfile({ ...profile, trailerPlate: e.target.value || null })} />
+                </div>
+              </div>
+              <p className="mt-1.5 text-xs text-[var(--dim)]">Your trailer, in your words — every field optional. Its type and length are the routing specs right below (Trailer type + Trailer length) — one place, not two. VIN and plate stay private, just like the truck&apos;s. Saves with SAVE SETTINGS at the bottom.</p>
+              <VehiclePhotosSection kind="trailer" queryClient={queryClient} setBanner={setBanner} />
             </div>
             <ConnectTruckSection className="mt-3 rounded-2xl border border-[var(--glass-border)] bg-[var(--surface2)] p-3" onOpenPlans={() => setShowPlans(true)} />
             <CurrentTrailerCard queryClient={queryClient} setBanner={setBanner} />
@@ -22266,14 +22307,14 @@ export function App() {
                   </div>
                   <div className="flex items-center justify-between rounded-xl bg-[var(--surface2)] px-3 py-3">
                     <span>
-                      <span className="block font-semibold">Show my truck on my profile</span>
-                      <span className="block text-xs text-[var(--dim)]">Year, make, and model from Settings → Truck, plus your trailer type. Your VIN, plate, and unit number never show here — those stay private.</span>
+                      <span className="block font-semibold">Show my truck &amp; trailer on my profile</span>
+                      <span className="block text-xs text-[var(--dim)]">Year, make, and model from Settings → Truck, plus your trailer type — and your truck and trailer photos. Your VINs, plates, and unit number never show here — those stay private.</span>
                     </span>
                     <button
                       type="button"
                       role="switch"
                       aria-checked={socialForm.showTruck}
-                      aria-label="Show my truck on profile"
+                      aria-label="Show my truck and trailer on profile"
                       onClick={() => setSocialForm({ ...socialForm, showTruck: !socialForm.showTruck })}
                       className={`h-8 w-14 shrink-0 rounded-full p-1 ${socialForm.showTruck ? "bg-[var(--ok)]" : "bg-[#3a3f42]"}`}
                     >
@@ -23112,6 +23153,7 @@ export function App() {
                       {p.company && <div className="text-sm">🏢 {p.company}</div>}
                       {p.truckInfo && <div className="text-sm">🚛 {p.truckInfo}</div>}
                       {p.truckLine && <div className="text-sm">🚚 {p.truckLine}</div>}
+                      {p.trailerLine && <div className="text-sm">🚛 {p.trailerLine}</div>}
                       {(p.homeCity || p.homeState) && (
                         <div className="text-sm">🏠 {[p.homeCity, p.homeState].filter(Boolean).join(", ")}</div>
                       )}
@@ -23125,6 +23167,24 @@ export function App() {
                       ✕
                     </button>
                   </div>
+                  {/* Vehicle photos (migration 0120): a modest strip of
+                      the rig's photos under the truck / trailer lines —
+                      never a banner or cover. The server only sends
+                      them while the driver's show-truck toggle is on. */}
+                  {p.truckPhotos.length > 0 && (
+                    <div className="mt-3 flex gap-2 overflow-x-auto pb-1" aria-label="Truck photos">
+                      {p.truckPhotos.map((ph, i) => (
+                        <img key={i} src={ph.url} alt={`${p.displayName} truck photo ${i + 1}`} className="h-20 w-28 shrink-0 rounded-xl border border-[var(--border)] object-cover" />
+                      ))}
+                    </div>
+                  )}
+                  {p.trailerPhotos.length > 0 && (
+                    <div className="mt-2 flex gap-2 overflow-x-auto pb-1" aria-label="Trailer photos">
+                      {p.trailerPhotos.map((ph, i) => (
+                        <img key={i} src={ph.url} alt={`${p.displayName} trailer photo ${i + 1}`} className="h-20 w-28 shrink-0 rounded-xl border border-[var(--border)] object-cover" />
+                      ))}
+                    </div>
+                  )}
                   {p.bio && <p className="mt-3 text-sm leading-relaxed">{p.bio}</p>}
                   <div className="mt-3 flex gap-4 text-sm">
                     <span><strong>{p.followers}</strong> <span className="text-[var(--dim)]">followers</span></span>
@@ -37001,6 +37061,110 @@ async function fetchCityState(pos: LatLon | null): Promise<{ city: string | null
 
 /** The driver's CURRENT trailer — set/change it here; loads and trips
  *  record the trailer that hauled them from this number. */
+// Vehicle photos (migration 0120): one photo set for a vehicle —
+// up to 5 photos of the truck, up to 5 of the trailer, each set
+// managed here inside its My Truck / My Trailer block in
+// Settings -> Truck. Uploads ride the same image path as the profile
+// avatar (fileToBase64 -> blob store); the 5-per-set cap is enforced
+// server-side and its error is shown verbatim. Photos save
+// immediately (they are not part of the SAVE SETTINGS profile save)
+// and show on the social profile only while the "Show my truck &
+// trailer" toggle is on.
+function VehiclePhotosSection({ kind, queryClient, setBanner }: { kind: "truck" | "trailer"; queryClient: ReturnType<typeof useQueryClient>; setBanner: (s: string | null) => void }) {
+  const photosQuery = useQuery({ queryKey: ["vehicle-photos"], queryFn: () => api.listVehiclePhotos({}) });
+  const photos = (kind === "truck" ? photosQuery.data?.truck : photosQuery.data?.trailer) ?? [];
+  const label = kind === "truck" ? "Truck" : "Trailer";
+  const [busy, setBusy] = useState(false);
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ["vehicle-photos"] });
+    queryClient.invalidateQueries({ queryKey: ["social-profile"] });
+    queryClient.invalidateQueries({ queryKey: ["my-social"] });
+  };
+  const addFromFile = (f: File) => {
+    setBusy(true);
+    void fileToBase64(f)
+      .then((enc) => api.addVehiclePhoto({ kind, dataBase64: enc.dataBase64, mime: enc.mimeType }))
+      .then((r) => {
+        if (r.error) { setBanner(r.error); return; }
+        setBanner(`${label} photo added — ${photos.length + 1} of 5.`);
+        invalidate();
+      })
+      .catch(() => setBanner("Couldn't add that photo — try again."))
+      .finally(() => setBusy(false));
+  };
+  const replaceFromFile = (id: number, f: File) => {
+    setBusy(true);
+    void fileToBase64(f)
+      .then((enc) => api.replaceVehiclePhoto({ id, dataBase64: enc.dataBase64, mime: enc.mimeType }))
+      .then((r) => {
+        if (!r.ok) { setBanner(r.error ?? "Couldn't replace that photo — try again."); return; }
+        setBanner(`${label} photo replaced.`);
+        invalidate();
+      })
+      .catch(() => setBanner("Couldn't replace that photo — try again."))
+      .finally(() => setBusy(false));
+  };
+  const remove = (id: number) => {
+    setBusy(true);
+    void api.deleteVehiclePhoto({ id })
+      .then(() => { setBanner(`${label} photo removed.`); invalidate(); })
+      .catch(() => setBanner("Couldn't remove that photo — try again."))
+      .finally(() => setBusy(false));
+  };
+  const smallBtn = "btn-press rounded-lg bg-[var(--surface)] border border-[var(--border)] px-2.5 py-1.5 text-xs font-bold cursor-pointer";
+  return (
+    <div className="mt-3 border-t border-[var(--border)] pt-3">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-sm font-bold">{label} photos</span>
+        <span className="text-xs text-[var(--dim)]">{photos.length} of 5</span>
+      </div>
+      {photos.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {photos.map((p, i) => (
+            <div key={p.id} className="w-28">
+              {p.url ? (
+                <img src={p.url} alt={`${label} photo ${i + 1}`} className="h-20 w-28 rounded-xl border border-[var(--border)] object-cover" />
+              ) : (
+                <div className="flex h-20 w-28 items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--surface)] text-xs text-[var(--dim)]">No file</div>
+              )}
+              <div className="mt-1 flex gap-1">
+                <label className={`${smallBtn} flex-1 text-center`} aria-label={`Replace ${label.toLowerCase()} photo ${i + 1}`}>
+                  Replace
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    aria-label={`Choose a replacement ${label.toLowerCase()} photo`}
+                    onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) replaceFromFile(p.id, f); }}
+                  />
+                </label>
+                <button type="button" className={smallBtn} disabled={busy} aria-label={`Remove ${label.toLowerCase()} photo ${i + 1}`} onClick={() => remove(p.id)}>
+                  Remove
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {photos.length < 5 ? (
+        <label className="btn-press mt-2 inline-block cursor-pointer rounded-xl bg-[var(--surface)] border border-[var(--border)] px-3 py-2.5 text-sm font-bold" aria-label={`Add a ${label.toLowerCase()} photo`}>
+          📷 {photos.length === 0 ? `Add a ${label.toLowerCase()} photo` : "Add another photo"}
+          <input
+            type="file"
+            accept="image/*"
+            className="hidden"
+            aria-label={`Choose a ${label.toLowerCase()} photo to add`}
+            onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) addFromFile(f); }}
+          />
+        </label>
+      ) : (
+        <p className="mt-2 text-xs text-[var(--dim)]">That&apos;s the limit — 5 {label.toLowerCase()} photos. Remove one to add another.</p>
+      )}
+      <p className="mt-1.5 text-xs text-[var(--dim)]">Photos save as you add them. They show on your profile with your {label.toLowerCase()} line while &ldquo;Show my truck &amp; trailer&rdquo; is on.</p>
+    </div>
+  );
+}
+
 function CurrentTrailerCard({ queryClient, setBanner }: { queryClient: ReturnType<typeof useQueryClient>; setBanner: (s: string | null) => void }) {
   const trailerQuery = useQuery({ queryKey: ["current-trailer"], queryFn: () => api.getTrailerState({}) });
   const [draft, setDraft] = useState<string | null>(null);

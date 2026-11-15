@@ -114,6 +114,18 @@ export const profile = pgTable("profile", {
   truckPlate: text("truck_plate"),
   truckEngine: text("truck_engine"),
   truckTransmission: text("truck_transmission"),
+  // My Trailer identity (migration 0120): the trailer as its own
+  // piece of equipment, mirroring My Truck — year, make, VIN, plate,
+  // all optional, typed in by the driver in Settings -> Truck.
+  // Trailer TYPE and LENGTH are NOT duplicated here: they already
+  // live on this row as the routing specs (trailerType / lengthFt).
+  // VIN and plate are OWNER-ONLY exactly like the truck's — they
+  // never reach any public surface; the public trailer line is built
+  // from year + make + trailer type only (see getUserProfile).
+  trailerYear: integer("trailer_year"),
+  trailerMake: text("trailer_make"),
+  trailerVin: text("trailer_vin"),
+  trailerPlate: text("trailer_plate"),
   // The driver's social handle (usernames are how people follow/DM/add).
   socialUsername: text("social_username").notNull().default("driver"),
   // Subscription plan recorded for the app-store release ("basic" |
@@ -4417,6 +4429,27 @@ export const maintenanceLogAttachments = pgTable("maintenance_log_attachments", 
   label: text("label").notNull(),
   blobKey: text("blob_key"),
   mime: text("mime"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+// Vehicle photos (migration 0120): up to 5 photos of the truck and
+// up to 5 of the trailer — two sets, capped separately, one row per
+// photo with a kind tag. The file itself is a blob on the exact path
+// the profile avatar uses (blob key + mime on the row, bytes in
+// ctx.blobs), so a photo uploads, replaces, and removes the same way
+// the avatar does. The 5-per-set cap is enforced server-side in
+// addVehiclePhoto (count of the caller's rows for that kind).
+// Display rides the existing showTruck profile toggle: with it off,
+// no photo of either vehicle appears on the profile.
+export const vehiclePhotos = pgTable("vehicle_photos", {
+  profileId: integer("profile_id"),
+  id: serial("id").primaryKey(),
+  kind: text("kind").notNull(), // truck | trailer
+  blobKey: text("blob_key"),
+  mime: text("mime"),
+  sortOrder: integer("sort_order").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
     .notNull()
     .$defaultFn(() => new Date()),

@@ -6800,6 +6800,14 @@ const profileShape = z.object({
   truckPlate: z.string().max(30).nullable().default(null),
   truckEngine: z.string().max(80).nullable().default(null),
   truckTransmission: z.string().max(80).nullable().default(null),
+  // My Trailer identity (migration 0120): the trailer as its own
+  // piece of equipment — year, make, VIN, plate. All optional;
+  // defaulted so older saved profiles still validate. Trailer type
+  // and length are the routing-spec fields above, not repeated here.
+  trailerYear: z.number().int().min(1950).max(2100).nullable().default(null),
+  trailerMake: z.string().max(60).nullable().default(null),
+  trailerVin: z.string().max(40).nullable().default(null),
+  trailerPlate: z.string().max(30).nullable().default(null),
 });
 
 const profileResponse = z.object({
@@ -11322,6 +11330,26 @@ function publicTruckLineFor(prof: {
 } | null | undefined): string | null {
   if (!prof) return null;
   const head = [prof.truckYear != null ? String(prof.truckYear) : "", prof.truckMake ?? "", prof.truckModel ?? ""]
+    .map((x) => x.trim())
+    .filter(Boolean)
+    .join(" ");
+  const trailer = PUBLIC_TRAILER_LABELS[prof.trailerType] ?? "";
+  const line = [head, trailer].filter(Boolean).join(" · ");
+  return line || null;
+}
+
+// Public trailer line for the social profile (My Trailer identity,
+// migration 0120): built ONLY from the trailer's year, make, and the
+// trailer type label — "2022 Great Dane · Step Deck". Trailer VIN
+// and plate are NEVER part of this line; they stay owner-only in
+// Settings -> Truck, exactly like the truck's VIN and plate.
+function publicTrailerLineFor(prof: {
+  trailerYear: number | null;
+  trailerMake: string | null;
+  trailerType: string;
+} | null | undefined): string | null {
+  if (!prof) return null;
+  const head = [prof.trailerYear != null ? String(prof.trailerYear) : "", prof.trailerMake ?? ""]
     .map((x) => x.trim())
     .filter(Boolean)
     .join(" ");
@@ -18365,6 +18393,10 @@ export const Actions = {
           truckPlate: row.truckPlate ?? null,
           truckEngine: row.truckEngine ?? null,
           truckTransmission: row.truckTransmission ?? null,
+          trailerYear: row.trailerYear ?? null,
+          trailerMake: row.trailerMake ?? null,
+          trailerVin: row.trailerVin ?? null,
+          trailerPlate: row.trailerPlate ?? null,
           pinSet: row.pinHash != null,
         },
       };
@@ -18419,6 +18451,10 @@ export const Actions = {
         truckPlate: args.truckPlate?.trim() || null,
         truckEngine: args.truckEngine?.trim() || null,
         truckTransmission: args.truckTransmission?.trim() || null,
+        trailerYear: args.trailerYear,
+        trailerMake: args.trailerMake?.trim() || null,
+        trailerVin: args.trailerVin?.trim() || null,
+        trailerPlate: args.trailerPlate?.trim() || null,
         updatedAt: new Date(),
       };
       await db
@@ -18463,6 +18499,10 @@ export const Actions = {
             truckPlate: values.truckPlate,
             truckEngine: values.truckEngine,
             truckTransmission: values.truckTransmission,
+            trailerYear: values.trailerYear,
+            trailerMake: values.trailerMake,
+            trailerVin: values.trailerVin,
+            trailerPlate: values.trailerPlate,
             updatedAt: values.updatedAt,
           },
         });
@@ -31354,6 +31394,18 @@ export const Actions = {
       // viewer is not the driver themselves.
       showTruck: z.boolean(),
       truckLine: z.string().nullable(),
+      // My Trailer on profile (migration 0120): trailerLine mirrors
+      // truckLine — year + make + trailer type ONLY (never VIN or
+      // plate), same toggle, same staging rule. truckPhotos /
+      // trailerPhotos are the two photo sets (up to 5 each): URLs
+      // only, and ONLY when the showTruck toggle is ON — with the
+      // toggle off, no photo of either vehicle appears in this
+      // output for any viewer, the owner included. Real only for
+      // the local user, like the lines — another driver's photos
+      // live on their own device; empty, never invented.
+      trailerLine: z.string().nullable(),
+      truckPhotos: z.array(z.object({ url: z.string() })),
+      trailerPhotos: z.array(z.object({ url: z.string() })),
       // Season rank + all-time-best (Pass 4 profile header). Real values
       // only for the local user (their records live on this device);
       // null for other drivers in this staging build — never invented.
@@ -31413,6 +31465,26 @@ export const Actions = {
       const showTruck = row?.showTruck ?? true;
       const truckLine =
         showTruck || isMe ? publicTruckLineFor(isMe ? prof[0] : null) : null;
+      const trailerLine =
+        showTruck || isMe ? publicTrailerLineFor(isMe ? prof[0] : null) : null;
+      // Vehicle photos: strictly toggle-gated (no owner override —
+      // off means no photos in this output at all). The rows are the
+      // caller's own (scoped DB), so they are only read when the
+      // viewer IS this driver; another driver's photos live on their
+      // device and are never invented here.
+      const truckPhotos: { url: string }[] = [];
+      const trailerPhotos: { url: string }[] = [];
+      if (isMe && showTruck) {
+        const photoRows = await db
+          .select()
+          .from(schema.vehiclePhotos)
+          .orderBy(asc(schema.vehiclePhotos.sortOrder), asc(schema.vehiclePhotos.id));
+        for (const p of photoRows) {
+          if (!p.blobKey) continue;
+          const url = await ctx.blobs.getUrl(p.blobKey);
+          (p.kind === "trailer" ? trailerPhotos : truckPhotos).push({ url });
+        }
+      }
       // Privacy first: a hidden miles panel is never overridden — for
       // another driver the numbers are not even computed into the
       // response. The driver themselves always sees their own panel.
@@ -31452,6 +31524,9 @@ export const Actions = {
         showMilesPanel,
         showTruck,
         truckLine,
+        trailerLine,
+        truckPhotos,
+        trailerPhotos,
         overallRank: rank.overallRank,
         seasonNumber: rank.seasonNumber,
         allTimeBest: rank.allTimeBest,
@@ -41465,6 +41540,143 @@ export const Actions = {
       if (!row?.blobKey) return { url: null, mime: null };
       const url = await ctx.blobs.getUrl(row.blobKey);
       return { url, mime: row.mime };
+    },
+  }),
+
+  listVehiclePhotos: defineAction({
+    description: "The driver's own truck and trailer photo sets (up to 5 each) with display URLs, in saved order.",
+    request: z.object({}),
+    response: z.object({
+      truck: z.array(z.object({ id: z.number(), url: z.string().nullable(), mime: z.string().nullable() })),
+      trailer: z.array(z.object({ id: z.number(), url: z.string().nullable(), mime: z.string().nullable() })),
+    }),
+    async handler(ctx) {
+      const db = ctx.db<typeof schema>();
+      const rows = await db
+        .select()
+        .from(schema.vehiclePhotos)
+        .orderBy(asc(schema.vehiclePhotos.sortOrder), asc(schema.vehiclePhotos.id));
+      const truck: { id: number; url: string | null; mime: string | null }[] = [];
+      const trailer: { id: number; url: string | null; mime: string | null }[] = [];
+      for (const r of rows) {
+        const item = {
+          id: r.id,
+          url: r.blobKey ? await ctx.blobs.getUrl(r.blobKey) : null,
+          mime: r.mime,
+        };
+        (r.kind === "trailer" ? trailer : truck).push(item);
+      }
+      return { truck, trailer };
+    },
+  }),
+
+  addVehiclePhoto: defineAction({
+    description: "Add one photo to the truck or trailer photo set (up to 5 per set, enforced here) — same blob path and size handling as the profile avatar.",
+    request: z.object({
+      kind: z.enum(["truck", "trailer"]),
+      dataBase64: z.string().max(8_000_000),
+      mime: z.string().max(60),
+    }),
+    response: z.object({ id: z.number(), error: z.string().nullable() }),
+    async handler(ctx, args): Promise<{ id: number; error: string | null }> {
+      const db = ctx.db<typeof schema>();
+      const existing = await db
+        .select()
+        .from(schema.vehiclePhotos)
+        .where(eq(schema.vehiclePhotos.kind, args.kind));
+      if (existing.length >= 5) {
+        return {
+          id: 0,
+          error: `That's the limit — 5 ${args.kind} photos. Remove one first to add another.`,
+        };
+      }
+      const me = await myUsername(ctx);
+      const blobKey = `vehicle-photo-${args.kind}-${me}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      await ctx.blobs.put(blobKey, base64ToBytes(args.dataBase64), { contentType: args.mime });
+      const res = await db
+        .insert(schema.vehiclePhotos)
+        .values({ kind: args.kind, blobKey, mime: args.mime, sortOrder: existing.length })
+        .returning({ id: schema.vehiclePhotos.id });
+      const row = res[0];
+      if (!row) throw new Error("addVehiclePhoto: insert returned no rows");
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "vehicle_photo_added",
+        payload: { kind: args.kind, photoId: row.id, count: existing.length + 1 },
+      });
+      ctx.invalidateQueries();
+      return { id: row.id, error: null };
+    },
+  }),
+
+  replaceVehiclePhoto: defineAction({
+    description: "Replace one truck/trailer photo with a new image — the old file is removed from the blob store.",
+    request: z.object({
+      id: z.number().int().positive(),
+      dataBase64: z.string().max(8_000_000),
+      mime: z.string().max(60),
+    }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable() }),
+    async handler(ctx, args): Promise<{ ok: boolean; error: string | null }> {
+      const db = ctx.db<typeof schema>();
+      const rows = await db
+        .select()
+        .from(schema.vehiclePhotos)
+        .where(eq(schema.vehiclePhotos.id, args.id))
+        .limit(1);
+      const row = rows[0];
+      if (!row) return { ok: false, error: "That photo doesn't exist — nothing was changed." };
+      const me = await myUsername(ctx);
+      const blobKey = `vehicle-photo-${row.kind}-${me}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      await ctx.blobs.put(blobKey, base64ToBytes(args.dataBase64), { contentType: args.mime });
+      if (row.blobKey) {
+        try { await ctx.blobs.delete(row.blobKey); } catch { /* already gone */ }
+      }
+      await db
+        .update(schema.vehiclePhotos)
+        .set({ blobKey, mime: args.mime })
+        .where(eq(schema.vehiclePhotos.id, args.id));
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "vehicle_photo_replaced",
+        payload: { kind: row.kind, photoId: args.id },
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
+    },
+  }),
+
+  deleteVehiclePhoto: defineAction({
+    description: "Remove one truck/trailer photo and its file, freeing a slot in that set.",
+    request: z.object({ id: z.number().int().positive() }),
+    response: z.object({ ok: z.literal(true) }),
+    async handler(ctx, args): Promise<{ ok: true }> {
+      const db = ctx.db<typeof schema>();
+      const rows = await db
+        .select()
+        .from(schema.vehiclePhotos)
+        .where(eq(schema.vehiclePhotos.id, args.id))
+        .limit(1);
+      const row = rows[0];
+      if (row) {
+        if (row.blobKey) {
+          try { await ctx.blobs.delete(row.blobKey); } catch { /* already gone */ }
+        }
+        await db.delete(schema.vehiclePhotos).where(eq(schema.vehiclePhotos.id, args.id));
+        await appendChain(ctx, {
+          refKind: "driver",
+          refId: null,
+          sessionId: null,
+          event: "vehicle_photo_deleted",
+          payload: { kind: row.kind, photoId: args.id, at: new Date().toISOString() },
+        });
+      }
+      ctx.invalidateQueries();
+      return { ok: true };
     },
   }),
 

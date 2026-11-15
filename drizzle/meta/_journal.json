@@ -834,6 +834,13 @@
       "when": 1794900000000,
       "tag": "0119_show_truck_on_profile",
       "breakpoints": true
+    },
+    {
+      "idx": 119,
+      "version": "6",
+      "when": 1795000000000,
+      "tag": "0120_truck_trailer_photos",
+      "breakpoints": true
     }
   ]
 }
