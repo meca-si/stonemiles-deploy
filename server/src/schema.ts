@@ -202,6 +202,11 @@ export const homeTimeCommitments = impl.homeTimeCommitments;
 export const homeTimeOverrides = impl.homeTimeOverrides;
 export const pulseResponses = impl.pulseResponses;
 export const homeTimeFactSnapshots = impl.homeTimeFactSnapshots;
+export const accountingConnections = impl.accountingConnections;
+export const accountingSyncRecords = impl.accountingSyncRecords;
+export const recruitingDoors = impl.recruitingDoors;
+export const driverApplications = impl.driverApplications;
+export const driverApplicationNotes = impl.driverApplicationNotes;
 
 // Auth (Phase 2b, added at the Phase 2 merge): account + session tables.
 export const accounts = impl.accounts;

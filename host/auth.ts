@@ -1870,4 +1870,13 @@ export const PUBLIC_ACTIONS = new Set<string>([
   // load only, never a rate or any money field, and the share
   // expires at delivery. See server action getTrackInfo.
   "getTrackInfo",
+  // Recruiting application door (2026-11-15, Wave 2 item 10): the
+  // door token IS the credential, same pattern as the broker
+  // door. getApplyInfo returns only whether the door is open and
+  // the fleet's name; submitDriverApplication lands the
+  // application in that fleet's desk and sends the auto-response
+  // inside the request. Applicant data is never readable back
+  // through any public action.
+  "getApplyInfo",
+  "submitDriverApplication",
 ]);

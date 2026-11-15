@@ -118,6 +118,15 @@
 // +2 REAL (the snapshot's two miles windows); the kind /
 // set-by / method / status / answers columns are plain
 // integer/text.
+// Migration 0136 (accounting sync + recruiting) adds +5 tables
+// (accounting_connections, accounting_sync_records,
+// recruiting_doors, driver_applications,
+// driver_application_notes), +5 autoincrement PKs, +14
+// timestamp_ms (connection token expiry / created / updated;
+// sync-record last-synced / created / updated; door expiry /
+// revoked / created / updated; application responded / created
+// / updated; note created); the OAuth token / stamp / snapshot /
+// stage columns are plain integer/text.
 //
 //   bun run host/pg/transform-schema.ts
 
@@ -182,15 +191,15 @@ replaceAll(
   'integer mode "timestamp_ms" -> timestamp(tz, date)',
   /integer\(("[a-z0-9_]+"), \{ mode: "timestamp_ms" \}\)/g,
   'timestamp($1, { withTimezone: true, mode: "date" })',
-  379,
+  393,
 );
 replaceAll(
   "autoincrement PK -> serial",
   /integer\(("[a-z0-9_]+")\)\.primaryKey\(\{ autoIncrement: true \}\)/g,
   "serial($1).primaryKey()",
-  156,
+  161,
 );
-replaceAll("sqliteTable -> pgTable", /\bsqliteTable\(/g, "pgTable(", 191);
+replaceAll("sqliteTable -> pgTable", /\bsqliteTable\(/g, "pgTable(", 196);
 replaceAll("real -> doublePrecision", /\breal\(/g, "doublePrecision(", 194);
 
 // Leftovers: any of these means the source schema grew a shape this

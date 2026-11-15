@@ -22,6 +22,7 @@ import { api } from "./api";
 import { MyDqfCard } from "./DqfPanel";
 import { MyHomeTimeCard } from "./HomeTimePanel";
 import { InvoiceFactoringPanel, ReceivablesPanel } from "./FactoringPanel";
+import { AccountingPanel } from "./AccountingPanel";
 import { t as tt, type Lang } from "./i18n";
 import { Section, XBar, downloadTextFile, money } from "./NextLevel";
 import {
@@ -1695,6 +1696,9 @@ export function MoneyFlowHub({ setBanner, mpg, onOpenBreakdownHelp, onOpenParkin
       </div>
       <div id="receivables" className="scroll-mt-4">
         <ReceivablesPanel />
+      </div>
+      <div id="accounting-sync" className="scroll-mt-4">
+        <AccountingPanel />
       </div>
       <div id="my-settlement" className="scroll-mt-4">
         <SettlementPanel setBanner={setBanner} lang={lang} />

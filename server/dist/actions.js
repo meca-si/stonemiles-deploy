@@ -23,6 +23,8 @@ __export(exports_schema_sqlite, {
   accountInvites: () => accountInvites,
   accountLocks: () => accountLocks,
   accountRetainers: () => accountRetainers,
+  accountingConnections: () => accountingConnections,
+  accountingSyncRecords: () => accountingSyncRecords,
   accounts: () => accounts,
   adminSettings: () => adminSettings,
   aiLog: () => aiLog,
@@ -75,6 +77,8 @@ __export(exports_schema_sqlite, {
   dqfAlertDismissals: () => dqfAlertDismissals,
   dqfEntries: () => dqfEntries,
   dqfFiles: () => dqfFiles,
+  driverApplicationNotes: () => driverApplicationNotes,
+  driverApplications: () => driverApplications,
   driverCodes: () => driverCodes,
   driverFleetStatus: () => driverFleetStatus,
   driverPositions: () => driverPositions,
@@ -155,6 +159,7 @@ __export(exports_schema_sqlite, {
   recentDestinations: () => recentDestinations,
   recordAccessLog: () => recordAccessLog,
   recoveryCodes: () => recoveryCodes,
+  recruitingDoors: () => recruitingDoors,
   reeferChecks: () => reeferChecks,
   referralCodes: () => referralCodes,
   referralLinks: () => referralLinks,
@@ -219,6 +224,8 @@ __export(exports_schema_pg, {
   accountInvites: () => accountInvites2,
   accountLocks: () => accountLocks2,
   accountRetainers: () => accountRetainers2,
+  accountingConnections: () => accountingConnections2,
+  accountingSyncRecords: () => accountingSyncRecords2,
   accounts: () => accounts2,
   adminSettings: () => adminSettings2,
   aiLog: () => aiLog2,
@@ -271,6 +278,8 @@ __export(exports_schema_pg, {
   dqfAlertDismissals: () => dqfAlertDismissals2,
   dqfEntries: () => dqfEntries2,
   dqfFiles: () => dqfFiles2,
+  driverApplicationNotes: () => driverApplicationNotes2,
+  driverApplications: () => driverApplications2,
   driverCodes: () => driverCodes2,
   driverFleetStatus: () => driverFleetStatus2,
   driverPositions: () => driverPositions2,
@@ -351,6 +360,7 @@ __export(exports_schema_pg, {
   recentDestinations: () => recentDestinations2,
   recordAccessLog: () => recordAccessLog2,
   recoveryCodes: () => recoveryCodes2,
+  recruitingDoors: () => recruitingDoors2,
   reeferChecks: () => reeferChecks2,
   referralCodes: () => referralCodes2,
   referralLinks: () => referralLinks2,
@@ -10394,6 +10404,75 @@ var homeTimeFactSnapshots = sqliteTable("home_time_fact_snapshots", {
   createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
   updatedAt: integer3("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
 });
+var accountingConnections = sqliteTable("accounting_connections", {
+  profileId: integer3("profile_id"),
+  id: integer3("id").primaryKey({ autoIncrement: true }),
+  provider: text2("provider").notNull(),
+  realmId: text2("realm_id"),
+  displayLabel: text2("display_label"),
+  accessToken: text2("access_token"),
+  refreshToken: text2("refresh_token"),
+  tokenExpiresAt: integer3("token_expires_at", { mode: "timestamp_ms" }),
+  oauthState: text2("oauth_state"),
+  status: text2("status").notNull().default("disconnected"),
+  inboundCursor: text2("inbound_cursor"),
+  createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
+  updatedAt: integer3("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
+});
+var accountingSyncRecords = sqliteTable("accounting_sync_records", {
+  profileId: integer3("profile_id"),
+  id: integer3("id").primaryKey({ autoIncrement: true }),
+  connectionId: integer3("connection_id").notNull(),
+  recordKind: text2("record_kind").notNull(),
+  recordId: integer3("record_id"),
+  providerObjectId: text2("provider_object_id"),
+  state: text2("state").notNull().default("pending"),
+  localStamp: text2("local_stamp"),
+  providerStamp: text2("provider_stamp"),
+  localSnapshotJson: text2("local_snapshot_json"),
+  providerSnapshotJson: text2("provider_snapshot_json"),
+  lastError: text2("last_error"),
+  lastSyncedAt: integer3("last_synced_at", { mode: "timestamp_ms" }),
+  createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
+  updatedAt: integer3("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
+});
+var recruitingDoors = sqliteTable("recruiting_doors", {
+  id: integer3("id").primaryKey({ autoIncrement: true }),
+  companyId: integer3("company_id").notNull(),
+  createdBy: text2("created_by").notNull(),
+  token: text2("token").notNull(),
+  responseSubject: text2("response_subject"),
+  responseBody: text2("response_body"),
+  expiresAt: integer3("expires_at", { mode: "timestamp_ms" }),
+  revokedAt: integer3("revoked_at", { mode: "timestamp_ms" }),
+  createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
+  updatedAt: integer3("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
+});
+var driverApplications = sqliteTable("driver_applications", {
+  id: integer3("id").primaryKey({ autoIncrement: true }),
+  companyId: integer3("company_id").notNull(),
+  doorId: integer3("door_id").notNull(),
+  name: text2("name").notNull(),
+  email: text2("email").notNull(),
+  phone: text2("phone"),
+  cdlClass: text2("cdl_class").notNull(),
+  experience: text2("experience").notNull(),
+  note: text2("note"),
+  stage: text2("stage").notNull().default("new"),
+  responseStatus: text2("response_status").notNull().default("queued"),
+  responseAt: integer3("response_at", { mode: "timestamp_ms" }),
+  inviteCodeId: integer3("invite_code_id"),
+  createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
+  updatedAt: integer3("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
+});
+var driverApplicationNotes = sqliteTable("driver_application_notes", {
+  id: integer3("id").primaryKey({ autoIncrement: true }),
+  applicationId: integer3("application_id").notNull(),
+  companyId: integer3("company_id").notNull(),
+  author: text2("author").notNull(),
+  body: text2("body").notNull(),
+  createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
+});
 
 // src/schema-pg.ts
 var profile2 = pgTable("profile", {
@@ -12919,6 +12998,75 @@ var homeTimeFactSnapshots2 = pgTable("home_time_fact_snapshots", {
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date),
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
 });
+var accountingConnections2 = pgTable("accounting_connections", {
+  profileId: integer2("profile_id"),
+  id: serial("id").primaryKey(),
+  provider: text("provider").notNull(),
+  realmId: text("realm_id"),
+  displayLabel: text("display_label"),
+  accessToken: text("access_token"),
+  refreshToken: text("refresh_token"),
+  tokenExpiresAt: timestamp("token_expires_at", { withTimezone: true, mode: "date" }),
+  oauthState: text("oauth_state"),
+  status: text("status").notNull().default("disconnected"),
+  inboundCursor: text("inbound_cursor"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
+});
+var accountingSyncRecords2 = pgTable("accounting_sync_records", {
+  profileId: integer2("profile_id"),
+  id: serial("id").primaryKey(),
+  connectionId: integer2("connection_id").notNull(),
+  recordKind: text("record_kind").notNull(),
+  recordId: integer2("record_id"),
+  providerObjectId: text("provider_object_id"),
+  state: text("state").notNull().default("pending"),
+  localStamp: text("local_stamp"),
+  providerStamp: text("provider_stamp"),
+  localSnapshotJson: text("local_snapshot_json"),
+  providerSnapshotJson: text("provider_snapshot_json"),
+  lastError: text("last_error"),
+  lastSyncedAt: timestamp("last_synced_at", { withTimezone: true, mode: "date" }),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
+});
+var recruitingDoors2 = pgTable("recruiting_doors", {
+  id: serial("id").primaryKey(),
+  companyId: integer2("company_id").notNull(),
+  createdBy: text("created_by").notNull(),
+  token: text("token").notNull(),
+  responseSubject: text("response_subject"),
+  responseBody: text("response_body"),
+  expiresAt: timestamp("expires_at", { withTimezone: true, mode: "date" }),
+  revokedAt: timestamp("revoked_at", { withTimezone: true, mode: "date" }),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
+});
+var driverApplications2 = pgTable("driver_applications", {
+  id: serial("id").primaryKey(),
+  companyId: integer2("company_id").notNull(),
+  doorId: integer2("door_id").notNull(),
+  name: text("name").notNull(),
+  email: text("email").notNull(),
+  phone: text("phone"),
+  cdlClass: text("cdl_class").notNull(),
+  experience: text("experience").notNull(),
+  note: text("note"),
+  stage: text("stage").notNull().default("new"),
+  responseStatus: text("response_status").notNull().default("queued"),
+  responseAt: timestamp("response_at", { withTimezone: true, mode: "date" }),
+  inviteCodeId: integer2("invite_code_id"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
+});
+var driverApplicationNotes2 = pgTable("driver_application_notes", {
+  id: serial("id").primaryKey(),
+  applicationId: integer2("application_id").notNull(),
+  companyId: integer2("company_id").notNull(),
+  author: text("author").notNull(),
+  body: text("body").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
+});
 
 // src/schema.ts
 var impl = process.env.STONEMILES_DIALECT === "postgres" ? exports_schema_pg : exports_schema_sqlite;
@@ -13103,6 +13251,11 @@ var homeTimeCommitments3 = impl.homeTimeCommitments;
 var homeTimeOverrides3 = impl.homeTimeOverrides;
 var pulseResponses3 = impl.pulseResponses;
 var homeTimeFactSnapshots3 = impl.homeTimeFactSnapshots;
+var accountingConnections3 = impl.accountingConnections;
+var accountingSyncRecords3 = impl.accountingSyncRecords;
+var recruitingDoors3 = impl.recruitingDoors;
+var driverApplications3 = impl.driverApplications;
+var driverApplicationNotes3 = impl.driverApplicationNotes;
 var accounts3 = impl.accounts;
 var authSessions3 = impl.authSessions;
 var passwordResetTokens3 = impl.passwordResetTokens;
@@ -18885,6 +19038,705 @@ function facilityDetentionStats(visits) {
   return out.sort((a, b) => b.visits - a.visits || a.placeLabel.localeCompare(b.placeLabel));
 }
 
+// src/accounting.ts
+var round27 = (n) => Math.round(n * 100) / 100;
+var ACCOUNTING_PROVIDERS = [
+  { kind: "quickbooks", name: "QuickBooks Online" },
+  { kind: "xero", name: "Xero" }
+];
+function accountingProviderName(kind) {
+  return ACCOUNTING_PROVIDERS.find((p) => p.kind === kind)?.name ?? kind;
+}
+var ymd = (iso) => iso ? iso.slice(0, 10) : null;
+function mapInvoiceToProvider(inv) {
+  return {
+    docNumber: inv.number,
+    customerName: inv.billToCompany?.trim() || inv.billToName,
+    lines: inv.lines.filter((l) => Number.isFinite(l.amount)).map((l) => ({ description: l.label, amount: round27(l.amount) })),
+    amount: round27(inv.amount),
+    issueDate: ymd(inv.issuedAtIso),
+    dueDate: ymd(inv.dueAtIso),
+    status: inv.status === "paid" ? "paid" : "issued",
+    memo: inv.referenceNumber?.trim() ? inv.referenceNumber.trim() : null
+  };
+}
+function mapPaymentToProvider(pay, link) {
+  return {
+    amount: round27(pay.amount),
+    paidDate: ymd(pay.paidAtIso) ?? "",
+    invoiceDocNumber: link.invoiceDocNumber,
+    providerInvoiceId: link.providerInvoiceId,
+    memo: pay.note?.trim() ? pay.note.trim() : null
+  };
+}
+function mapSettlementToProvider(s) {
+  const net = s.net != null && Number.isFinite(s.net) ? round27(s.net) : null;
+  const gross = s.gross != null && Number.isFinite(s.gross) ? round27(s.gross) : null;
+  const amount = net ?? gross;
+  if (amount == null)
+    return null;
+  let lines = [];
+  try {
+    const parsed = JSON.parse(s.linesJson);
+    if (Array.isArray(parsed)) {
+      lines = parsed.map((raw) => {
+        const r = raw ?? {};
+        const description = typeof r.description === "string" && r.description.trim() ? r.description.trim() : typeof r.label === "string" && r.label.trim() ? r.label.trim() : null;
+        const amt = typeof r.amount === "number" && Number.isFinite(r.amount) ? round27(r.amount) : null;
+        return description && amt != null ? { description, amount: amt } : null;
+      }).filter((l) => l != null);
+    }
+  } catch {
+    lines = [];
+  }
+  if (lines.length === 0) {
+    lines = [{ description: net != null ? "Settlement net" : "Settlement gross", amount }];
+  }
+  return {
+    docNumber: `STL-${s.id}`,
+    vendorName: s.carrier?.trim() || "Carrier",
+    lines,
+    amount,
+    periodLabel: s.periodLabel?.trim() ? s.periodLabel.trim() : null
+  };
+}
+function canonicalJson(value) {
+  if (value == null || typeof value !== "object")
+    return JSON.stringify(value) ?? "null";
+  if (Array.isArray(value))
+    return `[${value.map(canonicalJson).join(",")}]`;
+  const obj = value;
+  const keys = Object.keys(obj).sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalJson(obj[k])}`).join(",")}}`;
+}
+function accountingStampFor(value) {
+  const text = canonicalJson(value);
+  let hash = 0xcbf29ce484222325n;
+  const prime = 0x100000001b3n;
+  const mask = 0xffffffffffffffffn;
+  for (let i = 0;i < text.length; i++) {
+    hash ^= BigInt(text.charCodeAt(i));
+    hash = hash * prime & mask;
+  }
+  return `fnv1a:${hash.toString(16).padStart(16, "0")}`;
+}
+function classifySyncChange(input) {
+  if (input.providerChanged)
+    return "conflict";
+  if (input.localChanged)
+    return "push";
+  return "none";
+}
+function matchProviderPayment(payment, candidates) {
+  if (payment.providerInvoiceId) {
+    const byId = candidates.find((c) => c.providerObjectId === payment.providerInvoiceId);
+    if (byId)
+      return byId.invoiceId;
+  }
+  if (payment.invoiceDocNumber) {
+    const byDoc = candidates.find((c) => c.docNumber === payment.invoiceDocNumber);
+    if (byDoc)
+      return byDoc.invoiceId;
+  }
+  return null;
+}
+function accountingSnapshotLines(obj) {
+  if (!obj)
+    return [{ label: "Record", value: "\u2014" }];
+  const moneyFmt = (n) => `$${n.toFixed(2)}`;
+  const lines = [];
+  if ("customerName" in obj) {
+    lines.push({ label: "Invoice", value: obj.docNumber });
+    lines.push({ label: "Customer", value: obj.customerName });
+    lines.push({ label: "Status", value: obj.status === "paid" ? "Paid" : "Issued" });
+    if (obj.issueDate)
+      lines.push({ label: "Issued", value: obj.issueDate });
+    if (obj.dueDate)
+      lines.push({ label: "Due", value: obj.dueDate });
+    lines.push({ label: "Amount", value: moneyFmt(obj.amount) });
+    for (const l of obj.lines)
+      lines.push({ label: `Line \u2014 ${l.description}`, value: moneyFmt(l.amount) });
+    if (obj.memo)
+      lines.push({ label: "Memo", value: obj.memo });
+    return lines;
+  }
+  if ("vendorName" in obj) {
+    lines.push({ label: "Bill", value: obj.docNumber });
+    lines.push({ label: "Vendor", value: obj.vendorName });
+    if (obj.periodLabel)
+      lines.push({ label: "Period", value: obj.periodLabel });
+    lines.push({ label: "Amount", value: moneyFmt(obj.amount) });
+    for (const l of obj.lines)
+      lines.push({ label: `Line \u2014 ${l.description}`, value: moneyFmt(l.amount) });
+    return lines;
+  }
+  lines.push({ label: "Payment", value: moneyFmt(obj.amount) });
+  lines.push({ label: "Paid on", value: obj.paidDate || "\u2014" });
+  if (obj.invoiceDocNumber)
+    lines.push({ label: "For invoice", value: obj.invoiceDocNumber });
+  if (obj.memo)
+    lines.push({ label: "Memo", value: obj.memo });
+  return lines;
+}
+var defaultFetch = async (url, init) => {
+  const r = await fetch(url, init);
+  return { ok: r.ok, status: r.status, json: () => r.json() };
+};
+function accountingConfiguredProviders(env) {
+  return {
+    quickbooks: Boolean(env.QUICKBOOKS_CLIENT_ID?.trim() && env.QUICKBOOKS_CLIENT_SECRET?.trim()),
+    xero: Boolean(env.XERO_CLIENT_ID?.trim() && env.XERO_CLIENT_SECRET?.trim())
+  };
+}
+function basicAuth(id, secret) {
+  return `Basic ${Buffer.from(`${id}:${secret}`).toString("base64")}`;
+}
+function formBody(fields) {
+  return Object.entries(fields).map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join("&");
+}
+function quickbooksPartner(clientId, clientSecret, fetchFn) {
+  const tokenUrl = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer";
+  const base = (realmId) => `https://quickbooks.api.intuit.com/v3/company/${realmId ?? ""}`;
+  const headers = (access) => ({
+    authorization: `Bearer ${access.accessToken}`,
+    accept: "application/json",
+    "content-type": "application/json"
+  });
+  async function query(access, q) {
+    const r = await fetchFn(`${base(access.realmId)}/query?query=${encodeURIComponent(q)}`, {
+      method: "GET",
+      headers: headers(access)
+    });
+    if (!r.ok)
+      throw new Error(`QuickBooks answered ${r.status}`);
+    return await r.json();
+  }
+  async function post(access, path, body) {
+    const r = await fetchFn(`${base(access.realmId)}/${path}`, {
+      method: "POST",
+      headers: headers(access),
+      body: JSON.stringify(body)
+    });
+    if (!r.ok)
+      throw new Error(`QuickBooks answered ${r.status}`);
+    return await r.json();
+  }
+  async function get(access, path) {
+    const r = await fetchFn(`${base(access.realmId)}/${path}`, { method: "GET", headers: headers(access) });
+    if (r.status === 404)
+      return null;
+    if (!r.ok)
+      throw new Error(`QuickBooks answered ${r.status}`);
+    return await r.json();
+  }
+  async function customerIdFor(access, name) {
+    const found = await query(access, `select Id from Customer where DisplayName = '${name.replace(/'/g, "\\'")}'`);
+    const rows = found.QueryResponse?.Customer ?? [];
+    if (rows[0]?.Id)
+      return rows[0].Id;
+    const created = await post(access, "customer", { DisplayName: name });
+    const cust = created.Customer ?? created;
+    if (!cust.Id)
+      throw new Error("QuickBooks accepted the customer call but returned no id");
+    return cust.Id;
+  }
+  const qbStamp = (row) => {
+    const meta = row.MetaData ?? {};
+    return `qb:${String(row.SyncToken ?? "0")}:${meta.LastUpdatedTime ?? ""}`;
+  };
+  const qbInvoiceToObject = (row) => {
+    const lineRows = Array.isArray(row.Line) ? row.Line : [];
+    const lines = lineRows.filter((l) => l.DetailType === "SalesItemLineDetail").map((l) => {
+      const detail = l.SalesItemLineDetail ?? {};
+      return {
+        description: typeof l.Description === "string" && l.Description ? l.Description : detail.ItemRef?.name ?? "Freight",
+        amount: typeof l.Amount === "number" ? l.Amount : 0
+      };
+    });
+    const custRef = row.CustomerRef ?? {};
+    return {
+      docNumber: String(row.DocNumber ?? ""),
+      customerName: custRef.name ?? "",
+      lines,
+      amount: typeof row.TotalAmt === "number" ? row.TotalAmt : 0,
+      issueDate: typeof row.TxnDate === "string" ? row.TxnDate : null,
+      dueDate: typeof row.DueDate === "string" ? row.DueDate : null,
+      status: typeof row.Balance === "number" && row.Balance <= 0.005 && typeof row.TotalAmt === "number" && row.TotalAmt > 0 ? "paid" : "issued",
+      memo: typeof row.PrivateNote === "string" ? row.PrivateNote : null
+    };
+  };
+  return {
+    kind: "quickbooks",
+    name: "QuickBooks Online",
+    authorizeUrl({ redirectUri, state }) {
+      const params = new URLSearchParams({
+        client_id: clientId,
+        response_type: "code",
+        scope: "com.intuit.quickbooks.accounting",
+        redirect_uri: redirectUri,
+        state
+      });
+      return `https://appcenter.intuit.com/connect/oauth2?${params.toString()}`;
+    },
+    async exchangeCode({ code, redirectUri, realmId }) {
+      const r = await fetchFn(tokenUrl, {
+        method: "POST",
+        headers: { authorization: basicAuth(clientId, clientSecret), "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
+        body: formBody({ grant_type: "authorization_code", code, redirect_uri: redirectUri })
+      });
+      if (!r.ok)
+        throw new Error(`QuickBooks token exchange answered ${r.status}`);
+      const out = await r.json();
+      if (!out.access_token)
+        throw new Error("QuickBooks accepted the exchange but returned no access token");
+      let label = null;
+      if (realmId) {
+        try {
+          const info = await get({ accessToken: out.access_token, realmId }, `companyinfo/${realmId}`);
+          const ci = info?.CompanyInfo ?? {};
+          label = ci.CompanyName ?? null;
+        } catch {
+          label = null;
+        }
+      }
+      return {
+        accessToken: out.access_token,
+        refreshToken: out.refresh_token ?? null,
+        expiresInSec: typeof out.expires_in === "number" ? out.expires_in : null,
+        realmId: realmId ?? null,
+        label
+      };
+    },
+    async upsertInvoice({ access, object, providerId }) {
+      const customerId = await customerIdFor(access, object.customerName);
+      let syncToken;
+      if (providerId) {
+        const existing = await get(access, `invoice/${providerId}`);
+        if (existing)
+          syncToken = String(existing.SyncToken ?? "0");
+      }
+      const body = {
+        DocNumber: object.docNumber,
+        CustomerRef: { value: customerId },
+        TxnDate: object.issueDate ?? undefined,
+        DueDate: object.dueDate ?? undefined,
+        PrivateNote: object.memo ?? undefined,
+        Line: object.lines.map((l) => ({
+          DetailType: "SalesItemLineDetail",
+          Amount: l.amount,
+          Description: l.description,
+          SalesItemLineDetail: { ItemRef: { value: "1" }, Qty: 1, UnitPrice: l.amount }
+        }))
+      };
+      if (providerId) {
+        body.Id = providerId;
+        body.SyncToken = syncToken ?? "0";
+        body.sparse = false;
+      }
+      const out = await post(access, "invoice", body);
+      const row = out.Invoice ?? out;
+      if (!row.Id)
+        throw new Error("QuickBooks accepted the invoice but returned no id");
+      return { providerId: String(row.Id), stamp: qbStamp(row) };
+    },
+    async fetchInvoice({ access, providerId }) {
+      const row = await get(access, `invoice/${providerId}`);
+      if (!row)
+        return null;
+      return { object: qbInvoiceToObject(row), stamp: qbStamp(row) };
+    },
+    async upsertBill({ access, object, providerId }) {
+      let syncToken;
+      if (providerId) {
+        const existing = await get(access, `bill/${providerId}`);
+        if (existing)
+          syncToken = String(existing.SyncToken ?? "0");
+      }
+      const body = {
+        DocNumber: object.docNumber,
+        VendorRef: { value: object.vendorName },
+        PrivateNote: object.periodLabel ?? undefined,
+        Line: object.lines.map((l) => ({
+          DetailType: "AccountBasedExpenseLineDetail",
+          Amount: l.amount,
+          Description: l.description,
+          AccountBasedExpenseLineDetail: { AccountRef: { value: "1" } }
+        }))
+      };
+      if (providerId) {
+        body.Id = providerId;
+        body.SyncToken = syncToken ?? "0";
+      }
+      const out = await post(access, "bill", body);
+      const row = out.Bill ?? out;
+      if (!row.Id)
+        throw new Error("QuickBooks accepted the bill but returned no id");
+      return { providerId: String(row.Id), stamp: qbStamp(row) };
+    },
+    async fetchBill({ access, providerId }) {
+      const row = await get(access, `bill/${providerId}`);
+      if (!row)
+        return null;
+      const lineRows = Array.isArray(row.Line) ? row.Line : [];
+      const vendorRef = row.VendorRef ?? {};
+      return {
+        object: {
+          docNumber: String(row.DocNumber ?? ""),
+          vendorName: vendorRef.name ?? "",
+          lines: lineRows.map((l) => ({
+            description: typeof l.Description === "string" ? l.Description : "Expense",
+            amount: typeof l.Amount === "number" ? l.Amount : 0
+          })),
+          amount: typeof row.TotalAmt === "number" ? row.TotalAmt : 0,
+          periodLabel: typeof row.PrivateNote === "string" ? row.PrivateNote : null
+        },
+        stamp: qbStamp(row)
+      };
+    },
+    async recordPayment({ access, object }) {
+      const body = {
+        TotalAmt: object.amount,
+        TxnDate: object.paidDate || undefined,
+        PrivateNote: object.memo ?? undefined,
+        Line: object.providerInvoiceId ? [{ Amount: object.amount, LinkedTxn: [{ TxnId: object.providerInvoiceId, TxnType: "Invoice" }] }] : []
+      };
+      const out = await post(access, "payment", body);
+      const row = out.Payment ?? out;
+      if (!row.Id)
+        throw new Error("QuickBooks accepted the payment but returned no id");
+      return { providerId: String(row.Id), stamp: qbStamp(row) };
+    },
+    async fetchPayments({ access, sinceIso }) {
+      const found = await query(access, "select * from Payment");
+      const rows = found.QueryResponse?.Payment ?? [];
+      const out = [];
+      for (const row of rows) {
+        const meta = row.MetaData ?? {};
+        const created = meta.CreateTime ?? "";
+        if (sinceIso && created && created < sinceIso)
+          continue;
+        const lineRows = Array.isArray(row.Line) ? row.Line : [];
+        const linked = lineRows.flatMap((l) => Array.isArray(l.LinkedTxn) ? l.LinkedTxn : []);
+        const invLink = linked.find((t) => t.TxnType === "Invoice");
+        out.push({
+          providerId: String(row.Id ?? ""),
+          amount: typeof row.TotalAmt === "number" ? row.TotalAmt : 0,
+          paidDate: typeof row.TxnDate === "string" ? row.TxnDate : "",
+          invoiceDocNumber: null,
+          providerInvoiceId: invLink?.TxnId ?? null,
+          memo: typeof row.PrivateNote === "string" ? row.PrivateNote : null,
+          stamp: qbStamp(row)
+        });
+      }
+      return out.filter((p) => p.providerId !== "");
+    }
+  };
+}
+function xeroPartner(clientId, clientSecret, fetchFn) {
+  const apiBase = "https://api.xero.com/api.xro/2.0";
+  const headers = (access) => ({
+    authorization: `Bearer ${access.accessToken}`,
+    "xero-tenant-id": access.realmId ?? "",
+    accept: "application/json",
+    "content-type": "application/json"
+  });
+  async function call(access, method, path, body, extraHeaders) {
+    const r = await fetchFn(`${apiBase}/${path}`, {
+      method,
+      headers: { ...headers(access), ...extraHeaders ?? {} },
+      body: body !== undefined ? JSON.stringify(body) : undefined
+    });
+    if (r.status === 404)
+      return null;
+    if (!r.ok)
+      throw new Error(`Xero answered ${r.status}`);
+    return await r.json();
+  }
+  const xeroStamp = (row) => `xero:${String(row.UpdatedDateUTC ?? "")}`;
+  const xeroInvoiceToObject = (row) => {
+    const contact = row.Contact ?? {};
+    const lineRows = Array.isArray(row.LineItems) ? row.LineItems : [];
+    return {
+      docNumber: String(row.InvoiceNumber ?? ""),
+      customerName: contact.Name ?? "",
+      lines: lineRows.map((l) => ({
+        description: typeof l.Description === "string" ? l.Description : "Freight",
+        amount: typeof l.LineAmount === "number" ? l.LineAmount : 0
+      })),
+      amount: typeof row.Total === "number" ? row.Total : 0,
+      issueDate: typeof row.Date === "string" ? row.Date.slice(0, 10) : null,
+      dueDate: typeof row.DueDate === "string" ? row.DueDate.slice(0, 10) : null,
+      status: row.Status === "PAID" ? "paid" : "issued",
+      memo: typeof row.Reference === "string" ? row.Reference : null
+    };
+  };
+  return {
+    kind: "xero",
+    name: "Xero",
+    authorizeUrl({ redirectUri, state }) {
+      const params = new URLSearchParams({
+        response_type: "code",
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        scope: "accounting.transactions accounting.contacts",
+        state
+      });
+      return `https://login.xero.com/identity/connect/authorize?${params.toString()}`;
+    },
+    async exchangeCode({ code, redirectUri }) {
+      const r = await fetchFn("https://identity.xero.com/connect/token", {
+        method: "POST",
+        headers: { authorization: basicAuth(clientId, clientSecret), "content-type": "application/x-www-form-urlencoded" },
+        body: formBody({ grant_type: "authorization_code", code, redirect_uri: redirectUri })
+      });
+      if (!r.ok)
+        throw new Error(`Xero token exchange answered ${r.status}`);
+      const out = await r.json();
+      if (!out.access_token)
+        throw new Error("Xero accepted the exchange but returned no access token");
+      let realmId = null;
+      let label = null;
+      try {
+        const cr = await fetchFn("https://api.xero.com/connections", {
+          method: "GET",
+          headers: { authorization: `Bearer ${out.access_token}`, accept: "application/json" }
+        });
+        if (cr.ok) {
+          const conns = await cr.json();
+          if (Array.isArray(conns) && conns[0]) {
+            realmId = conns[0].tenantId ?? null;
+            label = conns[0].tenantName ?? null;
+          }
+        }
+      } catch {}
+      return {
+        accessToken: out.access_token,
+        refreshToken: out.refresh_token ?? null,
+        expiresInSec: typeof out.expires_in === "number" ? out.expires_in : null,
+        realmId,
+        label
+      };
+    },
+    async upsertInvoice({ access, object, providerId }) {
+      const body = {
+        Invoices: [
+          {
+            Type: "ACCREC",
+            Contact: { Name: object.customerName },
+            Date: object.issueDate ?? undefined,
+            DueDate: object.dueDate ?? undefined,
+            InvoiceNumber: object.docNumber,
+            Reference: object.memo ?? undefined,
+            Status: object.status === "paid" ? "PAID" : "AUTHORISED",
+            LineItems: object.lines.map((l) => ({ Description: l.description, LineAmount: l.amount, Quantity: 1, UnitAmount: l.amount })),
+            ...providerId ? { InvoiceID: providerId } : {}
+          }
+        ]
+      };
+      const out = await call(access, "POST", "Invoices", body);
+      const row = (out?.Invoices ?? [])[0];
+      if (!row?.InvoiceID)
+        throw new Error("Xero accepted the invoice but returned no id");
+      return { providerId: String(row.InvoiceID), stamp: xeroStamp(row) };
+    },
+    async fetchInvoice({ access, providerId }) {
+      const out = await call(access, "GET", `Invoices/${providerId}`);
+      const row = (out?.Invoices ?? [])[0];
+      if (!row)
+        return null;
+      return { object: xeroInvoiceToObject(row), stamp: xeroStamp(row) };
+    },
+    async upsertBill({ access, object, providerId }) {
+      const body = {
+        Invoices: [
+          {
+            Type: "ACCPAY",
+            Contact: { Name: object.vendorName },
+            InvoiceNumber: object.docNumber,
+            Reference: object.periodLabel ?? undefined,
+            Status: "AUTHORISED",
+            LineItems: object.lines.map((l) => ({ Description: l.description, LineAmount: l.amount, Quantity: 1, UnitAmount: l.amount })),
+            ...providerId ? { InvoiceID: providerId } : {}
+          }
+        ]
+      };
+      const out = await call(access, "POST", "Invoices", body);
+      const row = (out?.Invoices ?? [])[0];
+      if (!row?.InvoiceID)
+        throw new Error("Xero accepted the bill but returned no id");
+      return { providerId: String(row.InvoiceID), stamp: xeroStamp(row) };
+    },
+    async fetchBill({ access, providerId }) {
+      const out = await call(access, "GET", `Invoices/${providerId}`);
+      const row = (out?.Invoices ?? [])[0];
+      if (!row)
+        return null;
+      const contact = row.Contact ?? {};
+      const lineRows = Array.isArray(row.LineItems) ? row.LineItems : [];
+      return {
+        object: {
+          docNumber: String(row.InvoiceNumber ?? ""),
+          vendorName: contact.Name ?? "",
+          lines: lineRows.map((l) => ({
+            description: typeof l.Description === "string" ? l.Description : "Expense",
+            amount: typeof l.LineAmount === "number" ? l.LineAmount : 0
+          })),
+          amount: typeof row.Total === "number" ? row.Total : 0,
+          periodLabel: typeof row.Reference === "string" ? row.Reference : null
+        },
+        stamp: xeroStamp(row)
+      };
+    },
+    async recordPayment({ access, object }) {
+      if (!object.providerInvoiceId)
+        throw new Error("Xero payments must name the invoice they pay");
+      const body = {
+        Payments: [
+          {
+            Invoice: { InvoiceID: object.providerInvoiceId },
+            Account: { Code: "090" },
+            Date: object.paidDate || undefined,
+            Amount: object.amount,
+            Reference: object.memo ?? undefined
+          }
+        ]
+      };
+      const out = await call(access, "POST", "Payments", body);
+      const row = (out?.Payments ?? [])[0];
+      if (!row?.PaymentID)
+        throw new Error("Xero accepted the payment but returned no id");
+      return { providerId: String(row.PaymentID), stamp: xeroStamp(row) };
+    },
+    async fetchPayments({ access, sinceIso }) {
+      const extra = sinceIso ? { "If-Modified-Since": new Date(sinceIso).toUTCString() } : undefined;
+      const out = await call(access, "GET", "Payments", undefined, extra);
+      const rows = out?.Payments ?? [];
+      return rows.map((row) => {
+        const inv = row.Invoice ?? {};
+        return {
+          providerId: String(row.PaymentID ?? ""),
+          amount: typeof row.Amount === "number" ? row.Amount : 0,
+          paidDate: typeof row.Date === "string" ? row.Date.slice(0, 10) : "",
+          invoiceDocNumber: inv.InvoiceNumber ?? null,
+          providerInvoiceId: inv.InvoiceID ?? null,
+          memo: typeof row.Reference === "string" ? row.Reference : null,
+          stamp: xeroStamp(row)
+        };
+      }).filter((p) => p.providerId !== "");
+    }
+  };
+}
+function accountingPartnerFromEnv(env, kind, transport) {
+  const fetchFn = transport ?? defaultFetch;
+  if (kind === "quickbooks") {
+    const id = env.QUICKBOOKS_CLIENT_ID?.trim();
+    const secret = env.QUICKBOOKS_CLIENT_SECRET?.trim();
+    if (!id || !secret)
+      return null;
+    return quickbooksPartner(id, secret, fetchFn);
+  }
+  const id = env.XERO_CLIENT_ID?.trim();
+  const secret = env.XERO_CLIENT_SECRET?.trim();
+  if (!id || !secret)
+    return null;
+  return xeroPartner(id, secret, fetchFn);
+}
+var ACCOUNTING_REDIRECT_URI = "https://app.stonervision.io/accounting/callback";
+
+// src/recruiting.ts
+var APPLICATION_STAGES = [
+  "new",
+  "contacted",
+  "interview",
+  "road_test",
+  "hired",
+  "declined"
+];
+var STAGE_LABELS = {
+  new: "New",
+  contacted: "Contacted",
+  interview: "Interview",
+  road_test: "Road test",
+  hired: "Hired",
+  declined: "Declined"
+};
+function applicationStageLabel(stage) {
+  return STAGE_LABELS[stage] ?? stage;
+}
+function isApplicationStage(value) {
+  return APPLICATION_STAGES.includes(value);
+}
+var TERMINAL_STAGES = ["hired", "declined"];
+var LADDER = ["new", "contacted", "interview", "road_test", "hired"];
+function canMoveApplicationStage(from, to) {
+  if (!isApplicationStage(from) || !isApplicationStage(to))
+    return false;
+  if (from === to)
+    return false;
+  if (TERMINAL_STAGES.includes(from))
+    return false;
+  if (to === "declined")
+    return true;
+  const fromIdx = LADDER.indexOf(from);
+  const toIdx = LADDER.indexOf(to);
+  return fromIdx >= 0 && toIdx > fromIdx;
+}
+var CDL_CLASSES = ["A", "B", "C", "none"];
+var DEFAULT_RESPONSE_SUBJECT = "Application received \u2014 {fleet}";
+var DEFAULT_RESPONSE_TEMPLATE = [
+  "Hi {name},",
+  "",
+  "Thanks for applying to drive with {fleet}. Your application is in \u2014 we review every application we receive.",
+  "",
+  "If your experience fits an open seat, we'll reach out at the email or phone number you gave us. No need to apply again.",
+  "",
+  "\u2014 {fleet}"
+].join(`
+`);
+function renderResponseTemplate(template, values) {
+  return template.replace(/\{name\}/g, values.name).replace(/\{fleet\}/g, values.fleet);
+}
+function responseTemplateFor(saved) {
+  return {
+    subject: saved?.subject?.trim() ? saved.subject : DEFAULT_RESPONSE_SUBJECT,
+    body: saved?.body?.trim() ? saved.body : DEFAULT_RESPONSE_TEMPLATE
+  };
+}
+var EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+var clip = (value, max) => (typeof value === "string" ? value : "").trim().replace(/\s+/g, " ").slice(0, max);
+function cleanApplicationInput(raw) {
+  const name = clip(raw.name, 120);
+  if (name.length < 2)
+    return { ok: false, reason: "Please give your name." };
+  const email = (typeof raw.email === "string" ? raw.email : "").trim().toLowerCase().slice(0, 200);
+  if (!EMAIL_RE.test(email))
+    return { ok: false, reason: "Please give an email address we can reach you at." };
+  const phone = clip(raw.phone, 40);
+  const cdlRaw = typeof raw.cdlClass === "string" ? raw.cdlClass.trim().toUpperCase() : "";
+  const cdlClass = CDL_CLASSES.includes(cdlRaw) ? cdlRaw : cdlRaw === "NONE" ? "none" : null;
+  if (!cdlClass)
+    return { ok: false, reason: "Please pick your CDL class." };
+  const experience = clip(raw.experience, 500);
+  if (experience.length < 2)
+    return { ok: false, reason: "Tell us a little about your driving experience." };
+  const note = clip(raw.note, 1000);
+  return {
+    ok: true,
+    value: { name, email, phone: phone || null, cdlClass, experience, note: note || null }
+  };
+}
+var APPLY_DOOR_HOURLY_LIMIT = 20;
+var APPLY_EMAIL_DAILY_LIMIT = 3;
+function applicationRateVerdict(input) {
+  if (input.doorLastHour >= APPLY_DOOR_HOURLY_LIMIT) {
+    return { ok: false, reason: "This application door is busy right now \u2014 please try again in a little while." };
+  }
+  if (input.emailLastDay >= APPLY_EMAIL_DAILY_LIMIT) {
+    return { ok: false, reason: "You've already applied here \u2014 the fleet has your application." };
+  }
+  return { ok: true };
+}
+
 // src/pointsRetention.ts
 var FREE_TIER_CONVERSION_REFUSAL = "Converting is a paid-plan feature. You're on the free Basic plan, so your SM Points stay right where they are \u2014 yours, still stacking, and they never expire. The moment you upgrade to any paid plan, converting unlocks and your full retained balance converts under the normal rules (10,000-point minimum, 1,000-point blocks, $0.25 of value per 1,000 points). Nothing was requested, nothing queued, and your balance is untouched.";
 var FREE_TIER_CASHOUT_REFUSAL = "Cashing out is a paid-plan feature. You're on the free Basic plan, so nothing was requested and no money moved \u2014 your balance stays exactly where it is. Cash-out unlocks when you upgrade to any paid plan (and activates for everyone at go-live with the licensed payout provider).";
@@ -20609,10 +21461,10 @@ function filedKindForScanKind(scanKind) {
     return scanKind;
   return "load_document";
 }
-var EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+var EMAIL_RE2 = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 function isValidEmail(value) {
   const v = value.trim();
-  return v.length >= 5 && v.length <= 120 && EMAIL_RE.test(v);
+  return v.length >= 5 && v.length <= 120 && EMAIL_RE2.test(v);
 }
 function normalizeEmail(value) {
   if (!value)
@@ -21630,7 +22482,7 @@ var REPORT_TRANSITIONS = {
 function canTransition(from, to) {
   return (REPORT_TRANSITIONS[from] ?? []).includes(to);
 }
-var EMAIL_RE2 = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi;
+var EMAIL_RE3 = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi;
 var SSN_RE2 = /\b\d{3}-\d{2}-\d{4}\b/g;
 var CARD_RE2 = /\b(?:\d[ -]?){13,16}\d\b/g;
 var PHONE_RE = /\b(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]\d{3}[-.\s]\d{4}\b/g;
@@ -21638,7 +22490,7 @@ var COORD_RE = /-?\b\d{1,3}\.\d{4,}\s*,\s*-?\b\d{1,3}\.\d{4,}\b/g;
 var SECRET_RE = /\b(seed phrase|private key|password|passwd)\b[^,.;]*/gi;
 function sanitizeReportText(text, max = 600) {
   let s = (text ?? "").replace(/\s+/g, " ").trim();
-  s = s.replace(EMAIL_RE2, "[email removed]");
+  s = s.replace(EMAIL_RE3, "[email removed]");
   s = s.replace(SSN_RE2, "[id removed]");
   s = s.replace(CARD_RE2, "[number removed]");
   s = s.replace(PHONE_RE, "[phone removed]");
@@ -34080,6 +34932,408 @@ async function detentionClaimInputFor(ctx, row) {
 function claimStatusOf(row) {
   const s = row.claimStatus;
   return s === "generated" || s === "sent" || s === "acknowledged" || s === "paid" || s === "disputed" ? s : "none";
+}
+async function accountingConnectionFor(ctx, provider) {
+  const db = ctx.db();
+  const rows = await db.select().from(accountingConnections3).where(eq(accountingConnections3.provider, provider));
+  return rows.sort((a, b) => b.id - a.id)[0] ?? null;
+}
+async function accountingSyncRowFor(ctx, connectionId, recordKind, key) {
+  const db = ctx.db();
+  const rows = await db.select().from(accountingSyncRecords3).where(and(eq(accountingSyncRecords3.connectionId, connectionId), eq(accountingSyncRecords3.recordKind, recordKind)));
+  const hit = rows.find((r) => key.providerObjectId != null ? r.providerObjectId === key.providerObjectId : r.recordId === (key.recordId ?? null));
+  return hit ?? null;
+}
+async function writeAccountingSyncRow(ctx, existing, values) {
+  const db = ctx.db();
+  const now = new Date;
+  if (existing) {
+    await db.update(accountingSyncRecords3).set({ ...values, updatedAt: now }).where(eq(accountingSyncRecords3.id, existing.id));
+    return { ...existing, ...values, updatedAt: now };
+  }
+  const ins = await db.insert(accountingSyncRecords3).values({ ...values, createdAt: now, updatedAt: now }).returning();
+  const row = ins[0];
+  if (!row)
+    throw new Error("accounting sync record insert returned no rows");
+  return row;
+}
+function invoiceLinesOf(linesJson) {
+  try {
+    const parsed = JSON.parse(linesJson);
+    if (!Array.isArray(parsed))
+      return [];
+    return parsed.map((raw) => {
+      const r = raw ?? {};
+      return typeof r.label === "string" && typeof r.amount === "number" && Number.isFinite(r.amount) ? { label: r.label, amount: r.amount } : null;
+    }).filter((l) => l != null);
+  } catch {
+    return [];
+  }
+}
+async function runAccountingSyncNow(ctx, conn) {
+  const db = ctx.db();
+  const summary = {
+    configured: false,
+    connected: false,
+    pushed: 0,
+    pulled: 0,
+    conflicts: 0,
+    review: 0,
+    errors: 0,
+    unchanged: 0,
+    note: null
+  };
+  const partner = accountingPartnerFromEnv(process.env, conn.provider);
+  if (!partner) {
+    summary.note = "Accounting sync isn't connected yet \u2014 the provider app credentials aren't set up.";
+    return summary;
+  }
+  summary.configured = true;
+  if (conn.status !== "connected" || !conn.accessToken) {
+    summary.note = `Not connected to ${partner.name} yet \u2014 connect it first, then run a sync.`;
+    return summary;
+  }
+  summary.connected = true;
+  const access = { accessToken: conn.accessToken, realmId: conn.realmId };
+  const now = new Date;
+  const errText = (e) => (e instanceof Error ? e.message : "The provider call didn't complete.").slice(0, 300);
+  const invoices = (await db.select().from(loadInvoices3)).filter((inv) => inv.status === "issued" || inv.status === "paid");
+  for (const inv of invoices) {
+    const obj = mapInvoiceToProvider({
+      id: inv.id,
+      number: inv.number,
+      status: inv.status,
+      billToName: inv.billToName,
+      billToCompany: inv.billToCompany,
+      referenceNumber: inv.referenceNumber,
+      lines: invoiceLinesOf(inv.linesJson),
+      amount: inv.amount,
+      issuedAtIso: inv.issuedAt?.toISOString() ?? null,
+      dueAtIso: inv.dueAt?.toISOString() ?? null
+    });
+    const stamp = accountingStampFor(obj);
+    const row = await accountingSyncRowFor(ctx, conn.id, "invoice", { recordId: inv.id });
+    try {
+      if (!row || !row.providerObjectId) {
+        const up = await partner.upsertInvoice({ access, object: obj, providerId: null });
+        await writeAccountingSyncRow(ctx, row, {
+          connectionId: conn.id,
+          recordKind: "invoice",
+          recordId: inv.id,
+          providerObjectId: up.providerId,
+          state: "synced",
+          localStamp: stamp,
+          providerStamp: up.stamp,
+          localSnapshotJson: JSON.stringify(obj),
+          providerSnapshotJson: JSON.stringify(obj),
+          lastError: null,
+          lastSyncedAt: now
+        });
+        summary.pushed++;
+        continue;
+      }
+      const localChanged = row.localStamp !== stamp;
+      const needsPush = localChanged || row.state === "error" || row.state === "pending";
+      const fetched = await partner.fetchInvoice({ access, providerId: row.providerObjectId });
+      const providerChanged = !fetched || fetched.stamp !== row.providerStamp;
+      const cls = classifySyncChange({ localChanged: needsPush, providerChanged });
+      if (cls === "none") {
+        summary.unchanged++;
+      } else if (cls === "push") {
+        const up = await partner.upsertInvoice({ access, object: obj, providerId: row.providerObjectId });
+        await writeAccountingSyncRow(ctx, row, {
+          connectionId: conn.id,
+          recordKind: "invoice",
+          recordId: inv.id,
+          providerObjectId: up.providerId,
+          state: "synced",
+          localStamp: stamp,
+          providerStamp: up.stamp,
+          localSnapshotJson: JSON.stringify(obj),
+          providerSnapshotJson: JSON.stringify(obj),
+          lastError: null,
+          lastSyncedAt: now
+        });
+        summary.pushed++;
+      } else {
+        await writeAccountingSyncRow(ctx, row, {
+          connectionId: conn.id,
+          recordKind: "invoice",
+          recordId: inv.id,
+          state: "conflict",
+          localSnapshotJson: JSON.stringify(obj),
+          providerSnapshotJson: fetched ? JSON.stringify(fetched.object) : null,
+          lastError: fetched ? null : "The provider copy is gone \u2014 pick this app's version to re-create it.",
+          lastSyncedAt: now
+        });
+        summary.conflicts++;
+      }
+    } catch (e) {
+      await writeAccountingSyncRow(ctx, row, {
+        connectionId: conn.id,
+        recordKind: "invoice",
+        recordId: inv.id,
+        state: "error",
+        lastError: errText(e)
+      });
+      summary.errors++;
+    }
+  }
+  const invoiceByLoad = new Map(invoices.map((inv) => [inv.loadId, inv]));
+  const allPayments = await db.select().from(loadPayments3);
+  for (const pay of allPayments) {
+    const inv = invoiceByLoad.get(pay.loadId);
+    if (!inv)
+      continue;
+    const invRow = await accountingSyncRowFor(ctx, conn.id, "invoice", { recordId: inv.id });
+    if (!invRow?.providerObjectId || invRow.state === "conflict") {
+      summary.unchanged++;
+      continue;
+    }
+    const obj = mapPaymentToProvider({ id: pay.id, amount: pay.amount, paidAtIso: pay.paidAt.toISOString(), note: pay.note }, { providerInvoiceId: invRow.providerObjectId, invoiceDocNumber: inv.number });
+    const stamp = accountingStampFor(obj);
+    const row = await accountingSyncRowFor(ctx, conn.id, "payment", { recordId: pay.id });
+    try {
+      if (row?.providerObjectId) {
+        if (row.localStamp === stamp) {
+          summary.unchanged++;
+        } else {
+          await writeAccountingSyncRow(ctx, row, {
+            connectionId: conn.id,
+            recordKind: "payment",
+            recordId: pay.id,
+            state: "conflict",
+            localSnapshotJson: JSON.stringify(obj),
+            lastSyncedAt: now
+          });
+          summary.conflicts++;
+        }
+        continue;
+      }
+      const rec = await partner.recordPayment({ access, object: obj });
+      await writeAccountingSyncRow(ctx, row, {
+        connectionId: conn.id,
+        recordKind: "payment",
+        recordId: pay.id,
+        providerObjectId: rec.providerId,
+        state: "synced",
+        localStamp: stamp,
+        providerStamp: rec.stamp,
+        localSnapshotJson: JSON.stringify(obj),
+        providerSnapshotJson: JSON.stringify(obj),
+        lastError: null,
+        lastSyncedAt: now
+      });
+      summary.pushed++;
+    } catch (e) {
+      await writeAccountingSyncRow(ctx, row, {
+        connectionId: conn.id,
+        recordKind: "payment",
+        recordId: pay.id,
+        state: "error",
+        lastError: errText(e)
+      });
+      summary.errors++;
+    }
+  }
+  const settlements = await db.select().from(settlements3);
+  for (const s of settlements) {
+    const obj = mapSettlementToProvider({
+      id: s.id,
+      carrier: s.carrier,
+      periodLabel: s.periodLabel,
+      gross: s.gross,
+      net: s.net,
+      linesJson: s.linesJson
+    });
+    if (!obj) {
+      summary.unchanged++;
+      continue;
+    }
+    const stamp = accountingStampFor(obj);
+    const row = await accountingSyncRowFor(ctx, conn.id, "settlement", { recordId: s.id });
+    try {
+      if (!row || !row.providerObjectId) {
+        const up = await partner.upsertBill({ access, object: obj, providerId: null });
+        await writeAccountingSyncRow(ctx, row, {
+          connectionId: conn.id,
+          recordKind: "settlement",
+          recordId: s.id,
+          providerObjectId: up.providerId,
+          state: "synced",
+          localStamp: stamp,
+          providerStamp: up.stamp,
+          localSnapshotJson: JSON.stringify(obj),
+          providerSnapshotJson: JSON.stringify(obj),
+          lastError: null,
+          lastSyncedAt: now
+        });
+        summary.pushed++;
+        continue;
+      }
+      const localChanged = row.localStamp !== stamp;
+      const needsPush = localChanged || row.state === "error" || row.state === "pending";
+      const fetched = await partner.fetchBill({ access, providerId: row.providerObjectId });
+      const providerChanged = !fetched || fetched.stamp !== row.providerStamp;
+      const cls = classifySyncChange({ localChanged: needsPush, providerChanged });
+      if (cls === "none") {
+        summary.unchanged++;
+      } else if (cls === "push") {
+        const up = await partner.upsertBill({ access, object: obj, providerId: row.providerObjectId });
+        await writeAccountingSyncRow(ctx, row, {
+          connectionId: conn.id,
+          recordKind: "settlement",
+          recordId: s.id,
+          providerObjectId: up.providerId,
+          state: "synced",
+          localStamp: stamp,
+          providerStamp: up.stamp,
+          localSnapshotJson: JSON.stringify(obj),
+          providerSnapshotJson: JSON.stringify(obj),
+          lastError: null,
+          lastSyncedAt: now
+        });
+        summary.pushed++;
+      } else {
+        await writeAccountingSyncRow(ctx, row, {
+          connectionId: conn.id,
+          recordKind: "settlement",
+          recordId: s.id,
+          state: "conflict",
+          localSnapshotJson: JSON.stringify(obj),
+          providerSnapshotJson: fetched ? JSON.stringify(fetched.object) : null,
+          lastError: fetched ? null : "The provider copy is gone \u2014 pick this app's version to re-create it.",
+          lastSyncedAt: now
+        });
+        summary.conflicts++;
+      }
+    } catch (e) {
+      await writeAccountingSyncRow(ctx, row, {
+        connectionId: conn.id,
+        recordKind: "settlement",
+        recordId: s.id,
+        state: "error",
+        lastError: errText(e)
+      });
+      summary.errors++;
+    }
+  }
+  let snapshots = [];
+  try {
+    snapshots = await partner.fetchPayments({ access, sinceIso: conn.inboundCursor });
+  } catch (e) {
+    summary.errors++;
+    summary.note = errText(e);
+  }
+  if (snapshots.length > 0 || summary.errors === 0) {
+    const candidates = await Promise.all(invoices.map(async (inv) => {
+      const r = await accountingSyncRowFor(ctx, conn.id, "invoice", { recordId: inv.id });
+      return { invoiceId: inv.id, docNumber: inv.number, providerObjectId: r?.providerObjectId ?? null };
+    }));
+    const me = await myUsername(ctx);
+    for (const snap of snapshots) {
+      const existing = await accountingSyncRowFor(ctx, conn.id, "provider_payment", {
+        providerObjectId: snap.providerId
+      });
+      if (existing && existing.providerStamp === snap.stamp && existing.state !== "review") {
+        summary.unchanged++;
+        continue;
+      }
+      const invoiceId = matchProviderPayment(snap, candidates);
+      const inv = invoiceId != null ? invoices.find((i) => i.id === invoiceId) : undefined;
+      if (!inv) {
+        await writeAccountingSyncRow(ctx, existing, {
+          connectionId: conn.id,
+          recordKind: "provider_payment",
+          recordId: null,
+          providerObjectId: snap.providerId,
+          state: "review",
+          providerStamp: snap.stamp,
+          providerSnapshotJson: JSON.stringify(snap),
+          lastError: null,
+          lastSyncedAt: now
+        });
+        summary.review++;
+        continue;
+      }
+      if (inv.status === "paid") {
+        await writeAccountingSyncRow(ctx, existing, {
+          connectionId: conn.id,
+          recordKind: "provider_payment",
+          recordId: inv.id,
+          providerObjectId: snap.providerId,
+          state: "resolved",
+          providerStamp: snap.stamp,
+          providerSnapshotJson: JSON.stringify(snap),
+          lastError: null,
+          lastSyncedAt: now
+        });
+        summary.unchanged++;
+        continue;
+      }
+      const paidAt = snap.paidDate ? new Date(`${snap.paidDate}T00:00:00.000Z`) : now;
+      const recorded = await recordInvoicePayment(ctx, inv, paidAt, `Payment recorded in ${partner.name} \u2014 matched by the accounting sync`);
+      await markInvoicePaidRow(ctx, inv, paidAt, recorded);
+      await writeAccountingSyncRow(ctx, existing, {
+        connectionId: conn.id,
+        recordKind: "provider_payment",
+        recordId: inv.id,
+        providerObjectId: snap.providerId,
+        state: "resolved",
+        providerStamp: snap.stamp,
+        providerSnapshotJson: JSON.stringify(snap),
+        lastError: null,
+        lastSyncedAt: now
+      });
+      summary.pulled++;
+      await recordNotificationSafe(ctx, {
+        username: me,
+        kind: "system",
+        title: `Payment synced from ${partner.name}`,
+        body: `Invoice ${inv.number} was marked paid from a payment recorded in ${partner.name}. The payment is sealed on the load's record.`,
+        dedupeKey: `acct-pay:${conn.id}:${snap.providerId}`,
+        refKind: "load",
+        refId: inv.loadId
+      });
+    }
+    await db.update(accountingConnections3).set({ inboundCursor: now.toISOString(), updatedAt: now }).where(eq(accountingConnections3.id, conn.id));
+  }
+  await appendChain(ctx, {
+    refKind: "driver",
+    refId: null,
+    sessionId: null,
+    event: "accounting_sync_run",
+    payload: {
+      connectionId: conn.id,
+      provider: conn.provider,
+      pushed: summary.pushed,
+      pulled: summary.pulled,
+      conflicts: summary.conflicts,
+      review: summary.review,
+      errors: summary.errors,
+      unchanged: summary.unchanged,
+      at: now.toISOString()
+    }
+  });
+  return summary;
+}
+async function recruitingAccessFor(ctx, username) {
+  const membership = await myMembership(ctx, username);
+  if (!membership) {
+    return { error: "Recruiting lives in a fleet's desk \u2014 join or start a fleet to open an application door." };
+  }
+  if (membership.role !== "owner" && membership.role !== "dispatch") {
+    return { error: "Applications are handled from the owner and dispatch seats." };
+  }
+  return { company: membership.company, role: membership.role };
+}
+async function recruitingDoorFor(ctx, companyId) {
+  const db = ctx.db();
+  const rows = await db.select().from(recruitingDoors3).where(eq(recruitingDoors3.companyId, companyId));
+  return rows.sort((a, b) => b.id - a.id)[0] ?? null;
+}
+function recruitingDoorLive(door, now) {
+  return !!door && !door.revokedAt && (!door.expiresAt || door.expiresAt.getTime() > now.getTime());
 }
 var Actions = {
   getBetaStatus: defineAction({
@@ -57858,6 +59112,913 @@ ${args.question}`, { schema: answerSchema });
       });
       ctx.invalidateQueries();
       return { ok: true, error: null };
+    }
+  }),
+  getAccountingSync: defineAction({
+    description: "Accounting sync state per provider (configured / connected / connected-as label), sync counts, and the review list: conflicts with both versions and unmatched inbound payments. Never returns a token.",
+    request: object({}),
+    response: object({
+      providers: array(object({
+        kind: string2(),
+        name: string2(),
+        configured: boolean2(),
+        connected: boolean2(),
+        connectedAs: string2().nullable(),
+        counts: object({
+          synced: number2(),
+          conflict: number2(),
+          review: number2(),
+          error: number2()
+        })
+      })),
+      review: array(object({
+        syncRecordId: number2(),
+        provider: string2(),
+        providerName: string2(),
+        recordKind: string2(),
+        recordId: number2().nullable(),
+        state: string2(),
+        label: string2(),
+        localLines: array(object({ label: string2(), value: string2() })),
+        providerLines: array(object({ label: string2(), value: string2() })),
+        error: string2().nullable()
+      }))
+    }),
+    async handler(ctx) {
+      const db = ctx.db();
+      const configured = accountingConfiguredProviders(process.env);
+      const syncRows = await db.select().from(accountingSyncRecords3);
+      const providers = [];
+      const review = [];
+      for (const p of ACCOUNTING_PROVIDERS) {
+        const conn = await accountingConnectionFor(ctx, p.kind);
+        const mine = conn ? syncRows.filter((r) => r.connectionId === conn.id) : [];
+        const count = (state) => mine.filter((r) => r.state === state).length;
+        providers.push({
+          kind: p.kind,
+          name: p.name,
+          configured: configured[p.kind],
+          connected: conn?.status === "connected",
+          connectedAs: conn?.status === "connected" ? conn.displayLabel ?? conn.realmId ?? "Connected" : null,
+          counts: { synced: count("synced"), conflict: count("conflict"), review: count("review"), error: count("error") }
+        });
+        if (conn) {
+          for (const r of mine) {
+            if (r.state !== "conflict" && r.state !== "review" && r.state !== "error")
+              continue;
+            const parse = (json) => {
+              if (!json)
+                return null;
+              try {
+                return JSON.parse(json);
+              } catch {
+                return null;
+              }
+            };
+            const localObj = parse(r.localSnapshotJson);
+            const providerObj = parse(r.providerSnapshotJson);
+            const docNumber = localObj?.docNumber ?? providerObj?.docNumber ?? null;
+            review.push({
+              syncRecordId: r.id,
+              provider: p.kind,
+              providerName: p.name,
+              recordKind: r.recordKind,
+              recordId: r.recordId,
+              state: r.state,
+              label: r.recordKind === "provider_payment" ? `Payment recorded in ${p.name}` : docNumber ? `${r.recordKind === "settlement" ? "Settlement bill" : "Invoice"} ${docNumber}` : `Record #${r.recordId ?? "\u2014"}`,
+              localLines: accountingSnapshotLines(localObj),
+              providerLines: accountingSnapshotLines(providerObj),
+              error: r.lastError
+            });
+          }
+        }
+      }
+      review.sort((a, b) => a.syncRecordId - b.syncRecordId);
+      return { providers, review };
+    }
+  }),
+  startAccountingConnect: defineAction({
+    description: "Begin an OAuth connection to QuickBooks Online or Xero: returns the provider's authorize URL, or says plainly that accounting sync isn't connected yet when the provider app credentials aren't set up.",
+    request: object({ provider: _enum(["quickbooks", "xero"]) }),
+    response: object({
+      ok: boolean2(),
+      authorizeUrl: string2().nullable(),
+      state: string2().nullable(),
+      note: string2()
+    }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const partner = accountingPartnerFromEnv(process.env, args.provider);
+      if (!partner) {
+        return {
+          ok: false,
+          authorizeUrl: null,
+          state: null,
+          note: `Accounting sync isn't connected yet \u2014 the ${args.provider === "quickbooks" ? "QuickBooks" : "Xero"} app credentials aren't set up on the server. Nothing was connected.`
+        };
+      }
+      const existing = await accountingConnectionFor(ctx, args.provider);
+      if (existing?.status === "connected") {
+        return {
+          ok: false,
+          authorizeUrl: null,
+          state: null,
+          note: `Already connected to ${partner.name}${existing.displayLabel ? ` as ${existing.displayLabel}` : ""} \u2014 disconnect first if you want to connect a different set of books.`
+        };
+      }
+      const state = `${globalThis.crypto.randomUUID()}${globalThis.crypto.randomUUID()}`.replace(/-/g, "");
+      const now = new Date;
+      if (existing) {
+        await db.update(accountingConnections3).set({ oauthState: state, status: "pending", updatedAt: now }).where(eq(accountingConnections3.id, existing.id));
+      } else {
+        await db.insert(accountingConnections3).values({
+          provider: args.provider,
+          status: "pending",
+          oauthState: state,
+          createdAt: now,
+          updatedAt: now
+        });
+      }
+      return {
+        ok: true,
+        authorizeUrl: partner.authorizeUrl({ redirectUri: ACCOUNTING_REDIRECT_URI, state }),
+        state,
+        note: `Approve access in ${partner.name} \u2014 you'll come back here connected.`
+      };
+    }
+  }),
+  completeAccountingConnect: defineAction({
+    description: "Finish an OAuth connection: exchanges the code for tokens (stored server-side only, never returned), names the company it connected as, and seals accounting_connected with the provider + label only.",
+    request: object({
+      provider: _enum(["quickbooks", "xero"]),
+      code: string2().min(1).max(2000),
+      state: string2().min(1).max(200),
+      realmId: string2().max(200).nullable().optional()
+    }),
+    response: object({ ok: boolean2(), connectedAs: string2().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const conn = await accountingConnectionFor(ctx, args.provider);
+      if (!conn || conn.status !== "pending" || !conn.oauthState || conn.oauthState !== args.state) {
+        throw new Error("That connect link has expired \u2014 start the connection again.");
+      }
+      const partner = accountingPartnerFromEnv(process.env, args.provider);
+      if (!partner) {
+        throw new Error("Accounting sync isn't connected yet \u2014 the provider app credentials aren't set up.");
+      }
+      const tokens = await partner.exchangeCode({
+        code: args.code,
+        redirectUri: ACCOUNTING_REDIRECT_URI,
+        realmId: args.realmId ?? conn.realmId
+      });
+      const now = new Date;
+      await db.update(accountingConnections3).set({
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        tokenExpiresAt: tokens.expiresInSec ? new Date(now.getTime() + tokens.expiresInSec * 1000) : null,
+        realmId: tokens.realmId ?? args.realmId ?? conn.realmId,
+        displayLabel: tokens.label,
+        status: "connected",
+        oauthState: null,
+        updatedAt: now
+      }).where(eq(accountingConnections3.id, conn.id));
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "accounting_connected",
+        payload: { connectionId: conn.id, provider: args.provider, label: tokens.label, at: now.toISOString() }
+      });
+      ctx.invalidateQueries();
+      return { ok: true, connectedAs: tokens.label };
+    }
+  }),
+  disconnectAccounting: defineAction({
+    description: "Disconnect one accounting provider: clears the stored tokens and seals accounting_disconnected. Sync history stays on the record.",
+    request: object({ provider: _enum(["quickbooks", "xero"]) }),
+    response: object({ ok: boolean2() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const conn = await accountingConnectionFor(ctx, args.provider);
+      if (!conn)
+        return { ok: true };
+      const now = new Date;
+      await db.update(accountingConnections3).set({
+        accessToken: null,
+        refreshToken: null,
+        tokenExpiresAt: null,
+        oauthState: null,
+        status: "disconnected",
+        updatedAt: now
+      }).where(eq(accountingConnections3.id, conn.id));
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "accounting_disconnected",
+        payload: { connectionId: conn.id, provider: args.provider, at: now.toISOString() }
+      });
+      ctx.invalidateQueries();
+      return { ok: true };
+    }
+  }),
+  runAccountingSync: defineAction({
+    description: "Run one two-way sync for a connected provider: pushes new/changed invoices, payments, and settlements (idempotently \u2014 a re-run duplicates nothing), pulls provider payments into the sealed invoice-paid path, and parks conflicts + unmatched payments in the review list. Seals one accounting_sync_run with counts only.",
+    request: object({ provider: _enum(["quickbooks", "xero"]) }),
+    response: object({
+      configured: boolean2(),
+      connected: boolean2(),
+      pushed: number2(),
+      pulled: number2(),
+      conflicts: number2(),
+      review: number2(),
+      errors: number2(),
+      unchanged: number2(),
+      note: string2().nullable()
+    }),
+    async handler(ctx, args) {
+      const conn = await accountingConnectionFor(ctx, args.provider);
+      if (!conn) {
+        throw new Error("Connect an accounting provider first \u2014 there's nothing to sync yet.");
+      }
+      const summary = await runAccountingSyncNow(ctx, conn);
+      ctx.invalidateQueries();
+      return summary;
+    }
+  }),
+  resolveAccountingConflict: defineAction({
+    description: "Resolve a sync conflict by picking the winner: this app's version is pushed to the provider, or the provider's version is adopted onto the local record (a paid state flows through the sealed payment path; a local PAID record is never un-paid). Payment records are sealed on both sides, so resolving one closes the review item without rewriting either side. Seals accounting_conflict_resolved \u2014 ids + winner, no amounts.",
+    request: object({
+      syncRecordId: number2().int().positive(),
+      winner: _enum(["local", "provider"])
+    }),
+    response: object({ ok: boolean2(), note: string2() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const rows = await db.select().from(accountingSyncRecords3).where(eq(accountingSyncRecords3.id, args.syncRecordId)).limit(1);
+      const row = rows[0];
+      if (!row)
+        throw new Error("That sync record isn't on your books.");
+      if (row.state !== "conflict")
+        throw new Error("That record isn't waiting on a decision.");
+      const conns = await db.select().from(accountingConnections3).where(eq(accountingConnections3.id, row.connectionId)).limit(1);
+      const conn = conns[0];
+      if (!conn)
+        throw new Error("That sync record's connection is gone.");
+      const providerName = accountingProviderName(conn.provider);
+      const now = new Date;
+      const seal = async () => appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "accounting_conflict_resolved",
+        payload: {
+          connectionId: conn.id,
+          provider: conn.provider,
+          syncRecordId: row.id,
+          recordKind: row.recordKind,
+          recordId: row.recordId,
+          winner: args.winner,
+          at: now.toISOString()
+        }
+      });
+      if (row.recordKind === "payment" || row.recordKind === "provider_payment") {
+        await writeAccountingSyncRow(ctx, row, {
+          connectionId: conn.id,
+          recordKind: row.recordKind,
+          recordId: row.recordId,
+          state: "resolved",
+          lastSyncedAt: now
+        });
+        await seal();
+        ctx.invalidateQueries();
+        return {
+          ok: true,
+          note: "Payments are sealed records on both sides, so nothing was rewritten \u2014 the item is closed and the difference stays in the sync history."
+        };
+      }
+      const partner = accountingPartnerFromEnv(process.env, conn.provider);
+      if (!partner) {
+        throw new Error("Accounting sync isn't connected yet \u2014 reconnect the provider to resolve this.");
+      }
+      if (conn.status !== "connected" || !conn.accessToken) {
+        throw new Error(`Not connected to ${providerName} right now \u2014 reconnect, then resolve this.`);
+      }
+      const access = { accessToken: conn.accessToken, realmId: conn.realmId };
+      if (args.winner === "local") {
+        if (!row.localSnapshotJson)
+          throw new Error("This app's version of that record is missing \u2014 run a sync first.");
+        const localObj = JSON.parse(row.localSnapshotJson);
+        const up = row.recordKind === "settlement" ? await partner.upsertBill({ access, object: localObj, providerId: row.providerObjectId }) : await partner.upsertInvoice({ access, object: localObj, providerId: row.providerObjectId });
+        await writeAccountingSyncRow(ctx, row, {
+          connectionId: conn.id,
+          recordKind: row.recordKind,
+          recordId: row.recordId,
+          providerObjectId: up.providerId,
+          state: "synced",
+          localStamp: accountingStampFor(localObj),
+          providerStamp: up.stamp,
+          localSnapshotJson: JSON.stringify(localObj),
+          providerSnapshotJson: JSON.stringify(localObj),
+          lastError: null,
+          lastSyncedAt: now
+        });
+        await seal();
+        ctx.invalidateQueries();
+        return { ok: true, note: `Your version was sent to ${providerName}.` };
+      }
+      if (!row.providerObjectId)
+        throw new Error("That record has no provider copy to adopt.");
+      const fetched = row.recordKind === "settlement" ? await partner.fetchBill({ access, providerId: row.providerObjectId }) : await partner.fetchInvoice({ access, providerId: row.providerObjectId });
+      if (!fetched) {
+        throw new Error(`The ${providerName} copy is gone \u2014 keep this app's version instead.`);
+      }
+      let note = `The ${providerName} version is now the record here.`;
+      if (row.recordKind === "invoice" && row.recordId != null) {
+        const invs = await db.select().from(loadInvoices3).where(eq(loadInvoices3.id, row.recordId)).limit(1);
+        const inv = invs[0];
+        if (inv) {
+          const pobj = fetched.object;
+          if (pobj.status === "paid" && inv.status !== "paid") {
+            const recorded = await recordInvoicePayment(ctx, inv, now, `Paid in ${providerName} \u2014 adopted in a sync conflict decision`);
+            await markInvoicePaidRow(ctx, inv, now, recorded);
+            note = `The ${providerName} version showed it paid \u2014 the invoice is marked paid through the sealed payment path.`;
+          } else {
+            if (inv.status === "paid" && pobj.status !== "paid") {
+              note = `Adopted the ${providerName} figures \u2014 the paid record here stands (a paid invoice is never un-paid by a sync).`;
+            }
+            await db.update(loadInvoices3).set({
+              amount: pobj.amount,
+              linesJson: JSON.stringify(pobj.lines.map((l) => ({ label: l.description, amount: l.amount }))),
+              dueAt: pobj.dueDate ? new Date(`${pobj.dueDate}T00:00:00.000Z`) : inv.dueAt,
+              issuedAt: pobj.issueDate ? new Date(`${pobj.issueDate}T00:00:00.000Z`) : inv.issuedAt,
+              updatedAt: now
+            }).where(eq(loadInvoices3.id, inv.id));
+          }
+        }
+      } else if (row.recordKind === "settlement" && row.recordId != null) {
+        const pobj = fetched.object;
+        await db.update(settlements3).set({ net: pobj.amount, linesJson: JSON.stringify(pobj.lines) }).where(eq(settlements3.id, row.recordId));
+      }
+      await writeAccountingSyncRow(ctx, row, {
+        connectionId: conn.id,
+        recordKind: row.recordKind,
+        recordId: row.recordId,
+        state: "synced",
+        localStamp: accountingStampFor(fetched.object),
+        providerStamp: fetched.stamp,
+        localSnapshotJson: JSON.stringify(fetched.object),
+        providerSnapshotJson: JSON.stringify(fetched.object),
+        lastError: null,
+        lastSyncedAt: now
+      });
+      await seal();
+      ctx.invalidateQueries();
+      return { ok: true, note };
+    }
+  }),
+  resolveAccountingReview: defineAction({
+    description: "Resolve an unmatched inbound payment from the review list: link it to one of the caller's invoices (the payment lands through the sealed invoice-paid path) or dismiss it. Seals accounting_review_linked / accounting_review_dismissed.",
+    request: object({
+      syncRecordId: number2().int().positive(),
+      invoiceId: number2().int().positive().nullable().optional(),
+      dismiss: boolean2().optional()
+    }),
+    response: object({ ok: boolean2(), note: string2() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const rows = await db.select().from(accountingSyncRecords3).where(eq(accountingSyncRecords3.id, args.syncRecordId)).limit(1);
+      const row = rows[0];
+      if (!row)
+        throw new Error("That sync record isn't on your books.");
+      if (row.state !== "review")
+        throw new Error("That record isn't in the review list.");
+      const now = new Date;
+      if (args.dismiss) {
+        await writeAccountingSyncRow(ctx, row, {
+          connectionId: row.connectionId,
+          recordKind: row.recordKind,
+          recordId: row.recordId,
+          state: "resolved",
+          lastSyncedAt: now
+        });
+        await appendChain(ctx, {
+          refKind: "driver",
+          refId: null,
+          sessionId: null,
+          event: "accounting_review_dismissed",
+          payload: { connectionId: row.connectionId, syncRecordId: row.id, providerObjectId: row.providerObjectId, at: now.toISOString() }
+        });
+        ctx.invalidateQueries();
+        return { ok: true, note: "Dismissed \u2014 the payment stays in your accounting system only." };
+      }
+      if (!args.invoiceId)
+        throw new Error("Pick the invoice this payment belongs to, or dismiss it.");
+      const invs = await db.select().from(loadInvoices3).where(eq(loadInvoices3.id, args.invoiceId)).limit(1);
+      const inv = invs[0];
+      if (!inv)
+        throw new Error("That invoice isn't on your books.");
+      const snap = row.providerSnapshotJson ? JSON.parse(row.providerSnapshotJson) : null;
+      if (inv.status !== "paid") {
+        const paidAt = snap?.paidDate ? new Date(`${snap.paidDate}T00:00:00.000Z`) : now;
+        const conns = await db.select().from(accountingConnections3).where(eq(accountingConnections3.id, row.connectionId)).limit(1);
+        const providerName = conns[0] ? accountingProviderName(conns[0].provider) : "the accounting system";
+        const recorded = await recordInvoicePayment(ctx, inv, paidAt, `Payment recorded in ${providerName} \u2014 matched by hand from the sync review list`);
+        await markInvoicePaidRow(ctx, inv, paidAt, recorded);
+      }
+      await writeAccountingSyncRow(ctx, row, {
+        connectionId: row.connectionId,
+        recordKind: row.recordKind,
+        recordId: inv.id,
+        state: "resolved",
+        lastSyncedAt: now
+      });
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "accounting_review_linked",
+        payload: { connectionId: row.connectionId, syncRecordId: row.id, invoiceId: inv.id, loadId: inv.loadId, at: now.toISOString() }
+      });
+      ctx.invalidateQueries();
+      return { ok: true, note: `Linked \u2014 invoice ${inv.number} is marked paid through the sealed payment path.` };
+    }
+  }),
+  getRecruitingDoor: defineAction({
+    description: "The caller's fleet recruiting state: the application door (URL + live or not), the auto-response template in force (the fleet's own or the house default), and application counts.",
+    request: object({}),
+    response: object({
+      error: string2().nullable(),
+      fleetName: string2().nullable(),
+      doorUrl: string2().nullable(),
+      doorLive: boolean2(),
+      doorCreatedAt: string2().nullable(),
+      templateSubject: string2(),
+      templateBody: string2(),
+      templateIsDefault: boolean2(),
+      counts: object({ total: number2(), fresh: number2() })
+    }),
+    async handler(ctx) {
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const access = await recruitingAccessFor(ctx, me);
+      if ("error" in access) {
+        return {
+          error: access.error,
+          fleetName: null,
+          doorUrl: null,
+          doorLive: false,
+          doorCreatedAt: null,
+          templateSubject: "",
+          templateBody: "",
+          templateIsDefault: true,
+          counts: { total: 0, fresh: 0 }
+        };
+      }
+      const door = await recruitingDoorFor(ctx, access.company.id);
+      const now = new Date;
+      const apps = await db.select().from(driverApplications3).where(eq(driverApplications3.companyId, access.company.id));
+      const template = responseTemplateFor(door ? { subject: door.responseSubject, body: door.responseBody } : null);
+      return {
+        error: null,
+        fleetName: access.company.name,
+        doorUrl: door ? `https://app.stonervision.io/apply/${door.token}` : null,
+        doorLive: recruitingDoorLive(door, now),
+        doorCreatedAt: door ? door.createdAt.toISOString() : null,
+        templateSubject: template.subject,
+        templateBody: template.body,
+        templateIsDefault: !door?.responseSubject && !door?.responseBody,
+        counts: { total: apps.length, fresh: apps.filter((a) => a.stage === "new").length }
+      };
+    }
+  }),
+  createRecruitingDoor: defineAction({
+    description: "Open (or regenerate) the fleet's public application door: mints a fresh token URL and retires the previous door. Seals recruiting_door_created with ids only \u2014 the token itself never goes on the chain.",
+    request: object({}),
+    response: object({ ok: boolean2(), doorUrl: string2() }),
+    async handler(ctx) {
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const access = await recruitingAccessFor(ctx, me);
+      if ("error" in access)
+        throw new Error(access.error);
+      const now = new Date;
+      const previous = await recruitingDoorFor(ctx, access.company.id);
+      if (previous && !previous.revokedAt) {
+        await db.update(recruitingDoors3).set({ revokedAt: now, updatedAt: now }).where(eq(recruitingDoors3.id, previous.id));
+      }
+      let token = "";
+      for (let attempt = 0;attempt < 8; attempt++) {
+        token = `${globalThis.crypto.randomUUID()}${globalThis.crypto.randomUUID()}`.replace(/-/g, "");
+        const clash = await db.select({ id: recruitingDoors3.id }).from(recruitingDoors3).where(eq(recruitingDoors3.token, token));
+        if (clash.length === 0)
+          break;
+      }
+      const ins = await db.insert(recruitingDoors3).values({
+        companyId: access.company.id,
+        createdBy: me,
+        token,
+        responseSubject: previous?.responseSubject ?? null,
+        responseBody: previous?.responseBody ?? null,
+        createdAt: now,
+        updatedAt: now
+      }).returning({ id: recruitingDoors3.id });
+      const door = ins[0];
+      if (!door)
+        throw new Error("The door didn't open \u2014 try again.");
+      await appendChain(ctx, {
+        refKind: "team",
+        refId: null,
+        sessionId: null,
+        event: "recruiting_door_created",
+        payload: { companyId: access.company.id, doorId: door.id, by: me, at: now.toISOString() }
+      });
+      ctx.invalidateQueries();
+      return { ok: true, doorUrl: `https://app.stonervision.io/apply/${token}` };
+    }
+  }),
+  revokeRecruitingDoor: defineAction({
+    description: "Close the fleet's application door: the public page stops accepting applications. Seals recruiting_door_revoked.",
+    request: object({}),
+    response: object({ ok: boolean2() }),
+    async handler(ctx) {
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const access = await recruitingAccessFor(ctx, me);
+      if ("error" in access)
+        throw new Error(access.error);
+      const door = await recruitingDoorFor(ctx, access.company.id);
+      if (door && !door.revokedAt) {
+        const now = new Date;
+        await db.update(recruitingDoors3).set({ revokedAt: now, updatedAt: now }).where(eq(recruitingDoors3.id, door.id));
+        await appendChain(ctx, {
+          refKind: "team",
+          refId: null,
+          sessionId: null,
+          event: "recruiting_door_revoked",
+          payload: { companyId: access.company.id, doorId: door.id, by: me, at: now.toISOString() }
+        });
+      }
+      ctx.invalidateQueries();
+      return { ok: true };
+    }
+  }),
+  setRecruitingTemplate: defineAction({
+    description: "Save the fleet's auto-response wording for application acknowledgements. {name} and {fleet} substitute at send time; blanking a field restores the house default for it. Seals recruiting_template_updated (ids only \u2014 the wording is the fleet's desk record, not a chain fact).",
+    request: object({
+      subject: string2().max(200),
+      body: string2().max(4000)
+    }),
+    response: object({ ok: boolean2() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const access = await recruitingAccessFor(ctx, me);
+      if ("error" in access)
+        throw new Error(access.error);
+      const door = await recruitingDoorFor(ctx, access.company.id);
+      if (!door)
+        throw new Error("Open the application door first, then set the response wording.");
+      const now = new Date;
+      await db.update(recruitingDoors3).set({
+        responseSubject: args.subject.trim() ? args.subject.trim() : null,
+        responseBody: args.body.trim() ? args.body.trim() : null,
+        updatedAt: now
+      }).where(eq(recruitingDoors3.id, door.id));
+      await appendChain(ctx, {
+        refKind: "team",
+        refId: null,
+        sessionId: null,
+        event: "recruiting_template_updated",
+        payload: { companyId: access.company.id, doorId: door.id, by: me, at: now.toISOString() }
+      });
+      ctx.invalidateQueries();
+      return { ok: true };
+    }
+  }),
+  getRecruitingApplications: defineAction({
+    description: "The fleet's application inbox: every application through its door, newest first, with pipeline stage, the auto-response's delivery state, desk notes (fleet-internal), and the pending invite code once an applicant is hired. Own company only \u2014 no applicant data ever leaves the fleet's desk.",
+    request: object({}),
+    response: object({
+      error: string2().nullable(),
+      applications: array(object({
+        id: number2(),
+        name: string2(),
+        email: string2(),
+        phone: string2().nullable(),
+        cdlClass: string2(),
+        experience: string2(),
+        note: string2().nullable(),
+        stage: string2(),
+        stageLabel: string2(),
+        responseStatus: string2(),
+        inviteCode: string2().nullable(),
+        createdAt: string2(),
+        notes: array(object({
+          id: number2(),
+          author: string2(),
+          body: string2(),
+          createdAt: string2()
+        }))
+      }))
+    }),
+    async handler(ctx) {
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const access = await recruitingAccessFor(ctx, me);
+      if ("error" in access)
+        return { error: access.error, applications: [] };
+      const apps = await db.select().from(driverApplications3).where(eq(driverApplications3.companyId, access.company.id));
+      const notes = await db.select().from(driverApplicationNotes3).where(eq(driverApplicationNotes3.companyId, access.company.id));
+      const codes = await db.select().from(driverCodes3);
+      const codeById = new Map(codes.map((c) => [c.id, c.code]));
+      return {
+        error: null,
+        applications: apps.sort((a, b) => b.id - a.id).map((a) => ({
+          id: a.id,
+          name: a.name,
+          email: a.email,
+          phone: a.phone,
+          cdlClass: a.cdlClass,
+          experience: a.experience,
+          note: a.note,
+          stage: a.stage,
+          stageLabel: applicationStageLabel(a.stage),
+          responseStatus: a.responseStatus,
+          inviteCode: a.inviteCodeId != null ? codeById.get(a.inviteCodeId) ?? null : null,
+          createdAt: a.createdAt.toISOString(),
+          notes: notes.filter((n) => n.applicationId === a.id).sort((x, y) => x.id - y.id).map((n) => ({
+            id: n.id,
+            author: n.author,
+            body: n.body,
+            createdAt: n.createdAt.toISOString()
+          }))
+        }))
+      };
+    }
+  }),
+  moveApplicationStage: defineAction({
+    description: "Move an application along the pipeline (forward along new \u2192 contacted \u2192 interview \u2192 road test \u2192 hired, or declined from any open stage). Every move is chain-sealed. Hired mints a single-use driver code through the existing code flow and returns it as the pending invite \u2014 it creates NO account.",
+    request: object({
+      applicationId: number2().int().positive(),
+      toStage: string2().min(1).max(20)
+    }),
+    response: object({ ok: boolean2(), inviteCode: string2().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const access = await recruitingAccessFor(ctx, me);
+      if ("error" in access)
+        throw new Error(access.error);
+      if (!isApplicationStage(args.toStage))
+        throw new Error("That stage isn't on the pipeline.");
+      const toStage = args.toStage;
+      const rows = await db.select().from(driverApplications3).where(and(eq(driverApplications3.id, args.applicationId), eq(driverApplications3.companyId, access.company.id))).limit(1);
+      const app = rows[0];
+      if (!app)
+        throw new Error("That application isn't in your fleet's inbox.");
+      if (!canMoveApplicationStage(app.stage, toStage)) {
+        throw new Error(app.stage === "hired" || app.stage === "declined" ? "That application is closed \u2014 its stage doesn't move again." : "Stages move forward along the pipeline (or to Declined) \u2014 not backward.");
+      }
+      const now = new Date;
+      let inviteCode = null;
+      let inviteCodeId = app.inviteCodeId;
+      if (toStage === "hired" && inviteCodeId == null) {
+        inviteCode = await mintDriverCode(ctx, access.company.id, true);
+        const codeRows = await db.select().from(driverCodes3).where(eq(driverCodes3.code, inviteCode)).limit(1);
+        inviteCodeId = codeRows[0]?.id ?? null;
+      }
+      await db.update(driverApplications3).set({ stage: toStage, inviteCodeId, updatedAt: now }).where(eq(driverApplications3.id, app.id));
+      await appendChain(ctx, {
+        refKind: "team",
+        refId: null,
+        sessionId: null,
+        event: "driver_application_stage",
+        payload: {
+          applicationId: app.id,
+          companyId: access.company.id,
+          from: app.stage,
+          to: toStage,
+          inviteCodeId,
+          by: me,
+          at: now.toISOString()
+        }
+      });
+      ctx.invalidateQueries();
+      return { ok: true, inviteCode };
+    }
+  }),
+  addApplicationNote: defineAction({
+    description: "Add a fleet-internal note to an application. Notes are visible only inside the fleet's desk \u2014 never to the applicant \u2014 and the seal carries the note's id, never its text.",
+    request: object({
+      applicationId: number2().int().positive(),
+      body: string2().min(1).max(2000)
+    }),
+    response: object({ ok: boolean2() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const access = await recruitingAccessFor(ctx, me);
+      if ("error" in access)
+        throw new Error(access.error);
+      const rows = await db.select({ id: driverApplications3.id }).from(driverApplications3).where(and(eq(driverApplications3.id, args.applicationId), eq(driverApplications3.companyId, access.company.id))).limit(1);
+      if (!rows[0])
+        throw new Error("That application isn't in your fleet's inbox.");
+      const ins = await db.insert(driverApplicationNotes3).values({
+        applicationId: args.applicationId,
+        companyId: access.company.id,
+        author: me,
+        body: args.body.trim(),
+        createdAt: new Date
+      }).returning({ id: driverApplicationNotes3.id });
+      const note = ins[0];
+      if (!note)
+        throw new Error("The note didn't save \u2014 try again.");
+      await appendChain(ctx, {
+        refKind: "team",
+        refId: null,
+        sessionId: null,
+        event: "driver_application_note",
+        payload: { applicationId: args.applicationId, companyId: access.company.id, noteId: note.id, by: me, at: new Date().toISOString() }
+      });
+      ctx.invalidateQueries();
+      return { ok: true };
+    }
+  }),
+  getApplyInfo: defineAction({
+    description: "Public (no account): what a fleet's application door shows before the form \u2014 whether the door is open and the fleet's name. Nothing else about the fleet or its applicants is exposed.",
+    request: object({ token: string2().min(1).max(200) }),
+    response: object({
+      valid: boolean2(),
+      reason: string2().nullable(),
+      fleetName: string2().nullable()
+    }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const doors = await db.select().from(recruitingDoors3).where(eq(recruitingDoors3.token, args.token)).limit(1);
+      const door = doors[0];
+      if (!door)
+        return { valid: false, reason: "This application link isn't recognized.", fleetName: null };
+      if (!recruitingDoorLive(door, new Date)) {
+        return { valid: false, reason: "This fleet's application door is closed right now.", fleetName: null };
+      }
+      const comps = await db.select().from(companies3).where(eq(companies3.id, door.companyId)).limit(1);
+      return { valid: true, reason: null, fleetName: comps[0]?.name ?? "the fleet" };
+    }
+  }),
+  submitDriverApplication: defineAction({
+    description: "Public (no account): submit a driver application through a fleet's door. The application lands in the fleet's desk inbox, is chain-sealed (ids only \u2014 no contact details on the chain), and the auto-response email goes out INSIDE this request through the document-email path, so the applicant hears back in seconds, not on a schedule. Rate-limited per door and per email; a honeypot field silently absorbs bots.",
+    request: object({
+      token: string2().min(1).max(200),
+      name: string2().max(200),
+      email: string2().max(300),
+      phone: string2().max(60).nullable().optional(),
+      cdlClass: string2().max(10),
+      experience: string2().max(1000),
+      note: string2().max(2000).nullable().optional(),
+      website: string2().max(200).nullable().optional()
+    }),
+    response: object({
+      ok: boolean2(),
+      message: string2(),
+      responseStatus: string2().nullable()
+    }),
+    privileged: [privileged.docEmailConfig, privileged.sendDocEmail],
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const doors = await db.select().from(recruitingDoors3).where(eq(recruitingDoors3.token, args.token)).limit(1);
+      const door = doors[0];
+      if (!door)
+        return { ok: false, message: "This application link isn't recognized.", responseStatus: null };
+      if (args.website && args.website.trim()) {
+        return { ok: true, message: "Thanks \u2014 your application is in.", responseStatus: null };
+      }
+      const now = new Date;
+      if (!recruitingDoorLive(door, now)) {
+        return { ok: false, message: "This fleet's application door is closed right now.", responseStatus: null };
+      }
+      const cleaned = cleanApplicationInput({
+        name: args.name,
+        email: args.email,
+        phone: args.phone ?? "",
+        cdlClass: args.cdlClass,
+        experience: args.experience,
+        note: args.note ?? ""
+      });
+      if (!cleaned.ok)
+        return { ok: false, message: cleaned.reason, responseStatus: null };
+      const hourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+      const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      const doorApps = await db.select({ id: driverApplications3.id, createdAt: driverApplications3.createdAt }).from(driverApplications3).where(eq(driverApplications3.doorId, door.id));
+      const emailApps = await db.select({ id: driverApplications3.id, createdAt: driverApplications3.createdAt }).from(driverApplications3).where(and(eq(driverApplications3.companyId, door.companyId), eq(driverApplications3.email, cleaned.value.email)));
+      const verdict = applicationRateVerdict({
+        doorLastHour: doorApps.filter((a) => a.createdAt.getTime() > hourAgo.getTime()).length,
+        emailLastDay: emailApps.filter((a) => a.createdAt.getTime() > dayAgo.getTime()).length
+      });
+      if (!verdict.ok)
+        return { ok: false, message: verdict.reason, responseStatus: null };
+      const comps = await db.select().from(companies3).where(eq(companies3.id, door.companyId)).limit(1);
+      const company = comps[0];
+      if (!company)
+        return { ok: false, message: "This application door isn't set up right.", responseStatus: null };
+      const ins = await db.insert(driverApplications3).values({
+        companyId: door.companyId,
+        doorId: door.id,
+        name: cleaned.value.name,
+        email: cleaned.value.email,
+        phone: cleaned.value.phone,
+        cdlClass: cleaned.value.cdlClass,
+        experience: cleaned.value.experience,
+        note: cleaned.value.note,
+        stage: "new",
+        responseStatus: "queued",
+        createdAt: now,
+        updatedAt: now
+      }).returning({ id: driverApplications3.id });
+      const app = ins[0];
+      if (!app)
+        return { ok: false, message: "The application didn't save \u2014 please try again.", responseStatus: null };
+      await appendChain(ctx, {
+        refKind: "team",
+        refId: null,
+        sessionId: null,
+        event: "driver_application_received",
+        payload: { applicationId: app.id, companyId: door.companyId, doorId: door.id, at: now.toISOString() }
+      });
+      const template = responseTemplateFor({ subject: door.responseSubject, body: door.responseBody });
+      const subject = renderResponseTemplate(template.subject, { name: cleaned.value.name, fleet: company.name });
+      const text = renderResponseTemplate(template.body, { name: cleaned.value.name, fleet: company.name });
+      let status = "failed";
+      let providerId = null;
+      let detail = null;
+      try {
+        const res = await ctx.executePrivileged(privileged.sendDocEmail, {
+          to: cleaned.value.email,
+          replyTo: null,
+          subject,
+          text,
+          attachmentBase64: null,
+          attachmentFilename: null
+        });
+        if (res.ok) {
+          status = "sent";
+          providerId = res.providerId ?? null;
+        } else if (res.notConfigured) {
+          status = "queued";
+          detail = "Mail transport not configured yet \u2014 the response is queued.";
+        } else {
+          status = "failed";
+          detail = res.errorMessage ?? null;
+        }
+      } catch {
+        status = "failed";
+        detail = "The mail send didn't complete.";
+      }
+      const ownerProfiles = await db.select({ id: profile3.id }).from(profile3).where(eq(profile3.socialUsername, company.ownerUsername)).limit(1);
+      await db.insert(documentSends3).values({
+        profileId: ownerProfiles[0]?.id ?? null,
+        username: company.ownerUsername,
+        docRef: `recruiting-response:${app.id}`,
+        docKind: "recruiting_response",
+        docTitle: `Application response \u2014 ${company.name}`,
+        toEmail: cleaned.value.email,
+        replyTo: null,
+        subject,
+        status,
+        providerId,
+        detail,
+        sentAt: status === "sent" ? now : null
+      });
+      await db.update(driverApplications3).set({ responseStatus: status, responseAt: status === "sent" ? now : null, updatedAt: now }).where(eq(driverApplications3.id, app.id));
+      await appendChain(ctx, {
+        refKind: "team",
+        refId: null,
+        sessionId: null,
+        event: "driver_application_response",
+        payload: { applicationId: app.id, companyId: door.companyId, status, at: now.toISOString() }
+      });
+      const members = await db.select().from(companyMembers3).where(eq(companyMembers3.companyId, door.companyId));
+      const deskUsers = new Set([company.ownerUsername]);
+      for (const m of members) {
+        if (m.role === "owner" || m.role === "dispatch")
+          deskUsers.add(m.username);
+      }
+      for (const username of deskUsers) {
+        await recordNotificationSafe(ctx, {
+          username,
+          kind: "system",
+          title: "New driver application",
+          body: `${cleaned.value.name} applied through your application door. It's waiting in your recruiting inbox.`,
+          dedupeKey: `application:${app.id}`,
+          refKind: "team",
+          refId: null
+        });
+      }
+      return {
+        ok: true,
+        message: `Thanks \u2014 your application is in with ${company.name}. A confirmation is on its way to your email.`,
+        responseStatus: status
+      };
     }
   }),
   getNotifications: defineAction({

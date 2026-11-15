@@ -5462,3 +5462,149 @@ export const homeTimeFactSnapshots = sqliteTable("home_time_fact_snapshots", {
     .notNull()
     .$defaultFn(() => new Date()),
 });
+
+// ---- Accounting sync + recruiting (migration 0136, Wave 2 item 10) --------
+// QuickBooks Online / Xero connections, owned by the DRIVER's
+// profile (the books are the driver's own business books — the
+// same profile that owns the invoices and settlements being
+// synced). Tokens live ONLY in this row, server-side: no action
+// returns them, no chain payload carries them, and the client
+// sees a masked "connected as <label>" line only.
+export const accountingConnections = sqliteTable("accounting_connections", {
+  // Auth Phase 2b: owning profile (host-stamped on insert,
+  // host-filtered on read — see host/ctx.ts scopedDb).
+  profileId: integer("profile_id"),
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  // quickbooks | xero
+  provider: text("provider").notNull(),
+  // The provider's company handle (QuickBooks realmId / Xero
+  // tenant id). An identifier, not a credential.
+  realmId: text("realm_id"),
+  // The provider's own name for the company — the "connected
+  // as …" label the panel shows.
+  displayLabel: text("display_label"),
+  // OAuth tokens — SERVER-SIDE ONLY (see the table note above).
+  accessToken: text("access_token"),
+  refreshToken: text("refresh_token"),
+  tokenExpiresAt: integer("token_expires_at", { mode: "timestamp_ms" }),
+  // The state value of an in-flight connect attempt (status
+  // pending) — matched on completion, then cleared.
+  oauthState: text("oauth_state"),
+  // pending | connected | disconnected
+  status: text("status").notNull().default("disconnected"),
+  // Inbound fetch cursor (ISO timestamp of the last successful
+  // payment pull). Payments are also deduped by provider id in
+  // accounting_sync_records, so a re-pull is harmless.
+  inboundCursor: text("inbound_cursor"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+// Per-record sync state for one connection: the idempotency
+// ledger of the two-way sync. One row per (connection, record):
+// outbound rows key on the local record (record_kind + record_id);
+// inbound payment rows key on the provider object id. States:
+// pending | synced | conflict | error | review | resolved.
+// The snapshots are the MAPPED provider-neutral objects (what
+// the review panel compares) — they carry no credentials.
+export const accountingSyncRecords = sqliteTable("accounting_sync_records", {
+  profileId: integer("profile_id"),
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  connectionId: integer("connection_id").notNull(),
+  // invoice | payment | settlement | provider_payment
+  recordKind: text("record_kind").notNull(),
+  // Local row id (load_invoices / load_payments / settlements);
+  // null for inbound provider_payment rows.
+  recordId: integer("record_id"),
+  providerObjectId: text("provider_object_id"),
+  // pending | synced | conflict | error | review | resolved
+  state: text("state").notNull().default("pending"),
+  // accountingStampFor of the mapped local object at last sync.
+  localStamp: text("local_stamp"),
+  // The provider's own version marker at last sync.
+  providerStamp: text("provider_stamp"),
+  localSnapshotJson: text("local_snapshot_json"),
+  providerSnapshotJson: text("provider_snapshot_json"),
+  lastError: text("last_error"),
+  lastSyncedAt: integer("last_synced_at", { mode: "timestamp_ms" }),
+  createdAt: integer("created_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+// A fleet's public driver-application door (company-scoped, like
+// driver_codes — no profileId: the host scopes profile tables
+// only, and desk access is enforced by company membership in the
+// actions). The token is the whole credential, exactly like the
+// broker door's links. The response template rides the door row:
+// null subject/body = the house defaults in recruiting.ts.
+export const recruitingDoors = sqliteTable("recruiting_doors", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  companyId: integer("company_id").notNull(),
+  createdBy: text("created_by").notNull(),
+  token: text("token").notNull(),
+  responseSubject: text("response_subject"),
+  responseBody: text("response_body"),
+  expiresAt: integer("expires_at", { mode: "timestamp_ms" }),
+  revokedAt: integer("revoked_at", { mode: "timestamp_ms" }),
+  createdAt: integer("created_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+// One driver application through a fleet's door. Visible only
+// inside the owning fleet's desk (owner + dispatch seats);
+// applicants never see any of this. Stage moves are chain-sealed
+// in the actions. invite_code_id points at the driver_codes row
+// minted when the applicant was marked hired — a PENDING invite
+// the owner sends through the existing code flow; no account is
+// created by the hire itself.
+export const driverApplications = sqliteTable("driver_applications", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  companyId: integer("company_id").notNull(),
+  doorId: integer("door_id").notNull(),
+  name: text("name").notNull(),
+  email: text("email").notNull(),
+  phone: text("phone"),
+  // A | B | C | none
+  cdlClass: text("cdl_class").notNull(),
+  experience: text("experience").notNull(),
+  note: text("note"),
+  // new | contacted | interview | road_test | hired | declined
+  stage: text("stage").notNull().default("new"),
+  // The auto-response's delivery state: sent | queued | failed.
+  responseStatus: text("response_status").notNull().default("queued"),
+  responseAt: integer("response_at", { mode: "timestamp_ms" }),
+  inviteCodeId: integer("invite_code_id"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+// Desk notes on an application — FLEET-INTERNAL ONLY. No public
+// action returns them; seals carry note ids, never note bodies
+// (an applicant's record never quotes the desk's private words
+// back onto the chain).
+export const driverApplicationNotes = sqliteTable("driver_application_notes", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  applicationId: integer("application_id").notNull(),
+  companyId: integer("company_id").notNull(),
+  author: text("author").notNull(),
+  body: text("body").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});

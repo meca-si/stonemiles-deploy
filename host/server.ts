@@ -387,6 +387,22 @@ server = Bun.serve({
       return json({ error: "not found" }, 404);
     }
 
+    // ---- Recruiting application door (2026-11-15, Wave 2 item
+    // 10): /apply/<token> is a fleet's public driver-application
+    // page — no account, no session. The page reads the token
+    // from its own path and talks to the PUBLIC getApplyInfo /
+    // submitDriverApplication actions. It exposes the fleet's
+    // name and the form, nothing else.
+    if (req.method === "GET" && pathname.startsWith("/apply/")) {
+      const page = Bun.file(path.join(STANDALONE_ROOT, "host", "apply.html"));
+      if (await page.exists()) {
+        return new Response(page, {
+          headers: { "content-type": "text/html" },
+        });
+      }
+      return json({ error: "not found" }, 404);
+    }
+
     // ---- Auth routes (Phase 2b): host routes, not actions — they run
     // before a session exists and set the session cookie themselves.
     if (pathname.startsWith("/auth/")) {

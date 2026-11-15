@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>STONEMILES — Driver application</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:#050a1a; color:#e8ecf4; }
+  main { max-width: 560px; margin: 5vh auto; padding: 16px; }
+  .card { background:#0b1226; border:1px solid #1d2a4a; border-radius:16px; padding:24px; }
+  h1 { font-size: 20px; margin: 0 0 6px; }
+  p, li { color:#c6d2e8; font-size: 15px; line-height: 1.55; }
+  .dim { color:#8fa1c4; font-size:13px; }
+  .ok { background:#0d2b1a; border:1px solid #1f5136; border-radius:12px; padding:14px; }
+  .err { background:#2b0d0d; border:1px solid #5c1f1f; border-radius:12px; padding:14px; }
+  label { display:block; margin:14px 0 6px; font-size:14px; color:#c6d2e8; }
+  input, select, textarea {
+    width:100%; box-sizing:border-box; background:#0e1730; color:#e8ecf4; border:1px solid #1d2a4a;
+    border-radius:10px; padding:11px; font-size:15px; font-family: inherit;
+  }
+  textarea { min-height: 84px; resize: vertical; }
+  button {
+    width:100%; margin-top:18px; background:#1c5c38; color:#eafff2; border:0; border-radius:12px;
+    padding:13px; font-size:15px; font-weight:700; cursor:pointer;
+  }
+  button:disabled { opacity: .6; cursor: default; }
+  .hp { position:absolute; left:-9999px; top:-9999px; height:0; overflow:hidden; }
+</style>
+</head>
+<body>
+<main>
+  <div class="card" id="app">
+    <h1>Driver application</h1>
+    <p class="dim">Loading…</p>
+  </div>
+  <p class="dim" style="text-align:center; margin-top:14px;">STONEMILES by Stonervision — applications go only to this fleet</p>
+</main>
+<script>
+const app = document.getElementById("app");
+const parts = location.pathname.split("/").filter(Boolean);
+const token = parts[1] || "";
+
+async function call(action, args) {
+  const res = await fetch("/actions", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ action, args }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (body && body.error) throw new Error(body.error);
+  return body.data;
+}
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+function invalidPage(reason) {
+  app.innerHTML = `<h1>Driver application</h1><div class="err"><p style="margin:0;">${esc(reason || "This application link isn't valid anymore. Ask the fleet for a fresh link.")}</p></div>`;
+}
+
+function renderForm(fleetName) {
+  app.innerHTML = `
+    <h1>Drive with ${esc(fleetName)}</h1>
+    <p>Fill this in and the fleet's desk gets it right away. You'll get a confirmation email at the address you give us — ${esc(fleetName)} reviews every application.</p>
+    <form id="applyForm">
+      <label for="fName">Your name</label>
+      <input id="fName" name="name" type="text" autocomplete="name" required maxlength="120" />
+      <label for="fEmail">Email</label>
+      <input id="fEmail" name="email" type="email" autocomplete="email" required maxlength="200" />
+      <label for="fPhone">Phone (optional)</label>
+      <input id="fPhone" name="phone" type="tel" autocomplete="tel" maxlength="40" />
+      <label for="fCdl">CDL class</label>
+      <select id="fCdl" name="cdlClass">
+        <option value="A">Class A</option>
+        <option value="B">Class B</option>
+        <option value="C">Class C</option>
+        <option value="none">No CDL yet</option>
+      </select>
+      <label for="fExp">Your driving experience</label>
+      <textarea id="fExp" name="experience" required maxlength="500" placeholder="Years driving, what you've hauled, where you've run…"></textarea>
+      <label for="fNote">Anything else the fleet should know? (optional)</label>
+      <textarea id="fNote" name="note" maxlength="1000"></textarea>
+      <div class="hp" aria-hidden="true"><label>Website<input id="fWebsite" name="website" type="text" tabindex="-1" autocomplete="off" /></label></div>
+      <div id="formMsg"></div>
+      <button id="submitBtn" type="submit">Send application</button>
+    </form>`;
+  document.getElementById("applyForm").addEventListener("submit", (ev) => { ev.preventDefault(); void submit(); });
+}
+
+async function submit() {
+  const btn = document.getElementById("submitBtn");
+  const msg = document.getElementById("formMsg");
+  const val = (id) => document.getElementById(id).value;
+  btn.disabled = true;
+  msg.innerHTML = "";
+  try {
+    const out = await call("submitDriverApplication", {
+      token,
+      name: val("fName"),
+      email: val("fEmail"),
+      phone: val("fPhone") || null,
+      cdlClass: val("fCdl"),
+      experience: val("fExp"),
+      note: val("fNote") || null,
+      website: val("fWebsite") || null,
+    });
+    if (!out || !out.ok) {
+      msg.innerHTML = `<div class="err" style="margin-top:14px;"><p style="margin:0;">${esc(out && out.message ? out.message : "The application didn't go through — please try again.")}</p></div>`;
+      btn.disabled = false;
+      return;
+    }
+    app.innerHTML = `
+      <h1>Application sent ✓</h1>
+      <div class="ok"><p style="margin:0;">${esc(out.message)}</p></div>
+      <p class="dim">You can close this page — there's nothing else to fill in.</p>`;
+  } catch {
+    msg.innerHTML = `<div class="err" style="margin-top:14px;"><p style="margin:0;">The application didn't go through — please check your connection and try again.</p></div>`;
+    btn.disabled = false;
+  }
+}
+
+(async () => {
+  if (!token) { invalidPage(); return; }
+  try {
+    const info = await call("getApplyInfo", { token });
+    if (!info || !info.valid) { invalidPage(info && info.reason); return; }
+    renderForm(info.fleetName || "the fleet");
+  } catch {
+    invalidPage();
+  }
+})();
+</script>
+</body>
+</html>

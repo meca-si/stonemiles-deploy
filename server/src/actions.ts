@@ -372,6 +372,34 @@ import {
   type FacilityDetentionStat,
 } from "./detentionClaim";
 import {
+  ACCOUNTING_PROVIDERS,
+  ACCOUNTING_REDIRECT_URI,
+  accountingConfiguredProviders,
+  accountingPartnerFromEnv,
+  accountingProviderName,
+  accountingSnapshotLines,
+  accountingStampFor,
+  classifySyncChange,
+  mapInvoiceToProvider,
+  mapPaymentToProvider,
+  mapSettlementToProvider,
+  matchProviderPayment,
+  type AccountingProviderKind,
+  type ProviderBillObject,
+  type ProviderInvoiceObject,
+  type ProviderPaymentSnapshot,
+} from "./accounting";
+import {
+  applicationRateVerdict,
+  applicationStageLabel,
+  canMoveApplicationStage,
+  cleanApplicationInput,
+  isApplicationStage,
+  renderResponseTemplate,
+  responseTemplateFor,
+  type ApplicationStage,
+} from "./recruiting";
+import {
 SEASON_EPOCH,
 SEASON_MS,
 pointsBalanceFromLedger,
@@ -19037,6 +19065,541 @@ async function detentionClaimInputFor(
 function claimStatusOf(row: typeof schema.detentionRecords.$inferSelect): DetentionClaimStatus {
   const s = row.claimStatus;
   return s === "generated" || s === "sent" || s === "acknowledged" || s === "paid" || s === "disputed" ? s : "none";
+}
+
+// ---- Accounting sync (Wave 2 item 10, Part A) ------------------------------
+// The engine behind getAccountingSync / runAccountingSync. The
+// pure mapping + change rules live in accounting.ts; this half
+// owns the DB rows, the chain, and the one money rule: an inbound
+// provider payment marks an invoice paid ONLY through
+// recordInvoicePayment + markInvoicePaidRow — the same sealed
+// path the factoring settlement uses. No second money path.
+
+type AccountingConnectionRow = typeof schema.accountingConnections.$inferSelect;
+type AccountingSyncRecordRow = typeof schema.accountingSyncRecords.$inferSelect;
+
+/** The caller's connection for one provider (host-scoped read:
+ *  connections carry the caller's profileId). */
+async function accountingConnectionFor(
+  ctx: Ctx,
+  provider: string,
+): Promise<AccountingConnectionRow | null> {
+  const db = ctx.db<typeof schema>();
+  const rows = await db
+    .select()
+    .from(schema.accountingConnections)
+    .where(eq(schema.accountingConnections.provider, provider));
+  return rows.sort((a, b) => b.id - a.id)[0] ?? null;
+}
+
+async function accountingSyncRowFor(
+  ctx: Ctx,
+  connectionId: number,
+  recordKind: string,
+  key: { recordId?: number | null; providerObjectId?: string | null },
+): Promise<AccountingSyncRecordRow | null> {
+  const db = ctx.db<typeof schema>();
+  const rows = await db
+    .select()
+    .from(schema.accountingSyncRecords)
+    .where(
+      and(
+        eq(schema.accountingSyncRecords.connectionId, connectionId),
+        eq(schema.accountingSyncRecords.recordKind, recordKind),
+      ),
+    );
+  const hit = rows.find((r) =>
+    key.providerObjectId != null
+      ? r.providerObjectId === key.providerObjectId
+      : r.recordId === (key.recordId ?? null),
+  );
+  return hit ?? null;
+}
+
+async function writeAccountingSyncRow(
+  ctx: Ctx,
+  existing: AccountingSyncRecordRow | null,
+  values: Partial<AccountingSyncRecordRow> & {
+    connectionId: number;
+    recordKind: string;
+    recordId: number | null;
+  },
+): Promise<AccountingSyncRecordRow> {
+  const db = ctx.db<typeof schema>();
+  const now = new Date();
+  if (existing) {
+    await db
+      .update(schema.accountingSyncRecords)
+      .set({ ...values, updatedAt: now })
+      .where(eq(schema.accountingSyncRecords.id, existing.id));
+    return { ...existing, ...values, updatedAt: now } as AccountingSyncRecordRow;
+  }
+  const ins = await db
+    .insert(schema.accountingSyncRecords)
+    .values({ ...values, createdAt: now, updatedAt: now })
+    .returning();
+  const row = ins[0];
+  if (!row) throw new Error("accounting sync record insert returned no rows");
+  return row;
+}
+
+/** Parse an invoice's lines_json into the mapping's line shape,
+ *  defensively (a shapeless value yields no lines, never a throw). */
+function invoiceLinesOf(linesJson: string): { label: string; amount: number }[] {
+  try {
+    const parsed = JSON.parse(linesJson) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((raw) => {
+        const r = (raw ?? {}) as { label?: unknown; amount?: unknown };
+        return typeof r.label === "string" && typeof r.amount === "number" && Number.isFinite(r.amount)
+          ? { label: r.label, amount: r.amount }
+          : null;
+      })
+      .filter((l): l is { label: string; amount: number } => l != null);
+  } catch {
+    return [];
+  }
+}
+
+interface AccountingSyncSummary {
+  configured: boolean;
+  connected: boolean;
+  pushed: number;
+  pulled: number;
+  conflicts: number;
+  review: number;
+  errors: number;
+  unchanged: number;
+  note: string | null;
+}
+
+/** One full sync run for one connection. Per-record failures land
+ *  on that record's row (state error + the reason) and the run
+ *  continues — one bad record never blocks the books. The run
+ *  seals ONCE with counts only: no amounts, no tokens. */
+async function runAccountingSyncNow(
+  ctx: Ctx,
+  conn: AccountingConnectionRow,
+): Promise<AccountingSyncSummary> {
+  const db = ctx.db<typeof schema>();
+  const summary: AccountingSyncSummary = {
+    configured: false,
+    connected: false,
+    pushed: 0,
+    pulled: 0,
+    conflicts: 0,
+    review: 0,
+    errors: 0,
+    unchanged: 0,
+    note: null,
+  };
+  const partner = accountingPartnerFromEnv(process.env, conn.provider as AccountingProviderKind);
+  if (!partner) {
+    summary.note = "Accounting sync isn't connected yet — the provider app credentials aren't set up.";
+    return summary;
+  }
+  summary.configured = true;
+  if (conn.status !== "connected" || !conn.accessToken) {
+    summary.note = `Not connected to ${partner.name} yet — connect it first, then run a sync.`;
+    return summary;
+  }
+  summary.connected = true;
+  const access = { accessToken: conn.accessToken, realmId: conn.realmId };
+  const now = new Date();
+  const errText = (e: unknown) => (e instanceof Error ? e.message : "The provider call didn't complete.").slice(0, 300);
+
+  const invoices = (
+    await db.select().from(schema.loadInvoices)
+  ).filter((inv) => inv.status === "issued" || inv.status === "paid");
+
+  // -- Outbound: invoices ----------------------------------------------------
+  for (const inv of invoices) {
+    const obj = mapInvoiceToProvider({
+      id: inv.id,
+      number: inv.number,
+      status: inv.status,
+      billToName: inv.billToName,
+      billToCompany: inv.billToCompany,
+      referenceNumber: inv.referenceNumber,
+      lines: invoiceLinesOf(inv.linesJson),
+      amount: inv.amount,
+      issuedAtIso: inv.issuedAt?.toISOString() ?? null,
+      dueAtIso: inv.dueAt?.toISOString() ?? null,
+    });
+    const stamp = accountingStampFor(obj);
+    const row = await accountingSyncRowFor(ctx, conn.id, "invoice", { recordId: inv.id });
+    try {
+      if (!row || !row.providerObjectId) {
+        const up = await partner.upsertInvoice({ access, object: obj, providerId: null });
+        await writeAccountingSyncRow(ctx, row, {
+          connectionId: conn.id,
+          recordKind: "invoice",
+          recordId: inv.id,
+          providerObjectId: up.providerId,
+          state: "synced",
+          localStamp: stamp,
+          providerStamp: up.stamp,
+          localSnapshotJson: JSON.stringify(obj),
+          providerSnapshotJson: JSON.stringify(obj),
+          lastError: null,
+          lastSyncedAt: now,
+        });
+        summary.pushed++;
+        continue;
+      }
+      const localChanged = row.localStamp !== stamp;
+      const needsPush = localChanged || row.state === "error" || row.state === "pending";
+      // Provider drift is only visible by reading the provider
+      // copy back — every synced record is fetched each run.
+      // Reads never duplicate anything; the idempotency rule
+      // governs writes (below: no upsert when nothing changed).
+      const fetched = await partner.fetchInvoice({ access, providerId: row.providerObjectId });
+      const providerChanged = !fetched || fetched.stamp !== row.providerStamp;
+      const cls = classifySyncChange({ localChanged: needsPush, providerChanged });
+      if (cls === "none") {
+        summary.unchanged++;
+      } else if (cls === "push") {
+        const up = await partner.upsertInvoice({ access, object: obj, providerId: row.providerObjectId });
+        await writeAccountingSyncRow(ctx, row, {
+          connectionId: conn.id,
+          recordKind: "invoice",
+          recordId: inv.id,
+          providerObjectId: up.providerId,
+          state: "synced",
+          localStamp: stamp,
+          providerStamp: up.stamp,
+          localSnapshotJson: JSON.stringify(obj),
+          providerSnapshotJson: JSON.stringify(obj),
+          lastError: null,
+          lastSyncedAt: now,
+        });
+        summary.pushed++;
+      } else {
+        await writeAccountingSyncRow(ctx, row, {
+          connectionId: conn.id,
+          recordKind: "invoice",
+          recordId: inv.id,
+          state: "conflict",
+          localSnapshotJson: JSON.stringify(obj),
+          providerSnapshotJson: fetched ? JSON.stringify(fetched.object) : null,
+          lastError: fetched ? null : "The provider copy is gone — pick this app's version to re-create it.",
+          lastSyncedAt: now,
+        });
+        summary.conflicts++;
+      }
+    } catch (e) {
+      await writeAccountingSyncRow(ctx, row, {
+        connectionId: conn.id,
+        recordKind: "invoice",
+        recordId: inv.id,
+        state: "error",
+        lastError: errText(e),
+      });
+      summary.errors++;
+    }
+  }
+
+  // -- Outbound: recorded payments on invoiced loads -------------------------
+  const invoiceByLoad = new Map(invoices.map((inv) => [inv.loadId, inv]));
+  const allPayments = await db.select().from(schema.loadPayments);
+  for (const pay of allPayments) {
+    const inv = invoiceByLoad.get(pay.loadId);
+    if (!inv) continue;
+    const invRow = await accountingSyncRowFor(ctx, conn.id, "invoice", { recordId: inv.id });
+    if (!invRow?.providerObjectId || invRow.state === "conflict") {
+      summary.unchanged++;
+      continue;
+    }
+    const obj = mapPaymentToProvider(
+      { id: pay.id, amount: pay.amount, paidAtIso: pay.paidAt.toISOString(), note: pay.note },
+      { providerInvoiceId: invRow.providerObjectId, invoiceDocNumber: inv.number },
+    );
+    const stamp = accountingStampFor(obj);
+    const row = await accountingSyncRowFor(ctx, conn.id, "payment", { recordId: pay.id });
+    try {
+      if (row?.providerObjectId) {
+        if (row.localStamp === stamp) {
+          summary.unchanged++;
+        } else {
+          // A recorded payment is a sealed fact on this side and
+          // an immutable object on theirs — a changed stamp can
+          // only be reviewed by a human, never re-posted (that
+          // would double the payment in the books).
+          await writeAccountingSyncRow(ctx, row, {
+            connectionId: conn.id,
+            recordKind: "payment",
+            recordId: pay.id,
+            state: "conflict",
+            localSnapshotJson: JSON.stringify(obj),
+            lastSyncedAt: now,
+          });
+          summary.conflicts++;
+        }
+        continue;
+      }
+      const rec = await partner.recordPayment({ access, object: obj });
+      await writeAccountingSyncRow(ctx, row, {
+        connectionId: conn.id,
+        recordKind: "payment",
+        recordId: pay.id,
+        providerObjectId: rec.providerId,
+        state: "synced",
+        localStamp: stamp,
+        providerStamp: rec.stamp,
+        localSnapshotJson: JSON.stringify(obj),
+        providerSnapshotJson: JSON.stringify(obj),
+        lastError: null,
+        lastSyncedAt: now,
+      });
+      summary.pushed++;
+    } catch (e) {
+      await writeAccountingSyncRow(ctx, row, {
+        connectionId: conn.id,
+        recordKind: "payment",
+        recordId: pay.id,
+        state: "error",
+        lastError: errText(e),
+      });
+      summary.errors++;
+    }
+  }
+
+  // -- Outbound: driver settlements (as provider bills) ----------------------
+  const settlements = await db.select().from(schema.settlements);
+  for (const s of settlements) {
+    const obj = mapSettlementToProvider({
+      id: s.id,
+      carrier: s.carrier,
+      periodLabel: s.periodLabel,
+      gross: s.gross,
+      net: s.net,
+      linesJson: s.linesJson,
+    });
+    if (!obj) {
+      summary.unchanged++;
+      continue;
+    }
+    const stamp = accountingStampFor(obj);
+    const row = await accountingSyncRowFor(ctx, conn.id, "settlement", { recordId: s.id });
+    try {
+      if (!row || !row.providerObjectId) {
+        const up = await partner.upsertBill({ access, object: obj, providerId: null });
+        await writeAccountingSyncRow(ctx, row, {
+          connectionId: conn.id,
+          recordKind: "settlement",
+          recordId: s.id,
+          providerObjectId: up.providerId,
+          state: "synced",
+          localStamp: stamp,
+          providerStamp: up.stamp,
+          localSnapshotJson: JSON.stringify(obj),
+          providerSnapshotJson: JSON.stringify(obj),
+          lastError: null,
+          lastSyncedAt: now,
+        });
+        summary.pushed++;
+        continue;
+      }
+      const localChanged = row.localStamp !== stamp;
+      const needsPush = localChanged || row.state === "error" || row.state === "pending";
+      // Same drift rule as invoices: read the provider copy
+      // back every run; write only when something changed.
+      const fetched = await partner.fetchBill({ access, providerId: row.providerObjectId });
+      const providerChanged = !fetched || fetched.stamp !== row.providerStamp;
+      const cls = classifySyncChange({ localChanged: needsPush, providerChanged });
+      if (cls === "none") {
+        summary.unchanged++;
+      } else if (cls === "push") {
+        const up = await partner.upsertBill({ access, object: obj, providerId: row.providerObjectId });
+        await writeAccountingSyncRow(ctx, row, {
+          connectionId: conn.id,
+          recordKind: "settlement",
+          recordId: s.id,
+          providerObjectId: up.providerId,
+          state: "synced",
+          localStamp: stamp,
+          providerStamp: up.stamp,
+          localSnapshotJson: JSON.stringify(obj),
+          providerSnapshotJson: JSON.stringify(obj),
+          lastError: null,
+          lastSyncedAt: now,
+        });
+        summary.pushed++;
+      } else {
+        await writeAccountingSyncRow(ctx, row, {
+          connectionId: conn.id,
+          recordKind: "settlement",
+          recordId: s.id,
+          state: "conflict",
+          localSnapshotJson: JSON.stringify(obj),
+          providerSnapshotJson: fetched ? JSON.stringify(fetched.object) : null,
+          lastError: fetched ? null : "The provider copy is gone — pick this app's version to re-create it.",
+          lastSyncedAt: now,
+        });
+        summary.conflicts++;
+      }
+    } catch (e) {
+      await writeAccountingSyncRow(ctx, row, {
+        connectionId: conn.id,
+        recordKind: "settlement",
+        recordId: s.id,
+        state: "error",
+        lastError: errText(e),
+      });
+      summary.errors++;
+    }
+  }
+
+  // -- Inbound: payments recorded in the accounting system -------------------
+  let snapshots: ProviderPaymentSnapshot[] = [];
+  try {
+    snapshots = await partner.fetchPayments({ access, sinceIso: conn.inboundCursor });
+  } catch (e) {
+    summary.errors++;
+    summary.note = errText(e);
+  }
+  if (snapshots.length > 0 || summary.errors === 0) {
+    const candidates = await Promise.all(
+      invoices.map(async (inv) => {
+        const r = await accountingSyncRowFor(ctx, conn.id, "invoice", { recordId: inv.id });
+        return { invoiceId: inv.id, docNumber: inv.number, providerObjectId: r?.providerObjectId ?? null };
+      }),
+    );
+    const me = await myUsername(ctx);
+    for (const snap of snapshots) {
+      const existing = await accountingSyncRowFor(ctx, conn.id, "provider_payment", {
+        providerObjectId: snap.providerId,
+      });
+      if (existing && existing.providerStamp === snap.stamp && existing.state !== "review") {
+        summary.unchanged++;
+        continue;
+      }
+      const invoiceId = matchProviderPayment(snap, candidates);
+      const inv = invoiceId != null ? invoices.find((i) => i.id === invoiceId) : undefined;
+      if (!inv) {
+        await writeAccountingSyncRow(ctx, existing, {
+          connectionId: conn.id,
+          recordKind: "provider_payment",
+          recordId: null,
+          providerObjectId: snap.providerId,
+          state: "review",
+          providerStamp: snap.stamp,
+          providerSnapshotJson: JSON.stringify(snap),
+          lastError: null,
+          lastSyncedAt: now,
+        });
+        summary.review++;
+        continue;
+      }
+      if (inv.status === "paid") {
+        await writeAccountingSyncRow(ctx, existing, {
+          connectionId: conn.id,
+          recordKind: "provider_payment",
+          recordId: inv.id,
+          providerObjectId: snap.providerId,
+          state: "resolved",
+          providerStamp: snap.stamp,
+          providerSnapshotJson: JSON.stringify(snap),
+          lastError: null,
+          lastSyncedAt: now,
+        });
+        summary.unchanged++;
+        continue;
+      }
+      const paidAt = snap.paidDate ? new Date(`${snap.paidDate}T00:00:00.000Z`) : now;
+      const recorded = await recordInvoicePayment(
+        ctx,
+        inv,
+        paidAt,
+        `Payment recorded in ${partner.name} — matched by the accounting sync`,
+      );
+      await markInvoicePaidRow(ctx, inv, paidAt, recorded);
+      await writeAccountingSyncRow(ctx, existing, {
+        connectionId: conn.id,
+        recordKind: "provider_payment",
+        recordId: inv.id,
+        providerObjectId: snap.providerId,
+        state: "resolved",
+        providerStamp: snap.stamp,
+        providerSnapshotJson: JSON.stringify(snap),
+        lastError: null,
+        lastSyncedAt: now,
+      });
+      summary.pulled++;
+      await recordNotificationSafe(ctx, {
+        username: me,
+        kind: "system",
+        title: `Payment synced from ${partner.name}`,
+        body: `Invoice ${inv.number} was marked paid from a payment recorded in ${partner.name}. The payment is sealed on the load's record.`,
+        dedupeKey: `acct-pay:${conn.id}:${snap.providerId}`,
+        refKind: "load",
+        refId: inv.loadId,
+      });
+    }
+    await db
+      .update(schema.accountingConnections)
+      .set({ inboundCursor: now.toISOString(), updatedAt: now })
+      .where(eq(schema.accountingConnections.id, conn.id));
+  }
+
+  await appendChain(ctx, {
+    refKind: "driver",
+    refId: null,
+    sessionId: null,
+    event: "accounting_sync_run",
+    payload: {
+      connectionId: conn.id,
+      provider: conn.provider,
+      pushed: summary.pushed,
+      pulled: summary.pulled,
+      conflicts: summary.conflicts,
+      review: summary.review,
+      errors: summary.errors,
+      unchanged: summary.unchanged,
+      at: now.toISOString(),
+    },
+  });
+  return summary;
+}
+
+// ---- Recruiting ATS-lite (Wave 2 item 10, Part B) --------------------------
+// Desk access mirrors the home-time rule: the caller's own
+// company, owner or dispatch seat. Drivers hold no desk seat and
+// never see applications — including their own fleet's.
+
+async function recruitingAccessFor(
+  ctx: Ctx,
+  username: string,
+): Promise<
+  | { company: typeof schema.companies.$inferSelect; role: string }
+  | { error: string }
+> {
+  const membership = await myMembership(ctx, username);
+  if (!membership) {
+    return { error: "Recruiting lives in a fleet's desk — join or start a fleet to open an application door." };
+  }
+  if (membership.role !== "owner" && membership.role !== "dispatch") {
+    return { error: "Applications are handled from the owner and dispatch seats." };
+  }
+  return { company: membership.company, role: membership.role };
+}
+
+type RecruitingDoorRow = typeof schema.recruitingDoors.$inferSelect;
+
+/** The company's current door (newest, revoked or not — the desk
+ *  shows its state either way). */
+async function recruitingDoorFor(ctx: Ctx, companyId: number): Promise<RecruitingDoorRow | null> {
+  const db = ctx.db<typeof schema>();
+  const rows = await db
+    .select()
+    .from(schema.recruitingDoors)
+    .where(eq(schema.recruitingDoors.companyId, companyId));
+  return rows.sort((a, b) => b.id - a.id)[0] ?? null;
+}
+
+function recruitingDoorLive(door: RecruitingDoorRow | null, now: Date): boolean {
+  return !!door && !door.revokedAt && (!door.expiresAt || door.expiresAt.getTime() > now.getTime());
 }
 
 export const Actions = {
@@ -48851,6 +49414,1138 @@ export const Actions = {
   // in-app center now, phone push when the Android build wires FCM
   // into pushSenderFromEnv (notifications.ts). Until then every
   // row's push_state says so honestly (no_devices / not_configured).
+
+  // ---- Accounting sync (Wave 2 item 10, Part A) -----------------------------
+  // QuickBooks Online + Xero, two-way, behind the OAuth seam in
+  // accounting.ts. Until the provider app credentials are in the
+  // environment the panel says "Accounting sync isn't connected
+  // yet" and nothing pretends to sync. Tokens never leave the
+  // server: responses carry the provider, a connected-as label,
+  // counts, and the review list — never a token value.
+
+  getAccountingSync: defineAction({
+    description:
+      "Accounting sync state per provider (configured / connected / connected-as label), sync counts, and the review list: conflicts with both versions and unmatched inbound payments. Never returns a token.",
+    request: z.object({}),
+    response: z.object({
+      providers: z.array(
+        z.object({
+          kind: z.string(),
+          name: z.string(),
+          configured: z.boolean(),
+          connected: z.boolean(),
+          connectedAs: z.string().nullable(),
+          counts: z.object({
+            synced: z.number(),
+            conflict: z.number(),
+            review: z.number(),
+            error: z.number(),
+          }),
+        }),
+      ),
+      review: z.array(
+        z.object({
+          syncRecordId: z.number(),
+          provider: z.string(),
+          providerName: z.string(),
+          recordKind: z.string(),
+          recordId: z.number().nullable(),
+          state: z.string(),
+          label: z.string(),
+          localLines: z.array(z.object({ label: z.string(), value: z.string() })),
+          providerLines: z.array(z.object({ label: z.string(), value: z.string() })),
+          error: z.string().nullable(),
+        }),
+      ),
+    }),
+    async handler(ctx) {
+      const db = ctx.db<typeof schema>();
+      const configured = accountingConfiguredProviders(process.env);
+      const syncRows = await db.select().from(schema.accountingSyncRecords);
+      const providers = [];
+      const review: {
+        syncRecordId: number;
+        provider: string;
+        providerName: string;
+        recordKind: string;
+        recordId: number | null;
+        state: string;
+        label: string;
+        localLines: { label: string; value: string }[];
+        providerLines: { label: string; value: string }[];
+        error: string | null;
+      }[] = [];
+      for (const p of ACCOUNTING_PROVIDERS) {
+        const conn = await accountingConnectionFor(ctx, p.kind);
+        const mine = conn ? syncRows.filter((r) => r.connectionId === conn.id) : [];
+        const count = (state: string) => mine.filter((r) => r.state === state).length;
+        providers.push({
+          kind: p.kind,
+          name: p.name,
+          configured: configured[p.kind],
+          connected: conn?.status === "connected",
+          connectedAs: conn?.status === "connected" ? (conn.displayLabel ?? conn.realmId ?? "Connected") : null,
+          counts: { synced: count("synced"), conflict: count("conflict"), review: count("review"), error: count("error") },
+        });
+        if (conn) {
+          for (const r of mine) {
+            if (r.state !== "conflict" && r.state !== "review" && r.state !== "error") continue;
+            const parse = (json: string | null) => {
+              if (!json) return null;
+              try {
+                return JSON.parse(json) as ProviderInvoiceObject;
+              } catch {
+                return null;
+              }
+            };
+            const localObj = parse(r.localSnapshotJson);
+            const providerObj = parse(r.providerSnapshotJson);
+            const docNumber =
+              (localObj as unknown as { docNumber?: string } | null)?.docNumber ??
+              (providerObj as unknown as { docNumber?: string } | null)?.docNumber ??
+              null;
+            review.push({
+              syncRecordId: r.id,
+              provider: p.kind,
+              providerName: p.name,
+              recordKind: r.recordKind,
+              recordId: r.recordId,
+              state: r.state,
+              label:
+                r.recordKind === "provider_payment"
+                  ? `Payment recorded in ${p.name}`
+                  : docNumber
+                    ? `${r.recordKind === "settlement" ? "Settlement bill" : "Invoice"} ${docNumber}`
+                    : `Record #${r.recordId ?? "—"}`,
+              localLines: accountingSnapshotLines(localObj),
+              providerLines: accountingSnapshotLines(providerObj),
+              error: r.lastError,
+            });
+          }
+        }
+      }
+      review.sort((a, b) => a.syncRecordId - b.syncRecordId);
+      return { providers, review };
+    },
+  }),
+
+  startAccountingConnect: defineAction({
+    description:
+      "Begin an OAuth connection to QuickBooks Online or Xero: returns the provider's authorize URL, or says plainly that accounting sync isn't connected yet when the provider app credentials aren't set up.",
+    request: z.object({ provider: z.enum(["quickbooks", "xero"]) }),
+    response: z.object({
+      ok: z.boolean(),
+      authorizeUrl: z.string().nullable(),
+      // The OAuth state for this attempt — a CSRF token the
+      // client holds and hands back to completeAccountingConnect.
+      // It is not a credential; the tokens themselves never
+      // leave the server.
+      state: z.string().nullable(),
+      note: z.string(),
+    }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const partner = accountingPartnerFromEnv(process.env, args.provider);
+      if (!partner) {
+        return {
+          ok: false,
+          authorizeUrl: null,
+          state: null,
+          note: `Accounting sync isn't connected yet — the ${args.provider === "quickbooks" ? "QuickBooks" : "Xero"} app credentials aren't set up on the server. Nothing was connected.`,
+        };
+      }
+      const existing = await accountingConnectionFor(ctx, args.provider);
+      if (existing?.status === "connected") {
+        return {
+          ok: false,
+          authorizeUrl: null,
+          state: null,
+          note: `Already connected to ${partner.name}${existing.displayLabel ? ` as ${existing.displayLabel}` : ""} — disconnect first if you want to connect a different set of books.`,
+        };
+      }
+      const state = `${globalThis.crypto.randomUUID()}${globalThis.crypto.randomUUID()}`.replace(/-/g, "");
+      const now = new Date();
+      if (existing) {
+        await db
+          .update(schema.accountingConnections)
+          .set({ oauthState: state, status: "pending", updatedAt: now })
+          .where(eq(schema.accountingConnections.id, existing.id));
+      } else {
+        await db.insert(schema.accountingConnections).values({
+          provider: args.provider,
+          status: "pending",
+          oauthState: state,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+      return {
+        ok: true,
+        authorizeUrl: partner.authorizeUrl({ redirectUri: ACCOUNTING_REDIRECT_URI, state }),
+        state,
+        note: `Approve access in ${partner.name} — you'll come back here connected.`,
+      };
+    },
+  }),
+
+  completeAccountingConnect: defineAction({
+    description:
+      "Finish an OAuth connection: exchanges the code for tokens (stored server-side only, never returned), names the company it connected as, and seals accounting_connected with the provider + label only.",
+    request: z.object({
+      provider: z.enum(["quickbooks", "xero"]),
+      code: z.string().min(1).max(2000),
+      state: z.string().min(1).max(200),
+      realmId: z.string().max(200).nullable().optional(),
+    }),
+    response: z.object({ ok: z.boolean(), connectedAs: z.string().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const conn = await accountingConnectionFor(ctx, args.provider);
+      if (!conn || conn.status !== "pending" || !conn.oauthState || conn.oauthState !== args.state) {
+        throw new Error("That connect link has expired — start the connection again.");
+      }
+      const partner = accountingPartnerFromEnv(process.env, args.provider);
+      if (!partner) {
+        throw new Error("Accounting sync isn't connected yet — the provider app credentials aren't set up.");
+      }
+      const tokens = await partner.exchangeCode({
+        code: args.code,
+        redirectUri: ACCOUNTING_REDIRECT_URI,
+        realmId: args.realmId ?? conn.realmId,
+      });
+      const now = new Date();
+      await db
+        .update(schema.accountingConnections)
+        .set({
+          accessToken: tokens.accessToken,
+          refreshToken: tokens.refreshToken,
+          tokenExpiresAt: tokens.expiresInSec ? new Date(now.getTime() + tokens.expiresInSec * 1000) : null,
+          realmId: tokens.realmId ?? args.realmId ?? conn.realmId,
+          displayLabel: tokens.label,
+          status: "connected",
+          oauthState: null,
+          updatedAt: now,
+        })
+        .where(eq(schema.accountingConnections.id, conn.id));
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "accounting_connected",
+        payload: { connectionId: conn.id, provider: args.provider, label: tokens.label, at: now.toISOString() },
+      });
+      ctx.invalidateQueries();
+      return { ok: true, connectedAs: tokens.label };
+    },
+  }),
+
+  disconnectAccounting: defineAction({
+    description:
+      "Disconnect one accounting provider: clears the stored tokens and seals accounting_disconnected. Sync history stays on the record.",
+    request: z.object({ provider: z.enum(["quickbooks", "xero"]) }),
+    response: z.object({ ok: z.boolean() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const conn = await accountingConnectionFor(ctx, args.provider);
+      if (!conn) return { ok: true };
+      const now = new Date();
+      await db
+        .update(schema.accountingConnections)
+        .set({
+          accessToken: null,
+          refreshToken: null,
+          tokenExpiresAt: null,
+          oauthState: null,
+          status: "disconnected",
+          updatedAt: now,
+        })
+        .where(eq(schema.accountingConnections.id, conn.id));
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "accounting_disconnected",
+        payload: { connectionId: conn.id, provider: args.provider, at: now.toISOString() },
+      });
+      ctx.invalidateQueries();
+      return { ok: true };
+    },
+  }),
+
+  runAccountingSync: defineAction({
+    description:
+      "Run one two-way sync for a connected provider: pushes new/changed invoices, payments, and settlements (idempotently — a re-run duplicates nothing), pulls provider payments into the sealed invoice-paid path, and parks conflicts + unmatched payments in the review list. Seals one accounting_sync_run with counts only.",
+    request: z.object({ provider: z.enum(["quickbooks", "xero"]) }),
+    response: z.object({
+      configured: z.boolean(),
+      connected: z.boolean(),
+      pushed: z.number(),
+      pulled: z.number(),
+      conflicts: z.number(),
+      review: z.number(),
+      errors: z.number(),
+      unchanged: z.number(),
+      note: z.string().nullable(),
+    }),
+    async handler(ctx, args) {
+      const conn = await accountingConnectionFor(ctx, args.provider);
+      if (!conn) {
+        throw new Error("Connect an accounting provider first — there's nothing to sync yet.");
+      }
+      const summary = await runAccountingSyncNow(ctx, conn);
+      ctx.invalidateQueries();
+      return summary;
+    },
+  }),
+
+  resolveAccountingConflict: defineAction({
+    description:
+      "Resolve a sync conflict by picking the winner: this app's version is pushed to the provider, or the provider's version is adopted onto the local record (a paid state flows through the sealed payment path; a local PAID record is never un-paid). Payment records are sealed on both sides, so resolving one closes the review item without rewriting either side. Seals accounting_conflict_resolved — ids + winner, no amounts.",
+    request: z.object({
+      syncRecordId: z.number().int().positive(),
+      winner: z.enum(["local", "provider"]),
+    }),
+    response: z.object({ ok: z.boolean(), note: z.string() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const rows = await db
+        .select()
+        .from(schema.accountingSyncRecords)
+        .where(eq(schema.accountingSyncRecords.id, args.syncRecordId))
+        .limit(1);
+      const row = rows[0];
+      if (!row) throw new Error("That sync record isn't on your books.");
+      if (row.state !== "conflict") throw new Error("That record isn't waiting on a decision.");
+      const conns = await db
+        .select()
+        .from(schema.accountingConnections)
+        .where(eq(schema.accountingConnections.id, row.connectionId))
+        .limit(1);
+      const conn = conns[0];
+      if (!conn) throw new Error("That sync record's connection is gone.");
+      const providerName = accountingProviderName(conn.provider);
+      const now = new Date();
+      const seal = async () =>
+        appendChain(ctx, {
+          refKind: "driver",
+          refId: null,
+          sessionId: null,
+          event: "accounting_conflict_resolved",
+          payload: {
+            connectionId: conn.id,
+            provider: conn.provider,
+            syncRecordId: row.id,
+            recordKind: row.recordKind,
+            recordId: row.recordId,
+            winner: args.winner,
+            at: now.toISOString(),
+          },
+        });
+
+      // Payments are sealed facts on BOTH sides — neither copy
+      // can be rewritten, so either pick closes the item with
+      // the difference left visible in the sync history.
+      if (row.recordKind === "payment" || row.recordKind === "provider_payment") {
+        await writeAccountingSyncRow(ctx, row, {
+          connectionId: conn.id,
+          recordKind: row.recordKind,
+          recordId: row.recordId,
+          state: "resolved",
+          lastSyncedAt: now,
+        });
+        await seal();
+        ctx.invalidateQueries();
+        return {
+          ok: true,
+          note: "Payments are sealed records on both sides, so nothing was rewritten — the item is closed and the difference stays in the sync history.",
+        };
+      }
+
+      const partner = accountingPartnerFromEnv(process.env, conn.provider as AccountingProviderKind);
+      if (!partner) {
+        throw new Error("Accounting sync isn't connected yet — reconnect the provider to resolve this.");
+      }
+      if (conn.status !== "connected" || !conn.accessToken) {
+        throw new Error(`Not connected to ${providerName} right now — reconnect, then resolve this.`);
+      }
+      const access = { accessToken: conn.accessToken, realmId: conn.realmId };
+
+      if (args.winner === "local") {
+        if (!row.localSnapshotJson) throw new Error("This app's version of that record is missing — run a sync first.");
+        const localObj = JSON.parse(row.localSnapshotJson) as ProviderInvoiceObject & ProviderBillObject;
+        const up =
+          row.recordKind === "settlement"
+            ? await partner.upsertBill({ access, object: localObj, providerId: row.providerObjectId })
+            : await partner.upsertInvoice({ access, object: localObj, providerId: row.providerObjectId });
+        await writeAccountingSyncRow(ctx, row, {
+          connectionId: conn.id,
+          recordKind: row.recordKind,
+          recordId: row.recordId,
+          providerObjectId: up.providerId,
+          state: "synced",
+          localStamp: accountingStampFor(localObj),
+          providerStamp: up.stamp,
+          localSnapshotJson: JSON.stringify(localObj),
+          providerSnapshotJson: JSON.stringify(localObj),
+          lastError: null,
+          lastSyncedAt: now,
+        });
+        await seal();
+        ctx.invalidateQueries();
+        return { ok: true, note: `Your version was sent to ${providerName}.` };
+      }
+
+      // Provider wins: re-fetch (fresher than the snapshot) and
+      // adopt it onto the local record.
+      if (!row.providerObjectId) throw new Error("That record has no provider copy to adopt.");
+      const fetched =
+        row.recordKind === "settlement"
+          ? await partner.fetchBill({ access, providerId: row.providerObjectId })
+          : await partner.fetchInvoice({ access, providerId: row.providerObjectId });
+      if (!fetched) {
+        throw new Error(`The ${providerName} copy is gone — keep this app's version instead.`);
+      }
+      let note = `The ${providerName} version is now the record here.`;
+      if (row.recordKind === "invoice" && row.recordId != null) {
+        const invs = await db
+          .select()
+          .from(schema.loadInvoices)
+          .where(eq(schema.loadInvoices.id, row.recordId))
+          .limit(1);
+        const inv = invs[0];
+        if (inv) {
+          const pobj = fetched.object as ProviderInvoiceObject;
+          if (pobj.status === "paid" && inv.status !== "paid") {
+            const recorded = await recordInvoicePayment(
+              ctx,
+              inv,
+              now,
+              `Paid in ${providerName} — adopted in a sync conflict decision`,
+            );
+            await markInvoicePaidRow(ctx, inv, now, recorded);
+            note = `The ${providerName} version showed it paid — the invoice is marked paid through the sealed payment path.`;
+          } else {
+            if (inv.status === "paid" && pobj.status !== "paid") {
+              note = `Adopted the ${providerName} figures — the paid record here stands (a paid invoice is never un-paid by a sync).`;
+            }
+            await db
+              .update(schema.loadInvoices)
+              .set({
+                amount: pobj.amount,
+                linesJson: JSON.stringify(pobj.lines.map((l) => ({ label: l.description, amount: l.amount }))),
+                dueAt: pobj.dueDate ? new Date(`${pobj.dueDate}T00:00:00.000Z`) : inv.dueAt,
+                issuedAt: pobj.issueDate ? new Date(`${pobj.issueDate}T00:00:00.000Z`) : inv.issuedAt,
+                updatedAt: now,
+              })
+              .where(eq(schema.loadInvoices.id, inv.id));
+          }
+        }
+      } else if (row.recordKind === "settlement" && row.recordId != null) {
+        const pobj = fetched.object as ProviderBillObject;
+        await db
+          .update(schema.settlements)
+          .set({ net: pobj.amount, linesJson: JSON.stringify(pobj.lines) })
+          .where(eq(schema.settlements.id, row.recordId));
+      }
+      await writeAccountingSyncRow(ctx, row, {
+        connectionId: conn.id,
+        recordKind: row.recordKind,
+        recordId: row.recordId,
+        state: "synced",
+        localStamp: accountingStampFor(fetched.object),
+        providerStamp: fetched.stamp,
+        localSnapshotJson: JSON.stringify(fetched.object),
+        providerSnapshotJson: JSON.stringify(fetched.object),
+        lastError: null,
+        lastSyncedAt: now,
+      });
+      await seal();
+      ctx.invalidateQueries();
+      return { ok: true, note };
+    },
+  }),
+
+  resolveAccountingReview: defineAction({
+    description:
+      "Resolve an unmatched inbound payment from the review list: link it to one of the caller's invoices (the payment lands through the sealed invoice-paid path) or dismiss it. Seals accounting_review_linked / accounting_review_dismissed.",
+    request: z.object({
+      syncRecordId: z.number().int().positive(),
+      invoiceId: z.number().int().positive().nullable().optional(),
+      dismiss: z.boolean().optional(),
+    }),
+    response: z.object({ ok: z.boolean(), note: z.string() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const rows = await db
+        .select()
+        .from(schema.accountingSyncRecords)
+        .where(eq(schema.accountingSyncRecords.id, args.syncRecordId))
+        .limit(1);
+      const row = rows[0];
+      if (!row) throw new Error("That sync record isn't on your books.");
+      if (row.state !== "review") throw new Error("That record isn't in the review list.");
+      const now = new Date();
+      if (args.dismiss) {
+        await writeAccountingSyncRow(ctx, row, {
+          connectionId: row.connectionId,
+          recordKind: row.recordKind,
+          recordId: row.recordId,
+          state: "resolved",
+          lastSyncedAt: now,
+        });
+        await appendChain(ctx, {
+          refKind: "driver",
+          refId: null,
+          sessionId: null,
+          event: "accounting_review_dismissed",
+          payload: { connectionId: row.connectionId, syncRecordId: row.id, providerObjectId: row.providerObjectId, at: now.toISOString() },
+        });
+        ctx.invalidateQueries();
+        return { ok: true, note: "Dismissed — the payment stays in your accounting system only." };
+      }
+      if (!args.invoiceId) throw new Error("Pick the invoice this payment belongs to, or dismiss it.");
+      const invs = await db
+        .select()
+        .from(schema.loadInvoices)
+        .where(eq(schema.loadInvoices.id, args.invoiceId))
+        .limit(1);
+      const inv = invs[0];
+      if (!inv) throw new Error("That invoice isn't on your books.");
+      const snap = row.providerSnapshotJson
+        ? (JSON.parse(row.providerSnapshotJson) as ProviderPaymentSnapshot)
+        : null;
+      if (inv.status !== "paid") {
+        const paidAt = snap?.paidDate ? new Date(`${snap.paidDate}T00:00:00.000Z`) : now;
+        const conns = await db
+          .select()
+          .from(schema.accountingConnections)
+          .where(eq(schema.accountingConnections.id, row.connectionId))
+          .limit(1);
+        const providerName = conns[0] ? accountingProviderName(conns[0].provider) : "the accounting system";
+        const recorded = await recordInvoicePayment(
+          ctx,
+          inv,
+          paidAt,
+          `Payment recorded in ${providerName} — matched by hand from the sync review list`,
+        );
+        await markInvoicePaidRow(ctx, inv, paidAt, recorded);
+      }
+      await writeAccountingSyncRow(ctx, row, {
+        connectionId: row.connectionId,
+        recordKind: row.recordKind,
+        recordId: inv.id,
+        state: "resolved",
+        lastSyncedAt: now,
+      });
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "accounting_review_linked",
+        payload: { connectionId: row.connectionId, syncRecordId: row.id, invoiceId: inv.id, loadId: inv.loadId, at: now.toISOString() },
+      });
+      ctx.invalidateQueries();
+      return { ok: true, note: `Linked — invoice ${inv.number} is marked paid through the sealed payment path.` };
+    },
+  }),
+
+  // ---- Recruiting ATS-lite (Wave 2 item 10, Part B) --------------------------
+  // A fleet's public application door + desk pipeline. The door
+  // is a token URL like the broker door's; submissions land ONLY
+  // in the owning fleet's desk; the applicant's auto-response is
+  // sent inside the submission request itself (see
+  // submitDriverApplication below), so the <5-minute response is
+  // structural. Notes are fleet-internal; seals carry ids only.
+
+  getRecruitingDoor: defineAction({
+    description:
+      "The caller's fleet recruiting state: the application door (URL + live or not), the auto-response template in force (the fleet's own or the house default), and application counts.",
+    request: z.object({}),
+    response: z.object({
+      error: z.string().nullable(),
+      fleetName: z.string().nullable(),
+      doorUrl: z.string().nullable(),
+      doorLive: z.boolean(),
+      doorCreatedAt: z.string().nullable(),
+      templateSubject: z.string(),
+      templateBody: z.string(),
+      templateIsDefault: z.boolean(),
+      counts: z.object({ total: z.number(), fresh: z.number() }),
+    }),
+    async handler(ctx) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const access = await recruitingAccessFor(ctx, me);
+      if ("error" in access) {
+        return {
+          error: access.error,
+          fleetName: null,
+          doorUrl: null,
+          doorLive: false,
+          doorCreatedAt: null,
+          templateSubject: "",
+          templateBody: "",
+          templateIsDefault: true,
+          counts: { total: 0, fresh: 0 },
+        };
+      }
+      const door = await recruitingDoorFor(ctx, access.company.id);
+      const now = new Date();
+      const apps = await db
+        .select()
+        .from(schema.driverApplications)
+        .where(eq(schema.driverApplications.companyId, access.company.id));
+      const template = responseTemplateFor(
+        door ? { subject: door.responseSubject, body: door.responseBody } : null,
+      );
+      return {
+        error: null,
+        fleetName: access.company.name,
+        doorUrl: door ? `https://app.stonervision.io/apply/${door.token}` : null,
+        doorLive: recruitingDoorLive(door, now),
+        doorCreatedAt: door ? door.createdAt.toISOString() : null,
+        templateSubject: template.subject,
+        templateBody: template.body,
+        templateIsDefault: !door?.responseSubject && !door?.responseBody,
+        counts: { total: apps.length, fresh: apps.filter((a) => a.stage === "new").length },
+      };
+    },
+  }),
+
+  createRecruitingDoor: defineAction({
+    description:
+      "Open (or regenerate) the fleet's public application door: mints a fresh token URL and retires the previous door. Seals recruiting_door_created with ids only — the token itself never goes on the chain.",
+    request: z.object({}),
+    response: z.object({ ok: z.boolean(), doorUrl: z.string() }),
+    async handler(ctx) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const access = await recruitingAccessFor(ctx, me);
+      if ("error" in access) throw new Error(access.error);
+      const now = new Date();
+      const previous = await recruitingDoorFor(ctx, access.company.id);
+      if (previous && !previous.revokedAt) {
+        await db
+          .update(schema.recruitingDoors)
+          .set({ revokedAt: now, updatedAt: now })
+          .where(eq(schema.recruitingDoors.id, previous.id));
+      }
+      let token = "";
+      for (let attempt = 0; attempt < 8; attempt++) {
+        token = `${globalThis.crypto.randomUUID()}${globalThis.crypto.randomUUID()}`.replace(/-/g, "");
+        const clash = await db
+          .select({ id: schema.recruitingDoors.id })
+          .from(schema.recruitingDoors)
+          .where(eq(schema.recruitingDoors.token, token));
+        if (clash.length === 0) break;
+      }
+      const ins = await db
+        .insert(schema.recruitingDoors)
+        .values({
+          companyId: access.company.id,
+          createdBy: me,
+          token,
+          responseSubject: previous?.responseSubject ?? null,
+          responseBody: previous?.responseBody ?? null,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning({ id: schema.recruitingDoors.id });
+      const door = ins[0];
+      if (!door) throw new Error("The door didn't open — try again.");
+      await appendChain(ctx, {
+        refKind: "team",
+        refId: null,
+        sessionId: null,
+        event: "recruiting_door_created",
+        payload: { companyId: access.company.id, doorId: door.id, by: me, at: now.toISOString() },
+      });
+      ctx.invalidateQueries();
+      return { ok: true, doorUrl: `https://app.stonervision.io/apply/${token}` };
+    },
+  }),
+
+  revokeRecruitingDoor: defineAction({
+    description: "Close the fleet's application door: the public page stops accepting applications. Seals recruiting_door_revoked.",
+    request: z.object({}),
+    response: z.object({ ok: z.boolean() }),
+    async handler(ctx) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const access = await recruitingAccessFor(ctx, me);
+      if ("error" in access) throw new Error(access.error);
+      const door = await recruitingDoorFor(ctx, access.company.id);
+      if (door && !door.revokedAt) {
+        const now = new Date();
+        await db
+          .update(schema.recruitingDoors)
+          .set({ revokedAt: now, updatedAt: now })
+          .where(eq(schema.recruitingDoors.id, door.id));
+        await appendChain(ctx, {
+          refKind: "team",
+          refId: null,
+          sessionId: null,
+          event: "recruiting_door_revoked",
+          payload: { companyId: access.company.id, doorId: door.id, by: me, at: now.toISOString() },
+        });
+      }
+      ctx.invalidateQueries();
+      return { ok: true };
+    },
+  }),
+
+  setRecruitingTemplate: defineAction({
+    description:
+      "Save the fleet's auto-response wording for application acknowledgements. {name} and {fleet} substitute at send time; blanking a field restores the house default for it. Seals recruiting_template_updated (ids only — the wording is the fleet's desk record, not a chain fact).",
+    request: z.object({
+      subject: z.string().max(200),
+      body: z.string().max(4000),
+    }),
+    response: z.object({ ok: z.boolean() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const access = await recruitingAccessFor(ctx, me);
+      if ("error" in access) throw new Error(access.error);
+      const door = await recruitingDoorFor(ctx, access.company.id);
+      if (!door) throw new Error("Open the application door first, then set the response wording.");
+      const now = new Date();
+      await db
+        .update(schema.recruitingDoors)
+        .set({
+          responseSubject: args.subject.trim() ? args.subject.trim() : null,
+          responseBody: args.body.trim() ? args.body.trim() : null,
+          updatedAt: now,
+        })
+        .where(eq(schema.recruitingDoors.id, door.id));
+      await appendChain(ctx, {
+        refKind: "team",
+        refId: null,
+        sessionId: null,
+        event: "recruiting_template_updated",
+        payload: { companyId: access.company.id, doorId: door.id, by: me, at: now.toISOString() },
+      });
+      ctx.invalidateQueries();
+      return { ok: true };
+    },
+  }),
+
+  getRecruitingApplications: defineAction({
+    description:
+      "The fleet's application inbox: every application through its door, newest first, with pipeline stage, the auto-response's delivery state, desk notes (fleet-internal), and the pending invite code once an applicant is hired. Own company only — no applicant data ever leaves the fleet's desk.",
+    request: z.object({}),
+    response: z.object({
+      error: z.string().nullable(),
+      applications: z.array(
+        z.object({
+          id: z.number(),
+          name: z.string(),
+          email: z.string(),
+          phone: z.string().nullable(),
+          cdlClass: z.string(),
+          experience: z.string(),
+          note: z.string().nullable(),
+          stage: z.string(),
+          stageLabel: z.string(),
+          responseStatus: z.string(),
+          inviteCode: z.string().nullable(),
+          createdAt: z.string(),
+          notes: z.array(
+            z.object({
+              id: z.number(),
+              author: z.string(),
+              body: z.string(),
+              createdAt: z.string(),
+            }),
+          ),
+        }),
+      ),
+    }),
+    async handler(ctx) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const access = await recruitingAccessFor(ctx, me);
+      if ("error" in access) return { error: access.error, applications: [] };
+      const apps = await db
+        .select()
+        .from(schema.driverApplications)
+        .where(eq(schema.driverApplications.companyId, access.company.id));
+      const notes = await db
+        .select()
+        .from(schema.driverApplicationNotes)
+        .where(eq(schema.driverApplicationNotes.companyId, access.company.id));
+      const codes = await db.select().from(schema.driverCodes);
+      const codeById = new Map(codes.map((c) => [c.id, c.code]));
+      return {
+        error: null,
+        applications: apps
+          .sort((a, b) => b.id - a.id)
+          .map((a) => ({
+            id: a.id,
+            name: a.name,
+            email: a.email,
+            phone: a.phone,
+            cdlClass: a.cdlClass,
+            experience: a.experience,
+            note: a.note,
+            stage: a.stage,
+            stageLabel: applicationStageLabel(a.stage),
+            responseStatus: a.responseStatus,
+            inviteCode: a.inviteCodeId != null ? (codeById.get(a.inviteCodeId) ?? null) : null,
+            createdAt: a.createdAt.toISOString(),
+            notes: notes
+              .filter((n) => n.applicationId === a.id)
+              .sort((x, y) => x.id - y.id)
+              .map((n) => ({
+                id: n.id,
+                author: n.author,
+                body: n.body,
+                createdAt: n.createdAt.toISOString(),
+              })),
+          })),
+      };
+    },
+  }),
+
+  moveApplicationStage: defineAction({
+    description:
+      "Move an application along the pipeline (forward along new → contacted → interview → road test → hired, or declined from any open stage). Every move is chain-sealed. Hired mints a single-use driver code through the existing code flow and returns it as the pending invite — it creates NO account.",
+    request: z.object({
+      applicationId: z.number().int().positive(),
+      toStage: z.string().min(1).max(20),
+    }),
+    response: z.object({ ok: z.boolean(), inviteCode: z.string().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const access = await recruitingAccessFor(ctx, me);
+      if ("error" in access) throw new Error(access.error);
+      if (!isApplicationStage(args.toStage)) throw new Error("That stage isn't on the pipeline.");
+      const toStage: ApplicationStage = args.toStage;
+      const rows = await db
+        .select()
+        .from(schema.driverApplications)
+        .where(
+          and(
+            eq(schema.driverApplications.id, args.applicationId),
+            eq(schema.driverApplications.companyId, access.company.id),
+          ),
+        )
+        .limit(1);
+      const app = rows[0];
+      if (!app) throw new Error("That application isn't in your fleet's inbox.");
+      if (!canMoveApplicationStage(app.stage, toStage)) {
+        throw new Error(
+          app.stage === "hired" || app.stage === "declined"
+            ? "That application is closed — its stage doesn't move again."
+            : "Stages move forward along the pipeline (or to Declined) — not backward.",
+        );
+      }
+      const now = new Date();
+      let inviteCode: string | null = null;
+      let inviteCodeId: number | null = app.inviteCodeId;
+      if (toStage === "hired" && inviteCodeId == null) {
+        inviteCode = await mintDriverCode(ctx, access.company.id, true);
+        const codeRows = await db
+          .select()
+          .from(schema.driverCodes)
+          .where(eq(schema.driverCodes.code, inviteCode))
+          .limit(1);
+        inviteCodeId = codeRows[0]?.id ?? null;
+      }
+      await db
+        .update(schema.driverApplications)
+        .set({ stage: toStage, inviteCodeId, updatedAt: now })
+        .where(eq(schema.driverApplications.id, app.id));
+      await appendChain(ctx, {
+        refKind: "team",
+        refId: null,
+        sessionId: null,
+        event: "driver_application_stage",
+        payload: {
+          applicationId: app.id,
+          companyId: access.company.id,
+          from: app.stage,
+          to: toStage,
+          inviteCodeId,
+          by: me,
+          at: now.toISOString(),
+        },
+      });
+      ctx.invalidateQueries();
+      return { ok: true, inviteCode };
+    },
+  }),
+
+  addApplicationNote: defineAction({
+    description:
+      "Add a fleet-internal note to an application. Notes are visible only inside the fleet's desk — never to the applicant — and the seal carries the note's id, never its text.",
+    request: z.object({
+      applicationId: z.number().int().positive(),
+      body: z.string().min(1).max(2000),
+    }),
+    response: z.object({ ok: z.boolean() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const access = await recruitingAccessFor(ctx, me);
+      if ("error" in access) throw new Error(access.error);
+      const rows = await db
+        .select({ id: schema.driverApplications.id })
+        .from(schema.driverApplications)
+        .where(
+          and(
+            eq(schema.driverApplications.id, args.applicationId),
+            eq(schema.driverApplications.companyId, access.company.id),
+          ),
+        )
+        .limit(1);
+      if (!rows[0]) throw new Error("That application isn't in your fleet's inbox.");
+      const ins = await db
+        .insert(schema.driverApplicationNotes)
+        .values({
+          applicationId: args.applicationId,
+          companyId: access.company.id,
+          author: me,
+          body: args.body.trim(),
+          createdAt: new Date(),
+        })
+        .returning({ id: schema.driverApplicationNotes.id });
+      const note = ins[0];
+      if (!note) throw new Error("The note didn't save — try again.");
+      await appendChain(ctx, {
+        refKind: "team",
+        refId: null,
+        sessionId: null,
+        event: "driver_application_note",
+        payload: { applicationId: args.applicationId, companyId: access.company.id, noteId: note.id, by: me, at: new Date().toISOString() },
+      });
+      ctx.invalidateQueries();
+      return { ok: true };
+    },
+  }),
+
+  getApplyInfo: defineAction({
+    description:
+      "Public (no account): what a fleet's application door shows before the form — whether the door is open and the fleet's name. Nothing else about the fleet or its applicants is exposed.",
+    request: z.object({ token: z.string().min(1).max(200) }),
+    response: z.object({
+      valid: z.boolean(),
+      reason: z.string().nullable(),
+      fleetName: z.string().nullable(),
+    }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const doors = await db
+        .select()
+        .from(schema.recruitingDoors)
+        .where(eq(schema.recruitingDoors.token, args.token))
+        .limit(1);
+      const door = doors[0];
+      if (!door) return { valid: false, reason: "This application link isn't recognized.", fleetName: null };
+      if (!recruitingDoorLive(door, new Date())) {
+        return { valid: false, reason: "This fleet's application door is closed right now.", fleetName: null };
+      }
+      const comps = await db
+        .select()
+        .from(schema.companies)
+        .where(eq(schema.companies.id, door.companyId))
+        .limit(1);
+      return { valid: true, reason: null, fleetName: comps[0]?.name ?? "the fleet" };
+    },
+  }),
+
+  submitDriverApplication: defineAction({
+    description:
+      "Public (no account): submit a driver application through a fleet's door. The application lands in the fleet's desk inbox, is chain-sealed (ids only — no contact details on the chain), and the auto-response email goes out INSIDE this request through the document-email path, so the applicant hears back in seconds, not on a schedule. Rate-limited per door and per email; a honeypot field silently absorbs bots.",
+    request: z.object({
+      token: z.string().min(1).max(200),
+      name: z.string().max(200),
+      email: z.string().max(300),
+      phone: z.string().max(60).nullable().optional(),
+      cdlClass: z.string().max(10),
+      experience: z.string().max(1000),
+      note: z.string().max(2000).nullable().optional(),
+      website: z.string().max(200).nullable().optional(),
+    }),
+    response: z.object({
+      ok: z.boolean(),
+      message: z.string(),
+      responseStatus: z.string().nullable(),
+    }),
+    privileged: [privileged.docEmailConfig, privileged.sendDocEmail],
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const doors = await db
+        .select()
+        .from(schema.recruitingDoors)
+        .where(eq(schema.recruitingDoors.token, args.token))
+        .limit(1);
+      const door = doors[0];
+      if (!door) return { ok: false, message: "This application link isn't recognized.", responseStatus: null };
+      // Honeypot: a filled hidden field is a bot — absorb it
+      // silently with the same success words, saving nothing.
+      if (args.website && args.website.trim()) {
+        return { ok: true, message: "Thanks — your application is in.", responseStatus: null };
+      }
+      const now = new Date();
+      if (!recruitingDoorLive(door, now)) {
+        return { ok: false, message: "This fleet's application door is closed right now.", responseStatus: null };
+      }
+      const cleaned = cleanApplicationInput({
+        name: args.name,
+        email: args.email,
+        phone: args.phone ?? "",
+        cdlClass: args.cdlClass,
+        experience: args.experience,
+        note: args.note ?? "",
+      });
+      if (!cleaned.ok) return { ok: false, message: cleaned.reason, responseStatus: null };
+      const hourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+      const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      const doorApps = await db
+        .select({ id: schema.driverApplications.id, createdAt: schema.driverApplications.createdAt })
+        .from(schema.driverApplications)
+        .where(eq(schema.driverApplications.doorId, door.id));
+      const emailApps = await db
+        .select({ id: schema.driverApplications.id, createdAt: schema.driverApplications.createdAt })
+        .from(schema.driverApplications)
+        .where(
+          and(
+            eq(schema.driverApplications.companyId, door.companyId),
+            eq(schema.driverApplications.email, cleaned.value.email),
+          ),
+        );
+      const verdict = applicationRateVerdict({
+        doorLastHour: doorApps.filter((a) => a.createdAt.getTime() > hourAgo.getTime()).length,
+        emailLastDay: emailApps.filter((a) => a.createdAt.getTime() > dayAgo.getTime()).length,
+      });
+      if (!verdict.ok) return { ok: false, message: verdict.reason, responseStatus: null };
+
+      const comps = await db
+        .select()
+        .from(schema.companies)
+        .where(eq(schema.companies.id, door.companyId))
+        .limit(1);
+      const company = comps[0];
+      if (!company) return { ok: false, message: "This application door isn't set up right.", responseStatus: null };
+
+      const ins = await db
+        .insert(schema.driverApplications)
+        .values({
+          companyId: door.companyId,
+          doorId: door.id,
+          name: cleaned.value.name,
+          email: cleaned.value.email,
+          phone: cleaned.value.phone,
+          cdlClass: cleaned.value.cdlClass,
+          experience: cleaned.value.experience,
+          note: cleaned.value.note,
+          stage: "new",
+          responseStatus: "queued",
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning({ id: schema.driverApplications.id });
+      const app = ins[0];
+      if (!app) return { ok: false, message: "The application didn't save — please try again.", responseStatus: null };
+      await appendChain(ctx, {
+        refKind: "team",
+        refId: null,
+        sessionId: null,
+        event: "driver_application_received",
+        payload: { applicationId: app.id, companyId: door.companyId, doorId: door.id, at: now.toISOString() },
+      });
+
+      // -- The auto-response, sent NOW, inside this request: the
+      //    <5-minute guarantee is structural (no cron, no batch).
+      const template = responseTemplateFor({ subject: door.responseSubject, body: door.responseBody });
+      const subject = renderResponseTemplate(template.subject, { name: cleaned.value.name, fleet: company.name });
+      const text = renderResponseTemplate(template.body, { name: cleaned.value.name, fleet: company.name });
+      let status = "failed";
+      let providerId: string | null = null;
+      let detail: string | null = null;
+      try {
+        const res = await ctx.executePrivileged(privileged.sendDocEmail, {
+          to: cleaned.value.email,
+          replyTo: null,
+          subject,
+          text,
+          attachmentBase64: null,
+          attachmentFilename: null,
+        });
+        if (res.ok) {
+          status = "sent";
+          providerId = res.providerId ?? null;
+        } else if (res.notConfigured) {
+          status = "queued";
+          detail = "Mail transport not configured yet — the response is queued.";
+        } else {
+          status = "failed";
+          detail = res.errorMessage ?? null;
+        }
+      } catch {
+        status = "failed";
+        detail = "The mail send didn't complete.";
+      }
+      const ownerProfiles = await db
+        .select({ id: schema.profile.id })
+        .from(schema.profile)
+        .where(eq(schema.profile.socialUsername, company.ownerUsername))
+        .limit(1);
+      await db.insert(schema.documentSends).values({
+        profileId: ownerProfiles[0]?.id ?? null,
+        username: company.ownerUsername,
+        docRef: `recruiting-response:${app.id}`,
+        docKind: "recruiting_response",
+        docTitle: `Application response — ${company.name}`,
+        toEmail: cleaned.value.email,
+        replyTo: null,
+        subject,
+        status,
+        providerId,
+        detail,
+        sentAt: status === "sent" ? now : null,
+      });
+      await db
+        .update(schema.driverApplications)
+        .set({ responseStatus: status, responseAt: status === "sent" ? now : null, updatedAt: now })
+        .where(eq(schema.driverApplications.id, app.id));
+      await appendChain(ctx, {
+        refKind: "team",
+        refId: null,
+        sessionId: null,
+        event: "driver_application_response",
+        payload: { applicationId: app.id, companyId: door.companyId, status, at: now.toISOString() },
+      });
+
+      // Tell the fleet's desk (owner + dispatch seats) in-app.
+      const members = await db
+        .select()
+        .from(schema.companyMembers)
+        .where(eq(schema.companyMembers.companyId, door.companyId));
+      const deskUsers = new Set<string>([company.ownerUsername]);
+      for (const m of members) {
+        if (m.role === "owner" || m.role === "dispatch") deskUsers.add(m.username);
+      }
+      for (const username of deskUsers) {
+        await recordNotificationSafe(ctx, {
+          username,
+          kind: "system",
+          title: "New driver application",
+          body: `${cleaned.value.name} applied through your application door. It's waiting in your recruiting inbox.`,
+          dedupeKey: `application:${app.id}`,
+          refKind: "team",
+          refId: null,
+        });
+      }
+      return {
+        ok: true,
+        message: `Thanks — your application is in with ${company.name}. A confirmation is on its way to your email.`,
+        responseStatus: status,
+      };
+    },
+  }),
 
   getNotifications: defineAction({
     description: "The caller's notification center: newest first, with the unread count and the honest phone-push status.",
