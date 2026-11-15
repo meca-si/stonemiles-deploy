@@ -67,6 +67,11 @@ export function wrapPdfText(text: string, maxChars: number): string[] {
 export interface PdfSection {
   heading?: string;
   lines: string[];
+  /** Optional JPEG drawn right under the heading, before the lines —
+   *  the signature position on a signed POD (the drawn signature sits
+   *  above the printed "Received by" line). Same JPEG-only rule as
+   *  the media band. */
+  image?: { jpegBytes: Uint8Array; widthPt: number; heightPt: number } | null;
 }
 
 export interface PdfDocInput {
@@ -109,8 +114,19 @@ type Placed =
   | { kind: "heading"; text: string }
   | { kind: "line"; text: string }
   | { kind: "qr"; modules: boolean[][] }
-  | { kind: "image"; widthPt: number; heightPt: number }
+  | { kind: "image"; widthPt: number; heightPt: number; imageIdx: number }
   | { kind: "gap"; size: number };
+
+/** Every JPEG in the document, in placement order: the media band
+ *  first, then section images in section order. layout() assigns
+ *  imageIdx values in exactly this order, and buildPdf embeds the
+ *  bytes in this order — the two walks must never drift. */
+function collectImages(input: PdfDocInput): Uint8Array[] {
+  const out: Uint8Array[] = [];
+  if (input.image) out.push(input.image.jpegBytes);
+  for (const sec of input.sections) if (sec.image) out.push(sec.image.jpegBytes);
+  return out;
+}
 
 const QR_BOX_PT = 132;
 
@@ -124,12 +140,13 @@ function layout(input: PdfDocInput): Placed[][] {
   items.push({ kind: "gap", size: 4 });
   items.push({ kind: "rule" });
   items.push({ kind: "gap", size: 8 });
+  let imageIdx = 0;
   if (input.qr) {
     items.push({ kind: "qr", modules: input.qr.modules });
     items.push({ kind: "gap", size: 6 });
   }
   if (input.image) {
-    items.push({ kind: "image", widthPt: input.image.widthPt, heightPt: input.image.heightPt });
+    items.push({ kind: "image", widthPt: input.image.widthPt, heightPt: input.image.heightPt, imageIdx: imageIdx++ });
     items.push({ kind: "gap", size: 6 });
   }
   input.sections.forEach((sec, i) => {
@@ -137,6 +154,10 @@ function layout(input: PdfDocInput): Placed[][] {
     if (sec.heading) {
       for (const t of wrapPdfText(sec.heading, HEADING_CHARS)) items.push({ kind: "heading", text: t });
       items.push({ kind: "gap", size: 2 });
+    }
+    if (sec.image) {
+      items.push({ kind: "image", widthPt: sec.image.widthPt, heightPt: sec.image.heightPt, imageIdx: imageIdx++ });
+      items.push({ kind: "gap", size: 4 });
     }
     for (const line of sec.lines) {
       for (const t of wrapPdfText(line, BODY_CHARS)) items.push({ kind: "line", text: t });
@@ -211,7 +232,7 @@ function contentStream(page: Placed[], footer: string, pageNo: number, pageCount
       if (rects.length) ops.push(`${rects.join(" ")} f`);
       y -= QR_BOX_PT;
     } else if (it.kind === "image") {
-      ops.push(`q ${it.widthPt} 0 0 ${it.heightPt} ${MARGIN} ${y - it.heightPt} cm /Im1 Do Q`);
+      ops.push(`q ${it.widthPt} 0 0 ${it.heightPt} ${MARGIN} ${y - it.heightPt} cm /Im${it.imageIdx + 1} Do Q`);
       y -= it.heightPt;
     } else {
       y -= it.size;
@@ -230,11 +251,13 @@ function contentStream(page: Placed[], footer: string, pageNo: number, pageCount
  *  (pdfText escapes everything above 127). */
 export function buildPdf(input: PdfDocInput): Uint8Array {
   const pages = layout(input);
+  const images = collectImages(input);
   type Obj = { text: string } | { dict: string; stream: Uint8Array };
   const objects: Obj[] = [];
   // 1: catalog, 2: pages, 3/4: fonts; then per page: page + content;
-  // the optional JPEG image object rides last.
-  const imageObjNum = input.image ? 5 + pages.length * 2 : 0;
+  // the JPEG image objects ride last, in placement order — image k
+  // (0-based) is object (5 + pages*2 + k), named /Im(k+1).
+  const imageObjNum = (k: number) => 5 + pages.length * 2 + k;
   objects.push({ text: "<< /Type /Catalog /Pages 2 0 R >>" });
   const kids = pages.map((_, i) => `${5 + i * 2} 0 R`).join(" ");
   objects.push({ text: `<< /Type /Pages /Kids [${kids}] /Count ${pages.length} >>` });
@@ -242,21 +265,22 @@ export function buildPdf(input: PdfDocInput): Uint8Array {
   objects.push({ text: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>" });
   pages.forEach((page, i) => {
     const content = contentStream(page, input.footer, i + 1, pages.length);
-    const hasImage = page.some((it) => it.kind === "image");
+    const pageImages = [...new Set(page.filter((it) => it.kind === "image").map((it) => (it as { imageIdx: number }).imageIdx))].sort((a, b) => a - b);
+    const xobjects = pageImages.map((k) => `/Im${k + 1} ${imageObjNum(k)} 0 R`).join(" ");
     objects.push({
       text:
         `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_W} ${PAGE_H}] ` +
-        `/Resources << /Font << /F1 3 0 R /F2 4 0 R >>${hasImage ? ` /XObject << /Im1 ${imageObjNum} 0 R >>` : ""} >> /Contents ${6 + i * 2} 0 R >>`,
+        `/Resources << /Font << /F1 3 0 R /F2 4 0 R >>${xobjects ? ` /XObject << ${xobjects} >>` : ""} >> /Contents ${6 + i * 2} 0 R >>`,
     });
     objects.push({ text: `<< /Length ${content.length} >>\nstream\n${content}\nendstream` });
   });
-  if (input.image) {
-    const dims = jpegDimensions(input.image.jpegBytes);
+  for (const jpegBytes of images) {
+    const dims = jpegDimensions(jpegBytes);
     objects.push({
       dict:
         `<< /Type /XObject /Subtype /Image /Width ${dims?.width ?? 600} /Height ${dims?.height ?? 200} ` +
-        `/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${input.image.jpegBytes.length} >>`,
-      stream: input.image.jpegBytes,
+        `/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpegBytes.length} >>`,
+      stream: jpegBytes,
     });
   }
 

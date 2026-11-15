@@ -21123,6 +21123,15 @@ function jpegDimensions(bytes) {
   }
   return null;
 }
+function collectImages(input) {
+  const out = [];
+  if (input.image)
+    out.push(input.image.jpegBytes);
+  for (const sec of input.sections)
+    if (sec.image)
+      out.push(sec.image.jpegBytes);
+  return out;
+}
 var QR_BOX_PT = 132;
 function layout(input) {
   const items = [];
@@ -21136,12 +21145,13 @@ function layout(input) {
   items.push({ kind: "gap", size: 4 });
   items.push({ kind: "rule" });
   items.push({ kind: "gap", size: 8 });
+  let imageIdx = 0;
   if (input.qr) {
     items.push({ kind: "qr", modules: input.qr.modules });
     items.push({ kind: "gap", size: 6 });
   }
   if (input.image) {
-    items.push({ kind: "image", widthPt: input.image.widthPt, heightPt: input.image.heightPt });
+    items.push({ kind: "image", widthPt: input.image.widthPt, heightPt: input.image.heightPt, imageIdx: imageIdx++ });
     items.push({ kind: "gap", size: 6 });
   }
   input.sections.forEach((sec, i) => {
@@ -21151,6 +21161,10 @@ function layout(input) {
       for (const t of wrapPdfText(sec.heading, HEADING_CHARS))
         items.push({ kind: "heading", text: t });
       items.push({ kind: "gap", size: 2 });
+    }
+    if (sec.image) {
+      items.push({ kind: "image", widthPt: sec.image.widthPt, heightPt: sec.image.heightPt, imageIdx: imageIdx++ });
+      items.push({ kind: "gap", size: 4 });
     }
     for (const line of sec.lines) {
       for (const t of wrapPdfText(line, BODY_CHARS))
@@ -21218,7 +21232,7 @@ function contentStream(page, footer, pageNo, pageCount) {
         ops.push(`${rects.join(" ")} f`);
       y -= QR_BOX_PT;
     } else if (it.kind === "image") {
-      ops.push(`q ${it.widthPt} 0 0 ${it.heightPt} ${MARGIN} ${y - it.heightPt} cm /Im1 Do Q`);
+      ops.push(`q ${it.widthPt} 0 0 ${it.heightPt} ${MARGIN} ${y - it.heightPt} cm /Im${it.imageIdx + 1} Do Q`);
       y -= it.heightPt;
     } else {
       y -= it.size;
@@ -21233,8 +21247,9 @@ function contentStream(page, footer, pageNo, pageCount) {
 }
 function buildPdf(input) {
   const pages = layout(input);
+  const images = collectImages(input);
   const objects = [];
-  const imageObjNum = input.image ? 5 + pages.length * 2 : 0;
+  const imageObjNum = (k) => 5 + pages.length * 2 + k;
   objects.push({ text: "<< /Type /Catalog /Pages 2 0 R >>" });
   const kids = pages.map((_, i) => `${5 + i * 2} 0 R`).join(" ");
   objects.push({ text: `<< /Type /Pages /Kids [${kids}] /Count ${pages.length} >>` });
@@ -21242,20 +21257,21 @@ function buildPdf(input) {
   objects.push({ text: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>" });
   pages.forEach((page, i) => {
     const content = contentStream(page, input.footer, i + 1, pages.length);
-    const hasImage = page.some((it) => it.kind === "image");
+    const pageImages = [...new Set(page.filter((it) => it.kind === "image").map((it) => it.imageIdx))].sort((a, b) => a - b);
+    const xobjects = pageImages.map((k) => `/Im${k + 1} ${imageObjNum(k)} 0 R`).join(" ");
     objects.push({
-      text: `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_W} ${PAGE_H}] ` + `/Resources << /Font << /F1 3 0 R /F2 4 0 R >>${hasImage ? ` /XObject << /Im1 ${imageObjNum} 0 R >>` : ""} >> /Contents ${6 + i * 2} 0 R >>`
+      text: `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_W} ${PAGE_H}] ` + `/Resources << /Font << /F1 3 0 R /F2 4 0 R >>${xobjects ? ` /XObject << ${xobjects} >>` : ""} >> /Contents ${6 + i * 2} 0 R >>`
     });
     objects.push({ text: `<< /Length ${content.length} >>
 stream
 ${content}
 endstream` });
   });
-  if (input.image) {
-    const dims = jpegDimensions(input.image.jpegBytes);
+  for (const jpegBytes of images) {
+    const dims = jpegDimensions(jpegBytes);
     objects.push({
-      dict: `<< /Type /XObject /Subtype /Image /Width ${dims?.width ?? 600} /Height ${dims?.height ?? 200} ` + `/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${input.image.jpegBytes.length} >>`,
-      stream: input.image.jpegBytes
+      dict: `<< /Type /XObject /Subtype /Image /Width ${dims?.width ?? 600} /Height ${dims?.height ?? 200} ` + `/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpegBytes.length} >>`,
+      stream: jpegBytes
     });
   }
   const enc = new TextEncoder;
@@ -24882,16 +24898,20 @@ async function deliveryConfirmationFor(ctx, loadId) {
       const p = JSON.parse(r.payload);
       return {
         path: typeof p.path === "string" ? p.path : "receive_link",
-        receiverName: typeof p.receiverName === "string" ? p.receiverName : null,
+        receiverName: typeof p.receiverName === "string" && p.receiverName ? p.receiverName : null,
         exceptionNotes: typeof p.exceptionNotes === "string" ? p.exceptionNotes : null,
         at: typeof p.at === "string" ? p.at : null,
         docBlobKey: typeof p.docBlobKey === "string" ? p.docBlobKey : null,
         docMime: typeof p.docMime === "string" ? p.docMime : null,
         docSha256: typeof p.docSha256 === "string" ? p.docSha256 : null,
-        sealHash
+        sealHash,
+        signatureMethod: typeof p.signatureMethod === "string" ? p.signatureMethod : null,
+        signatureBlobKey: typeof p.signatureBlobKey === "string" ? p.signatureBlobKey : null,
+        signatureMime: typeof p.signatureMime === "string" ? p.signatureMime : null,
+        signatureSha256: typeof p.signatureSha256 === "string" ? p.signatureSha256 : null
       };
     } catch {
-      return { path: "receive_link", receiverName: null, exceptionNotes: null, at: null, docBlobKey: null, docMime: null, docSha256: null, sealHash };
+      return { path: "receive_link", receiverName: null, exceptionNotes: null, at: null, docBlobKey: null, docMime: null, docSha256: null, sealHash, signatureMethod: null, signatureBlobKey: null, signatureMime: null, signatureSha256: null };
     }
   }
   if (sealHash) {
@@ -24908,9 +24928,25 @@ async function deliveryConfirmationFor(ctx, loadId) {
       if (typeof p.at === "string")
         at = p.at;
     } catch {}
-    return { path: "driver_pod", receiverName, exceptionNotes, at, docBlobKey: null, docMime: null, docSha256: null, sealHash };
+    return { path: "driver_pod", receiverName, exceptionNotes, at, docBlobKey: null, docMime: null, docSha256: null, sealHash, signatureMethod: null, signatureBlobKey: null, signatureMime: null, signatureSha256: null };
   }
   return null;
+}
+var SIGNATURE_MAX_BYTES = 1500000;
+function decodeSignatureImage(base64) {
+  let bytes;
+  try {
+    bytes = base64ToBytes(base64);
+  } catch {
+    return null;
+  }
+  if (bytes.length < 32 || bytes.length > SIGNATURE_MAX_BYTES)
+    return null;
+  if (bytes[0] !== 255 || bytes[1] !== 216)
+    return null;
+  if (!jpegDimensions(bytes))
+    return null;
+  return { bytes, mime: "image/jpeg" };
 }
 async function completeDeliveryConfirmation(ctx, opts) {
   const { load } = opts;
@@ -24926,6 +24962,17 @@ async function completeDeliveryConfirmation(ctx, opts) {
     docBlobKey = `delivery-doc-${load.id}-${docSha256.slice(0, 16)}`;
     await ctx.blobs.put(docBlobKey, bytes, { contentType: opts.doc.mime });
   }
+  let signatureBlobKey = null;
+  let signatureSha256 = null;
+  let signatureMime = null;
+  if (opts.signature) {
+    const bytes = base64ToBytes(opts.signature.base64);
+    signatureSha256 = await sha256Bytes(new Uint8Array(bytes));
+    signatureBlobKey = `delivery-signature-${load.id}-${signatureSha256.slice(0, 16)}`;
+    signatureMime = opts.signature.mime;
+    await ctx.blobs.put(signatureBlobKey, bytes, { contentType: opts.signature.mime });
+  }
+  const sealedReceiverName = opts.receiverName.trim() ? opts.receiverName : null;
   await appendChain(ctx, {
     refKind: "load",
     refId: load.id,
@@ -24934,11 +24981,17 @@ async function completeDeliveryConfirmation(ctx, opts) {
     payload: {
       loadId: load.id,
       path: opts.path,
-      receiverName: opts.receiverName,
+      receiverName: sealedReceiverName,
       exceptionNotes: opts.exceptionNotes,
       docBlobKey,
       docMime: opts.doc?.mime ?? null,
       docSha256,
+      ...opts.signatureMethod !== undefined ? {
+        signatureMethod: opts.signatureMethod,
+        signatureBlobKey,
+        signatureMime,
+        signatureSha256
+      } : {},
       at: at.toISOString()
     }
   });
@@ -25007,8 +25060,9 @@ async function completeDeliveryConfirmation(ctx, opts) {
       attachmentBase64: opts.doc?.base64 ?? null,
       attachmentFilename: opts.doc ? `pod-load-${load.id}${opts.doc.mime === "image/png" ? ".png" : ".jpg"}` : null,
       summaryLines: [
-        `Received by: ${opts.receiverName}`,
+        `Received by: ${sealedReceiverName ?? "(drawn signature on file)"}`,
         `Close path: ${deliveryPathLabel(opts.path)}`,
+        ...opts.signatureMethod === "drawn" ? ["Signature: drawn signature (image in the signed POD)"] : [],
         ...opts.exceptionNotes ? [`\u26A0 EXCEPTIONS REPORTED: ${opts.exceptionNotes}`] : []
       ]
     });
@@ -25765,6 +25819,16 @@ async function buildSignedPodPdf(ctx, load, confirmation) {
       image = { jpegBytes: got.bytes, widthPt, heightPt };
     }
   }
+  let signatureImage = null;
+  if (confirmation.signatureBlobKey && confirmation.signatureMime === "image/jpeg") {
+    const got = await readBlobBytes(ctx, confirmation.signatureBlobKey);
+    if (got) {
+      const dims = jpegDimensions(got.bytes);
+      const widthPt = 200;
+      const heightPt = dims ? Math.min(64, Math.round(widthPt * dims.height / Math.max(1, dims.width))) : 48;
+      signatureImage = { jpegBytes: got.bytes, widthPt, heightPt };
+    }
+  }
   const bytes = buildPdf({
     title,
     subtitle: `${lane(load.pickupCity, load.pickupState) || "Pickup"} \u2192 ${lane(load.deliveryCity, load.deliveryState) || "Delivery"}${load.shipper ? ` \xB7 Shipper: ${load.shipper}` : ""}`,
@@ -25781,12 +25845,15 @@ async function buildSignedPodPdf(ctx, load, confirmation) {
       },
       {
         heading: "Confirmation",
+        image: signatureImage,
         lines: [
-          `Received by: ${confirmation.receiverName ?? "(name on the sealed record)"}`,
+          `Received by: ${confirmation.receiverName ?? (confirmation.signatureMethod === "drawn" ? "(drawn signature above)" : "(name on the sealed record)")}`,
+          ...confirmation.signatureMethod === "drawn" ? ["Signature: drawn on the delivery link."] : [],
           `How it closed: ${deliveryPathLabel(confirmation.path)}`,
           ...confirmation.at ? [`Confirmed at: ${confirmation.at}`] : [],
           confirmation.exceptionNotes ? `\u26A0 EXCEPTIONS REPORTED: ${confirmation.exceptionNotes}` : "Exceptions: none reported.",
           ...confirmation.docSha256 ? [`Confirmation document SHA-256: ${confirmation.docSha256}`] : [],
+          ...confirmation.signatureSha256 ? [`Signature image SHA-256: ${confirmation.signatureSha256}`] : [],
           ...confirmation.sealHash ? [`POD seal hash: ${confirmation.sealHash}`] : [],
           "This copy comes from the load's sealed, hash-chained record."
         ]
@@ -42342,10 +42409,11 @@ var Actions = {
       driverFirstName: string2().nullable(),
       receiverName: string2().nullable(),
       confirmedAt: string2().nullable(),
-      exceptionNotes: string2().nullable()
+      exceptionNotes: string2().nullable(),
+      signatureMethod: string2().nullable()
     }),
     async handler(ctx, args) {
-      const invalid = { valid: false, kind: null, canConfirm: false, status: null, shipperName: null, commodity: null, pieces: null, weightText: null, deliveryCity: null, deliveryState: null, deliveryWindow: null, fleetName: null, driverFirstName: null, receiverName: null, confirmedAt: null, exceptionNotes: null };
+      const invalid = { valid: false, kind: null, canConfirm: false, status: null, shipperName: null, commodity: null, pieces: null, weightText: null, deliveryCity: null, deliveryState: null, deliveryWindow: null, fleetName: null, driverFirstName: null, receiverName: null, confirmedAt: null, exceptionNotes: null, signatureMethod: null };
       if (receiveThrottleBlocked(args.token))
         return invalid;
       const resolved = await resolveReceiveToken(ctx, args.token);
@@ -42389,18 +42457,21 @@ var Actions = {
         driverFirstName: driverName.split(/\s+/)[0] ?? null,
         receiverName: confirmation?.receiverName ?? null,
         confirmedAt: confirmation?.at ?? null,
-        exceptionNotes: confirmation?.exceptionNotes ?? null
+        exceptionNotes: confirmation?.exceptionNotes ?? null,
+        signatureMethod: confirmation?.signatureMethod ?? null
       };
     }
   }),
   confirmReceive: defineAction({
-    description: "PUBLIC: the receiver confirms delivery on the receive link (typed name = signature). First close wins.",
+    description: "PUBLIC: the receiver confirms delivery on the receive link \u2014 a typed name OR a drawn signature signs it (one of the two is required). First close wins.",
     request: object({
       token: string2().min(8).max(80),
-      receiverName: string2().min(1).max(120),
+      receiverName: string2().max(120),
       exceptionNotes: string2().max(500).nullable().default(null),
       photoDataBase64: string2().max(8000000).nullable().default(null),
-      photoMime: string2().max(60).nullable().default(null)
+      photoMime: string2().max(60).nullable().default(null),
+      signatureDataBase64: string2().max(2800000).nullable().default(null),
+      signatureMime: string2().max(60).nullable().default(null)
     }),
     response: object({
       ok: boolean2(),
@@ -42430,13 +42501,25 @@ var Actions = {
       let doc = null;
       if (args.photoDataBase64 && args.photoMime)
         doc = { base64: args.photoDataBase64, mime: args.photoMime };
+      const name = args.receiverName.trim();
+      let signature = null;
+      if (args.signatureDataBase64) {
+        const decoded = decodeSignatureImage(args.signatureDataBase64);
+        if (!decoded)
+          return refused;
+        signature = { base64: args.signatureDataBase64, mime: decoded.mime };
+      }
+      if (!name && !signature)
+        return refused;
       const result = await completeDeliveryConfirmation(ctx, {
         load,
         path: "receive_link",
-        receiverName: args.receiverName.trim(),
+        receiverName: name,
         exceptionNotes: args.exceptionNotes?.trim() ? args.exceptionNotes.trim() : null,
         doc,
-        actorUsername: await driverUsernameForLoad(ctx, load) ?? "receiver"
+        actorUsername: await driverUsernameForLoad(ctx, load) ?? "receiver",
+        signature,
+        signatureMethod: signature ? "drawn" : "typed"
       });
       const db = ctx.db();
       await db.update(receiveLinks3).set({ status: "used" }).where(eq(receiveLinks3.id, link.id));

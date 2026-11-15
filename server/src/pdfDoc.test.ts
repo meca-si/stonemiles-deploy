@@ -103,4 +103,56 @@ describe("buildPdf", () => {
     expect(soi).toBeGreaterThan(0);
     expect(buf.indexOf(Buffer.from([0xff, 0xd9]))).toBeGreaterThan(soi);
   });
+
+  test("a section image embeds as a second XObject beside the media band", () => {
+    // Two distinct synthetic JPEGs: media band 600x200, signature 660x220.
+    const media = new Uint8Array([
+      0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, ...new Array(14).fill(0),
+      0xff, 0xc0, 0x00, 0x11, 0x08, 0x00, 0xc8, 0x02, 0x58, 0x03, 0x01, 0x22, 0x00, 0x02, 0x11, 0x01, 0x03, 0x11, 0x01,
+      0xff, 0xd9,
+    ]);
+    const sig = new Uint8Array([
+      0xff, 0xd8, 0xff, 0xe1, 0x00, 0x10, ...new Array(14).fill(0),
+      0xff, 0xc0, 0x00, 0x11, 0x08, 0x00, 0xdc, 0x02, 0x94, 0x03, 0x01, 0x22, 0x00, 0x02, 0x11, 0x01, 0x03, 0x11, 0x01,
+      0xff, 0xd9,
+    ]);
+    const pdfBytes = buildPdf({
+      title: "Signed POD",
+      sections: [
+        { heading: "Delivery", lines: ["steel coils"] },
+        { heading: "Confirmation", image: { jpegBytes: sig, widthPt: 200, heightPt: 64 }, lines: ["Received by: Sam Receiver"] },
+      ],
+      footer: "f",
+      image: { jpegBytes: media, widthPt: 240, heightPt: 80 },
+    });
+    const pdf = dec(pdfBytes);
+    // Both images embedded, each with its own dimensions and name.
+    expect(pdf).toContain("/Width 600 /Height 200");
+    expect(pdf).toContain("/Width 660 /Height 220");
+    expect(pdf).toContain("/Im1");
+    expect(pdf).toContain("/Im2");
+    expect((pdf.match(/\/Subtype \/Image/g) ?? []).length).toBe(2);
+    // The signature is drawn in the Confirmation section — its Do op
+    // lands after the section heading text in the content stream.
+    const headingAt = pdf.indexOf("(Confirmation)");
+    const sigDrawAt = pdf.indexOf("/Im2 Do");
+    expect(headingAt).toBeGreaterThan(0);
+    expect(sigDrawAt).toBeGreaterThan(headingAt);
+    // xref offsets still point at their objects with images riding.
+    const startxref = Number(pdf.match(/startxref\n(\d+)/)?.[1]);
+    expect(pdf.slice(startxref, startxref + 4)).toBe("xref");
+    const firstEntry = pdf.slice(startxref).match(/\n(\d{10}) 00000 n /)?.[1];
+    expect(Number(firstEntry)).toBe(pdf.indexOf("1 0 obj"));
+    // Deterministic with images too.
+    const again = buildPdf({
+      title: "Signed POD",
+      sections: [
+        { heading: "Delivery", lines: ["steel coils"] },
+        { heading: "Confirmation", image: { jpegBytes: sig, widthPt: 200, heightPt: 64 }, lines: ["Received by: Sam Receiver"] },
+      ],
+      footer: "f",
+      image: { jpegBytes: media, widthPt: 240, heightPt: 80 },
+    });
+    expect(Buffer.from(again).equals(Buffer.from(pdfBytes))).toBe(true);
+  });
 });

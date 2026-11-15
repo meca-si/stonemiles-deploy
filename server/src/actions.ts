@@ -2847,6 +2847,13 @@ export interface DeliveryConfirmation {
   docMime: string | null;
   docSha256: string | null;
   sealHash: string | null;
+  /** How the receiver signed (receive-link closes only; null on
+   *  confirmations sealed before the signature pad existed and on
+   *  the other close paths, whose payloads are unchanged). */
+  signatureMethod: string | null;
+  signatureBlobKey: string | null;
+  signatureMime: string | null;
+  signatureSha256: string | null;
 }
 
 /** The standing delivery confirmation for a load: the first
@@ -2867,16 +2874,20 @@ async function deliveryConfirmationFor(ctx: Ctx, loadId: number): Promise<Delive
       const p = JSON.parse(r.payload) as Record<string, unknown>;
       return {
         path: typeof p.path === "string" ? p.path : "receive_link",
-        receiverName: typeof p.receiverName === "string" ? p.receiverName : null,
+        receiverName: typeof p.receiverName === "string" && p.receiverName ? p.receiverName : null,
         exceptionNotes: typeof p.exceptionNotes === "string" ? p.exceptionNotes : null,
         at: typeof p.at === "string" ? p.at : null,
         docBlobKey: typeof p.docBlobKey === "string" ? p.docBlobKey : null,
         docMime: typeof p.docMime === "string" ? p.docMime : null,
         docSha256: typeof p.docSha256 === "string" ? p.docSha256 : null,
         sealHash,
+        signatureMethod: typeof p.signatureMethod === "string" ? p.signatureMethod : null,
+        signatureBlobKey: typeof p.signatureBlobKey === "string" ? p.signatureBlobKey : null,
+        signatureMime: typeof p.signatureMime === "string" ? p.signatureMime : null,
+        signatureSha256: typeof p.signatureSha256 === "string" ? p.signatureSha256 : null,
       };
     } catch {
-      return { path: "receive_link", receiverName: null, exceptionNotes: null, at: null, docBlobKey: null, docMime: null, docSha256: null, sealHash };
+      return { path: "receive_link", receiverName: null, exceptionNotes: null, at: null, docBlobKey: null, docMime: null, docSha256: null, sealHash, signatureMethod: null, signatureBlobKey: null, signatureMime: null, signatureSha256: null };
     }
   }
   if (sealHash) {
@@ -2890,9 +2901,29 @@ async function deliveryConfirmationFor(ctx: Ctx, loadId: number): Promise<Delive
       if (typeof p.exceptionNotes === "string") exceptionNotes = p.exceptionNotes;
       if (typeof p.at === "string") at = p.at;
     } catch { /* a bare seal is still a confirmation */ }
-    return { path: "driver_pod", receiverName, exceptionNotes, at, docBlobKey: null, docMime: null, docSha256: null, sealHash };
+    return { path: "driver_pod", receiverName, exceptionNotes, at, docBlobKey: null, docMime: null, docSha256: null, sealHash, signatureMethod: null, signatureBlobKey: null, signatureMime: null, signatureSha256: null };
   }
   return null;
+}
+
+/** Validate a drawn-signature upload from the public receive page.
+ *  The pad exports JPEG (white-filled canvas, like the driver's
+ *  phone pad); the type is SNIFFED from the bytes — the client's
+ *  claimed mime is never trusted — and the size is bounded both
+ *  ways. Returns the decoded bytes, or null when what arrived is
+ *  not a real JPEG signature image. */
+const SIGNATURE_MAX_BYTES = 1_500_000;
+function decodeSignatureImage(base64: string): { bytes: Uint8Array; mime: "image/jpeg" } | null {
+  let bytes: Uint8Array;
+  try {
+    bytes = base64ToBytes(base64);
+  } catch {
+    return null;
+  }
+  if (bytes.length < 32 || bytes.length > SIGNATURE_MAX_BYTES) return null;
+  if (bytes[0] !== 0xff || bytes[1] !== 0xd8) return null; // JPEG SOI, sniffed
+  if (!jpegDimensions(bytes)) return null; // a real frame header, not just a magic prefix
+  return { bytes, mime: "image/jpeg" };
 }
 
 /** The one completion path for every close: writes delivery_confirmed
@@ -2908,6 +2939,12 @@ async function completeDeliveryConfirmation(
     exceptionNotes: string | null;
     doc: { base64: string; mime: string } | null;
     actorUsername: string;
+    /** Receive-link signature pad (2026-11-15): the receiver's drawn
+     *  signature image (already validated by decodeSignatureImage)
+     *  + how they signed. Only the receive-link caller passes these;
+     *  other paths' payloads stay byte-identical to before. */
+    signature?: { base64: string; mime: string } | null;
+    signatureMethod?: "drawn" | "typed" | null;
   },
 ): Promise<{ already: boolean; sealHash: string | null }> {
   const { load } = opts;
@@ -2922,6 +2959,22 @@ async function completeDeliveryConfirmation(
     docBlobKey = `delivery-doc-${load.id}-${docSha256.slice(0, 16)}`;
     await ctx.blobs.put(docBlobKey, bytes, { contentType: opts.doc.mime });
   }
+  // The drawn signature is its own blob (never the doc slot — a
+  // receiver can attach a dock photo AND draw). It stays private in
+  // the blob store; the signed POD PDF is built server-side from it.
+  let signatureBlobKey: string | null = null;
+  let signatureSha256: string | null = null;
+  let signatureMime: string | null = null;
+  if (opts.signature) {
+    const bytes = base64ToBytes(opts.signature.base64);
+    signatureSha256 = await sha256Bytes(new Uint8Array(bytes));
+    signatureBlobKey = `delivery-signature-${load.id}-${signatureSha256.slice(0, 16)}`;
+    signatureMime = opts.signature.mime;
+    await ctx.blobs.put(signatureBlobKey, bytes, { contentType: opts.signature.mime });
+  }
+  // A drawn signature can stand alone (no typed name): the sealed
+  // record then carries a null name, never an empty string.
+  const sealedReceiverName = opts.receiverName.trim() ? opts.receiverName : null;
   await appendChain(ctx, {
     refKind: "load",
     refId: load.id,
@@ -2930,11 +2983,19 @@ async function completeDeliveryConfirmation(
     payload: {
       loadId: load.id,
       path: opts.path,
-      receiverName: opts.receiverName,
+      receiverName: sealedReceiverName,
       exceptionNotes: opts.exceptionNotes,
       docBlobKey,
       docMime: opts.doc?.mime ?? null,
       docSha256,
+      ...(opts.signatureMethod !== undefined
+        ? {
+            signatureMethod: opts.signatureMethod,
+            signatureBlobKey,
+            signatureMime,
+            signatureSha256,
+          }
+        : {}),
       at: at.toISOString(),
     },
   });
@@ -3017,8 +3078,9 @@ async function completeDeliveryConfirmation(
       attachmentBase64: opts.doc?.base64 ?? null,
       attachmentFilename: opts.doc ? `pod-load-${load.id}${opts.doc.mime === "image/png" ? ".png" : ".jpg"}` : null,
       summaryLines: [
-        `Received by: ${opts.receiverName}`,
+        `Received by: ${sealedReceiverName ?? "(drawn signature on file)"}`,
         `Close path: ${deliveryPathLabel(opts.path)}`,
+        ...(opts.signatureMethod === "drawn" ? ["Signature: drawn signature (image in the signed POD)"] : []),
         ...(opts.exceptionNotes ? [`⚠ EXCEPTIONS REPORTED: ${opts.exceptionNotes}`] : []),
       ],
     });
@@ -4062,6 +4124,20 @@ async function buildSignedPodPdf(
       image = { jpegBytes: got.bytes, widthPt, heightPt };
     }
   }
+  // The drawn signature (receive-link pad) renders in the signature
+  // position: inside the Confirmation section, above the printed
+  // receiver name. Read server-side from the private blob store —
+  // never from a public URL.
+  let signatureImage: { jpegBytes: Uint8Array; widthPt: number; heightPt: number } | null = null;
+  if (confirmation.signatureBlobKey && confirmation.signatureMime === "image/jpeg") {
+    const got = await readBlobBytes(ctx, confirmation.signatureBlobKey);
+    if (got) {
+      const dims = jpegDimensions(got.bytes);
+      const widthPt = 200;
+      const heightPt = dims ? Math.min(64, Math.round((widthPt * dims.height) / Math.max(1, dims.width))) : 48;
+      signatureImage = { jpegBytes: got.bytes, widthPt, heightPt };
+    }
+  }
   const bytes = buildPdf({
     title,
     subtitle: `${lane(load.pickupCity, load.pickupState) || "Pickup"} → ${lane(load.deliveryCity, load.deliveryState) || "Delivery"}${load.shipper ? ` · Shipper: ${load.shipper}` : ""}`,
@@ -4078,12 +4154,15 @@ async function buildSignedPodPdf(
       },
       {
         heading: "Confirmation",
+        image: signatureImage,
         lines: [
-          `Received by: ${confirmation.receiverName ?? "(name on the sealed record)"}`,
+          `Received by: ${confirmation.receiverName ?? (confirmation.signatureMethod === "drawn" ? "(drawn signature above)" : "(name on the sealed record)")}`,
+          ...(confirmation.signatureMethod === "drawn" ? ["Signature: drawn on the delivery link."] : []),
           `How it closed: ${deliveryPathLabel(confirmation.path)}`,
           ...(confirmation.at ? [`Confirmed at: ${confirmation.at}`] : []),
           confirmation.exceptionNotes ? `⚠ EXCEPTIONS REPORTED: ${confirmation.exceptionNotes}` : "Exceptions: none reported.",
           ...(confirmation.docSha256 ? [`Confirmation document SHA-256: ${confirmation.docSha256}`] : []),
+          ...(confirmation.signatureSha256 ? [`Signature image SHA-256: ${confirmation.signatureSha256}`] : []),
           ...(confirmation.sealHash ? [`POD seal hash: ${confirmation.sealHash}`] : []),
           "This copy comes from the load's sealed, hash-chained record.",
         ],
@@ -27544,9 +27623,10 @@ export const Actions = {
       receiverName: z.string().nullable(),
       confirmedAt: z.string().nullable(),
       exceptionNotes: z.string().nullable(),
+      signatureMethod: z.string().nullable(),
     }),
     async handler(ctx, args) {
-      const invalid = { valid: false, kind: null, canConfirm: false, status: null, shipperName: null, commodity: null, pieces: null, weightText: null, deliveryCity: null, deliveryState: null, deliveryWindow: null, fleetName: null, driverFirstName: null, receiverName: null, confirmedAt: null, exceptionNotes: null };
+      const invalid = { valid: false, kind: null, canConfirm: false, status: null, shipperName: null, commodity: null, pieces: null, weightText: null, deliveryCity: null, deliveryState: null, deliveryWindow: null, fleetName: null, driverFirstName: null, receiverName: null, confirmedAt: null, exceptionNotes: null, signatureMethod: null };
       if (receiveThrottleBlocked(args.token)) return invalid;
       const resolved = await resolveReceiveToken(ctx, args.token);
       if (!resolved) {
@@ -27596,18 +27676,21 @@ export const Actions = {
         receiverName: confirmation?.receiverName ?? null,
         confirmedAt: confirmation?.at ?? null,
         exceptionNotes: confirmation?.exceptionNotes ?? null,
+        signatureMethod: confirmation?.signatureMethod ?? null,
       };
     },
   }),
 
   confirmReceive: defineAction({
-    description: "PUBLIC: the receiver confirms delivery on the receive link (typed name = signature). First close wins.",
+    description: "PUBLIC: the receiver confirms delivery on the receive link — a typed name OR a drawn signature signs it (one of the two is required). First close wins.",
     request: z.object({
       token: z.string().min(8).max(80),
-      receiverName: z.string().min(1).max(120),
+      receiverName: z.string().max(120),
       exceptionNotes: z.string().max(500).nullable().default(null),
       photoDataBase64: z.string().max(8_000_000).nullable().default(null),
       photoMime: z.string().max(60).nullable().default(null),
+      signatureDataBase64: z.string().max(2_800_000).nullable().default(null),
+      signatureMime: z.string().max(60).nullable().default(null),
     }),
     response: z.object({
       ok: z.boolean(),
@@ -27634,13 +27717,28 @@ export const Actions = {
       receiveThrottleOk(args.token);
       let doc: { base64: string; mime: string } | null = null;
       if (args.photoDataBase64 && args.photoMime) doc = { base64: args.photoDataBase64, mime: args.photoMime };
+      // Signature: a typed name signs it (as always), OR a drawn
+      // signature from the pad. A claimed drawing that doesn't
+      // validate as a real JPEG fails closed — the pad only ever
+      // produces valid ones. Neither name nor drawing = no
+      // signature = refused, exactly as an empty name was before.
+      const name = args.receiverName.trim();
+      let signature: { base64: string; mime: string } | null = null;
+      if (args.signatureDataBase64) {
+        const decoded = decodeSignatureImage(args.signatureDataBase64);
+        if (!decoded) return refused;
+        signature = { base64: args.signatureDataBase64, mime: decoded.mime };
+      }
+      if (!name && !signature) return refused;
       const result = await completeDeliveryConfirmation(ctx, {
         load,
         path: "receive_link",
-        receiverName: args.receiverName.trim(),
+        receiverName: name,
         exceptionNotes: args.exceptionNotes?.trim() ? args.exceptionNotes.trim() : null,
         doc,
         actorUsername: (await driverUsernameForLoad(ctx, load)) ?? "receiver",
+        signature,
+        signatureMethod: signature ? "drawn" : "typed",
       });
       const db = ctx.db<typeof schema>();
       await db.update(schema.receiveLinks).set({ status: "used" }).where(eq(schema.receiveLinks.id, link.id));

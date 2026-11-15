@@ -27,6 +27,11 @@
   }
   button.secondary { background:#16223f; color:#c6d2e8; }
   button:disabled { opacity:.55; cursor:default; }
+  button.small { width:auto; margin-top:8px; padding:9px 14px; font-size:14px; }
+  canvas.sig {
+    display:block; width:100%; height:auto; box-sizing:border-box;
+    background:#fff; border:1px solid #26355c; border-radius:10px; touch-action:none;
+  }
   .ok { background:#0d2b1a; border:1px solid #1f5136; border-radius:12px; padding:14px; }
   .warn { background:#2b1d0d; border:1px solid #6b4d1f; border-radius:12px; padding:14px; }
   .err { background:#2b0d0d; border:1px solid #5c1f1f; border-radius:12px; padding:14px; }
@@ -137,7 +142,7 @@ function wireCopyOptions(copyUrl) {
 function receiptView(info, copyUrl) {
   app.innerHTML = `
     <h1>Delivered ✓</h1>
-    <div class="ok"><p style="margin:0;">Received by <strong>${esc(info.receiverName || "the receiver")}</strong>${info.confirmedAt ? ` · ${esc(new Date(info.confirmedAt).toLocaleString())}` : ""}. This confirmation is sealed in the load's record — the link is now a receipt and can't be changed.</p></div>
+    <div class="ok"><p style="margin:0;">Received by <strong>${esc(info.receiverName || "the receiver")}</strong>${info.confirmedAt ? ` · ${esc(new Date(info.confirmedAt).toLocaleString())}` : ""}.${info.signatureMethod === "drawn" ? " Signed with a drawn signature." : ""} This confirmation is sealed in the load's record — the link is now a receipt and can't be changed.</p></div>
     ${info.exceptionNotes ? `<div class="warn" style="margin-top:12px;"><p style="margin:0;">⚠ Exceptions reported: ${esc(info.exceptionNotes)}</p></div>` : ""}
     <h2>Delivery</h2>
     ${deliveryCard(info)}
@@ -148,16 +153,69 @@ function receiptView(info, copyUrl) {
 function confirmView(info) {
   app.innerHTML = `
     <h1>Confirm your delivery</h1>
-    <p class="dim">Check the load, then sign with your name. No account needed.</p>
+    <p class="dim">Check the load, then sign — type your name or draw your signature. Either one signs this delivery. No account needed.</p>
     ${deliveryCard(info)}
-    <label for="name">Your name (this is your signature)</label>
+    <label for="name">Your name (printed)</label>
     <input type="text" id="name" placeholder="Printed name" autocomplete="name" />
+    <label for="sigPad">Draw your signature (optional if you typed your name)</label>
+    <canvas id="sigPad" class="sig" width="660" height="220"></canvas>
+    <button class="secondary small" id="sigClear" type="button">Clear signature</button>
     <label for="notes">Exceptions — damage or shortage (optional)</label>
     <textarea id="notes" rows="2" placeholder="Leave blank if everything arrived clean"></textarea>
     <label for="photo">Dock photo (optional)</label>
     <input type="file" id="photo" accept="image/*" />
     <button id="confirmBtn">Confirm received</button>
     <p class="dim" id="msg"></p>`;
+  // Signature pad: white-filled canvas (so the JPEG export has no
+  // transparency), pointer drawing for finger / stylus / mouse.
+  const pad = document.getElementById("sigPad");
+  const pctx = pad.getContext("2d");
+  let sigDrawn = false;
+  let drawing = false;
+  let last = null;
+  function blankPad() {
+    pctx.fillStyle = "#ffffff";
+    pctx.fillRect(0, 0, pad.width, pad.height);
+    sigDrawn = false;
+    last = null;
+  }
+  blankPad();
+  function padPoint(e) {
+    const rect = pad.getBoundingClientRect();
+    return {
+      x: ((e.clientX - rect.left) / rect.width) * pad.width,
+      y: ((e.clientY - rect.top) / rect.height) * pad.height,
+    };
+  }
+  pad.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    drawing = true;
+    try { pad.setPointerCapture(e.pointerId); } catch { /* older browsers */ }
+    last = padPoint(e);
+    pctx.fillStyle = "#111111";
+    pctx.beginPath();
+    pctx.arc(last.x, last.y, 2.2, 0, Math.PI * 2);
+    pctx.fill();
+    sigDrawn = true;
+  });
+  pad.addEventListener("pointermove", (e) => {
+    if (!drawing || !last) return;
+    const p = padPoint(e);
+    pctx.strokeStyle = "#111111";
+    pctx.lineWidth = 4.4;
+    pctx.lineCap = "round";
+    pctx.lineJoin = "round";
+    pctx.beginPath();
+    pctx.moveTo(last.x, last.y);
+    pctx.lineTo(p.x, p.y);
+    pctx.stroke();
+    last = p;
+    sigDrawn = true;
+  });
+  const endStroke = () => { drawing = false; last = null; };
+  pad.addEventListener("pointerup", endStroke);
+  pad.addEventListener("pointercancel", endStroke);
+  document.getElementById("sigClear").addEventListener("click", () => blankPad());
   document.getElementById("photo").addEventListener("change", (e) => {
     const f = e.target.files && e.target.files[0];
     if (!f) { photo = null; return; }
@@ -172,16 +230,19 @@ function confirmView(info) {
     const name = document.getElementById("name").value.trim();
     const notes = document.getElementById("notes").value.trim();
     const msg = document.getElementById("msg");
-    if (!name) { msg.textContent = "Type your name — that's your signature on this delivery."; return; }
+    if (!name && !sigDrawn) { msg.textContent = "Type your name or draw your signature — one of them signs this delivery."; return; }
     const btn = document.getElementById("confirmBtn");
     btn.disabled = true; msg.textContent = "Sealing your confirmation…";
     try {
+      const sigUrl = sigDrawn ? pad.toDataURL("image/jpeg", 0.9) : "";
       const r = await call("confirmReceive", {
         token,
         receiverName: name,
         exceptionNotes: notes || null,
         photoDataBase64: photo ? photo.dataBase64 : null,
         photoMime: photo ? photo.mime : null,
+        signatureDataBase64: sigDrawn ? sigUrl.slice(sigUrl.indexOf(",") + 1) : null,
+        signatureMime: sigDrawn ? "image/jpeg" : null,
       });
       if (!r || !r.ok) { msg.textContent = "This link isn't valid for confirming a delivery."; btn.disabled = false; return; }
       const fresh = await call("getReceiveInfo", { token });
