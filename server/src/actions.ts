@@ -153,6 +153,19 @@ onTimeBlockAwards,
 type SealedLoadTiming,
 } from "./pointsLanes";
 import {
+DETENTION_DEFAULT_GRACE_MINUTES,
+DETENTION_GRACE_MAX_MINUTES,
+DETENTION_GRACE_MIN_MINUTES,
+detentionDelayMs,
+detentionProofText,
+detentionTimes,
+} from "./detention";
+import {
+categoryForDvirItem,
+dvirDraftDescription,
+dvirDraftNotes,
+} from "./dvir";
+import {
 SEASON_EPOCH,
 SEASON_MS,
 pointsBalanceFromLedger,
@@ -2658,16 +2671,32 @@ async function evaluatePointsLanes(ctx: Ctx, me: string): Promise<void> {
   };
 
   // -- Lane 1: on-time streak blocks (+ reversal reconciliation).
+  // On-time fairness (DVIR/detention spec, 2026-11-15): a load held
+  // at the destination dock is not late for the detention span. The
+  // rule stays seal ≤ appointment + 60 min, but the seal is first
+  // reduced by the load's sealed DELIVERY-site detention overlap
+  // with [appointment, seal] (detentionDelayMs in detention.ts) —
+  // only time provably spent detained past the appointment is
+  // excused, nothing else about the rule changes.
+  const detentionRows = await db.select().from(schema.detentionRecords);
+  const detentionByLoad = new Map<number, { arrivedMs: number; departedMs: number }[]>();
+  for (const r of detentionRows) {
+    if (r.loadId == null || r.site !== "delivery" || r.departedAt == null) continue;
+    const list = detentionByLoad.get(r.loadId) ?? [];
+    list.push({ arrivedMs: r.arrivedAt.getTime(), departedMs: r.departedAt.getTime() });
+    detentionByLoad.set(r.loadId, list);
+  }
   const timings: SealedLoadTiming[] = [];
   for (const [loadId, ms] of sealMs) {
     const load = loadById.get(loadId);
     if (!load) continue;
     const apptMs = apptOf(load);
+    const delayMs = apptMs != null ? detentionDelayMs(detentionByLoad.get(loadId) ?? [], apptMs, ms) : 0;
     timings.push({
       loadId,
       sealMs: ms,
       apptMs,
-      onTime: apptMs != null && ms <= apptMs + 60 * 60000,
+      onTime: apptMs != null && ms - delayMs <= apptMs + 60 * 60000,
     });
   }
   const blocks = onTimeBlockAwards(timings);
@@ -7306,6 +7335,11 @@ const maintenanceLogEntryShape = z.object({
   nextDueMiles: z.number().nullable(),
   nextDueAt: z.string().nullable(),
   notes: z.string().nullable(),
+  // Workflow state (migration 0122): logged | draft (auto-created
+  // from a DVIR defect, awaiting the driver's confirm) | closed.
+  status: z.string(),
+  // The signed DVIR this entry was drafted from, when it was.
+  dvirId: z.number().nullable(),
   attachments: z.array(maintenanceLogAttachmentShape),
   createdAt: z.string(),
 });
@@ -41939,6 +41973,8 @@ export const Actions = {
         list.push({ id: a.id, label: a.label, mime: a.mime, hasFile: a.blobKey != null, createdAt: a.createdAt.toISOString() });
         byEntry.set(a.entryId, list);
       }
+      const dvirLinks = await db.select().from(schema.dvirDefectLinks);
+      const dvirByEntry = new Map(dvirLinks.map((l) => [l.maintenanceEntryId, l.dvirId]));
       const totalCost = Math.round(rows.reduce((s, r) => s + (r.cost || 0), 0) * 100) / 100;
       const prof = await db.select().from(schema.profile).where(eq(schema.profile.id, myProfileId(ctx))).limit(1);
       const p = prof[0];
@@ -41954,6 +41990,8 @@ export const Actions = {
           nextDueMiles: r.nextDueMiles ?? null,
           nextDueAt: r.nextDueAt ? r.nextDueAt.toISOString() : null,
           notes: r.notes ?? null,
+          status: r.status ?? "logged",
+          dvirId: dvirByEntry.get(r.id) ?? null,
           attachments: byEntry.get(r.id) ?? [],
           createdAt: r.createdAt.toISOString(),
         })),
@@ -42011,7 +42049,11 @@ export const Actions = {
       if (args.id != null) {
         const existing = await db.select().from(schema.maintenanceLogEntries).where(eq(schema.maintenanceLogEntries.id, args.id)).limit(1);
         if (!existing[0]) throw new Error("saveMaintenanceLogEntry: no such entry");
-        await db.update(schema.maintenanceLogEntries).set(values).where(eq(schema.maintenanceLogEntries.id, args.id));
+        // Confirming a DVIR draft: saving an edit on a draft entry is
+        // the driver's confirm — it becomes a normal logged entry.
+        // A closed entry stays closed when its details are edited.
+        const status = existing[0].status === "draft" ? "logged" : existing[0].status;
+        await db.update(schema.maintenanceLogEntries).set({ ...values, status }).where(eq(schema.maintenanceLogEntries.id, args.id));
       } else {
         const ins = await db.insert(schema.maintenanceLogEntries).values(values).returning({ id: schema.maintenanceLogEntries.id });
         const row = ins[0];
@@ -42055,6 +42097,31 @@ export const Actions = {
           payload: { entryId: args.id, category: row.category, cost: row.cost, at: new Date().toISOString() },
         });
       }
+      ctx.invalidateQueries();
+      return { ok: true };
+    },
+  }),
+
+  setMaintenanceLogEntryStatus: defineAction({
+    description: "Set a maintenance log entry's workflow status — close it when the work is done (closing a DVIR draft clears its open defect), or reopen it.",
+    request: z.object({
+      id: z.number().int().positive(),
+      status: z.enum(["logged", "closed"]),
+    }),
+    response: z.object({ ok: z.literal(true) }),
+    async handler(ctx, args): Promise<{ ok: true }> {
+      const db = ctx.db<typeof schema>();
+      const rows = await db.select().from(schema.maintenanceLogEntries).where(eq(schema.maintenanceLogEntries.id, args.id)).limit(1);
+      const row = rows[0];
+      if (!row) throw new Error("setMaintenanceLogEntryStatus: no such entry");
+      await db.update(schema.maintenanceLogEntries).set({ status: args.status, updatedAt: new Date() }).where(eq(schema.maintenanceLogEntries.id, args.id));
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "maintenance_log_entry_status",
+        payload: { entryId: args.id, from: row.status, to: args.status, at: new Date().toISOString() },
+      });
       ctx.invalidateQueries();
       return { ok: true };
     },
@@ -42133,6 +42200,222 @@ export const Actions = {
       if (!row?.blobKey) return { url: null, mime: null };
       const url = await ctx.blobs.getUrl(row.blobKey);
       return { url, mime: row.mime };
+    },
+  }),
+
+  // ---- Detention timer (migration 0122, detention.ts) ---------------
+  // The sealed dock clock. ARRIVE opens a record (appointment + grace
+  // snapshotted from the load / the driver's agreement), DONE closes
+  // and seals it into the same chain every other record uses. The
+  // record proves TIME only — no rate or money exists on it anywhere;
+  // getDetentionProof renders the shareable copy (times + place).
+  // Arrival/departure also append the chain events Facility Memory
+  // and the co-pilot already read, so those surfaces keep working.
+
+  startDetention: defineAction({
+    description: "Start the detention clock — tap on arrival at a dock or stop. Snapshots the appointment and grace period; seals an arrival event.",
+    request: z.object({
+      loadId: z.number().int().positive().nullable(),
+      site: z.enum(["pickup", "delivery", "stop"]),
+      placeLabel: z.string().max(160).nullable(),
+      graceMinutes: z.number().int().min(DETENTION_GRACE_MIN_MINUTES).max(DETENTION_GRACE_MAX_MINUTES).nullable(),
+      apptAt: z.string().max(40).nullable(),
+      lat: z.number().min(-90).max(90).nullable(),
+      lon: z.number().min(-180).max(180).nullable(),
+    }),
+    response: z.object({
+      id: z.number(),
+      alreadyOpen: z.boolean(),
+      apptAt: z.string().nullable(),
+      graceMinutes: z.number(),
+    }),
+    async handler(ctx, args): Promise<{ id: number; alreadyOpen: boolean; apptAt: string | null; graceMinutes: number }> {
+      const db = ctx.db<typeof schema>();
+      let load: LoadRow | undefined;
+      if (args.loadId != null) {
+        const rows = await db.select().from(schema.loads).where(eq(schema.loads.id, args.loadId)).limit(1);
+        load = rows[0];
+        if (!load) throw new Error("startDetention: that load doesn't exist — it may have been deleted.");
+      }
+      // One open clock per load + site (or per standalone site): a
+      // second ARRIVE tap returns the running clock, never a twin.
+      const open = await db.select().from(schema.detentionRecords);
+      const existing = open.find((r) => r.departedAt == null && r.site === args.site && (args.loadId != null ? r.loadId === args.loadId : r.loadId == null));
+      if (existing) {
+        return { id: existing.id, alreadyOpen: true, apptAt: existing.apptAt ? existing.apptAt.toISOString() : null, graceMinutes: existing.graceMinutes };
+      }
+      // Appointment snapshot: the driver's explicit value wins; else
+      // the load's appointment, read the same way the Lane 1
+      // evaluator reads it (delivery text, then the dock stamp; the
+      // pickup text on the pickup side).
+      let apptAt: Date | null = null;
+      if (args.apptAt && Number.isFinite(Date.parse(args.apptAt))) apptAt = new Date(args.apptAt);
+      if (!apptAt && load) {
+        const text = args.site === "pickup" ? load.pickupText : load.deliveryText;
+        if (text) {
+          const parsed = Date.parse(text);
+          if (Number.isFinite(parsed)) apptAt = new Date(parsed);
+        }
+        if (!apptAt && args.site !== "pickup" && load.dockApptAt) apptAt = load.dockApptAt;
+      }
+      const placeLabel = args.placeLabel?.trim()
+        || (load
+          ? (args.site === "pickup"
+              ? [load.pickupCity, load.pickupState].filter(Boolean).join(", ")
+              : [load.deliveryCity, load.deliveryState].filter(Boolean).join(", ")) || `Load #${load.id}`
+          : null);
+      const graceMinutes = args.graceMinutes ?? DETENTION_DEFAULT_GRACE_MINUTES;
+      const now = new Date();
+      const ins = await db
+        .insert(schema.detentionRecords)
+        .values({
+          loadId: args.loadId,
+          site: args.site,
+          placeLabel,
+          apptAt,
+          graceMinutes,
+          arrivedAt: now,
+          departedAt: null,
+          arriveLat: args.lat,
+          arriveLon: args.lon,
+          departLat: null,
+          departLon: null,
+          chainHash: null,
+        })
+        .returning({ id: schema.detentionRecords.id });
+      const row = ins[0];
+      if (!row) throw new Error("startDetention: insert returned no rows");
+      await appendChain(ctx, {
+        refKind: args.loadId != null ? "load" : "driver",
+        refId: args.loadId,
+        sessionId: null,
+        event: "detention_arrival",
+        payload: { detentionId: row.id, site: args.site, place: placeLabel, apptAt: apptAt ? apptAt.toISOString() : null, graceMinutes, lat: args.lat, lon: args.lon, at: now.toISOString() },
+      });
+      ctx.invalidateQueries();
+      return { id: row.id, alreadyOpen: false, apptAt: apptAt ? apptAt.toISOString() : null, graceMinutes };
+    },
+  }),
+
+  endDetention: defineAction({
+    description: "Stop the detention clock — tap when the dock releases you. Seals the visit and computes the wait + time past the free/grace period.",
+    request: z.object({
+      id: z.number().int().positive(),
+      lat: z.number().min(-90).max(90).nullable(),
+      lon: z.number().min(-180).max(180).nullable(),
+    }),
+    response: z.object({
+      id: z.number(),
+      waitMinutes: z.number(),
+      billableMinutes: z.number(),
+      chainHash: z.string().nullable(),
+    }),
+    async handler(ctx, args): Promise<{ id: number; waitMinutes: number; billableMinutes: number; chainHash: string | null }> {
+      const db = ctx.db<typeof schema>();
+      const rows = await db.select().from(schema.detentionRecords).where(eq(schema.detentionRecords.id, args.id)).limit(1);
+      const row = rows[0];
+      if (!row) throw new Error("endDetention: that detention record doesn't exist.");
+      if (row.departedAt != null) {
+        const t = detentionTimes(row.arrivedAt.getTime(), row.departedAt.getTime(), row.graceMinutes);
+        return { id: row.id, waitMinutes: t.waitMinutes ?? 0, billableMinutes: t.billableMinutes ?? 0, chainHash: row.chainHash };
+      }
+      const now = new Date();
+      const t = detentionTimes(row.arrivedAt.getTime(), now.getTime(), row.graceMinutes);
+      const waitMinutes = t.waitMinutes ?? 0;
+      const billableMinutes = t.billableMinutes ?? 0;
+      const hash = await appendChain(ctx, {
+        refKind: row.loadId != null ? "load" : "driver",
+        refId: row.loadId,
+        sessionId: null,
+        event: "detention_departure",
+        payload: { detentionId: row.id, site: row.site, place: row.placeLabel, at: now.toISOString(), waitMinutes, billableMinutes },
+      });
+      await db
+        .update(schema.detentionRecords)
+        .set({ departedAt: now, departLat: args.lat, departLon: args.lon, chainHash: hash, updatedAt: now })
+        .where(eq(schema.detentionRecords.id, args.id));
+      ctx.invalidateQueries();
+      return { id: row.id, waitMinutes, billableMinutes, chainHash: hash };
+    },
+  }),
+
+  listDetention: defineAction({
+    description: "Detention timer records (newest first) with wait + past-free-time totals as TIME, plus the running-clock count. No money anywhere — time only.",
+    request: z.object({ limit: z.number().int().positive().max(100).default(30) }),
+    response: z.object({
+      records: z.array(z.object({
+        id: z.number(),
+        loadId: z.number().nullable(),
+        loadLabel: z.string().nullable(),
+        site: z.string(),
+        placeLabel: z.string().nullable(),
+        apptAt: z.string().nullable(),
+        graceMinutes: z.number(),
+        arrivedAt: z.string(),
+        departedAt: z.string().nullable(),
+        waitMinutes: z.number().nullable(),
+        billableMinutes: z.number().nullable(),
+        chainHash: z.string().nullable(),
+      })),
+      totalBillableMinutes: z.number(),
+      openCount: z.number(),
+    }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const rows = await db.select().from(schema.detentionRecords).orderBy(desc(schema.detentionRecords.id));
+      const loads = await db.select().from(schema.loads);
+      const loadById = new Map(loads.map((l) => [l.id, l]));
+      let totalBillableMinutes = 0;
+      let openCount = 0;
+      const records = rows.map((r) => {
+        const t = detentionTimes(r.arrivedAt.getTime(), r.departedAt ? r.departedAt.getTime() : null, r.graceMinutes);
+        if (r.departedAt == null) openCount++;
+        else totalBillableMinutes += t.billableMinutes ?? 0;
+        const load = r.loadId != null ? loadById.get(r.loadId) : undefined;
+        return {
+          id: r.id,
+          loadId: r.loadId ?? null,
+          loadLabel: load ? `Load #${load.id} · ${[load.pickupCity, load.pickupState].filter(Boolean).join(", ") || "?"} → ${[load.deliveryCity, load.deliveryState].filter(Boolean).join(", ") || "?"}` : null,
+          site: r.site,
+          placeLabel: r.placeLabel ?? null,
+          apptAt: r.apptAt ? r.apptAt.toISOString() : null,
+          graceMinutes: r.graceMinutes,
+          arrivedAt: r.arrivedAt.toISOString(),
+          departedAt: r.departedAt ? r.departedAt.toISOString() : null,
+          waitMinutes: t.waitMinutes,
+          billableMinutes: t.billableMinutes,
+          chainHash: r.chainHash ?? null,
+        };
+      });
+      return { records: records.slice(0, args.limit), totalBillableMinutes, openCount };
+    },
+  }),
+
+  getDetentionProof: defineAction({
+    description: "The shareable detention proof for one sealed visit: appointment, arrival, departure, and the wait — times and place only, never a rate or an amount.",
+    request: z.object({ id: z.number().int().positive() }),
+    response: z.object({ text: z.string(), filename: z.string() }),
+    async handler(ctx, args): Promise<{ text: string; filename: string }> {
+      const db = ctx.db<typeof schema>();
+      const rows = await db.select().from(schema.detentionRecords).where(eq(schema.detentionRecords.id, args.id)).limit(1);
+      const row = rows[0];
+      if (!row) throw new Error("getDetentionProof: that detention record doesn't exist.");
+      if (row.departedAt == null) throw new Error("getDetentionProof: that clock is still running — the proof seals when you tap Done.");
+      const loads = row.loadId != null ? await db.select().from(schema.loads).where(eq(schema.loads.id, row.loadId)).limit(1) : [];
+      const load = loads[0];
+      const place = row.placeLabel
+        || (load ? [load.deliveryCity, load.deliveryState].filter(Boolean).join(", ") : "")
+        || "Stop";
+      const text = detentionProofText({
+        place,
+        site: row.site,
+        apptAtIso: row.apptAt ? row.apptAt.toISOString() : null,
+        arrivedAtIso: row.arrivedAt.toISOString(),
+        departedAtIso: row.departedAt.toISOString(),
+        graceMinutes: row.graceMinutes,
+        chainHash: row.chainHash,
+      });
+      return { text, filename: `stonemiles-detention-${row.id}.txt` };
     },
   }),
 
@@ -42305,6 +42588,45 @@ export const Actions = {
         return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
       };
       const day = (d: Date) => d.toISOString().slice(0, 10);
+      // DVIR history rides the truck record (spec 2026-11-15): the
+      // signed inspections are part of this truck's paper trail.
+      const dvirRows = await db.select().from(schema.dvirReports).orderBy(desc(schema.dvirReports.id));
+      const dvirCsvRows: string[] = [
+        "",
+        "DVIR INSPECTIONS",
+        "Date,Kind,Result,Defects,Odometer (mi),Signed by,Truck,Trailer,Safe to operate",
+        ...dvirRows.map((r) => {
+          let defs: { item: string }[] = [];
+          try { defs = JSON.parse(r.defectsJson) as { item: string }[]; } catch { defs = []; }
+          return [
+            r.inspectedAt.toISOString(),
+            r.kind === "posttrip" ? "Post-trip" : "Pre-trip",
+            r.status === "defects_reported" ? "Defects reported" : "Signed — no defects",
+            defs.map((d) => d.item).join("; "),
+            r.odometer ?? "",
+            r.signedName,
+            r.truckLabel ?? "",
+            r.trailerLabel ?? "",
+            r.safeToOperate == null ? "" : r.safeToOperate ? "Yes" : "No",
+          ].map((v) => q(v as string)).join(",");
+        }),
+      ];
+      const dvirTextLines: string[] = [
+        "",
+        "INSPECTIONS (DVIR)",
+        ...(dvirRows.length > 0
+          ? dvirRows.flatMap((r) => {
+              let defs: { item: string; note: string; critical: boolean }[] = [];
+              try { defs = JSON.parse(r.defectsJson) as typeof defs; } catch { defs = []; }
+              return [
+                `${day(r.inspectedAt)} · ${r.kind === "posttrip" ? "Post-trip" : "Pre-trip"} DVIR · signed ${r.signedName}${r.odometer != null ? ` · odometer ${r.odometer.toLocaleString()} mi` : ""}${r.truckLabel ? ` · ${r.truckLabel}` : ""}`,
+                ...(defs.length > 0
+                  ? defs.map((d) => `  ⚠ ${d.item}${d.critical ? " (safety-critical)" : ""}: ${d.note}`)
+                  : ["  All systems OK"]),
+              ];
+            })
+          : ["  (no DVIR signed yet)"]),
+      ];
       const identityRows: [string, string][] = [
         ["Truck", truckName],
         ["Unit number", p?.truckUnitNumber ?? ""],
@@ -42340,6 +42662,7 @@ export const Actions = {
           ].map((v) => q(v as string)).join(","),
         ),
         ["TOTAL", "", "", `${log.rows.length} log entries`, "", totalCost.toFixed(2), "", "", "", ""].map((v) => q(v)).join(","),
+        ...dvirCsvRows,
       ];
       const textLines: string[] = [
         "STONEMILES — TRUCK RECORD",
@@ -42357,6 +42680,7 @@ export const Actions = {
               ...((attNames.get(r.id) ?? []).length > 0 ? [`  Paperwork: ${(attNames.get(r.id) ?? []).join("; ")} (files stay in the app — download them from the entry)`] : []),
             ])
           : ["  (no maintenance logged yet)"]),
+        ...dvirTextLines,
         "",
         `TOTAL LOGGED COST: $${totalCost.toFixed(2)} across ${log.rows.length} entr${log.rows.length === 1 ? "y" : "ies"}`,
         "The driver's own records, kept in STONEMILES. Receipts and paperwork files are attached to their entries in the app and download from there.",
@@ -42481,34 +42805,116 @@ export const Actions = {
     request: z.object({
       kind: z.enum(["pretrip", "posttrip"]),
       items: z.array(z.object({ item: z.string().max(80), ok: z.boolean() })).max(30),
-      defects: z.array(z.object({ item: z.string().max(80), note: z.string().max(300), critical: z.boolean() })).max(20),
+      defects: z.array(z.object({
+        item: z.string().max(80),
+        note: z.string().max(300),
+        critical: z.boolean(),
+        // DVIR completion (migration 0122): the maintenance category
+        // the defect drafts into (server maps the item label when
+        // absent) and an optional photo of the defect, filed as
+        // paperwork on the drafted entry.
+        category: maintenanceLogCategory.nullable().optional(),
+        photoDataBase64: z.string().max(8_000_000).nullable().optional(),
+        photoMime: z.string().max(100).nullable().optional(),
+      })).max(20),
       signedName: z.string().min(1).max(80),
       odometer: z.number().nonnegative().max(10_000_000).nullable(),
+      // Signing-time facts (migration 0122): GPS where the inspection
+      // happened and the safe-to-operate attestation.
+      lat: z.number().min(-90).max(90).nullable().optional(),
+      lon: z.number().min(-180).max(180).nullable().optional(),
+      safeToOperate: z.boolean().nullable().optional(),
     }),
-    response: z.object({ id: z.number(), criticalDefect: z.boolean() }),
+    response: z.object({ id: z.number(), criticalDefect: z.boolean(), draftEntryIds: z.array(z.number()) }),
     async handler(ctx, args) {
       const db = ctx.db<typeof schema>();
+      // A defect without a note is not a record — the note is what
+      // the shop (and the next driver) acts on.
+      for (const d of args.defects) {
+        if (!d.note.trim()) {
+          throw new Error(`saveDvir: the defect on "${d.item}" needs a note — say what's wrong before signing.`);
+        }
+      }
       const critical = args.defects.some((d) => d.critical);
+      // Identity snapshot: the truck/trailer as recorded in My Truck
+      // / My Trailer RIGHT NOW. The signed record keeps this even if
+      // the profile identity changes later.
+      const prof = await db.select().from(schema.profile).where(eq(schema.profile.id, myProfileId(ctx))).limit(1);
+      const p = prof[0];
+      const truckName = [p?.truckYear ?? null, p?.truckMake ?? null, p?.truckModel ?? null].filter(Boolean).join(" ");
+      const truckLabel = truckName ? (p?.truckUnitNumber ? `${truckName} · Unit ${p.truckUnitNumber}` : truckName) : null;
+      const trailerName = [p?.trailerYear ?? null, p?.trailerMake ?? null].filter(Boolean).join(" ");
+      const trailerTypeLabel = p?.trailerType ? p.trailerType.replace(/_/g, " ") : null;
+      const trailerLabel = [trailerName || null, trailerTypeLabel].filter(Boolean).join(" · ") || null;
+      const safeToOperate = args.safeToOperate ?? !critical;
+      const now = new Date();
       const res = await db
         .insert(schema.dvirReports)
         .values({
-          inspectedAt: new Date(),
+          inspectedAt: now,
           kind: args.kind,
           itemsJson: JSON.stringify(args.items),
-          defectsJson: JSON.stringify(args.defects),
+          defectsJson: JSON.stringify(args.defects.map((d) => ({ item: d.item, note: d.note, critical: d.critical }))),
           signedName: args.signedName,
           status: args.defects.length > 0 ? "defects_reported" : "signed",
           odometer: args.odometer,
+          lat: args.lat ?? null,
+          lon: args.lon ?? null,
+          truckLabel,
+          trailerLabel,
+          safeToOperate,
         })
         .returning({ id: schema.dvirReports.id });
       const row = res[0];
       if (!row) throw new Error("saveDvir: insert returned no rows");
+      // Every defect auto-drafts a maintenance-log entry (status
+      // "draft") in its mapped category — the driver confirms/edits
+      // it in the log, and closing it clears the open defect. A
+      // defect photo files as paperwork on that draft, on the same
+      // blob path as receipts.
+      const draftEntryIds: number[] = [];
+      for (const d of args.defects) {
+        const category = categoryForDvirItem(d.item, d.category ?? null);
+        const ins = await db
+          .insert(schema.maintenanceLogEntries)
+          .values({
+            performedAt: now,
+            odometer: args.odometer,
+            category,
+            description: dvirDraftDescription(d.item),
+            shop: null,
+            cost: 0,
+            nextDueMiles: null,
+            nextDueAt: null,
+            notes: dvirDraftNotes(d.note, row.id, args.kind),
+            status: "draft",
+          })
+          .returning({ id: schema.maintenanceLogEntries.id });
+        const entry = ins[0];
+        if (!entry) continue;
+        draftEntryIds.push(entry.id);
+        await db.insert(schema.dvirDefectLinks).values({
+          dvirId: row.id,
+          item: d.item,
+          maintenanceEntryId: entry.id,
+        });
+        if (d.photoDataBase64 && d.photoMime) {
+          const blobKey = `dvir-defect-${row.id}-${entry.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          await ctx.blobs.put(blobKey, base64ToBytes(d.photoDataBase64), { contentType: d.photoMime });
+          await db.insert(schema.maintenanceLogAttachments).values({
+            entryId: entry.id,
+            label: `Defect photo — ${d.item}`,
+            blobKey,
+            mime: d.photoMime,
+          });
+        }
+      }
       await appendChain(ctx, {
         refKind: "driver",
         refId: null,
         sessionId: null,
         event: "dvir_signed",
-        payload: { dvirId: row.id, kind: args.kind, items: args.items.length, defects: args.defects, criticalDefect: critical, signedName: args.signedName, odometer: args.odometer, at: new Date().toISOString() },
+        payload: { dvirId: row.id, kind: args.kind, items: args.items.length, defects: args.defects.map((d) => ({ item: d.item, note: d.note, critical: d.critical })), criticalDefect: critical, signedName: args.signedName, odometer: args.odometer, lat: args.lat ?? null, lon: args.lon ?? null, safeToOperate, truckLabel, trailerLabel, draftEntryIds, at: now.toISOString() },
       });
       // SM Points daily table: a signed PRE-trip DVIR pays the +50
       // "dvir" line; a signed POST-trip DVIR pays the +25
@@ -42524,7 +42930,71 @@ export const Actions = {
         });
       }
       ctx.invalidateQueries();
-      return { id: row.id, criticalDefect: critical };
+      return { id: row.id, criticalDefect: critical, draftEntryIds };
+    },
+  }),
+
+  // Open DVIR defects: every defect from a signed DVIR whose linked
+  // maintenance entry is not closed (a deleted entry leaves the
+  // defect open — the defect was real even if the draft was
+  // discarded). Safety-critical defects sort first, then newest.
+  // The DVIR panel shows these at the top of the next inspection
+  // until the repair is closed in the maintenance log.
+  getOpenDvirDefects: defineAction({
+    description: "Open DVIR defects — signed defects whose maintenance repair is not closed yet.",
+    request: z.object({}),
+    response: z.object({
+      defects: z.array(z.object({
+        linkId: z.number(),
+        dvirId: z.number(),
+        kind: z.string(),
+        at: z.string(),
+        item: z.string(),
+        note: z.string(),
+        critical: z.boolean(),
+        entryId: z.number().nullable(),
+        entryStatus: z.string().nullable(),
+      })),
+    }),
+    async handler(ctx) {
+      const db = ctx.db<typeof schema>();
+      const links = await db.select().from(schema.dvirDefectLinks).orderBy(desc(schema.dvirDefectLinks.id));
+      if (links.length === 0) return { defects: [] };
+      const entries = await db.select().from(schema.maintenanceLogEntries);
+      const entryById = new Map(entries.map((e) => [e.id, e]));
+      const dvirs = await db.select().from(schema.dvirReports);
+      const dvirById = new Map(dvirs.map((d) => [d.id, d]));
+      const out: {
+        linkId: number; dvirId: number; kind: string; at: string; item: string;
+        note: string; critical: boolean; entryId: number | null; entryStatus: string | null;
+      }[] = [];
+      for (const l of links) {
+        const entry = entryById.get(l.maintenanceEntryId);
+        if (entry && entry.status === "closed") continue;
+        const dvir = dvirById.get(l.dvirId);
+        let note = "";
+        let critical = false;
+        if (dvir) {
+          try {
+            const defs = JSON.parse(dvir.defectsJson) as { item: string; note: string; critical: boolean }[];
+            const match = defs.find((d) => d.item === l.item);
+            if (match) { note = match.note; critical = match.critical; }
+          } catch { /* defects json unreadable — the link still proves the defect */ }
+        }
+        out.push({
+          linkId: l.id,
+          dvirId: l.dvirId,
+          kind: dvir?.kind ?? "pretrip",
+          at: (dvir?.inspectedAt ?? l.createdAt).toISOString(),
+          item: l.item,
+          note,
+          critical,
+          entryId: entry ? entry.id : null,
+          entryStatus: entry ? entry.status : null,
+        });
+      }
+      out.sort((a, b) => Number(b.critical) - Number(a.critical) || b.dvirId - a.dvirId);
+      return { defects: out };
     },
   }),
 
@@ -42543,6 +43013,10 @@ export const Actions = {
           signedName: z.string(),
           status: z.string(),
           odometer: z.number().nullable(),
+          truckLabel: z.string().nullable(),
+          trailerLabel: z.string().nullable(),
+          safeToOperate: z.boolean().nullable(),
+          hasLocation: z.boolean(),
         }),
       ),
     }),
@@ -42555,7 +43029,7 @@ export const Actions = {
           try { items = (JSON.parse(r.itemsJson) as unknown[]).length; } catch { items = 0; }
           let defects: { item: string; note: string; critical: boolean }[] = [];
           try { defects = JSON.parse(r.defectsJson) as typeof defects; } catch { defects = []; }
-          return { id: r.id, inspectedAt: r.inspectedAt.toISOString(), kind: r.kind, items, defects, signedName: r.signedName, status: r.status, odometer: r.odometer };
+          return { id: r.id, inspectedAt: r.inspectedAt.toISOString(), kind: r.kind, items, defects, signedName: r.signedName, status: r.status, odometer: r.odometer, truckLabel: r.truckLabel ?? null, trailerLabel: r.trailerLabel ?? null, safeToOperate: r.safeToOperate ?? null, hasLocation: r.lat != null && r.lon != null };
         }),
       };
     },
