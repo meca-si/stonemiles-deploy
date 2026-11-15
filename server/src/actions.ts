@@ -221,6 +221,22 @@ plPeriodRange,
 type PlPeriodKind,
 } from "./invoicing";
 import {
+  buildRecordsBundle,
+  recordsBundleJson,
+  recordsBundleSections,
+  recordsBundleText,
+  recordsExportFilename,
+  type RecordsBundle,
+  type RecordsCredentialDocRow,
+  type RecordsCredentialStatusRow,
+  type RecordsDvirRow,
+  type RecordsHosLogRow,
+  type RecordsIftaQuarter,
+  type RecordsLoadRow,
+  type RecordsMaintenanceRow,
+  type RecordsTruckInfo,
+} from "./recordsExport";
+import {
   cleanStops,
   freshnessFor,
   laneLabel,
@@ -230,6 +246,7 @@ import {
   trackShareStateFor,
   type LatLonLike,
 } from "./fleetVisibility";
+import { buildRecordsBundle, type RecordsBundle } from "./recordsBundle";
 import {
 SEASON_EPOCH,
 SEASON_MS,
@@ -14398,10 +14415,442 @@ function invoicePdfSections(row: InvoiceRow, biz: BusinessIdentity): { heading?:
   ];
 }
 
+// ---- Full records bundle (TMS queue item 5) ---------------------------------
+// The pure rendering lives in recordsBundle.ts; this gatherer reads
+// the caller's OWN rows (every read host-scoped, like getMySettlement)
+// and shapes them for the bundle. The bundle resolves through the
+// Library document doors as ref "records:bundle" — the owner's own
+// export, never a share or public surface.
+
+const BUNDLE_CREDENTIAL_LABELS: Record<string, string> = {
+  cdl: "CDL",
+  medical: "Medical card",
+  insurance: "Insurance",
+  registration: "Registration",
+  ifta_licence: "IFTA licence",
+  other: "Document",
+};
+
+async function recordsBundleForCaller(ctx: Ctx): Promise<RecordsBundle> {
+  const db = ctx.db<typeof schema>();
+  const me = await myUsername(ctx);
+  const profRows = await db.select().from(schema.profile).where(eq(schema.profile.id, myProfileId(ctx))).limit(1);
+  const prof = profRows[0];
+  const pod = await podStatusByLoad(ctx);
+  const walk = await chainWalk(ctx);
+
+  const loadRows = await db.select().from(schema.loads).orderBy(desc(schema.loads.id));
+  const loads = loadRows.map((l) => ({
+    id: l.id,
+    shipper: l.shipper,
+    lane: laneTextOf(l),
+    referenceNumber: l.referenceNumber ?? null,
+    commodity: l.commodity,
+    status: l.status,
+    rate: l.rate,
+    extraCharges: l.extraCharges ?? 0,
+    loadedMiles: l.loadedMiles,
+    sealed: !!pod.get(l.id)?.sealed,
+    deliveredAtIso: pod.get(l.id)?.sealedAt ?? null,
+  }));
+
+  const hosRows = await db
+    .select()
+    .from(schema.dailyLogs)
+    .where(eq(schema.dailyLogs.username, me))
+    .orderBy(desc(schema.dailyLogs.logDate));
+  const hosDays = hosRows.map((d) => {
+    let pretripResult: string | null = null;
+    if (d.pretrip) {
+      try {
+        const p = JSON.parse(d.pretrip) as { result?: unknown };
+        if (typeof p.result === "string") pretripResult = p.result;
+      } catch { /* unparseable pre-trip JSON reads as not recorded */ }
+    }
+    return {
+      logDate: d.logDate,
+      status: d.status,
+      totalMiles: d.totalMiles,
+      loadsDelivered: d.loadsDelivered,
+      pretripResult,
+      criticalDefect: !!d.criticalDefect,
+    };
+  });
+
+  const dvirRows = await db.select().from(schema.dvirReports).orderBy(desc(schema.dvirReports.inspectedAt));
+  const dvirs = dvirRows.map((r) => {
+    let defectCount = 0;
+    try {
+      const parsed = JSON.parse(r.defectsJson) as unknown;
+      if (Array.isArray(parsed)) defectCount = parsed.length;
+    } catch { /* a broken defects payload counts as none listed */ }
+    return {
+      inspectedAtIso: r.inspectedAt.toISOString(),
+      kind: r.kind,
+      status: r.status,
+      defectCount,
+      odometer: r.odometer,
+      truckLabel: r.truckLabel,
+      trailerLabel: r.trailerLabel,
+      signedName: r.signedName,
+    };
+  });
+
+  const maintRows = await db.select().from(schema.maintenanceLogEntries).orderBy(desc(schema.maintenanceLogEntries.performedAt));
+  const maintenance = maintRows.map((m) => ({
+    performedAtIso: m.performedAt.toISOString(),
+    category: m.category,
+    description: m.description,
+    shop: m.shop,
+    cost: m.cost ?? 0,
+    odometer: m.odometer,
+    status: m.status,
+  }));
+
+  const truck = prof
+    ? {
+        truckYear: prof.truckYear,
+        truckMake: prof.truckMake,
+        truckModel: prof.truckModel,
+        truckUnitNumber: prof.truckUnitNumber,
+        truckVin: prof.truckVin,
+        truckPlate: prof.truckPlate,
+        truckEngine: prof.truckEngine,
+        truckTransmission: prof.truckTransmission,
+        heightFt: prof.heightFt,
+        heightIn: prof.heightIn,
+        weightLbs: prof.weightLbs,
+        lengthFt: prof.lengthFt,
+        trailerYear: prof.trailerYear,
+        trailerMake: prof.trailerMake,
+        trailerModel: prof.trailerModel,
+        trailerType: prof.trailerType,
+        trailerVin: prof.trailerVin,
+        trailerPlate: prof.trailerPlate,
+      }
+    : null;
+
+  const year = new Date().getUTCFullYear();
+  const agg = await iftaAggregates(ctx, Date.UTC(year, 0, 1), Date.UTC(year + 1, 0, 1));
+  const iftaStates = [...new Set([...agg.milesByState.keys(), ...agg.fuelByState.keys()])].sort();
+  const ifta = {
+    year,
+    rows: iftaStates.map((state) => ({
+      state,
+      miles: agg.milesByState.get(state) ?? 0,
+      gallonsBought: agg.fuelByState.get(state) ?? 0,
+    })),
+    totalMiles: agg.totalMiles,
+    totalGallons: agg.totalGallons,
+  };
+
+  const docRows = await db.select().from(schema.personalDocs).orderBy(asc(schema.personalDocs.id));
+  const credentials = docRows.map((d) => ({
+    label: BUNDLE_CREDENTIAL_LABELS[d.kind] ?? "Document",
+    detail: d.label && d.label !== (BUNDLE_CREDENTIAL_LABELS[d.kind] ?? "") ? d.label : null,
+    expiresIso: d.expiresAt ? d.expiresAt.toISOString() : null,
+    last4: d.docNumberLast4,
+  }));
+  // TWIC lives on the social profile row (the same store the
+  // credential alerts read), not the main profile row.
+  const socialRows = await db.select().from(schema.socialUsers).where(eq(schema.socialUsers.username, me)).limit(1);
+  const social = socialRows[0];
+  if (social?.twicHas) {
+    credentials.push({
+      label: "TWIC",
+      detail: null,
+      expiresIso: social.twicExpires ? `${social.twicExpires}T00:00:00.000Z` : null,
+      last4: null,
+    });
+  }
+
+  return buildRecordsBundle({
+    driverLabel: prof?.chatName ? `${prof.chatName} (@${me})` : `@${me}`,
+    generatedAtIso: new Date().toISOString(),
+    chainHead: walk.headHash,
+    chainIntact: walk.intact,
+    chainChecked: walk.checked,
+    loads,
+    hosDays,
+    dvirs,
+    maintenance,
+    truck,
+    ifta,
+    credentials,
+  });
+}
+
+/** Gather the caller's OWN records into the full-records-export
+ *  bundle (TMS queue item 5, recordsExport.ts). Every read is the
+ *  caller's own: the host-scoped record tables (loads, DVIRs,
+ *  maintenance — the getMySettlement rule), the caller's daily
+ *  logs by username, the caller's credential statuses and vault
+ *  metadata. Used by exportMyRecords and by the Library filing
+ *  door, which regenerates the same bundle from the caller's rows
+ *  on every read — so a filing ref can never reach another
+ *  driver's records. */
+async function gatherRecordsBundle(ctx: Ctx): Promise<RecordsBundle> {
+  const db = ctx.db<typeof schema>();
+  const me = await myUsername(ctx);
+  const profRows = await db.select().from(schema.profile).where(eq(schema.profile.id, myProfileId(ctx))).limit(1);
+  const p = profRows[0];
+  const email = viewerOf(ctx)?.email ?? (await accountEmailFor(ctx, me));
+  const pod = await podStatusByLoad(ctx);
+
+  const loadRows = await db.select().from(schema.loads).orderBy(asc(schema.loads.id));
+  const loads: RecordsLoadRow[] = loadRows.map((l) => {
+    const info = pod.get(l.id);
+    return {
+      id: l.id,
+      lane: laneTextOf(l),
+      shipper: l.shipper ?? null,
+      referenceNumber: l.referenceNumber ?? null,
+      status: l.status,
+      commodity: l.commodity ?? null,
+      hazmat: l.hazmat,
+      rate: l.rate ?? null,
+      extraCharges: l.extraCharges ?? 0,
+      totalWithExtras: l.rate != null ? Math.round((l.rate + (l.extraCharges ?? 0)) * 100) / 100 : null,
+      loadedMiles: l.loadedMiles ?? null,
+      deadheadMiles: l.deadheadMiles ?? null,
+      weightLbs: l.weightLbs ?? null,
+      pickupText: l.pickupText ?? null,
+      deliveryText: l.deliveryText ?? null,
+      createdAtIso: l.createdAt.toISOString(),
+      delivered: !!info?.sealed,
+      deliveredAtIso: info?.sealed ? info.sealedAt : null,
+      sealHash: info?.sealed ? info.sealHash : null,
+      sealGrade: info?.sealed ? info.grade : null,
+      docSha256: l.docSha256 ?? null,
+    };
+  });
+
+  const parseSnap = (s: string | null): unknown => {
+    if (!s) return null;
+    try {
+      return JSON.parse(s) as unknown;
+    } catch {
+      return s;
+    }
+  };
+  const hosRows = await db
+    .select()
+    .from(schema.dailyLogs)
+    .where(eq(schema.dailyLogs.username, me))
+    .orderBy(asc(schema.dailyLogs.id));
+  const hosLogs: RecordsHosLogRow[] = hosRows.map((l) => {
+    let pretripSummary: string | null = null;
+    if (l.pretrip) {
+      try {
+        const pr = JSON.parse(l.pretrip) as { result?: string; defects?: { item: string }[] };
+        const defs = (pr.defects ?? []).map((d) => d.item).filter(Boolean);
+        pretripSummary = defs.length ? `Defects: ${defs.join("; ")}` : (pr.result ?? "Recorded");
+      } catch {
+        pretripSummary = "Recorded";
+      }
+    }
+    return {
+      id: l.id,
+      logDate: l.logDate,
+      status: l.status,
+      openedAtIso: l.openedAt.toISOString(),
+      closedAtIso: l.closedAt?.toISOString() ?? null,
+      startMiles: l.startMiles ?? null,
+      startMilesSource: l.startMilesSource ?? null,
+      finishMiles: l.finishMiles ?? null,
+      totalMiles: l.totalMiles ?? null,
+      fuelStart: l.fuelStart ?? null,
+      fuelUsage: l.fuelUsage ?? null,
+      hosStart: parseSnap(l.hosStart),
+      hosEnd: parseSnap(l.hosEnd),
+      pretripSummary,
+      loadsDelivered: l.loadsDelivered,
+      detentionText: l.detentionText ?? null,
+      criticalDefect: l.criticalDefect,
+    };
+  });
+
+  const dvirRows = await db.select().from(schema.dvirReports).orderBy(asc(schema.dvirReports.id));
+  const dvirReports: RecordsDvirRow[] = dvirRows.map((r) => {
+    let defects: { item: string; note: string; critical: boolean }[] = [];
+    try {
+      const parsed = JSON.parse(r.defectsJson) as { item?: unknown; note?: unknown; critical?: unknown }[];
+      if (Array.isArray(parsed)) {
+        defects = parsed
+          .filter((d) => typeof d?.item === "string")
+          .map((d) => ({ item: d.item as string, note: typeof d.note === "string" ? d.note : "", critical: d.critical === true }));
+      }
+    } catch {
+      /* defects stay empty — the signed status still exports */
+    }
+    return {
+      id: r.id,
+      inspectedAtIso: r.inspectedAt.toISOString(),
+      kind: r.kind,
+      status: r.status,
+      signedName: r.signedName,
+      odometer: r.odometer ?? null,
+      truckLabel: r.truckLabel ?? null,
+      trailerLabel: r.trailerLabel ?? null,
+      safeToOperate: r.safeToOperate ?? null,
+      defects,
+    };
+  });
+
+  const maintCatLabel = (k: string) =>
+    k === "oil"
+      ? "Oil & filters"
+      : k === "tires"
+        ? "Tires"
+        : k === "brakes"
+          ? "Brakes"
+          : k === "dot_inspection"
+            ? "Annual DOT inspection"
+            : k === "engine"
+              ? "Engine"
+              : k === "transmission"
+                ? "Transmission"
+                : k === "suspension"
+                  ? "Suspension & steering"
+                  : k === "electrical"
+                    ? "Electrical"
+                    : k === "ac"
+                      ? "A/C & heating"
+                      : "Other";
+  const maintRows = await db
+    .select()
+    .from(schema.maintenanceLogEntries)
+    .orderBy(asc(schema.maintenanceLogEntries.performedAt), asc(schema.maintenanceLogEntries.id));
+  const attRows = await db.select().from(schema.maintenanceLogAttachments).orderBy(asc(schema.maintenanceLogAttachments.id));
+  const attNames = new Map<number, string[]>();
+  for (const a of attRows) {
+    const list = attNames.get(a.entryId) ?? [];
+    list.push(a.label);
+    attNames.set(a.entryId, list);
+  }
+  const maintenanceLog: RecordsMaintenanceRow[] = maintRows.map((r) => ({
+    id: r.id,
+    performedAtIso: r.performedAt.toISOString(),
+    odometer: r.odometer ?? null,
+    category: r.category,
+    categoryLabel: maintCatLabel(r.category),
+    description: r.description,
+    shop: r.shop ?? null,
+    cost: r.cost ?? 0,
+    status: r.status,
+    nextDueMiles: r.nextDueMiles ?? null,
+    nextDueAtIso: r.nextDueAt?.toISOString() ?? null,
+    notes: r.notes ?? null,
+    attachments: attNames.get(r.id) ?? [],
+  }));
+
+  const truckName = [p?.truckYear ?? null, p?.truckMake ?? null, p?.truckModel ?? null].filter(Boolean).join(" ");
+  const trailerName = [p?.trailerYear ?? null, p?.trailerMake ?? null, p?.trailerModel ?? null].filter(Boolean).join(" ");
+  const truck: RecordsTruckInfo | null = p
+    ? {
+        name: truckName || "Truck not named yet",
+        unitNumber: p.truckUnitNumber ?? null,
+        vin: p.truckVin ?? null,
+        plate: p.truckPlate ?? null,
+        engine: p.truckEngine ?? null,
+        transmission: p.truckTransmission ?? null,
+        height: `${p.heightFt} ft ${p.heightIn} in`,
+        grossWeightLbs: p.weightLbs ?? null,
+        trailerName: trailerName || null,
+        trailerVin: p.trailerVin ?? null,
+        trailerPlate: p.trailerPlate ?? null,
+        trailerLengthFt: p.lengthFt ?? null,
+        trailerType: p.trailerType ?? null,
+        mpg: p.mpg ?? null,
+        tankRangeMi: p.tankRangeMi ?? null,
+      }
+    : null;
+
+  // IFTA quarters present in the caller's own trips/fuel — the
+  // same quarter discovery buildLibrary runs, newest 8, rendered
+  // oldest-first so the bundle reads chronologically.
+  const trips = await db.select().from(schema.trips);
+  const fuel = await db.select().from(schema.fuelPurchases);
+  const quarterKeys = new Map<string, { year: number; quarter: number }>();
+  const addQuarter = (d: Date) => {
+    const year = d.getUTCFullYear();
+    const quarter = Math.floor(d.getUTCMonth() / 3) + 1;
+    quarterKeys.set(`${year}:${quarter}`, { year, quarter });
+  };
+  for (const t of trips) addQuarter(t.startedAt);
+  for (const f of fuel) addQuarter(f.purchasedAt);
+  const quarters = [...quarterKeys.values()]
+    .sort((a, b) => b.year - a.year || b.quarter - a.quarter)
+    .slice(0, 8)
+    .reverse();
+  const iftaQuarters: RecordsIftaQuarter[] = [];
+  for (const q of quarters) {
+    const agg = await iftaAggregates(ctx, Date.UTC(q.year, (q.quarter - 1) * 3, 1), Date.UTC(q.year, q.quarter * 3, 1));
+    const totalMiles = Math.round(agg.totalMiles * 10) / 10;
+    const totalGallons = Math.round(agg.totalGallons * 100) / 100;
+    const mpg = totalGallons > 0 && totalMiles > 0 ? totalMiles / totalGallons : null;
+    const states = [...new Set([...agg.milesByState.keys(), ...agg.fuelByState.keys()])].sort();
+    let totalNet: number | null = null;
+    const rows = states.map((state) => {
+      const miles = Math.round((agg.milesByState.get(state) ?? 0) * 10) / 10;
+      const bought = Math.round((agg.fuelByState.get(state) ?? 0) * 100) / 100;
+      const rate = IFTA_DIESEL_RATES[state] ?? null;
+      const used = mpg != null && mpg > 0 ? Math.round((miles / mpg) * 100) / 100 : null;
+      const paid = rate != null ? Math.round(bought * rate * 100) / 100 : null;
+      const owed = rate != null && used != null ? Math.round(used * rate * 100) / 100 : null;
+      const net = owed != null && paid != null ? Math.round((owed - paid) * 100) / 100 : null;
+      if (net != null) totalNet = Math.round(((totalNet ?? 0) + net) * 100) / 100;
+      return { state, miles, gallonsBought: bought, gallonsUsed: used, taxRate: rate, taxPaid: paid, taxOwed: owed, net };
+    });
+    iftaQuarters.push({
+      year: q.year,
+      quarter: q.quarter,
+      totalMiles,
+      totalGallonsBought: totalGallons,
+      fleetMpg: mpg != null ? Math.round(mpg * 100) / 100 : null,
+      totalNet,
+      rows,
+      ratesSource: "IFTA, Inc. fuel tax matrix — 4th quarter 2026 (member jurisdictions)",
+    });
+  }
+
+  const statuses = await credentialStatusesFor(ctx, me);
+  const credentials: RecordsCredentialStatusRow[] = statuses.map((s) => ({
+    key: s.key,
+    label: s.label,
+    expiresOn: s.expiresOn,
+    daysLeft: s.daysLeft,
+  }));
+  const docRows = await db.select().from(schema.personalDocs).orderBy(asc(schema.personalDocs.id));
+  const credentialDocs: RecordsCredentialDocRow[] = docRows.map((d) => ({
+    kind: d.kind,
+    label: d.label,
+    expiresAtIso: d.expiresAt?.toISOString() ?? null,
+    docNumberLast4: d.docNumberLast4 ?? null,
+    hasFile: d.blobKey != null,
+    filedAtIso: d.createdAt.toISOString(),
+  }));
+
+  const chain = await db.select({ hash: schema.chainLog.hash }).from(schema.chainLog).orderBy(desc(schema.chainLog.id)).limit(1);
+  return buildRecordsBundle({
+    exportedAtIso: new Date().toISOString(),
+    driver: { username: me, displayName: p?.chatName ?? null, email },
+    chainHead: chain[0]?.hash ?? null,
+    loads,
+    hosLogs,
+    dvirReports,
+    maintenanceLog,
+    truck,
+    iftaQuarters,
+    credentials,
+    credentialDocs,
+  });
+}
+
 /** Resolve a Library document reference to real bytes, scope-checked
  *  on every call. Refs: settlement:{id} - pay:{id} - ifta:{y}:{q} -
  *  filing:{chainId} - sealed:{loadId} - packet:{loadId} -
- *  invoice:{id} - pl:{kind}:{year}:{index} -
+ *  invoice:{id} - pl:{kind}:{year}:{index} - records:bundle -
  *  upload:filed:{id} - upload:personal:{id} - upload:scale:{id} -
  *  upload:settlement:{id}. Generated documents render as PDF;
  *  uploads return the original file bytes. */
@@ -14517,10 +14966,23 @@ async function resolveLibraryDocument(ctx: Ctx, ref: string): Promise<ResolvedLi
     if (
       !r ||
       r.refKind !== "library" ||
-      (r.event !== "ifta_export_generated" && r.event !== "tax_year_export_generated") ||
+      (r.event !== "ifta_export_generated" && r.event !== "tax_year_export_generated" && r.event !== "records_export_generated") ||
       payload.by !== me
     )
       return docRefused("filing");
+    if (r.event === "records_export_generated") {
+      // The full records bundle (TMS queue item 5), regenerated
+      // from the CALLER's own rows on every read — the filing ref
+      // names the generation event, never another driver's data.
+      const bundle = await gatherRecordsBundle(ctx);
+      const title = "Full records export";
+      const bytes = libraryPdfBytes({
+        title,
+        subtitle: `Filing export generated ${r.createdAt.toISOString()} - regenerated from the same sealed data (chain entry #${r.id}). Your own records only; credential documents ride as metadata, never file bytes.`,
+        sections: recordsBundleSections(bundle),
+      });
+      return { ok: true, error: null, docKind: "filing", title, filename: "stonemiles-records-export.pdf", mime: "application/pdf", bytes };
+    }
     if (r.event === "ifta_export_generated") {
       const year = Number(payload.year);
       const quarter = Number(payload.quarter);
@@ -14650,6 +15112,19 @@ async function resolveLibraryDocument(ctx: Ctx, ref: string): Promise<ResolvedLi
     });
     const bytes = libraryPdfBytes({ title, subtitle: `${biz.name ?? "Your business"} - from your sealed STONEMILES records`, sections });
     return { ok: true, error: null, docKind: "pl", title, filename: `profit-loss-${pl.period.key.replace(/:/g, "-")}.pdf`, mime: "application/pdf", bytes };
+  }
+
+  if (kind === "records") {
+    // The full records bundle (TMS queue item 5): ONE document with
+    // the caller's own loads, HOS logs, DVIRs, maintenance log +
+    // truck record, IFTA data, and credentials on file. Owner scope
+    // only — the gatherer reads host-scoped rows, so no ref reaches
+    // another driver's records; the only valid ref is the bundle.
+    if (parts[1] !== "bundle") return docRefused("records");
+    const bundle = await recordsBundleForCaller(ctx);
+    const bytes = libraryPdfBytes({ title: bundle.title, subtitle: bundle.subtitle, sections: bundle.sections });
+    const datePart = new Date().toISOString().slice(0, 10);
+    return { ok: true, error: null, docKind: "records", title: bundle.title, filename: `stonemiles-records-bundle-${datePart}.pdf`, mime: "application/pdf", bytes };
   }
 
   if (kind === "bol") {

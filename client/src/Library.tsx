@@ -301,6 +301,20 @@ export function LibraryPanel({ setBanner, lang = "en" }: { setBanner: (s: string
             ))}
           </Section>
 
+          <Section icon="📦" title="Full records bundle">
+            <p className="text-sm text-[var(--dim)]">
+              One download with everything on your record — loads, HOS daily logs, inspection reports (DVIR), the
+              maintenance log and truck &amp; trailer record, IFTA data year to date, and the credentials you have on
+              file — drawn from your sealed chain and stamped with its head hash. Built for audits, tax prep, and
+              your own files. Your records only; it never leaves your Library except where you send it.
+            </p>
+            <div className={rowCls}>
+              <p className="text-sm font-bold">Full records bundle — all records on file</p>
+              <p className="text-xs text-[var(--dim)]">Generated fresh from your records each time you open or send it.</p>
+              <DocActions docRef="records:bundle" title="Full records bundle" defaultEmail={defaultEmail} setBanner={setBanner} />
+            </div>
+          </Section>
+
           <Section icon="⛽" title="Fuel tax — state by state">
             {data.fuelTax.length === 0 && (
               <p className="text-sm text-[var(--dim)]">

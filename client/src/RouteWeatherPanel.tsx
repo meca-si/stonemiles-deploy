@@ -27,6 +27,15 @@
 // While SI is off the panel still works manually (Refresh, and a
 // fetch when the route changes) but nothing auto-surfaces.
 //
+// Next 24 hours (TMS queue item 6, 2026-11-15): below the
+// corridor list, each point ahead also shows the forecast for
+// WHEN THE DRIVER GETS THERE — the Open-Meteo hourly reading at
+// the point's ETA (routeWeather24.ts) — with arrival hazards
+// (ice/snow/storm/gusts/visibility at arrival) graded into the
+// same decision path in the future tense. The panel stays the
+// one mount (Drive view) so decisions can never double-fire;
+// the Go map chip keeps its current-conditions job.
+//
 // Sources are PUBLIC only (SI Rule 1): Open-Meteo forecasts and
 // National Weather Service alerts, both keyless. A feed that
 // doesn't answer yields "weather unavailable" — never a guess.
@@ -49,6 +58,24 @@ import {
   type WeatherCondition,
   type WeatherDecision,
 } from "./routeWeather";
+import {
+  buildArrivalForecast,
+  evaluateArrivalDecisions,
+  parseOmHourly,
+  type ArrivalDecision,
+  type ArrivalForecastPoint,
+} from "./routeWeather24";
+
+/** "≈4:40 PM" today, "≈Tue 4:40 PM" when the ETA rolls past
+ *  midnight — the arrival strip and its decisions speak in the
+ *  driver's own clock. */
+function etaLabelFor(p: { etaMs: number }): string {
+  const d = new Date(p.etaMs);
+  const time = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  return d.toDateString() === new Date().toDateString()
+    ? `~${time}`
+    : `~${d.toLocaleDateString([], { weekday: "short" })} ${time}`;
+}
 
 type LatLon = { lat: number; lon: number };
 
@@ -83,6 +110,7 @@ async function fetchJson(url: string, timeoutMs = 12000): Promise<unknown> {
 }
 
 type OmResponse = {
+  utc_offset_seconds?: number;
   current?: {
     temperature_2m?: number;
     weather_code?: number;
@@ -90,7 +118,14 @@ type OmResponse = {
     wind_gusts_10m?: number;
     visibility?: number;
   };
-  hourly?: { time?: string[]; weather_code?: number[]; precipitation_probability?: number[] };
+  hourly?: {
+    time?: string[];
+    weather_code?: number[];
+    precipitation_probability?: number[];
+    temperature_2m?: number[];
+    wind_gusts_10m?: number[];
+    visibility?: number[];
+  };
   daily?: {
     temperature_2m_max?: number[];
     temperature_2m_min?: number[];
@@ -103,7 +138,7 @@ function omUrl(lat: number, lon: number): string {
   return (
     `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}` +
     `&current=temperature_2m,weather_code,wind_speed_10m,wind_gusts_10m,visibility` +
-    `&hourly=weather_code,precipitation_probability` +
+    `&hourly=weather_code,precipitation_probability,temperature_2m,wind_gusts_10m,visibility` +
     `&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_gusts_10m_max` +
     `&forecast_days=2&wind_speed_unit=mph&temperature_unit=fahrenheit`
   );
@@ -178,6 +213,8 @@ export function RouteWeatherPanel({
 
   const [status, setStatus] = useState<"idle" | "loading" | "ok" | "unavailable">("idle");
   const [corridor, setCorridor] = useState<CorridorWeatherPoint[]>([]);
+  const [arrival, setArrival] = useState<ArrivalForecastPoint[]>([]);
+  const [arrivalDecisions, setArrivalDecisions] = useState<ArrivalDecision[]>([]);
   const [tonightWx, setTonightWx] = useState<TonightWeather | null>(null);
   const [nwsAlerts, setNwsAlerts] = useState<NwsCorridorAlert[]>([]);
   const [decisions, setDecisions] = useState<WeatherDecision[]>([]);
@@ -272,6 +309,25 @@ export function RouteWeatherPanel({
         setStatus("unavailable");
         return;
       }
+      // Next 24 hours (TMS queue item 6): the forecast for WHEN
+      // THE DRIVER GETS THERE — each corridor point's hourly
+      // reading at its ETA, from the same responses just fetched
+      // (no second round of calls). Points the hourly window
+      // doesn't cover keep a null condition and say so.
+      const arrivalOut = buildArrivalForecast({
+        samples: pts,
+        hourlyBySample: pts.map((p) => {
+          const d = results.get(keyOf(p.lat, p.lon));
+          return d ? parseOmHourly(d) : null;
+        }),
+        nowMs: Date.now(),
+        speedMph,
+      });
+      const gradedArrival = evaluateArrivalDecisions({
+        points: arrivalOut,
+        gustThresholdMph: threshold,
+        etaLabel: etaLabelFor,
+      });
       // NWS alerts along the corridor (public, US only) — merged
       // with, never replacing, the Drive screen's own NWS banners.
       const alerts: NwsCorridorAlert[] = [];
@@ -306,6 +362,8 @@ export function RouteWeatherPanel({
           }
         : null;
       setCorridor(corridorOut);
+      setArrival(arrivalOut);
+      setArrivalDecisions(gradedArrival);
       setTonightWx(tonightWxOut);
       setNwsAlerts(alerts);
       setStatus("ok");
@@ -314,11 +372,17 @@ export function RouteWeatherPanel({
         const parts = corridorOut.map(
           (p) => `${p.label}${p.aheadMi >= 1 ? ` (${Math.round(p.aheadMi)} mi ahead)` : ""}: ${CONDITION_LABEL[p.condition]}${p.tempF != null ? ` ${Math.round(p.tempF)}°F` : ""}${p.gustMph != null ? `, gusts ${Math.round(p.gustMph)} mph` : ""}`,
         );
+        const arrivalPart =
+          gradedArrival.length > 0
+            ? ` Ahead when you get there: ${gradedArrival.map((d) => d.title).join("; ")}.`
+            : arrivalOut.some((p) => p.condition != null)
+              ? " Arrival forecasts for the next 24 hours show nothing decision-grade at your ETAs."
+              : "";
         const tonightPart = tonightWxOut
           ? ` Tonight at the stop (${tonightLabel}): ${CONDITION_LABEL[tonightWxOut.condition]}${tonightWxOut.lowF != null ? `, low ${Math.round(tonightWxOut.lowF)}°F` : ""}${tonightWxOut.gustMaxMph != null ? `, gusts to ${Math.round(tonightWxOut.gustMaxMph)} mph` : ""}.`
           : "";
         const nwsPart = alerts.length > 0 ? ` NWS alerts on the corridor: ${alerts.map((a) => a.event).join(", ")}.` : "";
-        onSnapshot(`Route weather (Open-Meteo + NWS, updated ${new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}): ${parts.join(" · ")}.${tonightPart}${nwsPart} Gust decision line: ${threshold} mph. The radar overlay switch lives in Layers & display on the map.`);
+        onSnapshot(`Route weather (Open-Meteo + NWS, updated ${new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}): ${parts.join(" · ")}.${arrivalPart}${tonightPart}${nwsPart} Gust decision line: ${threshold} mph. The radar overlay switch lives in Layers & display on the map.`);
       }
       if (pos) anchorRef.current = { routeKey, lat: pos.lat, lon: pos.lon };
       else if (pts[0]) anchorRef.current = { routeKey, lat: pts[0].lat, lon: pts[0].lon };
@@ -332,7 +396,10 @@ export function RouteWeatherPanel({
         atMs: Date.now(),
       });
       setDecisions(graded);
-      for (const d of graded) {
+      // Arrival decisions fire through the same path (their
+      // weather-eta- dedupe keys never collide with the
+      // current-conditions keys in the fired list).
+      for (const d of [...graded, ...gradedArrival]) {
         if (firedRef.current[d.dedupeKey]) continue;
         firedRef.current[d.dedupeKey] = Date.now();
         try {
@@ -451,6 +518,51 @@ export function RouteWeatherPanel({
             ))}
           </ul>
 
+          {/* Next 24 hours — the weather WHEN YOU GET THERE
+              (TMS queue item 6): each point ahead shows the
+              hourly forecast for its estimated arrival, not its
+              current weather. Source labelled; hours the feed
+              didn't cover say so instead of borrowing a nearer
+              hour's sky. */}
+          {hasRoute && arrival.length > 0 && (
+            <div className="mt-3" aria-label="Weather at your arrival over the next 24 hours">
+              <div className="text-xs font-bold uppercase tracking-wide text-[var(--dim)]">
+                🕒 Next 24 hours — when you&apos;ll be there
+              </div>
+              <ul className="mt-1.5 space-y-1.5">
+                {arrival.map((p) => (
+                  <li key={`eta-${p.label}-${p.alongMi}`} className="flex items-center gap-3 rounded-xl bg-[var(--surface2)] px-3 py-2.5">
+                    <span className="text-2xl" aria-hidden>{p.condition ? CONDITION_ICON[p.condition] : "—"}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-bold">
+                        {p.label}
+                        <span className="text-[var(--dim)]"> · {Math.round(p.aheadMi)} mi ahead · arriving {etaLabelFor(p)}</span>
+                        {" — "}
+                        {p.beyond24h ? "Beyond the 24-hour window" : p.condition ? CONDITION_LABEL[p.condition] : "Forecast didn't cover that hour"}
+                      </span>
+                      {!p.beyond24h && p.condition && (
+                        <span className="block text-xs text-[var(--dim)]">
+                          {p.tempF != null ? `${Math.round(p.tempF)}°F · ` : ""}
+                          {p.precipChancePct != null ? `${Math.round(p.precipChancePct)}% precip · ` : ""}
+                          gusts {p.gustMph != null ? (
+                            <strong className={p.gustMph >= threshold ? "text-[var(--danger)]" : undefined}>{Math.round(p.gustMph)} mph</strong>
+                          ) : "—"}
+                          {p.gustMph != null && p.gustMph >= threshold ? " — over your line" : ""}
+                          {p.visibilityMi != null && p.visibilityMi < 3 ? ` · visibility ${p.visibilityMi} mi` : ""}
+                        </span>
+                      )}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-1.5 text-xs leading-relaxed text-[var(--dim)]">
+                Arrival times are estimated at your current pace (your speed while rolling, 50 mph standing) — they
+                move as your run does, and the forecast moves with them. Source: Open-Meteo hourly forecast — free
+                public data, no paid feed.
+              </p>
+            </div>
+          )}
+
           {hasRoute && (
             <p className="mt-2 text-xs leading-relaxed text-[var(--dim)]">
               Coverage, exactly: point checks at the spots listed above — here, about 25 / 60 / 120 mi ahead where the
@@ -473,14 +585,16 @@ export function RouteWeatherPanel({
             </ul>
           )}
 
-          {/* Decision-grade findings */}
-          {decisions.length > 0 && (
+          {/* Decision-grade findings — current conditions plus
+              the arrival-timed findings from the next-24-hours
+              strip (future-tense titles, eta dedupe keys). */}
+          {(decisions.length > 0 || arrivalDecisions.length > 0) && (
             <div className="mt-2.5" aria-label="Decision-grade weather">
               <div className="text-xs font-bold uppercase tracking-wide text-[var(--dim)]">
                 Decision-grade — {siEnabled ? "surfaced by SI, once each" : "SI is off, so these stay in this panel only"}
               </div>
               <ul className="mt-1.5 space-y-1.5">
-                {decisions.map((d) => (
+                {[...decisions, ...arrivalDecisions].map((d) => (
                   <li key={d.dedupeKey} className="rounded-xl bg-amber-900/40 px-3 py-2.5 text-sm font-semibold text-amber-200" role="alert">
                     ⚠️ {d.title}
                     <span className="mt-0.5 block text-xs font-normal">{d.detail}</span>
@@ -580,7 +694,8 @@ export function RouteWeatherPanel({
         </button>
       </div>
       <p className="mt-2 text-xs text-[var(--dim)]">
-        Radar source: {RADAR_SOURCE_LABEL}. Corridor and tonight forecasts: Open-Meteo. Alerts: National Weather Service.
+        Radar source: {RADAR_SOURCE_LABEL}. Corridor, arrival, and tonight forecasts: Open-Meteo (free public data).
+        Alerts: National Weather Service.
         When a feed is down this panel says “unavailable” — conditions are never invented.
       </p>
     </section>
