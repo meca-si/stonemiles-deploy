@@ -138,6 +138,16 @@
 // hours; reading lat / lon / temp), +2 booleans (the simulated
 // markers on dashcam events and fault reports); the secret /
 // clip / evidence / code columns are plain text.
+// Migration 0138 (Driver Calendar) adds +5 tables
+// (fleet_calendar_settings, off_duty_requests,
+// load_release_requests, load_reassignments,
+// driver_load_handbacks), +5 autoincrement PKs, +15 timestamp_ms
+// (settings created / updated; request start / end / decided /
+// created / updated; release decided / created / updated;
+// reassignment responded / created / updated; handback swept /
+// created); the mode / type / status / note columns are plain
+// integer/text. NO rate or money column exists on any of the
+// five tables by design.
 //
 //   bun run host/pg/transform-schema.ts
 
@@ -202,15 +212,15 @@ replaceAll(
   'integer mode "timestamp_ms" -> timestamp(tz, date)',
   /integer\(("[a-z0-9_]+"), \{ mode: "timestamp_ms" \}\)/g,
   'timestamp($1, { withTimezone: true, mode: "date" })',
-  407,
+  422,
 );
 replaceAll(
   "autoincrement PK -> serial",
   /integer\(("[a-z0-9_]+")\)\.primaryKey\(\{ autoIncrement: true \}\)/g,
   "serial($1).primaryKey()",
-  167,
+  172,
 );
-replaceAll("sqliteTable -> pgTable", /\bsqliteTable\(/g, "pgTable(", 202);
+replaceAll("sqliteTable -> pgTable", /\bsqliteTable\(/g, "pgTable(", 207);
 replaceAll("real -> doublePrecision", /\breal\(/g, "doublePrecision(", 199);
 
 // Leftovers: any of these means the source schema grew a shape this

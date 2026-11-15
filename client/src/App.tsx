@@ -233,6 +233,7 @@ type TruckStopDetails,
 } from "./truckStop";
 import { MilestonesBoardPanel } from "./Board";
 import { FleetLoadBoardPanel, RuggsLogisticsLedgerPanel } from "./LoadBoard";
+import { CalendarPanel } from "./CalendarPanel";
 import { LibraryPanel } from "./Library";
 import { DeliveryCloseout } from "./DeliveryCloseout";
 import { OpenBoardPanel } from "./OpenBoard";
@@ -2952,7 +2953,7 @@ export function App() {
   // Money are the working tabs; everything else lives under More. The
   // routes/stops/trips/chat/driver values remain as destinations the More
   // tab and in-app links open directly.
-  const [tab, setTab] = useState<"today" | "drive" | "routes" | "stops" | "loads" | "trips" | "chat" | "driver" | "money" | "more">("today");
+  const [tab, setTab] = useState<"today" | "drive" | "routes" | "stops" | "loads" | "trips" | "chat" | "driver" | "money" | "calendar" | "more">("today");
   // Today → Open Chat deep link: bumping the nonce tells ChatPanel to
   // open the STONEMILES Open Chat room (the one global room) directly.
   const [chatFocusNonce, setChatFocusNonce] = useState(0);
@@ -16401,6 +16402,16 @@ export function App() {
           </div>
         )}
 
+        {tab === "calendar" && (
+          <div className="animate-rise px-3 py-3">
+            {/* CALENDAR — its own top-level door (item 10.5): the
+                driver's week/month at a glance, never a card buried
+                at the bottom of another page. Credential chips open
+                the credential record in the Money tab. */}
+            <CalendarPanel onOpenCredential={() => { tapFx(); setTab("money"); }} />
+          </div>
+        )}
+
         {tab === "money" && (
           <div className="animate-rise space-y-3 px-3 py-3">
             {/* MONEY — true net first: revenue minus fuel and costs, from
@@ -19971,19 +19982,21 @@ export function App() {
         />
       )}
 
-      {/* Bottom tab bar — one-thumb dock: Today, Drive, Loads, Money, and
-          More for everything else. Every target is at least 56px tall and
-          lives in the bottom half of the screen, glove-friendly. When a
-          sub-destination (Routes, Fuel, Trips, Chat, Driver) is open, the
-          More tab carries the highlight — that's where it lives. */}
+      {/* Bottom tab bar — one-thumb dock: Today, Drive, Loads, Calendar,
+          Money, and More for everything else. Every target is at least
+          56px tall and lives in the bottom half of the screen,
+          glove-friendly. When a sub-destination (Routes, Fuel, Trips,
+          Chat, Driver) is open, the More tab carries the highlight —
+          that's where it lives. */}
       <div className="shrink-0 px-3 pb-3 pt-1 [padding-bottom:calc(0.75rem+env(safe-area-inset-bottom))]">
       <nav className="glass-panel" style={{ borderRadius: 26 }} aria-label="Main">
-        <div className="grid grid-cols-5">
+        <div className="grid grid-cols-6">
           {(
             [
               { key: "today" as const, label: tr("Today", "Hoy"), icon: "🏠", active: tab === "today" },
               { key: "drive" as const, label: tr("Drive", "Conducir"), icon: "🧭", active: tab === "drive" },
               { key: "loads" as const, label: tr("Loads", "Cargas"), icon: "📦", active: tab === "loads" },
+              { key: "calendar" as const, label: tr("Calendar", "Calendario"), icon: "📅", active: tab === "calendar" },
               { key: "money" as const, label: tr("Money", "Dinero"), icon: "💰", active: tab === "money" },
               { key: "more" as const, label: tr("More", "Más"), icon: "⋯", active: tab === "more" || tab === "routes" || tab === "stops" || tab === "trips" || tab === "chat" || tab === "driver" },
             ]

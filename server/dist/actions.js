@@ -83,6 +83,7 @@ __export(exports_schema_sqlite, {
   driverApplications: () => driverApplications,
   driverCodes: () => driverCodes,
   driverFleetStatus: () => driverFleetStatus,
+  driverLoadHandbacks: () => driverLoadHandbacks,
   driverPositions: () => driverPositions,
   driverWeighStations: () => driverWeighStations,
   dvirDefectLinks: () => dvirDefectLinks,
@@ -97,6 +98,7 @@ __export(exports_schema_sqlite, {
   expenses: () => expenses,
   faultReports: () => faultReports,
   filedDocCopies: () => filedDocCopies,
+  fleetCalendarSettings: () => fleetCalendarSettings,
   fleetTrucks: () => fleetTrucks,
   follows: () => follows,
   fuelPriceReports: () => fuelPriceReports,
@@ -121,6 +123,8 @@ __export(exports_schema_sqlite, {
   loadInvoices: () => loadInvoices,
   loadPaperwork: () => loadPaperwork,
   loadPayments: () => loadPayments,
+  loadReassignments: () => loadReassignments,
+  loadReleaseRequests: () => loadReleaseRequests,
   loads: () => loads,
   lockerLedger: () => lockerLedger,
   loginSessions: () => loginSessions,
@@ -130,6 +134,7 @@ __export(exports_schema_sqlite, {
   marketPulseWeeks: () => marketPulseWeeks,
   moneyHolds: () => moneyHolds,
   notifications: () => notifications,
+  offDutyRequests: () => offDutyRequests,
   offlineCaptures: () => offlineCaptures,
   onboardingHelpRequests: () => onboardingHelpRequests,
   onboardingState: () => onboardingState,
@@ -290,6 +295,7 @@ __export(exports_schema_pg, {
   driverApplications: () => driverApplications2,
   driverCodes: () => driverCodes2,
   driverFleetStatus: () => driverFleetStatus2,
+  driverLoadHandbacks: () => driverLoadHandbacks2,
   driverPositions: () => driverPositions2,
   driverWeighStations: () => driverWeighStations2,
   dvirDefectLinks: () => dvirDefectLinks2,
@@ -304,6 +310,7 @@ __export(exports_schema_pg, {
   expenses: () => expenses2,
   faultReports: () => faultReports2,
   filedDocCopies: () => filedDocCopies2,
+  fleetCalendarSettings: () => fleetCalendarSettings2,
   fleetTrucks: () => fleetTrucks2,
   follows: () => follows2,
   fuelPriceReports: () => fuelPriceReports2,
@@ -328,6 +335,8 @@ __export(exports_schema_pg, {
   loadInvoices: () => loadInvoices2,
   loadPaperwork: () => loadPaperwork2,
   loadPayments: () => loadPayments2,
+  loadReassignments: () => loadReassignments2,
+  loadReleaseRequests: () => loadReleaseRequests2,
   loads: () => loads2,
   lockerLedger: () => lockerLedger2,
   loginSessions: () => loginSessions2,
@@ -337,6 +346,7 @@ __export(exports_schema_pg, {
   marketPulseWeeks: () => marketPulseWeeks2,
   moneyHolds: () => moneyHolds2,
   notifications: () => notifications2,
+  offDutyRequests: () => offDutyRequests2,
   offlineCaptures: () => offlineCaptures2,
   onboardingHelpRequests: () => onboardingHelpRequests2,
   onboardingState: () => onboardingState2,
@@ -10416,6 +10426,73 @@ var homeTimeFactSnapshots = sqliteTable("home_time_fact_snapshots", {
   createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
   updatedAt: integer3("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
 });
+var fleetCalendarSettings = sqliteTable("fleet_calendar_settings", {
+  id: integer3("id").primaryKey({ autoIncrement: true }),
+  companyId: integer3("company_id").notNull().unique(),
+  dispatchMode: text2("dispatch_mode").notNull().default("offered"),
+  safetyWindowHours: integer3("safety_window_hours").notNull().default(24),
+  payCycleKind: text2("pay_cycle_kind").notNull().default("none"),
+  payWeekday: integer3("pay_weekday"),
+  payAnchorOn: text2("pay_anchor_on"),
+  updatedBy: text2("updated_by"),
+  createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
+  updatedAt: integer3("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
+});
+var offDutyRequests = sqliteTable("off_duty_requests", {
+  id: integer3("id").primaryKey({ autoIncrement: true }),
+  companyId: integer3("company_id"),
+  driverUsername: text2("driver_username").notNull(),
+  type: text2("type").notNull(),
+  startsAt: integer3("starts_at", { mode: "timestamp_ms" }).notNull(),
+  endsAt: integer3("ends_at", { mode: "timestamp_ms" }).notNull(),
+  note: text2("note"),
+  status: text2("status").notNull().default("pending"),
+  decidedBy: text2("decided_by"),
+  decisionNote: text2("decision_note"),
+  decidedAt: integer3("decided_at", { mode: "timestamp_ms" }),
+  commitmentId: integer3("commitment_id"),
+  createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
+  updatedAt: integer3("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
+});
+var loadReleaseRequests = sqliteTable("load_release_requests", {
+  id: integer3("id").primaryKey({ autoIncrement: true }),
+  companyId: integer3("company_id").notNull(),
+  boardLoadId: integer3("board_load_id").notNull(),
+  driverUsername: text2("driver_username").notNull(),
+  reason: text2("reason"),
+  status: text2("status").notNull().default("pending"),
+  decidedBy: text2("decided_by"),
+  decisionNote: text2("decision_note"),
+  decidedAt: integer3("decided_at", { mode: "timestamp_ms" }),
+  createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
+  updatedAt: integer3("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
+});
+var loadReassignments = sqliteTable("load_reassignments", {
+  id: integer3("id").primaryKey({ autoIncrement: true }),
+  companyId: integer3("company_id").notNull(),
+  boardLoadId: integer3("board_load_id").notNull(),
+  fromDriver: text2("from_driver").notNull(),
+  toDriver: text2("to_driver").notNull(),
+  proposedBy: text2("proposed_by").notNull(),
+  reason: text2("reason"),
+  status: text2("status").notNull().default("pending_consent"),
+  respondedAt: integer3("responded_at", { mode: "timestamp_ms" }),
+  overrideBy: text2("override_by"),
+  overrideReason: text2("override_reason"),
+  createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
+  updatedAt: integer3("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
+});
+var driverLoadHandbacks = sqliteTable("driver_load_handbacks", {
+  id: integer3("id").primaryKey({ autoIncrement: true }),
+  companyId: integer3("company_id").notNull(),
+  driverUsername: text2("driver_username").notNull(),
+  boardLoadId: integer3("board_load_id").notNull(),
+  loadId: integer3("load_id"),
+  tripQueueId: integer3("trip_queue_id"),
+  reason: text2("reason").notNull(),
+  sweptAt: integer3("swept_at", { mode: "timestamp_ms" }),
+  createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
+});
 var accountingConnections = sqliteTable("accounting_connections", {
   profileId: integer3("profile_id"),
   id: integer3("id").primaryKey({ autoIncrement: true }),
@@ -13099,6 +13176,73 @@ var homeTimeFactSnapshots2 = pgTable("home_time_fact_snapshots", {
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date),
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
 });
+var fleetCalendarSettings2 = pgTable("fleet_calendar_settings", {
+  id: serial("id").primaryKey(),
+  companyId: integer2("company_id").notNull().unique(),
+  dispatchMode: text("dispatch_mode").notNull().default("offered"),
+  safetyWindowHours: integer2("safety_window_hours").notNull().default(24),
+  payCycleKind: text("pay_cycle_kind").notNull().default("none"),
+  payWeekday: integer2("pay_weekday"),
+  payAnchorOn: text("pay_anchor_on"),
+  updatedBy: text("updated_by"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
+});
+var offDutyRequests2 = pgTable("off_duty_requests", {
+  id: serial("id").primaryKey(),
+  companyId: integer2("company_id"),
+  driverUsername: text("driver_username").notNull(),
+  type: text("type").notNull(),
+  startsAt: timestamp("starts_at", { withTimezone: true, mode: "date" }).notNull(),
+  endsAt: timestamp("ends_at", { withTimezone: true, mode: "date" }).notNull(),
+  note: text("note"),
+  status: text("status").notNull().default("pending"),
+  decidedBy: text("decided_by"),
+  decisionNote: text("decision_note"),
+  decidedAt: timestamp("decided_at", { withTimezone: true, mode: "date" }),
+  commitmentId: integer2("commitment_id"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
+});
+var loadReleaseRequests2 = pgTable("load_release_requests", {
+  id: serial("id").primaryKey(),
+  companyId: integer2("company_id").notNull(),
+  boardLoadId: integer2("board_load_id").notNull(),
+  driverUsername: text("driver_username").notNull(),
+  reason: text("reason"),
+  status: text("status").notNull().default("pending"),
+  decidedBy: text("decided_by"),
+  decisionNote: text("decision_note"),
+  decidedAt: timestamp("decided_at", { withTimezone: true, mode: "date" }),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
+});
+var loadReassignments2 = pgTable("load_reassignments", {
+  id: serial("id").primaryKey(),
+  companyId: integer2("company_id").notNull(),
+  boardLoadId: integer2("board_load_id").notNull(),
+  fromDriver: text("from_driver").notNull(),
+  toDriver: text("to_driver").notNull(),
+  proposedBy: text("proposed_by").notNull(),
+  reason: text("reason"),
+  status: text("status").notNull().default("pending_consent"),
+  respondedAt: timestamp("responded_at", { withTimezone: true, mode: "date" }),
+  overrideBy: text("override_by"),
+  overrideReason: text("override_reason"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
+});
+var driverLoadHandbacks2 = pgTable("driver_load_handbacks", {
+  id: serial("id").primaryKey(),
+  companyId: integer2("company_id").notNull(),
+  driverUsername: text("driver_username").notNull(),
+  boardLoadId: integer2("board_load_id").notNull(),
+  loadId: integer2("load_id"),
+  tripQueueId: integer2("trip_queue_id"),
+  reason: text("reason").notNull(),
+  sweptAt: timestamp("swept_at", { withTimezone: true, mode: "date" }),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
+});
 var accountingConnections2 = pgTable("accounting_connections", {
   profileId: integer2("profile_id"),
   id: serial("id").primaryKey(),
@@ -13441,6 +13585,11 @@ var homeTimeCommitments3 = impl.homeTimeCommitments;
 var homeTimeOverrides3 = impl.homeTimeOverrides;
 var pulseResponses3 = impl.pulseResponses;
 var homeTimeFactSnapshots3 = impl.homeTimeFactSnapshots;
+var fleetCalendarSettings3 = impl.fleetCalendarSettings;
+var offDutyRequests3 = impl.offDutyRequests;
+var loadReleaseRequests3 = impl.loadReleaseRequests;
+var loadReassignments3 = impl.loadReassignments;
+var driverLoadHandbacks3 = impl.driverLoadHandbacks;
 var accountingConnections3 = impl.accountingConnections;
 var accountingSyncRecords3 = impl.accountingSyncRecords;
 var recruitingDoors3 = impl.recruitingDoors;
@@ -20751,6 +20900,172 @@ function validateDeclineReason(input) {
 function cleanReferenceNumber(input) {
   const t = (input ?? "").trim().slice(0, 80);
   return t ? t : null;
+}
+
+// src/driverCalendar.ts
+var DAY_MS6 = 86400000;
+var HOUR_MS2 = 3600000;
+var DEFAULT_DISPATCH_MODE = "offered";
+var DEFAULT_SAFETY_WINDOW_HOURS = 24;
+var SAFETY_WINDOW_MIN_HOURS = 1;
+var SAFETY_WINDOW_MAX_HOURS = 168;
+var DEFAULT_CALENDAR_SETTINGS = {
+  dispatchMode: DEFAULT_DISPATCH_MODE,
+  safetyWindowHours: DEFAULT_SAFETY_WINDOW_HOURS,
+  payCycleKind: "none",
+  payWeekday: null,
+  payAnchorOn: null
+};
+function dispatchModeOf(settings) {
+  return settings.dispatchMode === "assigned" ? "assigned" : "offered";
+}
+function safetyWindowHoursOf(settings) {
+  const h = Math.floor(settings.safetyWindowHours);
+  if (!Number.isFinite(h))
+    return DEFAULT_SAFETY_WINDOW_HOURS;
+  return Math.min(SAFETY_WINDOW_MAX_HOURS, Math.max(SAFETY_WINDOW_MIN_HOURS, h));
+}
+function validateCalendarSettings(input) {
+  if (input.dispatchMode !== "assigned" && input.dispatchMode !== "offered") {
+    return { ok: false, error: "Dispatch mode is either Assigned (loads land committed) or Offered (drivers answer first)." };
+  }
+  const hours = typeof input.safetyWindowHours === "number" ? Math.floor(input.safetyWindowHours) : NaN;
+  if (!Number.isFinite(hours) || hours < SAFETY_WINDOW_MIN_HOURS || hours > SAFETY_WINDOW_MAX_HOURS) {
+    return { ok: false, error: `The safety window is a whole number of hours between ${SAFETY_WINDOW_MIN_HOURS} and ${SAFETY_WINDOW_MAX_HOURS}.` };
+  }
+  if (input.payCycleKind !== "none" && input.payCycleKind !== "weekly" && input.payCycleKind !== "biweekly") {
+    return { ok: false, error: "Pay cycle is weekly, biweekly, or off." };
+  }
+  const kind = input.payCycleKind;
+  let weekday = null;
+  let anchorOn = null;
+  if (kind !== "none") {
+    const wd = typeof input.payWeekday === "number" ? Math.floor(input.payWeekday) : NaN;
+    if (!Number.isFinite(wd) || wd < 0 || wd > 6) {
+      return { ok: false, error: "Pick the weekday payday lands on." };
+    }
+    weekday = wd;
+  }
+  if (kind === "biweekly") {
+    const a = typeof input.payAnchorOn === "string" ? input.payAnchorOn.trim() : "";
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(a) || !Number.isFinite(Date.parse(`${a}T12:00:00.000Z`))) {
+      return { ok: false, error: "A biweekly cycle needs one real payday to anchor on (a date the fleet actually paid)." };
+    }
+    anchorOn = a;
+  }
+  return {
+    ok: true,
+    settings: { dispatchMode: input.dispatchMode, safetyWindowHours: hours, payCycleKind: kind, payWeekday: weekday, payAnchorOn: anchorOn }
+  };
+}
+function declineCutoffMs(pickupApptAtMs, windowHours) {
+  if (pickupApptAtMs == null || !Number.isFinite(pickupApptAtMs))
+    return null;
+  return pickupApptAtMs - windowHours * HOUR_MS2;
+}
+function withinSafetyWindow(nowMs, pickupApptAtMs, windowHours) {
+  const cutoff = declineCutoffMs(pickupApptAtMs, windowHours);
+  return cutoff != null && nowMs >= cutoff;
+}
+var OFF_DUTY_REQUEST_TYPES = ["home_time", "medical", "family", "personal", "reset"];
+var OFF_DUTY_REQUEST_LABELS = {
+  home_time: "Home time",
+  medical: "Medical / doctor visit",
+  family: "Family",
+  personal: "Personal",
+  reset: "34-hour reset"
+};
+var RESET_MIN_MS = 34 * HOUR_MS2;
+var OFF_DUTY_MAX_MS = 60 * DAY_MS6;
+function validateOffDutyRequest(input) {
+  if (typeof input.type !== "string" || !OFF_DUTY_REQUEST_TYPES.includes(input.type)) {
+    return { ok: false, error: "Pick what the time off is for \u2014 home time, medical, family, personal, or a 34-hour reset." };
+  }
+  const type = input.type;
+  const startsAtMs = typeof input.startsAtMs === "number" ? input.startsAtMs : NaN;
+  const endsAtMs = typeof input.endsAtMs === "number" ? input.endsAtMs : NaN;
+  if (!Number.isFinite(startsAtMs) || !Number.isFinite(endsAtMs) || endsAtMs <= startsAtMs) {
+    return { ok: false, error: "The time off needs a start and a later end." };
+  }
+  if (endsAtMs - startsAtMs > OFF_DUTY_MAX_MS) {
+    return { ok: false, error: "One block of time off can run at most 60 days \u2014 split anything longer into separate requests." };
+  }
+  if (type === "reset" && endsAtMs - startsAtMs < RESET_MIN_MS) {
+    return { ok: false, error: "A 34-hour reset block has to span at least 34 hours \u2014 that's what makes it a reset." };
+  }
+  const note = typeof input.note === "string" ? input.note.trim().slice(0, 300) : "";
+  return { ok: true, type, startsAtMs, endsAtMs, note: note === "" ? null : note };
+}
+function requestNeedsApproval(args) {
+  if (args.mode !== "assigned")
+    return false;
+  return args.requesterRole !== "owner";
+}
+var utcDayStart = (ms) => {
+  const d = new Date(ms);
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+};
+function projectPaydays(settings, fromMs, toMs) {
+  if (settings.payCycleKind === "none" || settings.payWeekday == null)
+    return [];
+  const out = [];
+  if (settings.payCycleKind === "weekly") {
+    let t = utcDayStart(fromMs);
+    while (new Date(t).getUTCDay() !== settings.payWeekday)
+      t += DAY_MS6;
+    for (;t < toMs; t += 7 * DAY_MS6)
+      out.push(t);
+    return out;
+  }
+  if (settings.payCycleKind === "biweekly") {
+    if (!settings.payAnchorOn)
+      return [];
+    const anchor = utcDayStart(expiryInstantMs(settings.payAnchorOn));
+    if (!Number.isFinite(anchor))
+      return [];
+    const step = 14 * DAY_MS6;
+    const kMin = Math.ceil((utcDayStart(fromMs) - anchor) / step);
+    const kMax = Math.floor((utcDayStart(toMs) - anchor) / step);
+    for (let k = kMin;k <= kMax; k++) {
+      const t = anchor + k * step;
+      if (t >= fromMs && t < toMs)
+        out.push(t);
+    }
+    return out;
+  }
+  return out;
+}
+function paydayState(paydayMs, recordedPaidDayStartsMs) {
+  const day = utcDayStart(paydayMs);
+  return recordedPaidDayStartsMs.some((p) => utcDayStart(p) === day) ? "paid" : "expected";
+}
+var CREDENTIAL_WARNING_DAYS = [60, 30, 7];
+function credentialCalendarMarkers(statuses, fromMs, toMs, nowMs) {
+  const out = [];
+  for (const s of statuses) {
+    if (s.expiresOn == null)
+      continue;
+    const expiryMs = expiryInstantMs(s.expiresOn);
+    const daysLeft = credentialDaysLeft(s.expiresOn, nowMs);
+    if (expiryMs >= fromMs && expiryMs < toMs) {
+      out.push({ credentialKey: s.key, label: s.label, kind: "expiry", atMs: expiryMs, daysBefore: 0, expiresOn: s.expiresOn, daysLeft });
+    }
+    for (const d of CREDENTIAL_WARNING_DAYS) {
+      const atMs = expiryMs - d * DAY_MS6;
+      if (atMs >= fromMs && atMs < toMs) {
+        out.push({ credentialKey: s.key, label: s.label, kind: "warning", atMs, daysBefore: d, expiresOn: s.expiresOn, daysLeft });
+      }
+    }
+  }
+  return out.sort((a, b) => a.atMs - b.atMs);
+}
+function canOverrideReassignmentRefusal(args) {
+  return args.actorRole === "owner" && (args.reason ?? "").trim() !== "";
+}
+function reassignmentTargetOk(args) {
+  if (!args.targetRole || args.targetRole === "dispatch")
+    return false;
+  return args.targetUsername.trim().toLowerCase() !== args.fromUsername.trim().toLowerCase();
 }
 
 // src/pdfDoc.ts
@@ -30966,7 +31281,9 @@ function toBoardLoad(row, linked, trust = null, credit = null) {
   if (row.status === "assigned") {
     canUnassign = true;
   } else if (row.status === "taken") {
-    if (!linked) {
+    if (row.loadId == null) {
+      canUnassign = true;
+    } else if (!linked) {
       blocked = "The driver's load for this board post is gone, so there is nothing to hand back \u2014 withdraw and repost it fresh if it still needs covering.";
     } else if (linked.podSealed) {
       blocked = "Already delivered and POD-sealed \u2014 a sealed delivery can't be unassigned.";
@@ -33702,6 +34019,190 @@ async function openFuelCardMismatchException(ctx, args) {
       refId: args.purchaseId
     });
   }
+}
+async function calendarSettingsFor(ctx, companyId) {
+  const db = ctx.db();
+  const rows = await db.select().from(fleetCalendarSettings3).where(eq(fleetCalendarSettings3.companyId, companyId)).limit(1);
+  const row = rows[0];
+  if (!row)
+    return { ...DEFAULT_CALENDAR_SETTINGS };
+  return {
+    dispatchMode: row.dispatchMode,
+    safetyWindowHours: row.safetyWindowHours,
+    payCycleKind: row.payCycleKind,
+    payWeekday: row.payWeekday ?? null,
+    payAnchorOn: row.payAnchorOn ?? null
+  };
+}
+function calendarSettingsShape(s) {
+  return {
+    dispatchMode: dispatchModeOf(s),
+    safetyWindowHours: safetyWindowHoursOf(s),
+    payCycleKind: s.payCycleKind,
+    payWeekday: s.payWeekday ?? null,
+    payAnchorOn: s.payAnchorOn ?? null
+  };
+}
+async function deskUsernamesFor(ctx, companyId) {
+  const db = ctx.db();
+  const members = await db.select().from(companyMembers3).where(eq(companyMembers3.companyId, companyId));
+  return members.filter((m) => m.role === "owner" || m.role === "dispatch").map((m) => m.username);
+}
+async function notifyDeskMembers(ctx, companyId, args) {
+  const desk = await deskUsernamesFor(ctx, companyId);
+  for (const username of desk) {
+    if (args.except && username === args.except)
+      continue;
+    await recordNotificationSafe(ctx, {
+      username,
+      kind: args.kind,
+      title: args.title,
+      body: args.body,
+      refKind: "board_load",
+      refId: args.refId ?? null
+    });
+  }
+}
+function boardLaneOf(row) {
+  return `${row.pickupCity ?? "?"} \u2192 ${row.deliveryCity ?? "?"}`;
+}
+async function deleteDriverLoadAndTrip(ctx, args) {
+  const db = ctx.db();
+  if (args.tripQueueId != null) {
+    await db.delete(tripQueue3).where(eq(tripQueue3.id, args.tripQueueId));
+  }
+  if (args.loadId != null) {
+    await db.update(loads3).set({ tripQueueId: null }).where(eq(loads3.id, args.loadId));
+    await db.delete(pickupExtraPhotos3).where(eq(pickupExtraPhotos3.loadId, args.loadId));
+    await db.delete(trailerSwaps3).where(eq(trailerSwaps3.loadId, args.loadId));
+    await db.delete(loads3).where(eq(loads3.id, args.loadId));
+    await appendChain(ctx, {
+      refKind: "load",
+      refId: args.loadId,
+      sessionId: null,
+      event: "load_deleted",
+      payload: { loadId: args.loadId, reason: args.reason, boardLoadId: args.boardLoadId }
+    });
+  }
+}
+async function sweepDriverHandbacks(ctx, me) {
+  const db = ctx.db();
+  const rows = await db.select().from(driverLoadHandbacks3).where(and(eq(driverLoadHandbacks3.driverUsername, me), isNull(driverLoadHandbacks3.sweptAt)));
+  for (const row of rows) {
+    if (row.loadId != null) {
+      const mine = await db.select({ id: loads3.id }).from(loads3).where(eq(loads3.id, row.loadId)).limit(1);
+      if (mine[0]) {
+        await deleteDriverLoadAndTrip(ctx, {
+          loadId: row.loadId,
+          tripQueueId: row.tripQueueId,
+          boardLoadId: row.boardLoadId,
+          reason: row.reason
+        });
+      }
+    }
+    await db.update(driverLoadHandbacks3).set({ sweptAt: new Date }).where(eq(driverLoadHandbacks3.id, row.id));
+    await appendChain(ctx, {
+      refKind: "load",
+      refId: row.loadId ?? null,
+      sessionId: null,
+      event: "driver_load_handback_swept",
+      payload: { handbackId: row.id, boardLoadId: row.boardLoadId, companyId: row.companyId, driver: me, reason: row.reason, at: new Date().toISOString() }
+    });
+  }
+}
+async function materializePendingAssignments(ctx, me) {
+  const db = ctx.db();
+  const rows = await db.select().from(boardLoads3).where(and(eq(boardLoads3.status, "taken"), eq(boardLoads3.claimedBy, me), eq(boardLoads3.claimMethod, "assign"), isNull(boardLoads3.loadId)));
+  for (const row of rows) {
+    try {
+      const takenRow = { ...row, carrierOfRecord: me };
+      const { loadId, tripQueueId } = await createLoadFromBoard(ctx, takenRow, me);
+      await db.update(boardLoads3).set({ loadId, tripQueueId, updatedAt: new Date }).where(eq(boardLoads3.id, row.id));
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: loadId,
+        sessionId: null,
+        event: "board_load_assigned",
+        payload: {
+          boardLoadId: row.id,
+          companyId: row.companyId,
+          driver: me,
+          by: row.postedBy,
+          method: "assign",
+          forced: true,
+          loadId,
+          tripQueueId,
+          lane: boardLaneOf(row),
+          at: new Date().toISOString()
+        }
+      });
+      await backfillHomeTimeOverrideLoad(ctx, row.id, loadId);
+    } catch {}
+  }
+}
+async function runCalendarLazySync(ctx, me) {
+  await sweepDriverHandbacks(ctx, me);
+  await materializePendingAssignments(ctx, me);
+}
+async function createOffDutyCommitmentShadow(ctx, args) {
+  const db = ctx.db();
+  const ins = await db.insert(homeTimeCommitments3).values({
+    companyId: args.companyId,
+    driverUsername: args.driverUsername,
+    kind: "by_date",
+    homeByAt: args.startsAt,
+    everyNDays: null,
+    anchorAt: null,
+    setBy: "driver",
+    createdBy: args.driverUsername,
+    note: args.note ?? OFF_DUTY_REQUEST_LABELS[args.type] ?? "Time off",
+    effectiveFrom: args.statedAt,
+    effectiveTo: args.endsAt,
+    voidedAt: null,
+    voidedBy: null
+  }).returning({ id: homeTimeCommitments3.id });
+  const commitmentId = ins[0]?.id ?? null;
+  if (commitmentId != null) {
+    await db.update(offDutyRequests3).set({ commitmentId, updatedAt: new Date }).where(eq(offDutyRequests3.id, args.requestId));
+  }
+  return commitmentId;
+}
+async function recycleBoundLoad(ctx, args) {
+  const db = ctx.db();
+  const row = args.row;
+  const now = new Date;
+  if (row.loadId != null) {
+    if (args.actorIsDriverSession) {
+      await deleteDriverLoadAndTrip(ctx, {
+        loadId: row.loadId,
+        tripQueueId: row.tripQueueId,
+        boardLoadId: row.id,
+        reason: args.handbackReason
+      });
+    } else {
+      await db.insert(driverLoadHandbacks3).values({
+        companyId: row.companyId,
+        driverUsername: args.driverUsername,
+        boardLoadId: row.id,
+        loadId: row.loadId,
+        tripQueueId: row.tripQueueId,
+        reason: args.handbackReason
+      });
+    }
+  }
+  await db.update(boardLoads3).set({
+    status: "open",
+    claimMethod: null,
+    claimedBy: null,
+    claimedAt: null,
+    carrierOfRecord: null,
+    loadId: null,
+    tripQueueId: null,
+    declineReason: args.declineReason,
+    declinedBy: args.declineReason != null ? args.driverUsername : null,
+    declinedAt: args.declineReason != null ? now : null,
+    updatedAt: now
+  }).where(eq(boardLoads3.id, row.id));
 }
 async function dqGateForBoardTake(ctx, args) {
   const now = new Date;
@@ -41387,6 +41888,7 @@ var Actions = {
     response: object({ loads: array(loadShape) }),
     async handler(ctx, args) {
       const db = ctx.db();
+      await runCalendarLazySync(ctx, await myUsername(ctx));
       const rows = await db.select().from(loads3).orderBy(desc(loads3.id)).limit(args.limit);
       const pods = await podStatusByLoad(ctx);
       const extras = await db.select().from(pickupExtraPhotos3);
@@ -43254,6 +43756,7 @@ Keep it for your records.
     async handler(ctx) {
       const db = ctx.db();
       const me = await myUsername(ctx);
+      await runCalendarLazySync(ctx, me);
       const mine = await myMembership(ctx, me);
       const clearStanding = {
         blocked: false,
@@ -43732,7 +44235,9 @@ Keep it for your records.
       if (!row || row.companyId !== mine.company.id)
         return { ok: false, error: "That load isn't on your company's board.", loadId: null, tripQueueId: null };
       const decision = assignDecisionFor({ status: row.status, claimedBy: row.claimedBy ?? null, targetUsername: targetRow.username });
-      if (decision.kind === "refuse") {
+      const assignCalSettings = await calendarSettingsFor(ctx, mine.company.id);
+      const forcedBindPending = dispatchModeOf(assignCalSettings) === "assigned" && row.status === "assigned";
+      if (decision.kind === "refuse" && !forcedBindPending) {
         return {
           ok: false,
           error: row.status === "taken" ? `Already taken by @${row.claimedBy} \u2014 unassign it back to the board first if it needs a different driver.` : row.status === "overflowed" ? "That load is out on the Open Board \u2014 recall it to your board before assigning it." : decision.error,
@@ -43784,6 +44289,50 @@ Keep it for your records.
       }
       if (ht.state === "refused") {
         return { ok: false, error: ht.error, loadId: null, tripQueueId: null, homeTimeWarning: null };
+      }
+      if (dispatchModeOf(assignCalSettings) === "assigned" && (row.status === "open" || row.status === "assigned")) {
+        const nowA = new Date;
+        const bound = await db.update(boardLoads3).set({
+          status: "taken",
+          claimMethod: "assign",
+          claimedBy: targetRow.username,
+          claimedAt: nowA,
+          carrierOfRecord: targetRow.username,
+          declineReason: null,
+          declinedBy: null,
+          declinedAt: null,
+          updatedAt: nowA
+        }).where(and(eq(boardLoads3.id, row.id), eq(boardLoads3.status, row.status))).returning({ id: boardLoads3.id });
+        if (!bound[0]) {
+          return { ok: false, error: "That load just changed \u2014 refresh the board and try again.", loadId: null, tripQueueId: null };
+        }
+        await appendChain(ctx, {
+          refKind: "load",
+          refId: null,
+          sessionId: null,
+          event: "board_load_assigned",
+          payload: {
+            boardLoadId: row.id,
+            companyId: mine.company.id,
+            driver: targetRow.username,
+            by: me,
+            method: "assign",
+            forced: true,
+            mode: "assigned",
+            lane: boardLaneOf(row),
+            at: nowA.toISOString()
+          }
+        });
+        await recordNotificationSafe(ctx, {
+          username: targetRow.username,
+          kind: "load_offer",
+          title: "Load assigned to you",
+          body: `${boardLaneOf(row)} was assigned to you by @${me} \u2014 it's on your calendar as committed work.`,
+          refKind: "board_load",
+          refId: row.id
+        });
+        ctx.invalidateQueries();
+        return { ok: true, error: null, loadId: null, tripQueueId: null, homeTimeWarning: null };
       }
       const now = new Date;
       if (decision.kind === "reassign") {
@@ -43970,6 +44519,13 @@ Keep it for your records.
           error: row.status === "assigned" ? `This load is assigned to @${row.claimedBy ?? "another driver"} \u2014 only they can accept or decline it.` : "That load isn't waiting on an answer \u2014 it may have been taken back or given to another driver."
         };
       }
+      const declineSettings = await calendarSettingsFor(ctx, row.companyId);
+      if (withinSafetyWindow(Date.now(), row.pickupApptAt ? row.pickupApptAt.getTime() : null, safetyWindowHoursOf(declineSettings))) {
+        return {
+          ok: false,
+          error: `That load is inside the safety window now \u2014 pickup is less than ${safetyWindowHoursOf(declineSettings)} hours out, so it can't be declined outright. Send a release request from your calendar and dispatch decides.`
+        };
+      }
       const now = new Date;
       const flipped = await db.update(boardLoads3).set({
         status: "open",
@@ -44053,6 +44609,16 @@ Keep it for your records.
           sessionId: null,
           event: "load_deleted",
           payload: { loadId: row.loadId, reason: "fleet board unassign \u2014 load handed back to the board before pickup", boardLoadId: row.id }
+        });
+      }
+      if (driverWas && driverWas !== me && row.loadId != null) {
+        await db.insert(driverLoadHandbacks3).values({
+          companyId: mine.company.id,
+          driverUsername: driverWas,
+          boardLoadId: row.id,
+          loadId: row.loadId,
+          tripQueueId: row.tripQueueId,
+          reason: "fleet board unassign \u2014 load handed back to the board before pickup"
         });
       }
       await db.update(boardLoads3).set({ status: "open", claimMethod: null, claimedBy: null, claimedAt: null, carrierOfRecord: null, loadId: null, tripQueueId: null, updatedAt: new Date }).where(eq(boardLoads3.id, args.id));
@@ -60307,6 +60873,1312 @@ ${args.question}`, { schema: answerSchema });
         sessionId: null,
         event: "pulse_dismissed",
         payload: { companyId: mine.company.id, driver: me, episodeKey, at: now.toISOString() }
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
+    }
+  }),
+  getCalendar: defineAction({
+    description: "The driver's own calendar: every bound load (whatever door it came through), off-duty blocks + requests, home-time commitment deadlines, credential expiries with their 60/30/7 renewal warnings, and paydays from the fleet's stated cycle. Plus the next move and everything waiting on the driver's answer.",
+    request: object({
+      fromIso: string2().min(10).max(40),
+      toIso: string2().min(10).max(40)
+    }),
+    response: object({
+      ok: boolean2(),
+      error: string2().nullable(),
+      companyName: string2().nullable(),
+      myRole: string2().nullable(),
+      settings: object({
+        dispatchMode: string2(),
+        safetyWindowHours: number2(),
+        payCycleKind: string2(),
+        payWeekday: number2().nullable(),
+        payAnchorOn: string2().nullable()
+      }).nullable(),
+      nextMove: object({
+        boardLoadId: number2().nullable(),
+        loadId: number2().nullable(),
+        lane: string2(),
+        at: string2(),
+        state: string2()
+      }).nullable(),
+      events: array(object({
+        kind: string2(),
+        at: string2(),
+        endAt: string2().nullable(),
+        title: string2(),
+        detail: string2().nullable(),
+        boardLoadId: number2().nullable(),
+        loadId: number2().nullable(),
+        state: string2().nullable(),
+        credentialKey: string2().nullable(),
+        requestId: number2().nullable(),
+        locked: boolean2()
+      })),
+      boundLoads: array(object({
+        boardLoadId: number2(),
+        loadId: number2().nullable(),
+        lane: string2(),
+        pickupAt: string2().nullable(),
+        deliveryAt: string2().nullable(),
+        locked: boolean2(),
+        cutoffAt: string2().nullable(),
+        canDecline: boolean2(),
+        releasePending: boolean2()
+      })),
+      pendingOffers: array(object({
+        boardLoadId: number2(),
+        lane: string2(),
+        pickupAt: string2().nullable(),
+        deliveryAt: string2().nullable(),
+        locked: boolean2()
+      })),
+      pendingReassignments: array(object({
+        id: number2(),
+        boardLoadId: number2(),
+        lane: string2(),
+        toDriver: string2(),
+        proposedBy: string2(),
+        reason: string2().nullable(),
+        createdAt: string2()
+      })),
+      myReleaseRequests: array(object({ id: number2(), boardLoadId: number2(), status: string2(), createdAt: string2() })),
+      myRequests: array(object({
+        id: number2(),
+        type: string2(),
+        typeLabel: string2(),
+        startsAt: string2(),
+        endsAt: string2(),
+        note: string2().nullable(),
+        status: string2(),
+        decidedBy: string2().nullable(),
+        decisionNote: string2().nullable()
+      }))
+    }),
+    async handler(ctx, args) {
+      const fail = {
+        ok: false,
+        companyName: null,
+        myRole: null,
+        settings: null,
+        nextMove: null,
+        events: [],
+        boundLoads: [],
+        pendingOffers: [],
+        pendingReassignments: [],
+        myReleaseRequests: [],
+        myRequests: []
+      };
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      await runCalendarLazySync(ctx, me);
+      const fromMs = Date.parse(args.fromIso);
+      const toMs = Date.parse(args.toIso);
+      if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || toMs <= fromMs || toMs - fromMs > 370 * 86400000) {
+        return { ...fail, error: "That calendar window doesn't parse \u2014 pick a week or a month to look at." };
+      }
+      const now = Date.now();
+      const mine = await myMembership(ctx, me);
+      const settings = mine ? await calendarSettingsFor(ctx, mine.company.id) : null;
+      const windowHours = settings ? safetyWindowHoursOf(settings) : 24;
+      const events = [];
+      const inWindow = (ms) => ms >= fromMs && ms < toMs;
+      const boundRows = await db.select().from(boardLoads3).where(and(eq(boardLoads3.claimedBy, me), inArray(boardLoads3.status, ["assigned", "taken"])));
+      const boardLoadIds = new Set;
+      const pendingOffers = [];
+      const boundLoads = [];
+      const releaseRows = await db.select().from(loadReleaseRequests3).where(eq(loadReleaseRequests3.driverUsername, me)).orderBy(desc(loadReleaseRequests3.id));
+      const releasePendingFor = new Set(releaseRows.filter((r) => r.status === "pending").map((r) => r.boardLoadId));
+      let nextMove = null;
+      for (const row of boundRows) {
+        if (row.loadId != null)
+          boardLoadIds.add(row.loadId);
+        const pickupMs = row.pickupApptAt ? row.pickupApptAt.getTime() : null;
+        const deliveryMs = row.deliveryApptAt ? row.deliveryApptAt.getTime() : null;
+        const anchorMs = pickupMs ?? deliveryMs ?? (row.claimedAt ? row.claimedAt.getTime() : null);
+        const locked = withinSafetyWindow(now, pickupMs, windowHours);
+        if (row.status === "assigned") {
+          pendingOffers.push({
+            boardLoadId: row.id,
+            lane: boardLaneOf(row),
+            pickupAt: row.pickupApptAt?.toISOString() ?? null,
+            deliveryAt: row.deliveryApptAt?.toISOString() ?? null,
+            locked
+          });
+        }
+        if (row.status === "taken") {
+          let canDecline = false;
+          if (!locked) {
+            if (row.loadId == null) {
+              canDecline = true;
+            } else {
+              const linked = await boardLinkedState(ctx, row);
+              canDecline = toBoardLoad(row, linked).canUnassign;
+            }
+          }
+          boundLoads.push({
+            boardLoadId: row.id,
+            loadId: row.loadId ?? null,
+            lane: boardLaneOf(row),
+            pickupAt: row.pickupApptAt?.toISOString() ?? null,
+            deliveryAt: row.deliveryApptAt?.toISOString() ?? null,
+            locked,
+            cutoffAt: declineCutoffMs(pickupMs, windowHours) != null ? new Date(declineCutoffMs(pickupMs, windowHours)).toISOString() : null,
+            canDecline,
+            releasePending: releasePendingFor.has(row.id)
+          });
+          if (anchorMs != null && anchorMs >= now - 12 * 3600000) {
+            if (!nextMove || anchorMs < Date.parse(nextMove.at)) {
+              nextMove = { boardLoadId: row.id, loadId: row.loadId ?? null, lane: boardLaneOf(row), at: new Date(anchorMs).toISOString(), state: "committed" };
+            }
+          }
+        }
+        if (anchorMs != null && inWindow(anchorMs)) {
+          events.push({
+            kind: "load",
+            at: new Date(anchorMs).toISOString(),
+            endAt: deliveryMs != null && pickupMs != null ? new Date(deliveryMs).toISOString() : null,
+            title: boardLaneOf(row),
+            detail: row.referenceNumber ? `Ref ${row.referenceNumber}` : null,
+            boardLoadId: row.id,
+            loadId: row.loadId ?? null,
+            state: row.status === "assigned" ? "offered" : locked ? "locked" : "committed",
+            credentialKey: null,
+            requestId: null,
+            locked
+          });
+        }
+      }
+      const ownLoads = await db.select().from(loads3);
+      for (const load of ownLoads) {
+        if (load.id != null && boardLoadIds.has(load.id))
+          continue;
+        const anchor = load.dockApptAt ?? load.createdAt;
+        if (!anchor)
+          continue;
+        const anchorMs = anchor.getTime();
+        if (!inWindow(anchorMs))
+          continue;
+        const lane = `${load.pickupCity ?? "?"} \u2192 ${load.deliveryCity ?? "?"}`;
+        events.push({
+          kind: "load",
+          at: new Date(anchorMs).toISOString(),
+          endAt: null,
+          title: lane,
+          detail: load.referenceNumber ? `Ref ${load.referenceNumber}` : null,
+          boardLoadId: null,
+          loadId: load.id,
+          state: load.status ?? "booked",
+          credentialKey: null,
+          requestId: null,
+          locked: false
+        });
+        if ((load.status ?? "booked") === "booked" && anchorMs >= now - 12 * 3600000) {
+          if (!nextMove || anchorMs < Date.parse(nextMove.at)) {
+            nextMove = { boardLoadId: null, loadId: load.id, lane, at: new Date(anchorMs).toISOString(), state: "committed" };
+          }
+        }
+      }
+      const myReqRows = await db.select().from(offDutyRequests3).where(eq(offDutyRequests3.driverUsername, me)).orderBy(desc(offDutyRequests3.id));
+      for (const r of myReqRows) {
+        if (r.status !== "approved" && r.status !== "pending")
+          continue;
+        const s = r.startsAt.getTime();
+        const e = r.endsAt.getTime();
+        if (!(s < toMs && e > fromMs))
+          continue;
+        events.push({
+          kind: r.status === "approved" ? "off_duty" : "off_duty_pending",
+          at: r.startsAt.toISOString(),
+          endAt: r.endsAt.toISOString(),
+          title: OFF_DUTY_REQUEST_LABELS[r.type] ?? "Time off",
+          detail: r.note ?? (r.status === "pending" ? "Waiting on the desk to approve" : null),
+          boardLoadId: null,
+          loadId: null,
+          state: r.status,
+          credentialKey: null,
+          requestId: r.id,
+          locked: false
+        });
+      }
+      if (mine) {
+        const commitmentRows = await homeTimeCommitmentRowsFor(ctx, mine.company.id, me);
+        const likes = commitmentRows.map(toHomeTimeCommitmentLike).filter((c) => c.voidedAt == null);
+        for (const d of allDeadlines(likes, fromMs, toMs)) {
+          events.push({
+            kind: "commitment",
+            at: new Date(d.deadlineAt).toISOString(),
+            endAt: null,
+            title: "Home-time deadline",
+            detail: describeCommitment(likes.find((c) => c.id === d.commitmentId) ?? likes[0]),
+            boardLoadId: null,
+            loadId: null,
+            state: null,
+            credentialKey: null,
+            requestId: null,
+            locked: false
+          });
+        }
+      }
+      const statuses = await credentialStatusesFor(ctx, me);
+      for (const m of credentialCalendarMarkers(statuses, fromMs, toMs, now)) {
+        events.push({
+          kind: m.kind === "expiry" ? "credential_expiry" : "credential_warning",
+          at: new Date(m.atMs).toISOString(),
+          endAt: null,
+          title: m.kind === "expiry" ? `${m.label} expires` : `${m.label} \u2014 renew soon`,
+          detail: m.kind === "expiry" ? `${m.label} expires ${m.expiresOn} \u2014 renew before it lapses.` : `${m.label} expires ${m.expiresOn} \u2014 this is the ${m.daysBefore}-day warning.`,
+          boardLoadId: null,
+          loadId: null,
+          state: m.kind,
+          credentialKey: m.credentialKey,
+          requestId: null,
+          locked: false
+        });
+      }
+      if (mine && settings) {
+        const paidDays = [];
+        const deliveries = await db.select().from(payStubDeliveries3).where(and(eq(payStubDeliveries3.companyId, mine.company.id), eq(payStubDeliveries3.recipientUsername, me), eq(payStubDeliveries3.status, "accepted")));
+        for (const d of deliveries)
+          paidDays.push(d.paidAt.getTime());
+        const entries = await db.select().from(payEntries3).where(eq(payEntries3.username, me));
+        for (const e of entries)
+          paidDays.push(e.paidAt.getTime());
+        for (const paydayMs of projectPaydays(settings, fromMs, toMs)) {
+          const state = paydayState(paydayMs, paidDays);
+          events.push({
+            kind: "payday",
+            at: new Date(paydayMs).toISOString(),
+            endAt: null,
+            title: state === "paid" ? "Payday \u2014 paid" : "Payday \u2014 expected",
+            detail: state === "paid" ? "A recorded payment covers this payday." : "From your fleet's pay cycle \u2014 expected until the payment is recorded.",
+            boardLoadId: null,
+            loadId: null,
+            state,
+            credentialKey: null,
+            requestId: null,
+            locked: false
+          });
+        }
+      }
+      const proposals = await db.select().from(loadReassignments3).where(and(eq(loadReassignments3.fromDriver, me), eq(loadReassignments3.status, "pending_consent"))).orderBy(desc(loadReassignments3.id));
+      const pendingReassignments = [];
+      for (const p of proposals) {
+        const rows = await db.select().from(boardLoads3).where(eq(boardLoads3.id, p.boardLoadId)).limit(1);
+        pendingReassignments.push({
+          id: p.id,
+          boardLoadId: p.boardLoadId,
+          lane: rows[0] ? boardLaneOf(rows[0]) : "Load",
+          toDriver: p.toDriver,
+          proposedBy: p.proposedBy,
+          reason: p.reason ?? null,
+          createdAt: p.createdAt.toISOString()
+        });
+      }
+      events.sort((a, b) => a.at.localeCompare(b.at));
+      return {
+        ok: true,
+        error: null,
+        companyName: mine?.company.name ?? null,
+        myRole: mine?.role ?? null,
+        settings: settings ? calendarSettingsShape(settings) : null,
+        nextMove,
+        events,
+        boundLoads,
+        pendingOffers,
+        pendingReassignments,
+        myReleaseRequests: releaseRows.slice(0, 20).map((r) => ({
+          id: r.id,
+          boardLoadId: r.boardLoadId,
+          status: r.status,
+          createdAt: r.createdAt.toISOString()
+        })),
+        myRequests: myReqRows.slice(0, 50).map((r) => ({
+          id: r.id,
+          type: r.type,
+          typeLabel: OFF_DUTY_REQUEST_LABELS[r.type] ?? "Time off",
+          startsAt: r.startsAt.toISOString(),
+          endsAt: r.endsAt.toISOString(),
+          note: r.note ?? null,
+          status: r.status,
+          decidedBy: r.decidedBy ?? null,
+          decisionNote: r.decisionNote ?? null
+        }))
+      };
+    }
+  }),
+  getFleetCalendar: defineAction({
+    description: "The desk's fleet calendar grid: every driver's bound loads, off-duty blocks, and commitment deadlines side by side, plus the queues the desk works \u2014 pending time-off approvals, release requests, and reassignments (refusals included, for the owner's override). Owner/dispatch only; a company driver gets their own calendar, never this grid.",
+    request: object({
+      fromIso: string2().min(10).max(40),
+      toIso: string2().min(10).max(40)
+    }),
+    response: object({
+      ok: boolean2(),
+      error: string2().nullable(),
+      companyName: string2().nullable(),
+      myRole: string2().nullable(),
+      isOwner: boolean2(),
+      settings: object({
+        dispatchMode: string2(),
+        safetyWindowHours: number2(),
+        payCycleKind: string2(),
+        payWeekday: number2().nullable(),
+        payAnchorOn: string2().nullable()
+      }).nullable(),
+      drivers: array(object({
+        username: string2(),
+        role: string2(),
+        events: array(object({
+          kind: string2(),
+          at: string2(),
+          endAt: string2().nullable(),
+          title: string2(),
+          detail: string2().nullable(),
+          boardLoadId: number2().nullable(),
+          state: string2().nullable(),
+          locked: boolean2()
+        }))
+      })),
+      pendingOffDuty: array(object({
+        id: number2(),
+        driverUsername: string2(),
+        type: string2(),
+        typeLabel: string2(),
+        startsAt: string2(),
+        endsAt: string2(),
+        note: string2().nullable(),
+        createdAt: string2()
+      })),
+      pendingReleases: array(object({
+        id: number2(),
+        boardLoadId: number2(),
+        driverUsername: string2(),
+        lane: string2(),
+        reason: string2().nullable(),
+        createdAt: string2()
+      })),
+      reassignments: array(object({
+        id: number2(),
+        boardLoadId: number2(),
+        lane: string2(),
+        fromDriver: string2(),
+        toDriver: string2(),
+        proposedBy: string2(),
+        reason: string2().nullable(),
+        status: string2(),
+        overrideBy: string2().nullable(),
+        overrideReason: string2().nullable(),
+        createdAt: string2()
+      }))
+    }),
+    async handler(ctx, args) {
+      const fail = {
+        ok: false,
+        companyName: null,
+        myRole: null,
+        isOwner: false,
+        settings: null,
+        drivers: [],
+        pendingOffDuty: [],
+        pendingReleases: [],
+        reassignments: []
+      };
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const mine = await myMembership(ctx, me);
+      if (!mine || mine.role !== "owner" && mine.role !== "dispatch") {
+        return { ...fail, error: "The fleet calendar is the desk's view \u2014 owner and dispatch seats only. Your own calendar is under the Calendar tab." };
+      }
+      const fromMs = Date.parse(args.fromIso);
+      const toMs = Date.parse(args.toIso);
+      if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || toMs <= fromMs || toMs - fromMs > 370 * 86400000) {
+        return { ...fail, error: "That calendar window doesn't parse \u2014 pick a week or a month to look at." };
+      }
+      const now = Date.now();
+      const settings = await calendarSettingsFor(ctx, mine.company.id);
+      const windowHours = safetyWindowHoursOf(settings);
+      const inWindow = (ms) => ms >= fromMs && ms < toMs;
+      const members = await db.select().from(companyMembers3).where(eq(companyMembers3.companyId, mine.company.id));
+      const drivers = members.filter((m) => m.role !== "dispatch");
+      const companyBoard = await db.select().from(boardLoads3).where(and(eq(boardLoads3.companyId, mine.company.id), inArray(boardLoads3.status, ["assigned", "taken"])));
+      const companyRequests = await db.select().from(offDutyRequests3).where(eq(offDutyRequests3.companyId, mine.company.id));
+      const stubDeliveries = await db.select().from(payStubDeliveries3).where(and(eq(payStubDeliveries3.companyId, mine.company.id), eq(payStubDeliveries3.status, "accepted")));
+      const driverPayloads = [];
+      for (const driver of drivers) {
+        const evts = [];
+        for (const row of companyBoard) {
+          if (row.claimedBy !== driver.username)
+            continue;
+          const pickupMs = row.pickupApptAt ? row.pickupApptAt.getTime() : null;
+          const deliveryMs = row.deliveryApptAt ? row.deliveryApptAt.getTime() : null;
+          const anchorMs = pickupMs ?? deliveryMs ?? (row.claimedAt ? row.claimedAt.getTime() : null);
+          if (anchorMs == null || !inWindow(anchorMs))
+            continue;
+          const locked = withinSafetyWindow(now, pickupMs, windowHours);
+          evts.push({
+            kind: "load",
+            at: new Date(anchorMs).toISOString(),
+            endAt: deliveryMs != null && pickupMs != null ? new Date(deliveryMs).toISOString() : null,
+            title: boardLaneOf(row),
+            detail: row.referenceNumber ? `Ref ${row.referenceNumber}` : null,
+            boardLoadId: row.id,
+            state: row.status === "assigned" ? "offered" : locked ? "locked" : "committed",
+            locked
+          });
+        }
+        for (const r of companyRequests) {
+          if (r.driverUsername !== driver.username)
+            continue;
+          if (r.status !== "approved" && r.status !== "pending")
+            continue;
+          if (!(r.startsAt.getTime() < toMs && r.endsAt.getTime() > fromMs))
+            continue;
+          evts.push({
+            kind: r.status === "approved" ? "off_duty" : "off_duty_pending",
+            at: r.startsAt.toISOString(),
+            endAt: r.endsAt.toISOString(),
+            title: OFF_DUTY_REQUEST_LABELS[r.type] ?? "Time off",
+            detail: r.note ?? (r.status === "pending" ? "Waiting on the desk to approve" : null),
+            boardLoadId: null,
+            state: r.status,
+            locked: false
+          });
+        }
+        const commitmentRows = await homeTimeCommitmentRowsFor(ctx, mine.company.id, driver.username);
+        const likes = commitmentRows.map(toHomeTimeCommitmentLike).filter((c) => c.voidedAt == null);
+        for (const d of allDeadlines(likes, fromMs, toMs)) {
+          evts.push({
+            kind: "commitment",
+            at: new Date(d.deadlineAt).toISOString(),
+            endAt: null,
+            title: "Home-time deadline",
+            detail: describeCommitment(likes.find((c) => c.id === d.commitmentId) ?? likes[0]),
+            boardLoadId: null,
+            state: null,
+            locked: false
+          });
+        }
+        const paidDays = stubDeliveries.filter((d) => d.recipientUsername === driver.username).map((d) => d.paidAt.getTime());
+        for (const paydayMs of projectPaydays(settings, fromMs, toMs)) {
+          const state = paydayState(paydayMs, paidDays);
+          evts.push({
+            kind: "payday",
+            at: new Date(paydayMs).toISOString(),
+            endAt: null,
+            title: state === "paid" ? "Payday \u2014 paid" : "Payday \u2014 expected",
+            detail: null,
+            boardLoadId: null,
+            state,
+            locked: false
+          });
+        }
+        evts.sort((a, b) => a.at.localeCompare(b.at));
+        driverPayloads.push({ username: driver.username, role: driver.role, events: evts });
+      }
+      const laneFor = async (boardLoadId) => {
+        const rows = await db.select().from(boardLoads3).where(eq(boardLoads3.id, boardLoadId)).limit(1);
+        return rows[0] ? boardLaneOf(rows[0]) : "Load";
+      };
+      const pendingOffDuty = companyRequests.filter((r) => r.status === "pending").map((r) => ({
+        id: r.id,
+        driverUsername: r.driverUsername,
+        type: r.type,
+        typeLabel: OFF_DUTY_REQUEST_LABELS[r.type] ?? "Time off",
+        startsAt: r.startsAt.toISOString(),
+        endsAt: r.endsAt.toISOString(),
+        note: r.note ?? null,
+        createdAt: r.createdAt.toISOString()
+      }));
+      const releaseRowsQ = await db.select().from(loadReleaseRequests3).where(and(eq(loadReleaseRequests3.companyId, mine.company.id), eq(loadReleaseRequests3.status, "pending"))).orderBy(desc(loadReleaseRequests3.id));
+      const pendingReleases = [];
+      for (const r of releaseRowsQ) {
+        pendingReleases.push({
+          id: r.id,
+          boardLoadId: r.boardLoadId,
+          driverUsername: r.driverUsername,
+          lane: await laneFor(r.boardLoadId),
+          reason: r.reason ?? null,
+          createdAt: r.createdAt.toISOString()
+        });
+      }
+      const reassignRows = await db.select().from(loadReassignments3).where(and(eq(loadReassignments3.companyId, mine.company.id), inArray(loadReassignments3.status, ["pending_consent", "refused"]))).orderBy(desc(loadReassignments3.id));
+      const reassignments = [];
+      for (const p of reassignRows) {
+        reassignments.push({
+          id: p.id,
+          boardLoadId: p.boardLoadId,
+          lane: await laneFor(p.boardLoadId),
+          fromDriver: p.fromDriver,
+          toDriver: p.toDriver,
+          proposedBy: p.proposedBy,
+          reason: p.reason ?? null,
+          status: p.status,
+          overrideBy: p.overrideBy ?? null,
+          overrideReason: p.overrideReason ?? null,
+          createdAt: p.createdAt.toISOString()
+        });
+      }
+      return {
+        ok: true,
+        error: null,
+        companyName: mine.company.name,
+        myRole: mine.role,
+        isOwner: mine.role === "owner",
+        settings: calendarSettingsShape(settings),
+        drivers: driverPayloads,
+        pendingOffDuty,
+        pendingReleases,
+        reassignments
+      };
+    }
+  }),
+  setFleetCalendarSettings: defineAction({
+    description: "Set the fleet's calendar settings \u2014 dispatch mode (Assigned = forced, Offered = drivers answer), the safety-window hours, and the pay cycle that projects paydays. Owner only; every change is sealed.",
+    request: object({
+      dispatchMode: _enum(["assigned", "offered"]),
+      safetyWindowHours: number2().int().min(1).max(168),
+      payCycleKind: _enum(["none", "weekly", "biweekly"]),
+      payWeekday: number2().int().min(0).max(6).nullable().default(null),
+      payAnchorOn: string2().max(10).nullable().default(null)
+    }),
+    response: object({
+      ok: boolean2(),
+      error: string2().nullable(),
+      settings: object({
+        dispatchMode: string2(),
+        safetyWindowHours: number2(),
+        payCycleKind: string2(),
+        payWeekday: number2().nullable(),
+        payAnchorOn: string2().nullable()
+      }).nullable()
+    }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const mine = await myMembership(ctx, me);
+      if (!mine || mine.role !== "owner") {
+        return { ok: false, error: "Only the fleet owner sets the calendar settings \u2014 dispatch mode and the pay cycle are the owner's call.", settings: null };
+      }
+      const checked = validateCalendarSettings(args);
+      if (!checked.ok)
+        return { ok: false, error: checked.error, settings: null };
+      const now = new Date;
+      const existing = await db.select().from(fleetCalendarSettings3).where(eq(fleetCalendarSettings3.companyId, mine.company.id)).limit(1);
+      if (existing[0]) {
+        await db.update(fleetCalendarSettings3).set({ ...checked.settings, updatedBy: me, updatedAt: now }).where(eq(fleetCalendarSettings3.id, existing[0].id));
+      } else {
+        await db.insert(fleetCalendarSettings3).values({
+          companyId: mine.company.id,
+          ...checked.settings,
+          updatedBy: me
+        });
+      }
+      await appendChain(ctx, {
+        refKind: "team",
+        refId: mine.company.id,
+        sessionId: null,
+        event: "fleet_calendar_settings_updated",
+        payload: { companyId: mine.company.id, by: me, ...checked.settings, at: now.toISOString() }
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null, settings: calendarSettingsShape(checked.settings) };
+    }
+  }),
+  requestOffDuty: defineAction({
+    description: "Request a block of time off \u2014 home time, medical / doctor visit (incl. DOT physical), family, personal, or a 34-hour reset \u2014 with an optional note so the desk sees why. In an Assigned fleet a company driver's request waits for the desk; otherwise (Offered fleet, owner-operators, no fleet) it takes effect as stated. Approved requests become commitments the home-time gate enforces. Sealed.",
+    request: object({
+      type: _enum(["home_time", "medical", "family", "personal", "reset"]),
+      startsAtIso: string2().min(10).max(40),
+      endsAtIso: string2().min(10).max(40),
+      note: string2().max(300).nullable().default(null)
+    }),
+    response: object({ ok: boolean2(), error: string2().nullable(), requestId: number2().nullable(), status: string2().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const mine = await myMembership(ctx, me);
+      if (mine && mine.role === "dispatch") {
+        return { ok: false, error: "Dispatch doesn't run loads \u2014 time off is a driver's calendar.", requestId: null, status: null };
+      }
+      const checked = validateOffDutyRequest({
+        type: args.type,
+        startsAtMs: Date.parse(args.startsAtIso),
+        endsAtMs: Date.parse(args.endsAtIso),
+        note: args.note
+      });
+      if (!checked.ok)
+        return { ok: false, error: checked.error, requestId: null, status: null };
+      const settings = mine ? await calendarSettingsFor(ctx, mine.company.id) : null;
+      const needsApproval = mine && settings ? requestNeedsApproval({ mode: dispatchModeOf(settings), requesterRole: mine.role }) : false;
+      const now = new Date;
+      const ins = await db.insert(offDutyRequests3).values({
+        companyId: mine?.company.id ?? null,
+        driverUsername: me,
+        type: checked.type,
+        startsAt: new Date(checked.startsAtMs),
+        endsAt: new Date(checked.endsAtMs),
+        note: checked.note,
+        status: needsApproval ? "pending" : "approved",
+        decidedBy: needsApproval ? null : me,
+        decidedAt: needsApproval ? null : now
+      }).returning({ id: offDutyRequests3.id });
+      const requestId = ins[0]?.id ?? null;
+      await appendChain(ctx, {
+        refKind: "team",
+        refId: mine?.company.id ?? null,
+        sessionId: null,
+        event: "off_duty_requested",
+        payload: {
+          requestId,
+          companyId: mine?.company.id ?? null,
+          driver: me,
+          type: checked.type,
+          startsAt: new Date(checked.startsAtMs).toISOString(),
+          endsAt: new Date(checked.endsAtMs).toISOString(),
+          status: needsApproval ? "pending" : "approved",
+          at: now.toISOString()
+        }
+      });
+      if (!needsApproval && mine && requestId != null) {
+        const commitmentId = await createOffDutyCommitmentShadow(ctx, {
+          companyId: mine.company.id,
+          driverUsername: me,
+          requestId,
+          type: checked.type,
+          startsAt: new Date(checked.startsAtMs),
+          endsAt: new Date(checked.endsAtMs),
+          note: checked.note,
+          statedAt: now
+        });
+        await appendChain(ctx, {
+          refKind: "team",
+          refId: mine.company.id,
+          sessionId: null,
+          event: "off_duty_approved",
+          payload: { requestId, companyId: mine.company.id, driver: me, by: me, selfApproved: true, commitmentId, at: now.toISOString() }
+        });
+      }
+      if (needsApproval && mine) {
+        await notifyDeskMembers(ctx, mine.company.id, {
+          kind: "system",
+          title: "Time-off request waiting",
+          body: `@${me} asked for ${OFF_DUTY_REQUEST_LABELS[checked.type]} (${new Date(checked.startsAtMs).toLocaleDateString("en-US")} \u2013 ${new Date(checked.endsAtMs).toLocaleDateString("en-US")}) \u2014 it isn't a commitment until the desk approves it.`,
+          except: me
+        });
+      }
+      ctx.invalidateQueries();
+      return { ok: true, error: null, requestId, status: needsApproval ? "pending" : "approved" };
+    }
+  }),
+  decideOffDutyRequest: defineAction({
+    description: "Approve or deny a driver's pending time-off request (owner/dispatch). Approval makes it a commitment the home-time gate enforces; denial keeps the record. Both are sealed and the driver is notified in-app.",
+    request: object({
+      id: number2().int().positive(),
+      approve: boolean2(),
+      note: string2().max(300).nullable().default(null)
+    }),
+    response: object({ ok: boolean2(), error: string2().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const mine = await myMembership(ctx, me);
+      if (!mine || mine.role !== "owner" && mine.role !== "dispatch") {
+        return { ok: false, error: "Only the owner or dispatch can decide a time-off request." };
+      }
+      const rows = await db.select().from(offDutyRequests3).where(eq(offDutyRequests3.id, args.id)).limit(1);
+      const req = rows[0];
+      if (!req || req.companyId !== mine.company.id) {
+        return { ok: false, error: "That request isn't on your fleet's calendar." };
+      }
+      if (req.status !== "pending") {
+        return { ok: false, error: `That request was already ${req.status} \u2014 the record stands as it is.` };
+      }
+      const now = new Date;
+      const note = (args.note ?? "").trim().slice(0, 300) || null;
+      await db.update(offDutyRequests3).set({ status: args.approve ? "approved" : "denied", decidedBy: me, decisionNote: note, decidedAt: now, updatedAt: now }).where(eq(offDutyRequests3.id, req.id));
+      let commitmentId = null;
+      if (args.approve) {
+        commitmentId = await createOffDutyCommitmentShadow(ctx, {
+          companyId: mine.company.id,
+          driverUsername: req.driverUsername,
+          requestId: req.id,
+          type: req.type,
+          startsAt: req.startsAt,
+          endsAt: req.endsAt,
+          note: req.note,
+          statedAt: req.createdAt
+        });
+      }
+      await appendChain(ctx, {
+        refKind: "team",
+        refId: mine.company.id,
+        sessionId: null,
+        event: args.approve ? "off_duty_approved" : "off_duty_denied",
+        payload: {
+          requestId: req.id,
+          companyId: mine.company.id,
+          driver: req.driverUsername,
+          by: me,
+          note,
+          commitmentId,
+          type: req.type,
+          startsAt: req.startsAt.toISOString(),
+          endsAt: req.endsAt.toISOString(),
+          at: now.toISOString()
+        }
+      });
+      await recordNotificationSafe(ctx, {
+        username: req.driverUsername,
+        kind: "system",
+        title: args.approve ? "Time off approved" : "Time-off request not approved",
+        body: args.approve ? `Your ${OFF_DUTY_REQUEST_LABELS[req.type] ?? "time off"} (${req.startsAt.toLocaleDateString("en-US")} \u2013 ${req.endsAt.toLocaleDateString("en-US")}) is approved and on your calendar as a commitment.` : `Your ${OFF_DUTY_REQUEST_LABELS[req.type] ?? "time off"} request (${req.startsAt.toLocaleDateString("en-US")} \u2013 ${req.endsAt.toLocaleDateString("en-US")}) wasn't approved${note ? ` \u2014 ${note}` : ""}. The record is kept on your calendar.`
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
+    }
+  }),
+  cancelOffDutyRequest: defineAction({
+    description: "Cancel your own time-off request (pending or approved). Cancelling an approved request voids the commitment it created. Sealed.",
+    request: object({ id: number2().int().positive() }),
+    response: object({ ok: boolean2(), error: string2().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const rows = await db.select().from(offDutyRequests3).where(eq(offDutyRequests3.id, args.id)).limit(1);
+      const req = rows[0];
+      if (!req || req.driverUsername !== me) {
+        return { ok: false, error: "That request isn't yours." };
+      }
+      if (req.status !== "pending" && req.status !== "approved") {
+        return { ok: false, error: `That request is already ${req.status} \u2014 nothing to cancel.` };
+      }
+      const now = new Date;
+      await db.update(offDutyRequests3).set({ status: "cancelled", updatedAt: now }).where(eq(offDutyRequests3.id, req.id));
+      if (req.commitmentId != null) {
+        await db.update(homeTimeCommitments3).set({ voidedAt: now, voidedBy: me, updatedAt: now }).where(eq(homeTimeCommitments3.id, req.commitmentId));
+      }
+      await appendChain(ctx, {
+        refKind: "team",
+        refId: req.companyId ?? null,
+        sessionId: null,
+        event: "off_duty_cancelled",
+        payload: { requestId: req.id, companyId: req.companyId ?? null, driver: me, commitmentId: req.commitmentId ?? null, at: now.toISOString() }
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
+    }
+  }),
+  declineBoundLoad: defineAction({
+    description: "Decline a load already bound to you (accepted ahead, or assigned in an Assigned fleet) BEFORE the safety window \u2014 it recycles at once to the board it came from, with your reason on the record for the desk. Inside the safety window the load is locked: send a release request instead. Declines are recorded as facts, never scored.",
+    request: object({ id: number2().int().positive(), reason: string2().max(300) }),
+    response: object({ ok: boolean2(), error: string2().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const checked = validateDeclineReason(args.reason);
+      if (!checked.ok)
+        return { ok: false, error: checked.error };
+      const rows = await db.select().from(boardLoads3).where(eq(boardLoads3.id, args.id)).limit(1);
+      const row = rows[0];
+      if (!row || row.status !== "taken" || row.claimedBy !== me) {
+        return { ok: false, error: "That load isn't bound to you \u2014 it may have been moved or handed back already." };
+      }
+      const settings = await calendarSettingsFor(ctx, row.companyId);
+      if (withinSafetyWindow(Date.now(), row.pickupApptAt ? row.pickupApptAt.getTime() : null, safetyWindowHoursOf(settings))) {
+        return {
+          ok: false,
+          error: `That load is inside the safety window now \u2014 pickup is less than ${safetyWindowHoursOf(settings)} hours out, so it can't be declined outright. Send a release request from your calendar and dispatch decides.`
+        };
+      }
+      if (row.loadId != null) {
+        const linked = await boardLinkedState(ctx, row);
+        const probe = toBoardLoad(row, linked);
+        if (!probe.canUnassign) {
+          return { ok: false, error: probe.unassignBlockedReason ?? "That load can't be handed back anymore." };
+        }
+      }
+      await recycleBoundLoad(ctx, {
+        row,
+        driverUsername: me,
+        actorIsDriverSession: true,
+        declineReason: checked.reason,
+        handbackReason: "driver declined a bound load before the safety window \u2014 recycled to its board"
+      });
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: row.loadId ?? null,
+        sessionId: null,
+        event: "board_load_bound_declined",
+        payload: {
+          boardLoadId: row.id,
+          companyId: row.companyId,
+          boardScope: row.boardScope ?? "fleet",
+          driver: me,
+          reason: checked.reason,
+          lane: boardLaneOf(row),
+          at: new Date().toISOString()
+        }
+      });
+      await notifyDeskMembers(ctx, row.companyId, {
+        kind: "load_offer",
+        title: "Bound load declined",
+        body: `@${me} declined ${boardLaneOf(row)} before the safety window \u2014 it's back on the board. Reason on the record: ${checked.reason}`,
+        refId: row.id,
+        except: me
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
+    }
+  }),
+  requestLoadRelease: defineAction({
+    description: "Ask the desk to release you from a load LOCKED inside the safety window. The desk decides; the request and the decision are sealed, and you're notified in-app.",
+    request: object({ id: number2().int().positive(), reason: string2().max(300).nullable().default(null) }),
+    response: object({ ok: boolean2(), error: string2().nullable(), requestId: number2().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const rows = await db.select().from(boardLoads3).where(eq(boardLoads3.id, args.id)).limit(1);
+      const row = rows[0];
+      if (!row || row.status !== "taken" && row.status !== "assigned" || row.claimedBy !== me) {
+        return { ok: false, error: "That load isn't on your calendar anymore.", requestId: null };
+      }
+      const settings = await calendarSettingsFor(ctx, row.companyId);
+      if (!withinSafetyWindow(Date.now(), row.pickupApptAt ? row.pickupApptAt.getTime() : null, safetyWindowHoursOf(settings))) {
+        return {
+          ok: false,
+          error: "That load isn't locked \u2014 you're still outside the safety window, so you can decline it outright from your calendar instead.",
+          requestId: null
+        };
+      }
+      const existing = await db.select().from(loadReleaseRequests3).where(and(eq(loadReleaseRequests3.boardLoadId, row.id), eq(loadReleaseRequests3.driverUsername, me), eq(loadReleaseRequests3.status, "pending"))).limit(1);
+      if (existing[0]) {
+        return { ok: false, error: "You already have a release request in for this load \u2014 it's waiting on the desk.", requestId: existing[0].id };
+      }
+      const reason = (args.reason ?? "").trim().slice(0, 300) || null;
+      const ins = await db.insert(loadReleaseRequests3).values({ companyId: row.companyId, boardLoadId: row.id, driverUsername: me, reason, status: "pending" }).returning({ id: loadReleaseRequests3.id });
+      const requestId = ins[0]?.id ?? null;
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: row.loadId ?? null,
+        sessionId: null,
+        event: "load_release_requested",
+        payload: { requestId, boardLoadId: row.id, companyId: row.companyId, driver: me, reason, lane: boardLaneOf(row), at: new Date().toISOString() }
+      });
+      await notifyDeskMembers(ctx, row.companyId, {
+        kind: "load_offer",
+        title: "Release request \u2014 locked load",
+        body: `@${me} is asking to be released from ${boardLaneOf(row)} \u2014 it's inside the safety window, so the call is the desk's.${reason ? ` Their words: ${reason}` : ""}`,
+        refId: row.id,
+        except: me
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null, requestId };
+    }
+  }),
+  decideLoadRelease: defineAction({
+    description: "Decide a driver's release request for a locked load (owner/dispatch). Approving hands the load back to the board it came from; denying leaves it bound. Sealed; the driver is notified in-app.",
+    request: object({
+      id: number2().int().positive(),
+      approve: boolean2(),
+      note: string2().max(300).nullable().default(null)
+    }),
+    response: object({ ok: boolean2(), error: string2().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const mine = await myMembership(ctx, me);
+      if (!mine || mine.role !== "owner" && mine.role !== "dispatch") {
+        return { ok: false, error: "Only the owner or dispatch can decide a release request." };
+      }
+      const rows = await db.select().from(loadReleaseRequests3).where(eq(loadReleaseRequests3.id, args.id)).limit(1);
+      const req = rows[0];
+      if (!req || req.companyId !== mine.company.id) {
+        return { ok: false, error: "That release request isn't on your fleet's board." };
+      }
+      if (req.status !== "pending") {
+        return { ok: false, error: `That request was already ${req.status} \u2014 the record stands.` };
+      }
+      const now = new Date;
+      const note = (args.note ?? "").trim().slice(0, 300) || null;
+      const boardRows = await db.select().from(boardLoads3).where(eq(boardLoads3.id, req.boardLoadId)).limit(1);
+      const row = boardRows[0];
+      const stillBound = row != null && (row.status === "taken" || row.status === "assigned") && row.claimedBy === req.driverUsername;
+      if (args.approve && !stillBound) {
+        return { ok: false, error: `That load isn't with @${req.driverUsername} anymore \u2014 it already moved. Close this request by denying it, so the record says why.` };
+      }
+      await db.update(loadReleaseRequests3).set({ status: args.approve ? "approved" : "denied", decidedBy: me, decisionNote: note, decidedAt: now, updatedAt: now }).where(eq(loadReleaseRequests3.id, req.id));
+      if (args.approve && row) {
+        if (row.status === "assigned") {
+          await db.update(boardLoads3).set({ status: "open", claimMethod: null, claimedBy: null, claimedAt: null, carrierOfRecord: null, updatedAt: now }).where(eq(boardLoads3.id, row.id));
+        } else {
+          await recycleBoundLoad(ctx, {
+            row,
+            driverUsername: req.driverUsername,
+            actorIsDriverSession: false,
+            declineReason: null,
+            handbackReason: "release request approved by the desk \u2014 load handed back to its board"
+          });
+        }
+      }
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: row?.loadId ?? null,
+        sessionId: null,
+        event: args.approve ? "load_release_approved" : "load_release_denied",
+        payload: {
+          requestId: req.id,
+          boardLoadId: req.boardLoadId,
+          companyId: mine.company.id,
+          driver: req.driverUsername,
+          by: me,
+          note,
+          lane: row ? boardLaneOf(row) : null,
+          at: now.toISOString()
+        }
+      });
+      await recordNotificationSafe(ctx, {
+        username: req.driverUsername,
+        kind: "load_offer",
+        title: args.approve ? "You're released" : "Release not approved",
+        body: args.approve ? `${row ? boardLaneOf(row) : "The load"} was handed back to the board \u2014 you're released from it.` : `The desk kept you on ${row ? boardLaneOf(row) : "the load"}${note ? ` \u2014 ${note}` : ""}. It's still on your calendar as committed work.`,
+        refKind: "board_load",
+        refId: req.boardLoadId
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
+    }
+  }),
+  proposeReassignment: defineAction({
+    description: "Propose moving a bound load from its current driver to another driver in the fleet (owner/dispatch). The move fires ONLY when the current driver consents in-app \u2014 the prompt shows them your reason. The target driver passes the same DQF + home-time gates as an assignment. Sealed.",
+    request: object({
+      id: number2().int().positive(),
+      targetUsername: string2().min(1).max(60),
+      reason: string2().min(1).max(300),
+      homeTimeOverride: homeTimeOverrideArg
+    }),
+    response: object({
+      ok: boolean2(),
+      error: string2().nullable(),
+      proposalId: number2().nullable(),
+      homeTimeWarning: homeTimeWarningShape.nullable().optional()
+    }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const mine = await myMembership(ctx, me);
+      if (!mine || mine.role !== "owner" && mine.role !== "dispatch") {
+        return { ok: false, error: "Only the owner or dispatch can propose moving a load to another driver.", proposalId: null };
+      }
+      const reason = args.reason.trim().slice(0, 300);
+      if (!reason)
+        return { ok: false, error: "Give the driver the reason \u2014 the consent prompt shows it to them.", proposalId: null };
+      const rows = await db.select().from(boardLoads3).where(eq(boardLoads3.id, args.id)).limit(1);
+      const row = rows[0];
+      if (!row || row.companyId !== mine.company.id) {
+        return { ok: false, error: "That load isn't on your company's board.", proposalId: null };
+      }
+      if (row.status !== "taken" || !row.claimedBy) {
+        return { ok: false, error: "That load isn't bound to a driver right now \u2014 reassigning is for loads already on someone's calendar.", proposalId: null };
+      }
+      const fromDriver = row.claimedBy;
+      const members = await db.select().from(companyMembers3).where(eq(companyMembers3.companyId, mine.company.id));
+      const targetRow = members.find((m) => m.username.toLowerCase() === args.targetUsername.trim().toLowerCase());
+      if (!targetRow || !reassignmentTargetOk({ targetRole: targetRow.role, targetUsername: targetRow.username, fromUsername: fromDriver })) {
+        return {
+          ok: false,
+          error: targetRow ? `@${targetRow.username} can't take this move \u2014 the target has to be a hauling member of the fleet who doesn't already hold the load.` : `@${args.targetUsername.trim()} isn't a member of ${mine.company.name}.`,
+          proposalId: null
+        };
+      }
+      const existing = await db.select().from(loadReassignments3).where(and(eq(loadReassignments3.boardLoadId, row.id), eq(loadReassignments3.status, "pending_consent"))).limit(1);
+      if (existing[0]) {
+        return { ok: false, error: `A move of this load is already waiting on @${existing[0].fromDriver} to answer.`, proposalId: null };
+      }
+      if (row.loadId != null) {
+        const linked = await boardLinkedState(ctx, row);
+        const probe = toBoardLoad(row, linked);
+        if (!probe.canUnassign) {
+          return { ok: false, error: probe.unassignBlockedReason ?? "That load can't be moved anymore.", proposalId: null };
+        }
+      }
+      const targetStanding = await feeStandingForCarrier(ctx, mine.company.id, targetRow.username);
+      if (targetStanding.gate.blocked) {
+        return { ok: false, error: `@${targetRow.username} can't take new board loads right now \u2014 ${gateRefusalMessage(targetStanding.gate)}`, proposalId: null };
+      }
+      const dq = await dqGateForBoardTake(ctx, { companyId: mine.company.id, driverUsername: targetRow.username, board: row, actor: me, method: "assign" });
+      if (dq.blocked) {
+        return { ok: false, error: `@${targetRow.username} isn't qualified to take this load \u2014 ${dq.summary}`, proposalId: null };
+      }
+      const ht = await homeTimeGateForBoardTake(ctx, {
+        companyId: mine.company.id,
+        driverUsername: targetRow.username,
+        board: row,
+        actor: me,
+        actorIsDesk: true,
+        method: "assign",
+        override: args.homeTimeOverride ?? null
+      });
+      if (ht.state === "warn") {
+        return {
+          ok: false,
+          error: `${ht.warning.detail} To propose the move anyway, confirm the override with a reason \u2014 @${targetRow.username} is notified.`,
+          proposalId: null,
+          homeTimeWarning: {
+            summary: ht.warning.summary,
+            detail: ht.warning.detail,
+            deadlineAt: new Date(ht.conflict.deadlineAt).toISOString(),
+            homeEtaAt: new Date(ht.conflict.homeEtaAt).toISOString(),
+            commitmentId: ht.conflict.commitmentId
+          }
+        };
+      }
+      if (ht.state === "refused") {
+        return { ok: false, error: ht.error, proposalId: null, homeTimeWarning: null };
+      }
+      const ins = await db.insert(loadReassignments3).values({
+        companyId: mine.company.id,
+        boardLoadId: row.id,
+        fromDriver,
+        toDriver: targetRow.username,
+        proposedBy: me,
+        reason,
+        status: "pending_consent"
+      }).returning({ id: loadReassignments3.id });
+      const proposalId = ins[0]?.id ?? null;
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: row.loadId ?? null,
+        sessionId: null,
+        event: "load_reassignment_proposed",
+        payload: {
+          proposalId,
+          boardLoadId: row.id,
+          companyId: mine.company.id,
+          from: fromDriver,
+          to: targetRow.username,
+          by: me,
+          reason,
+          lane: boardLaneOf(row),
+          at: new Date().toISOString()
+        }
+      });
+      await recordNotificationSafe(ctx, {
+        username: fromDriver,
+        kind: "load_offer",
+        title: "Dispatch wants to move a load",
+        body: `@${me} is asking to move ${boardLaneOf(row)} from you to @${targetRow.username}. Reason: ${reason}. It moves only if you agree \u2014 answer from your calendar.`,
+        refKind: "board_load",
+        refId: row.id
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null, proposalId, homeTimeWarning: null };
+    }
+  }),
+  respondReassignment: defineAction({
+    description: "Answer a reassignment proposal on a load bound to you. Consenting fires the move (your load record closes, the load lands on the other driver's calendar); refusing leaves the load with you and notifies dispatch. Both are sealed.",
+    request: object({ id: number2().int().positive(), consent: boolean2() }),
+    response: object({ ok: boolean2(), error: string2().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const rows = await db.select().from(loadReassignments3).where(eq(loadReassignments3.id, args.id)).limit(1);
+      const proposal = rows[0];
+      if (!proposal || proposal.fromDriver !== me) {
+        return { ok: false, error: "That proposal isn't waiting on you." };
+      }
+      if (proposal.status !== "pending_consent") {
+        return { ok: false, error: `That proposal was already ${proposal.status} \u2014 the record stands.` };
+      }
+      const boardRows = await db.select().from(boardLoads3).where(eq(boardLoads3.id, proposal.boardLoadId)).limit(1);
+      const row = boardRows[0];
+      if (!row || row.status !== "taken" || row.claimedBy !== me) {
+        return { ok: false, error: "That load isn't bound to you anymore \u2014 it already moved. Refresh your calendar." };
+      }
+      const now = new Date;
+      if (!args.consent) {
+        await db.update(loadReassignments3).set({ status: "refused", respondedAt: now, updatedAt: now }).where(eq(loadReassignments3.id, proposal.id));
+        await appendChain(ctx, {
+          refKind: "load",
+          refId: row.loadId ?? null,
+          sessionId: null,
+          event: "load_reassignment_refused",
+          payload: {
+            proposalId: proposal.id,
+            boardLoadId: row.id,
+            companyId: proposal.companyId,
+            from: me,
+            to: proposal.toDriver,
+            proposedBy: proposal.proposedBy,
+            lane: boardLaneOf(row),
+            at: now.toISOString()
+          }
+        });
+        await notifyDeskMembers(ctx, proposal.companyId, {
+          kind: "load_offer",
+          title: "Reassignment refused",
+          body: `@${me} said no to moving ${boardLaneOf(row)} to @${proposal.toDriver} \u2014 the load stays with @${me}. Only the fleet owner can override a refusal, with a stated reason.`,
+          refId: row.id,
+          except: me
+        });
+        ctx.invalidateQueries();
+        return { ok: true, error: null };
+      }
+      if (row.loadId != null) {
+        await deleteDriverLoadAndTrip(ctx, {
+          loadId: row.loadId,
+          tripQueueId: row.tripQueueId,
+          boardLoadId: row.id,
+          reason: "reassignment \u2014 the driver consented to the move"
+        });
+      }
+      await db.update(boardLoads3).set({
+        claimedBy: proposal.toDriver,
+        claimedAt: now,
+        carrierOfRecord: proposal.toDriver,
+        loadId: null,
+        tripQueueId: null,
+        updatedAt: now
+      }).where(eq(boardLoads3.id, row.id));
+      await db.update(loadReassignments3).set({ status: "consented", respondedAt: now, updatedAt: now }).where(eq(loadReassignments3.id, proposal.id));
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: row.loadId ?? null,
+        sessionId: null,
+        event: "load_reassignment_consented",
+        payload: {
+          proposalId: proposal.id,
+          boardLoadId: row.id,
+          companyId: proposal.companyId,
+          from: me,
+          to: proposal.toDriver,
+          proposedBy: proposal.proposedBy,
+          reason: proposal.reason ?? null,
+          lane: boardLaneOf(row),
+          at: now.toISOString()
+        }
+      });
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: null,
+        sessionId: null,
+        event: "board_load_reassigned",
+        payload: {
+          boardLoadId: row.id,
+          companyId: proposal.companyId,
+          from: me,
+          to: proposal.toDriver,
+          by: me,
+          consent: true,
+          proposalId: proposal.id,
+          lane: boardLaneOf(row),
+          at: now.toISOString()
+        }
+      });
+      await recordNotificationSafe(ctx, {
+        username: proposal.toDriver,
+        kind: "load_offer",
+        title: "Load assigned to you",
+        body: `${boardLaneOf(row)} was moved to you from @${me} with their agreement \u2014 it's on your calendar as committed work.`,
+        refKind: "board_load",
+        refId: row.id
+      });
+      await notifyDeskMembers(ctx, proposal.companyId, {
+        kind: "load_offer",
+        title: "Reassignment consented",
+        body: `@${me} agreed \u2014 ${boardLaneOf(row)} now sits with @${proposal.toDriver}.`,
+        refId: row.id,
+        except: me
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
+    }
+  }),
+  overrideReassignmentRefusal: defineAction({
+    description: "Override a driver's refusal of a reassignment \u2014 FLEET OWNER ONLY, and only with a stated reason. Dispatch can never do this. The override is sealed and the reason is shown to the driver.",
+    request: object({
+      id: number2().int().positive(),
+      reason: string2().min(1).max(300)
+    }),
+    response: object({ ok: boolean2(), error: string2().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const mine = await myMembership(ctx, me);
+      if (!mine || mine.role !== "owner") {
+        return { ok: false, error: "Only the fleet owner can override a driver's refusal \u2014 dispatch can't force a move over a no." };
+      }
+      if (!canOverrideReassignmentRefusal({ actorRole: mine.role, reason: args.reason })) {
+        return { ok: false, error: "An override needs a stated reason \u2014 it goes on the sealed record and the driver sees it." };
+      }
+      const reason = args.reason.trim().slice(0, 300);
+      const rows = await db.select().from(loadReassignments3).where(eq(loadReassignments3.id, args.id)).limit(1);
+      const proposal = rows[0];
+      if (!proposal || proposal.companyId !== mine.company.id) {
+        return { ok: false, error: "That proposal isn't on your fleet's board." };
+      }
+      if (proposal.status !== "refused") {
+        return { ok: false, error: "Only a refused proposal can be overridden \u2014 this one isn't refused." };
+      }
+      const boardRows = await db.select().from(boardLoads3).where(eq(boardLoads3.id, proposal.boardLoadId)).limit(1);
+      const row = boardRows[0];
+      if (!row || row.status !== "taken" || row.claimedBy !== proposal.fromDriver) {
+        return { ok: false, error: `That load isn't with @${proposal.fromDriver} anymore \u2014 it already moved.` };
+      }
+      const now = new Date;
+      if (row.loadId != null) {
+        await db.insert(driverLoadHandbacks3).values({
+          companyId: mine.company.id,
+          driverUsername: proposal.fromDriver,
+          boardLoadId: row.id,
+          loadId: row.loadId,
+          tripQueueId: row.tripQueueId,
+          reason: `reassignment \u2014 the owner overrode the driver's refusal: ${reason}`
+        });
+      }
+      await db.update(boardLoads3).set({
+        claimedBy: proposal.toDriver,
+        claimedAt: now,
+        carrierOfRecord: proposal.toDriver,
+        loadId: null,
+        tripQueueId: null,
+        updatedAt: now
+      }).where(eq(boardLoads3.id, row.id));
+      await db.update(loadReassignments3).set({ status: "overridden", overrideBy: me, overrideReason: reason, updatedAt: now }).where(eq(loadReassignments3.id, proposal.id));
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: row.loadId ?? null,
+        sessionId: null,
+        event: "load_reassignment_overridden",
+        payload: {
+          proposalId: proposal.id,
+          boardLoadId: row.id,
+          companyId: mine.company.id,
+          from: proposal.fromDriver,
+          to: proposal.toDriver,
+          proposedBy: proposal.proposedBy,
+          overrideBy: me,
+          reason,
+          lane: boardLaneOf(row),
+          at: now.toISOString()
+        }
+      });
+      await recordNotificationSafe(ctx, {
+        username: proposal.fromDriver,
+        kind: "load_offer",
+        title: "A load was moved off your calendar",
+        body: `The owner moved ${boardLaneOf(row)} to @${proposal.toDriver} over your refusal. The reason on the sealed record: ${reason}`,
+        refKind: "board_load",
+        refId: row.id
+      });
+      await recordNotificationSafe(ctx, {
+        username: proposal.toDriver,
+        kind: "load_offer",
+        title: "Load assigned to you",
+        body: `${boardLaneOf(row)} was moved to you from @${proposal.fromDriver} by the owner \u2014 it's on your calendar as committed work.`,
+        refKind: "board_load",
+        refId: row.id
       });
       ctx.invalidateQueries();
       return { ok: true, error: null };

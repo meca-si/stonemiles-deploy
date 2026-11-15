@@ -5478,6 +5478,149 @@ export const homeTimeFactSnapshots = pgTable("home_time_fact_snapshots", {
     .$defaultFn(() => new Date()),
 });
 
+// ---- Driver Calendar (migration 0138, Wave 2 item 10.5) -------------------
+// One calendar per driver (every bound load, off-duty blocks,
+// paydays, credential expiries) + the desk's fleet grid. All five
+// tables are COMPANY-scoped (never profile-scoped): the calendar
+// is a fleet record the driver and their desk read identically.
+
+// One row per fleet: the owner's calendar settings. dispatch_mode
+// is the force-dispatch answer — "offered" (the pre-calendar board
+// behaviour: assignment is an offer the driver answers) until the
+// owner picks "assigned" (loads land committed, no decline). The
+// safety window is the decline cutoff before pickup, in hours
+// (default 24). The pay cycle projects payday markers: weekly on
+// a weekday, or biweekly anchored on one real payday. No cycle →
+// no projected paydays; the app never invents one.
+export const fleetCalendarSettings = pgTable("fleet_calendar_settings", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull().unique(),
+  // assigned | offered
+  dispatchMode: text("dispatch_mode").notNull().default("offered"),
+  safetyWindowHours: integer("safety_window_hours").notNull().default(24),
+  // none | weekly | biweekly
+  payCycleKind: text("pay_cycle_kind").notNull().default("none"),
+  // 0 = Sunday … 6 = Saturday (UTC); weekly + biweekly.
+  payWeekday: integer("pay_weekday"),
+  // YYYY-MM-DD anchor payday; biweekly only.
+  payAnchorOn: text("pay_anchor_on"),
+  updatedBy: text("updated_by"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+// A driver's off-duty request: a typed block (home_time |
+// medical | family | personal | reset) with an optional note, so
+// dispatch sees WHY, not just when. Status: pending (waiting on
+// the desk — Assigned fleets only) | approved | denied |
+// cancelled. An APPROVED request is a commitment: commitment_id
+// names the home_time_commitments shadow (a by_date term at the
+// block's start, stated by the driver) the item-9 gate enforces;
+// cancelling an approved request voids that shadow. company_id is
+// null for a driver with no fleet — their block is personal,
+// self-approved, and holds no commitment (the gate's standing
+// scope line: no fleet scope, nothing to check against).
+export const offDutyRequests = pgTable("off_duty_requests", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id"),
+  driverUsername: text("driver_username").notNull(),
+  // home_time | medical | family | personal | reset
+  type: text("type").notNull(),
+  startsAt: timestamp("starts_at", { withTimezone: true, mode: "date" }).notNull(),
+  endsAt: timestamp("ends_at", { withTimezone: true, mode: "date" }).notNull(),
+  note: text("note"),
+  // pending | approved | denied | cancelled
+  status: text("status").notNull().default("pending"),
+  decidedBy: text("decided_by"),
+  decisionNote: text("decision_note"),
+  decidedAt: timestamp("decided_at", { withTimezone: true, mode: "date" }),
+  commitmentId: integer("commitment_id"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+// A driver's ask to be released from a LOCKED load (inside the
+// safety window, where unilateral decline is closed). The desk
+// decides: approved hands the load back to the board it came
+// from; denied leaves it bound. Every row is chain-sealed at
+// request and at decision.
+export const loadReleaseRequests = pgTable("load_release_requests", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull(),
+  boardLoadId: integer("board_load_id").notNull(),
+  driverUsername: text("driver_username").notNull(),
+  reason: text("reason"),
+  // pending | approved | denied
+  status: text("status").notNull().default("pending"),
+  decidedBy: text("decided_by"),
+  decisionNote: text("decision_note"),
+  decidedAt: timestamp("decided_at", { withTimezone: true, mode: "date" }),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+// A proposed move of a bound load from one driver to another.
+// The move fires ONLY when the current driver consents in-app
+// (the prompt shows dispatch's reason): status pending_consent →
+// consented (move fired) | refused (load stays; desk notified).
+// A refusal can be overridden ONLY by the fleet owner, with a
+// stated reason — status overridden, the reason sealed and shown
+// to the driver. Dispatch can never override.
+export const loadReassignments = pgTable("load_reassignments", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull(),
+  boardLoadId: integer("board_load_id").notNull(),
+  fromDriver: text("from_driver").notNull(),
+  toDriver: text("to_driver").notNull(),
+  proposedBy: text("proposed_by").notNull(),
+  reason: text("reason"),
+  // pending_consent | consented | refused | overridden | cancelled
+  status: text("status").notNull().default("pending_consent"),
+  respondedAt: timestamp("responded_at", { withTimezone: true, mode: "date" }),
+  overrideBy: text("override_by"),
+  overrideReason: text("override_reason"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+// A hand-back owed to a driver's own session: when a desk-side
+// decision (an approved release, an owner's override of a
+// refusal) takes a load off a driver, the board row flips at
+// once — but the driver's load + trip live in THEIR profile
+// scope, which the desk's session cannot delete from (host
+// scoping). This row records the debt; the driver's own session
+// sweeps it on their next board / calendar / loads read, sealing
+// the deletion then. swept_at stamps the sweep.
+export const driverLoadHandbacks = pgTable("driver_load_handbacks", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull(),
+  driverUsername: text("driver_username").notNull(),
+  boardLoadId: integer("board_load_id").notNull(),
+  loadId: integer("load_id"),
+  tripQueueId: integer("trip_queue_id"),
+  reason: text("reason").notNull(),
+  sweptAt: timestamp("swept_at", { withTimezone: true, mode: "date" }),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
 // ---- Accounting sync + recruiting (migration 0136, Wave 2 item 10) --------
 // QuickBooks Online / Xero connections, owned by the DRIVER's
 // profile (the books are the driver's own business books — the

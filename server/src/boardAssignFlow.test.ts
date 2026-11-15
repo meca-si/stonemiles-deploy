@@ -194,8 +194,12 @@ const boardFields = {
   brokerCompany: null,
   brokerMc: null,
   referenceNumber: "REF-100",
-  pickupApptAt: "2026-11-16T13:00:00.000Z",
-  deliveryApptAt: "2026-11-18T22:00:00.000Z",
+  // Item 10.5: the decline safety window (default 24h before
+  // pickup) locks declines inside it — these appointments sit
+  // several days out so the decline paths below exercise the
+  // free-decline side of the window, as they always did.
+  pickupApptAt: "2026-11-21T13:00:00.000Z",
+  deliveryApptAt: "2026-11-23T22:00:00.000Z",
 };
 
 async function postFleetLoad(ctx: CtxT) {

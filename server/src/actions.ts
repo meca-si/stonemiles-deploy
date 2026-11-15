@@ -480,6 +480,24 @@ canRespondToAssignment,
 cleanReferenceNumber,
 validateDeclineReason,
 } from "./boardAssignment";
+import {
+  DEFAULT_CALENDAR_SETTINGS,
+  OFF_DUTY_REQUEST_LABELS,
+  canOverrideReassignmentRefusal,
+  credentialCalendarMarkers,
+  declineCutoffMs,
+  dispatchModeOf,
+  paydayState,
+  projectPaydays,
+  reassignmentTargetOk,
+  requestNeedsApproval,
+  safetyWindowHoursOf,
+  validateCalendarSettings,
+  validateOffDutyRequest,
+  withinSafetyWindow,
+  type FleetCalendarSettingsLike,
+  type OffDutyRequestType,
+} from "./driverCalendar";
 import { buildPdf, jpegDimensions } from "./pdfDoc";
 import { encodeQr } from "./qrCode";
 import {
@@ -12626,7 +12644,13 @@ function toBoardLoad(
     // the desk can always pull it back to open.
     canUnassign = true;
   } else if (row.status === "taken") {
-    if (!linked) {
+    if (row.loadId == null) {
+      // Forced assignment (Assigned dispatch mode) whose load +
+      // trip haven't materialized in the driver's session yet:
+      // nothing exists on the driver's side, so the desk can
+      // always pull it back — the row simply returns to open.
+      canUnassign = true;
+    } else if (!linked) {
       blocked = "The driver's load for this board post is gone, so there is nothing to hand back — withdraw and repost it fresh if it still needs covering.";
     } else if (linked.podSealed) {
       blocked = "Already delivered and POD-sealed — a sealed delivery can't be unassigned.";
@@ -16597,6 +16621,306 @@ async function openFuelCardMismatchException(
  * driver + desk, opens the fleet's exception, and binds NOTHING.
  * Load CREATION is never gated — a solo driver building their own
  * loads is not an assignment. */
+// ---- Driver Calendar (Wave 2 item 10.5) -----------------------------------
+// The calendar reads and writes ride the machinery that already
+// exists: board rows are the committed-work record, the item-9
+// home-time gate enforces approved off-duty blocks through a
+// commitment shadow, credential statuses come from the alert
+// engine, and every state change seals. The pure rules live in
+// driverCalendar.ts. NO rate/money field is ever shaped into a
+// calendar payload — the builders below pick fields explicitly.
+
+/** A fleet's calendar settings, or the standing defaults when the
+ * owner has never set any (offered mode, 24h window, no pay
+ * cycle — the pre-calendar behaviour, never an invented term). */
+async function calendarSettingsFor(ctx: Ctx, companyId: number): Promise<FleetCalendarSettingsLike> {
+  const db = ctx.db<typeof schema>();
+  const rows = await db
+    .select()
+    .from(schema.fleetCalendarSettings)
+    .where(eq(schema.fleetCalendarSettings.companyId, companyId))
+    .limit(1);
+  const row = rows[0];
+  if (!row) return { ...DEFAULT_CALENDAR_SETTINGS };
+  return {
+    dispatchMode: row.dispatchMode,
+    safetyWindowHours: row.safetyWindowHours,
+    payCycleKind: row.payCycleKind,
+    payWeekday: row.payWeekday ?? null,
+    payAnchorOn: row.payAnchorOn ?? null,
+  };
+}
+
+function calendarSettingsShape(s: FleetCalendarSettingsLike) {
+  return {
+    dispatchMode: dispatchModeOf(s),
+    safetyWindowHours: safetyWindowHoursOf(s),
+    payCycleKind: s.payCycleKind,
+    payWeekday: s.payWeekday ?? null,
+    payAnchorOn: s.payAnchorOn ?? null,
+  };
+}
+
+/** The desk seats of a company (owner + dispatch) — the audience
+ * for calendar desk notifications. */
+async function deskUsernamesFor(ctx: Ctx, companyId: number): Promise<string[]> {
+  const db = ctx.db<typeof schema>();
+  const members = await db
+    .select()
+    .from(schema.companyMembers)
+    .where(eq(schema.companyMembers.companyId, companyId));
+  return members.filter((m) => m.role === "owner" || m.role === "dispatch").map((m) => m.username);
+}
+
+async function notifyDeskMembers(
+  ctx: Ctx,
+  companyId: number,
+  args: { kind: "load_offer" | "system"; title: string; body: string; refId?: number | null; except?: string | null },
+): Promise<void> {
+  const desk = await deskUsernamesFor(ctx, companyId);
+  for (const username of desk) {
+    if (args.except && username === args.except) continue;
+    await recordNotificationSafe(ctx, {
+      username,
+      kind: args.kind,
+      title: args.title,
+      body: args.body,
+      refKind: "board_load",
+      refId: args.refId ?? null,
+    });
+  }
+}
+
+function boardLaneOf(row: BoardLoadRow): string {
+  return `${row.pickupCity ?? "?"} → ${row.deliveryCity ?? "?"}`;
+}
+
+/** Delete a driver's load + trip — the unassign hand-back
+ * sequence. ONLY ever called in the owning driver's own session
+ * (their profile scope is what makes the deletes land); desk-side
+ * decisions record a driver_load_handbacks row instead and the
+ * driver's session sweeps it (sweepDriverHandbacks). */
+async function deleteDriverLoadAndTrip(
+  ctx: Ctx,
+  args: { loadId: number | null; tripQueueId: number | null; boardLoadId: number; reason: string },
+): Promise<void> {
+  const db = ctx.db<typeof schema>();
+  if (args.tripQueueId != null) {
+    await db.delete(schema.tripQueue).where(eq(schema.tripQueue.id, args.tripQueueId));
+  }
+  if (args.loadId != null) {
+    await db.update(schema.loads).set({ tripQueueId: null }).where(eq(schema.loads.id, args.loadId));
+    await db.delete(schema.pickupExtraPhotos).where(eq(schema.pickupExtraPhotos.loadId, args.loadId));
+    await db.delete(schema.trailerSwaps).where(eq(schema.trailerSwaps.loadId, args.loadId));
+    await db.delete(schema.loads).where(eq(schema.loads.id, args.loadId));
+    await appendChain(ctx, {
+      refKind: "load",
+      refId: args.loadId,
+      sessionId: null,
+      event: "load_deleted",
+      payload: { loadId: args.loadId, reason: args.reason, boardLoadId: args.boardLoadId },
+    });
+  }
+}
+
+/** Sweep the hand-back debts a desk-side decision recorded for
+ * this driver (an approved release, an owner's override of a
+ * refusal): their load + trip are deleted HERE, in the driver's
+ * own session, and the sweep seals. Runs at the head of the
+ * driver's board / loads / calendar reads — the paperwork
+ * build's lazy-evaluation pattern. */
+async function sweepDriverHandbacks(ctx: Ctx, me: string): Promise<void> {
+  const db = ctx.db<typeof schema>();
+  const rows = await db
+    .select()
+    .from(schema.driverLoadHandbacks)
+    .where(and(eq(schema.driverLoadHandbacks.driverUsername, me), isNull(schema.driverLoadHandbacks.sweptAt)));
+  for (const row of rows) {
+    if (row.loadId != null) {
+      // The scoped read returns the load only if it is still this
+      // driver's — a copy already gone needs no deletion.
+      const mine = await db.select({ id: schema.loads.id }).from(schema.loads).where(eq(schema.loads.id, row.loadId)).limit(1);
+      if (mine[0]) {
+        await deleteDriverLoadAndTrip(ctx, {
+          loadId: row.loadId,
+          tripQueueId: row.tripQueueId,
+          boardLoadId: row.boardLoadId,
+          reason: row.reason,
+        });
+      }
+    }
+    await db
+      .update(schema.driverLoadHandbacks)
+      .set({ sweptAt: new Date() })
+      .where(eq(schema.driverLoadHandbacks.id, row.id));
+    await appendChain(ctx, {
+      refKind: "load",
+      refId: row.loadId ?? null,
+      sessionId: null,
+      event: "driver_load_handback_swept",
+      payload: { handbackId: row.id, boardLoadId: row.boardLoadId, companyId: row.companyId, driver: me, reason: row.reason, at: new Date().toISOString() },
+    });
+  }
+}
+
+/** Materialize forced assignments (Assigned dispatch mode): the
+ * desk's binding flipped the board row to taken, but the driver's
+ * load + trip are created HERE, in the driver's own session — the
+ * same birth the accept path gives a load, so the sealed Load
+ * Tracker record lives in the driver's own profile. Runs at the
+ * head of the driver's board / loads / calendar reads. */
+async function materializePendingAssignments(ctx: Ctx, me: string): Promise<void> {
+  const db = ctx.db<typeof schema>();
+  const rows = await db
+    .select()
+    .from(schema.boardLoads)
+    .where(
+      and(
+        eq(schema.boardLoads.status, "taken"),
+        eq(schema.boardLoads.claimedBy, me),
+        eq(schema.boardLoads.claimMethod, "assign"),
+        isNull(schema.boardLoads.loadId),
+      ),
+    );
+  for (const row of rows) {
+    try {
+      const takenRow: BoardLoadRow = { ...row, carrierOfRecord: me };
+      const { loadId, tripQueueId } = await createLoadFromBoard(ctx, takenRow, me);
+      await db
+        .update(schema.boardLoads)
+        .set({ loadId, tripQueueId, updatedAt: new Date() })
+        .where(eq(schema.boardLoads.id, row.id));
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: loadId,
+        sessionId: null,
+        event: "board_load_assigned",
+        payload: {
+          boardLoadId: row.id,
+          companyId: row.companyId,
+          driver: me,
+          by: row.postedBy,
+          method: "assign",
+          forced: true,
+          loadId,
+          tripQueueId,
+          lane: boardLaneOf(row),
+          at: new Date().toISOString(),
+        },
+      });
+      await backfillHomeTimeOverrideLoad(ctx, row.id, loadId);
+    } catch {
+      // A failed creation leaves the row taken + unmaterialized;
+      // the next read retries. Never strand the calendar read
+      // itself over one load.
+    }
+  }
+}
+
+/** The driver's lazy calendar sync: sweep hand-back debts, then
+ * materialize forced assignments. Called at the head of the
+ * driver's own reads (board, loads, calendar). */
+async function runCalendarLazySync(ctx: Ctx, me: string): Promise<void> {
+  await sweepDriverHandbacks(ctx, me);
+  await materializePendingAssignments(ctx, me);
+}
+
+/** Create the commitment shadow for an approved off-duty
+ * request: a by_date home-time commitment at the block's start,
+ * stated by the DRIVER (they requested it — approval by the desk
+ * doesn't restate their term), so the item-9 gate enforces the
+ * block with item-9 override law untouched. The request row
+ * carries the shadow's id; cancelling the request voids it. */
+async function createOffDutyCommitmentShadow(
+  ctx: Ctx,
+  args: { companyId: number; driverUsername: string; requestId: number; type: string; startsAt: Date; endsAt: Date; note: string | null; statedAt: Date },
+): Promise<number | null> {
+  const db = ctx.db<typeof schema>();
+  const ins = await db
+    .insert(schema.homeTimeCommitments)
+    .values({
+      companyId: args.companyId,
+      driverUsername: args.driverUsername,
+      kind: "by_date",
+      homeByAt: args.startsAt,
+      everyNDays: null,
+      anchorAt: null,
+      setBy: "driver",
+      createdBy: args.driverUsername,
+      note: args.note ?? OFF_DUTY_REQUEST_LABELS[args.type as OffDutyRequestType] ?? "Time off",
+      effectiveFrom: args.statedAt,
+      effectiveTo: args.endsAt,
+      voidedAt: null,
+      voidedBy: null,
+    })
+    .returning({ id: schema.homeTimeCommitments.id });
+  const commitmentId = ins[0]?.id ?? null;
+  if (commitmentId != null) {
+    await db
+      .update(schema.offDutyRequests)
+      .set({ commitmentId, updatedAt: new Date() })
+      .where(eq(schema.offDutyRequests.id, args.requestId));
+  }
+  return commitmentId;
+}
+
+/** Hand a bound load back to the board it came from. The board
+ * row returns to open with the decline words on it (the standing
+ * board rule); the driver's load + trip are removed in their own
+ * session when the caller IS the driver, or recorded as a
+ * hand-back debt when a desk session decides it. Board scope is
+ * untouched — a fleet row returns to the fleet board, an open
+ * row to the Open Board: the recycle is automatic, no re-post. */
+async function recycleBoundLoad(
+  ctx: Ctx,
+  args: {
+    row: BoardLoadRow;
+    driverUsername: string;
+    actorIsDriverSession: boolean;
+    declineReason: string | null;
+    handbackReason: string;
+  },
+): Promise<void> {
+  const db = ctx.db<typeof schema>();
+  const row = args.row;
+  const now = new Date();
+  if (row.loadId != null) {
+    if (args.actorIsDriverSession) {
+      await deleteDriverLoadAndTrip(ctx, {
+        loadId: row.loadId,
+        tripQueueId: row.tripQueueId,
+        boardLoadId: row.id,
+        reason: args.handbackReason,
+      });
+    } else {
+      await db.insert(schema.driverLoadHandbacks).values({
+        companyId: row.companyId,
+        driverUsername: args.driverUsername,
+        boardLoadId: row.id,
+        loadId: row.loadId,
+        tripQueueId: row.tripQueueId,
+        reason: args.handbackReason,
+      });
+    }
+  }
+  await db
+    .update(schema.boardLoads)
+    .set({
+      status: "open",
+      claimMethod: null,
+      claimedBy: null,
+      claimedAt: null,
+      carrierOfRecord: null,
+      loadId: null,
+      tripQueueId: null,
+      declineReason: args.declineReason,
+      declinedBy: args.declineReason != null ? args.driverUsername : null,
+      declinedAt: args.declineReason != null ? now : null,
+      updatedAt: now,
+    })
+    .where(eq(schema.boardLoads.id, row.id));
+}
+
 async function dqGateForBoardTake(
   ctx: Ctx,
   args: {
@@ -26666,6 +26990,10 @@ export const Actions = {
     response: z.object({ loads: z.array(loadShape) }),
     async handler(ctx, args): Promise<{ loads: z.infer<typeof loadShape>[] }> {
       const db = ctx.db<typeof schema>();
+      // Driver Calendar lazy sync (item 10.5): a forced assignment
+      // becomes a real load here, in the driver's own session, and
+      // a desk hand-back removes its copy — before the list reads.
+      await runCalendarLazySync(ctx, await myUsername(ctx));
       const rows = await db
         .select()
         .from(schema.loads)
@@ -28962,6 +29290,10 @@ export const Actions = {
     }> {
       const db = ctx.db<typeof schema>();
       const me = await myUsername(ctx);
+      // Driver Calendar lazy sync (item 10.5): forced assignments
+      // materialize and desk hand-backs sweep in the driver's own
+      // session, before the board is read.
+      await runCalendarLazySync(ctx, me);
       const mine = await myMembership(ctx, me);
       const clearStanding = {
         blocked: false,
@@ -29558,7 +29890,13 @@ export const Actions = {
       // boardAssignment.ts): a fresh offer on an open row, a reassign
       // on a pending one, a refusal otherwise.
       const decision = assignDecisionFor({ status: row.status, claimedBy: row.claimedBy ?? null, targetUsername: targetRow.username });
-      if (decision.kind === "refuse") {
+      // Assigned dispatch mode (item 10.5): a still-pending offer
+      // is not a refusal case — assigning again BINDS the load to
+      // the target (the forced branch after the gates below).
+      const assignCalSettings = await calendarSettingsFor(ctx, mine.company.id);
+      const forcedBindPending =
+        dispatchModeOf(assignCalSettings) === "assigned" && row.status === "assigned";
+      if (decision.kind === "refuse" && !forcedBindPending) {
         return {
           ok: false,
           error:
@@ -29627,6 +29965,62 @@ export const Actions = {
       }
       if (ht.state === "refused") {
         return { ok: false, error: ht.error, loadId: null, tripQueueId: null, homeTimeWarning: null };
+      }
+      // DRIVER CALENDAR — ASSIGNED dispatch mode (Wave 2 item
+      // 10.5): this fleet's owner chose forced dispatch, so the
+      // assignment BINDS now — no offer, no decline. The board row
+      // flips straight to taken naming the driver; their load +
+      // trip are created in the DRIVER's own session the next
+      // time they open the app (materializePendingAssignments —
+      // the sealed record is born in their profile, exactly as an
+      // accept births it). The driver is notified in-app.
+      if (dispatchModeOf(assignCalSettings) === "assigned" && (row.status === "open" || row.status === "assigned")) {
+        const nowA = new Date();
+        const bound = await db
+          .update(schema.boardLoads)
+          .set({
+            status: "taken",
+            claimMethod: "assign",
+            claimedBy: targetRow.username,
+            claimedAt: nowA,
+            carrierOfRecord: targetRow.username,
+            declineReason: null,
+            declinedBy: null,
+            declinedAt: null,
+            updatedAt: nowA,
+          })
+          .where(and(eq(schema.boardLoads.id, row.id), eq(schema.boardLoads.status, row.status)))
+          .returning({ id: schema.boardLoads.id });
+        if (!bound[0]) {
+          return { ok: false, error: "That load just changed — refresh the board and try again.", loadId: null, tripQueueId: null };
+        }
+        await appendChain(ctx, {
+          refKind: "load",
+          refId: null,
+          sessionId: null,
+          event: "board_load_assigned",
+          payload: {
+            boardLoadId: row.id,
+            companyId: mine.company.id,
+            driver: targetRow.username,
+            by: me,
+            method: "assign",
+            forced: true,
+            mode: "assigned",
+            lane: boardLaneOf(row),
+            at: nowA.toISOString(),
+          },
+        });
+        await recordNotificationSafe(ctx, {
+          username: targetRow.username,
+          kind: "load_offer",
+          title: "Load assigned to you",
+          body: `${boardLaneOf(row)} was assigned to you by @${me} — it's on your calendar as committed work.`,
+          refKind: "board_load",
+          refId: row.id,
+        });
+        ctx.invalidateQueries();
+        return { ok: true, error: null, loadId: null, tripQueueId: null, homeTimeWarning: null };
       }
       const now = new Date();
       if (decision.kind === "reassign") {
@@ -29867,6 +30261,18 @@ export const Actions = {
               : "That load isn't waiting on an answer — it may have been taken back or given to another driver.",
         };
       }
+      // SAFETY WINDOW (item 10.5): inside the fleet's decline
+      // cutoff before pickup, a load is LOCKED — no unilateral
+      // decline, offered or bound. The driver's door is a release
+      // request the desk decides. A load with no pickup
+      // appointment has no provable window and is never locked.
+      const declineSettings = await calendarSettingsFor(ctx, row.companyId);
+      if (withinSafetyWindow(Date.now(), row.pickupApptAt ? row.pickupApptAt.getTime() : null, safetyWindowHoursOf(declineSettings))) {
+        return {
+          ok: false,
+          error: `That load is inside the safety window now — pickup is less than ${safetyWindowHoursOf(declineSettings)} hours out, so it can't be declined outright. Send a release request from your calendar and dispatch decides.`,
+        };
+      }
       // Back to open, with the words on the row: the desk reads the
       // reason right on the board card before it re-offers the load.
       const now = new Date();
@@ -29966,6 +30372,22 @@ export const Actions = {
           sessionId: null,
           event: "load_deleted",
           payload: { loadId: row.loadId, reason: "fleet board unassign — load handed back to the board before pickup", boardLoadId: row.id },
+        });
+      }
+      // DRIVER CALENDAR (item 10.5): the deletes above land only
+      // when the load lives in THIS session's profile scope. When
+      // the desk unassigns another driver's load, record the
+      // hand-back debt — the driver's own session sweeps their
+      // copy on their next read, so no orphan load survives in
+      // their Load Tracker.
+      if (driverWas && driverWas !== me && row.loadId != null) {
+        await db.insert(schema.driverLoadHandbacks).values({
+          companyId: mine.company.id,
+          driverUsername: driverWas,
+          boardLoadId: row.id,
+          loadId: row.loadId,
+          tripQueueId: row.tripQueueId,
+          reason: "fleet board unassign — load handed back to the board before pickup",
         });
       }
       await db
@@ -50328,6 +50750,1568 @@ export const Actions = {
   // yet" and nothing pretends to sync. Tokens never leave the
   // server: responses carry the provider, a connected-as label,
   // counts, and the review list — never a token value.
+
+  // ---- Driver Calendar (Wave 2 item 10.5) ---------------------------------
+  // One calendar per driver + the desk's fleet grid. See
+  // driverCalendar.ts for the rules; every payload below picks
+  // its fields explicitly — no rate/money key ever rides along.
+
+  getCalendar: defineAction({
+    description: "The driver's own calendar: every bound load (whatever door it came through), off-duty blocks + requests, home-time commitment deadlines, credential expiries with their 60/30/7 renewal warnings, and paydays from the fleet's stated cycle. Plus the next move and everything waiting on the driver's answer.",
+    request: z.object({
+      fromIso: z.string().min(10).max(40),
+      toIso: z.string().min(10).max(40),
+    }),
+    response: z.object({
+      ok: z.boolean(),
+      error: z.string().nullable(),
+      companyName: z.string().nullable(),
+      myRole: z.string().nullable(),
+      settings: z
+        .object({
+          dispatchMode: z.string(),
+          safetyWindowHours: z.number(),
+          payCycleKind: z.string(),
+          payWeekday: z.number().nullable(),
+          payAnchorOn: z.string().nullable(),
+        })
+        .nullable(),
+      nextMove: z
+        .object({
+          boardLoadId: z.number().nullable(),
+          loadId: z.number().nullable(),
+          lane: z.string(),
+          at: z.string(),
+          state: z.string(),
+        })
+        .nullable(),
+      events: z.array(
+        z.object({
+          kind: z.string(), // load | off_duty | off_duty_pending | commitment | credential_expiry | credential_warning | payday
+          at: z.string(),
+          endAt: z.string().nullable(),
+          title: z.string(),
+          detail: z.string().nullable(),
+          boardLoadId: z.number().nullable(),
+          loadId: z.number().nullable(),
+          state: z.string().nullable(), // offered | committed | locked | expected | paid | load status
+          credentialKey: z.string().nullable(),
+          requestId: z.number().nullable(),
+          locked: z.boolean(),
+        }),
+      ),
+      boundLoads: z.array(
+        z.object({
+          boardLoadId: z.number(),
+          loadId: z.number().nullable(),
+          lane: z.string(),
+          pickupAt: z.string().nullable(),
+          deliveryAt: z.string().nullable(),
+          locked: z.boolean(),
+          cutoffAt: z.string().nullable(),
+          canDecline: z.boolean(),
+          releasePending: z.boolean(),
+        }),
+      ),
+      pendingOffers: z.array(
+        z.object({
+          boardLoadId: z.number(),
+          lane: z.string(),
+          pickupAt: z.string().nullable(),
+          deliveryAt: z.string().nullable(),
+          locked: z.boolean(),
+        }),
+      ),
+      pendingReassignments: z.array(
+        z.object({
+          id: z.number(),
+          boardLoadId: z.number(),
+          lane: z.string(),
+          toDriver: z.string(),
+          proposedBy: z.string(),
+          reason: z.string().nullable(),
+          createdAt: z.string(),
+        }),
+      ),
+      myReleaseRequests: z.array(
+        z.object({ id: z.number(), boardLoadId: z.number(), status: z.string(), createdAt: z.string() }),
+      ),
+      myRequests: z.array(
+        z.object({
+          id: z.number(),
+          type: z.string(),
+          typeLabel: z.string(),
+          startsAt: z.string(),
+          endsAt: z.string(),
+          note: z.string().nullable(),
+          status: z.string(),
+          decidedBy: z.string().nullable(),
+          decisionNote: z.string().nullable(),
+        }),
+      ),
+    }),
+    async handler(ctx, args) {
+      const fail = {
+        ok: false,
+        companyName: null,
+        myRole: null,
+        settings: null,
+        nextMove: null,
+        events: [],
+        boundLoads: [],
+        pendingOffers: [],
+        pendingReassignments: [],
+        myReleaseRequests: [],
+        myRequests: [],
+      };
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      await runCalendarLazySync(ctx, me);
+      const fromMs = Date.parse(args.fromIso);
+      const toMs = Date.parse(args.toIso);
+      if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || toMs <= fromMs || toMs - fromMs > 370 * 86_400_000) {
+        return { ...fail, error: "That calendar window doesn't parse — pick a week or a month to look at." };
+      }
+      const now = Date.now();
+      const mine = await myMembership(ctx, me);
+      const settings = mine ? await calendarSettingsFor(ctx, mine.company.id) : null;
+      const windowHours = settings ? safetyWindowHoursOf(settings) : 24;
+      type CalEvent = {
+        kind: string;
+        at: string;
+        endAt: string | null;
+        title: string;
+        detail: string | null;
+        boardLoadId: number | null;
+        loadId: number | null;
+        state: string | null;
+        credentialKey: string | null;
+        requestId: number | null;
+        locked: boolean;
+      };
+      const events: CalEvent[] = [];
+      const inWindow = (ms: number) => ms >= fromMs && ms < toMs;
+
+      // Bound + offered board loads — every door (fleet board,
+      // Open Board) lands here, because the board row IS the
+      // committed-work record.
+      const boundRows = await db
+        .select()
+        .from(schema.boardLoads)
+        .where(and(eq(schema.boardLoads.claimedBy, me), inArray(schema.boardLoads.status, ["assigned", "taken"])));
+      const boardLoadIds = new Set<number>();
+      const pendingOffers: { boardLoadId: number; lane: string; pickupAt: string | null; deliveryAt: string | null; locked: boolean }[] = [];
+      const boundLoads: {
+        boardLoadId: number;
+        loadId: number | null;
+        lane: string;
+        pickupAt: string | null;
+        deliveryAt: string | null;
+        locked: boolean;
+        cutoffAt: string | null;
+        canDecline: boolean;
+        releasePending: boolean;
+      }[] = [];
+      const releaseRows = await db
+        .select()
+        .from(schema.loadReleaseRequests)
+        .where(eq(schema.loadReleaseRequests.driverUsername, me))
+        .orderBy(desc(schema.loadReleaseRequests.id));
+      const releasePendingFor = new Set(releaseRows.filter((r) => r.status === "pending").map((r) => r.boardLoadId));
+      let nextMove: { boardLoadId: number | null; loadId: number | null; lane: string; at: string; state: string } | null = null;
+      for (const row of boundRows) {
+        if (row.loadId != null) boardLoadIds.add(row.loadId);
+        const pickupMs = row.pickupApptAt ? row.pickupApptAt.getTime() : null;
+        const deliveryMs = row.deliveryApptAt ? row.deliveryApptAt.getTime() : null;
+        const anchorMs = pickupMs ?? deliveryMs ?? (row.claimedAt ? row.claimedAt.getTime() : null);
+        const locked = withinSafetyWindow(now, pickupMs, windowHours);
+        if (row.status === "assigned") {
+          pendingOffers.push({
+            boardLoadId: row.id,
+            lane: boardLaneOf(row),
+            pickupAt: row.pickupApptAt?.toISOString() ?? null,
+            deliveryAt: row.deliveryApptAt?.toISOString() ?? null,
+            locked,
+          });
+        }
+        if (row.status === "taken") {
+          let canDecline = false;
+          if (!locked) {
+            if (row.loadId == null) {
+              canDecline = true; // nothing exists driver-side yet
+            } else {
+              const linked = await boardLinkedState(ctx, row);
+              canDecline = toBoardLoad(row, linked).canUnassign;
+            }
+          }
+          boundLoads.push({
+            boardLoadId: row.id,
+            loadId: row.loadId ?? null,
+            lane: boardLaneOf(row),
+            pickupAt: row.pickupApptAt?.toISOString() ?? null,
+            deliveryAt: row.deliveryApptAt?.toISOString() ?? null,
+            locked,
+            cutoffAt: declineCutoffMs(pickupMs, windowHours) != null ? new Date(declineCutoffMs(pickupMs, windowHours)!).toISOString() : null,
+            canDecline,
+            releasePending: releasePendingFor.has(row.id),
+          });
+          if (anchorMs != null && anchorMs >= now - 12 * 3_600_000) {
+            if (!nextMove || anchorMs < Date.parse(nextMove.at)) {
+              nextMove = { boardLoadId: row.id, loadId: row.loadId ?? null, lane: boardLaneOf(row), at: new Date(anchorMs).toISOString(), state: "committed" };
+            }
+          }
+        }
+        if (anchorMs != null && inWindow(anchorMs)) {
+          events.push({
+            kind: "load",
+            at: new Date(anchorMs).toISOString(),
+            endAt: deliveryMs != null && pickupMs != null ? new Date(deliveryMs).toISOString() : null,
+            title: boardLaneOf(row),
+            detail: row.referenceNumber ? `Ref ${row.referenceNumber}` : null,
+            boardLoadId: row.id,
+            loadId: row.loadId ?? null,
+            state: row.status === "assigned" ? "offered" : locked ? "locked" : "committed",
+            credentialKey: null,
+            requestId: null,
+            locked,
+          });
+        }
+      }
+
+      // The driver's own loads that never came through a board
+      // (hand-built loads) — deduped against the board rows above
+      // by the load id the board row points at.
+      const ownLoads = await db.select().from(schema.loads);
+      for (const load of ownLoads) {
+        if (load.id != null && boardLoadIds.has(load.id)) continue;
+        const anchor = load.dockApptAt ?? load.createdAt;
+        if (!anchor) continue;
+        const anchorMs = anchor.getTime();
+        if (!inWindow(anchorMs)) continue;
+        const lane = `${load.pickupCity ?? "?"} → ${load.deliveryCity ?? "?"}`;
+        events.push({
+          kind: "load",
+          at: new Date(anchorMs).toISOString(),
+          endAt: null,
+          title: lane,
+          detail: load.referenceNumber ? `Ref ${load.referenceNumber}` : null,
+          boardLoadId: null,
+          loadId: load.id,
+          state: load.status ?? "booked",
+          credentialKey: null,
+          requestId: null,
+          locked: false,
+        });
+        if ((load.status ?? "booked") === "booked" && anchorMs >= now - 12 * 3_600_000) {
+          if (!nextMove || anchorMs < Date.parse(nextMove.at)) {
+            nextMove = { boardLoadId: null, loadId: load.id, lane, at: new Date(anchorMs).toISOString(), state: "committed" };
+          }
+        }
+      }
+
+      // Off-duty blocks + my requests (approved = plan; pending =
+      // waiting on the desk, shown as such on my own calendar).
+      const myReqRows = await db
+        .select()
+        .from(schema.offDutyRequests)
+        .where(eq(schema.offDutyRequests.driverUsername, me))
+        .orderBy(desc(schema.offDutyRequests.id));
+      for (const r of myReqRows) {
+        if (r.status !== "approved" && r.status !== "pending") continue;
+        const s = r.startsAt.getTime();
+        const e = r.endsAt.getTime();
+        if (!(s < toMs && e > fromMs)) continue;
+        events.push({
+          kind: r.status === "approved" ? "off_duty" : "off_duty_pending",
+          at: r.startsAt.toISOString(),
+          endAt: r.endsAt.toISOString(),
+          title: OFF_DUTY_REQUEST_LABELS[r.type as OffDutyRequestType] ?? "Time off",
+          detail: r.note ?? (r.status === "pending" ? "Waiting on the desk to approve" : null),
+          boardLoadId: null,
+          loadId: null,
+          state: r.status,
+          credentialKey: null,
+          requestId: r.id,
+          locked: false,
+        });
+      }
+
+      // Home-time commitment deadlines on the table (item 9).
+      if (mine) {
+        const commitmentRows = await homeTimeCommitmentRowsFor(ctx, mine.company.id, me);
+        const likes = commitmentRows.map(toHomeTimeCommitmentLike).filter((c) => c.voidedAt == null);
+        for (const d of allDeadlines(likes, fromMs, toMs)) {
+          events.push({
+            kind: "commitment",
+            at: new Date(d.deadlineAt).toISOString(),
+            endAt: null,
+            title: "Home-time deadline",
+            detail: describeCommitment(likes.find((c) => c.id === d.commitmentId) ?? likes[0]!),
+            boardLoadId: null,
+            loadId: null,
+            state: null,
+            credentialKey: null,
+            requestId: null,
+            locked: false,
+          });
+        }
+      }
+
+      // Credential expiries + renewal warnings — the same
+      // statuses the credential alerts use, on the same ladder.
+      const statuses = await credentialStatusesFor(ctx, me);
+      for (const m of credentialCalendarMarkers(statuses, fromMs, toMs, now)) {
+        events.push({
+          kind: m.kind === "expiry" ? "credential_expiry" : "credential_warning",
+          at: new Date(m.atMs).toISOString(),
+          endAt: null,
+          title: m.kind === "expiry" ? `${m.label} expires` : `${m.label} — renew soon`,
+          detail:
+            m.kind === "expiry"
+              ? `${m.label} expires ${m.expiresOn} — renew before it lapses.`
+              : `${m.label} expires ${m.expiresOn} — this is the ${m.daysBefore}-day warning.`,
+          boardLoadId: null,
+          loadId: null,
+          state: m.kind,
+          credentialKey: m.credentialKey,
+          requestId: null,
+          locked: false,
+        });
+      }
+
+      // Paydays from my fleet's stated cycle — "expected" until a
+      // recorded payment covers the date. No amounts, ever.
+      if (mine && settings) {
+        const paidDays: number[] = [];
+        const deliveries = await db
+          .select()
+          .from(schema.payStubDeliveries)
+          .where(
+            and(
+              eq(schema.payStubDeliveries.companyId, mine.company.id),
+              eq(schema.payStubDeliveries.recipientUsername, me),
+              eq(schema.payStubDeliveries.status, "accepted"),
+            ),
+          );
+        for (const d of deliveries) paidDays.push(d.paidAt.getTime());
+        const entries = await db.select().from(schema.payEntries).where(eq(schema.payEntries.username, me));
+        for (const e of entries) paidDays.push(e.paidAt.getTime());
+        for (const paydayMs of projectPaydays(settings, fromMs, toMs)) {
+          const state = paydayState(paydayMs, paidDays);
+          events.push({
+            kind: "payday",
+            at: new Date(paydayMs).toISOString(),
+            endAt: null,
+            title: state === "paid" ? "Payday — paid" : "Payday — expected",
+            detail: state === "paid" ? "A recorded payment covers this payday." : "From your fleet's pay cycle — expected until the payment is recorded.",
+            boardLoadId: null,
+            loadId: null,
+            state,
+            credentialKey: null,
+            requestId: null,
+            locked: false,
+          });
+        }
+      }
+
+      // Reassignments waiting on MY consent.
+      const proposals = await db
+        .select()
+        .from(schema.loadReassignments)
+        .where(and(eq(schema.loadReassignments.fromDriver, me), eq(schema.loadReassignments.status, "pending_consent")))
+        .orderBy(desc(schema.loadReassignments.id));
+      const pendingReassignments: {
+        id: number;
+        boardLoadId: number;
+        lane: string;
+        toDriver: string;
+        proposedBy: string;
+        reason: string | null;
+        createdAt: string;
+      }[] = [];
+      for (const p of proposals) {
+        const rows = await db.select().from(schema.boardLoads).where(eq(schema.boardLoads.id, p.boardLoadId)).limit(1);
+        pendingReassignments.push({
+          id: p.id,
+          boardLoadId: p.boardLoadId,
+          lane: rows[0] ? boardLaneOf(rows[0]) : "Load",
+          toDriver: p.toDriver,
+          proposedBy: p.proposedBy,
+          reason: p.reason ?? null,
+          createdAt: p.createdAt.toISOString(),
+        });
+      }
+
+      events.sort((a, b) => a.at.localeCompare(b.at));
+      return {
+        ok: true,
+        error: null,
+        companyName: mine?.company.name ?? null,
+        myRole: mine?.role ?? null,
+        settings: settings ? calendarSettingsShape(settings) : null,
+        nextMove,
+        events,
+        boundLoads,
+        pendingOffers,
+        pendingReassignments,
+        myReleaseRequests: releaseRows.slice(0, 20).map((r) => ({
+          id: r.id,
+          boardLoadId: r.boardLoadId,
+          status: r.status,
+          createdAt: r.createdAt.toISOString(),
+        })),
+        myRequests: myReqRows.slice(0, 50).map((r) => ({
+          id: r.id,
+          type: r.type,
+          typeLabel: OFF_DUTY_REQUEST_LABELS[r.type as OffDutyRequestType] ?? "Time off",
+          startsAt: r.startsAt.toISOString(),
+          endsAt: r.endsAt.toISOString(),
+          note: r.note ?? null,
+          status: r.status,
+          decidedBy: r.decidedBy ?? null,
+          decisionNote: r.decisionNote ?? null,
+        })),
+      };
+    },
+  }),
+
+  getFleetCalendar: defineAction({
+    description: "The desk's fleet calendar grid: every driver's bound loads, off-duty blocks, and commitment deadlines side by side, plus the queues the desk works — pending time-off approvals, release requests, and reassignments (refusals included, for the owner's override). Owner/dispatch only; a company driver gets their own calendar, never this grid.",
+    request: z.object({
+      fromIso: z.string().min(10).max(40),
+      toIso: z.string().min(10).max(40),
+    }),
+    response: z.object({
+      ok: z.boolean(),
+      error: z.string().nullable(),
+      companyName: z.string().nullable(),
+      myRole: z.string().nullable(),
+      isOwner: z.boolean(),
+      settings: z
+        .object({
+          dispatchMode: z.string(),
+          safetyWindowHours: z.number(),
+          payCycleKind: z.string(),
+          payWeekday: z.number().nullable(),
+          payAnchorOn: z.string().nullable(),
+        })
+        .nullable(),
+      drivers: z.array(
+        z.object({
+          username: z.string(),
+          role: z.string(),
+          events: z.array(
+            z.object({
+              kind: z.string(),
+              at: z.string(),
+              endAt: z.string().nullable(),
+              title: z.string(),
+              detail: z.string().nullable(),
+              boardLoadId: z.number().nullable(),
+              state: z.string().nullable(),
+              locked: z.boolean(),
+            }),
+          ),
+        }),
+      ),
+      pendingOffDuty: z.array(
+        z.object({
+          id: z.number(),
+          driverUsername: z.string(),
+          type: z.string(),
+          typeLabel: z.string(),
+          startsAt: z.string(),
+          endsAt: z.string(),
+          note: z.string().nullable(),
+          createdAt: z.string(),
+        }),
+      ),
+      pendingReleases: z.array(
+        z.object({
+          id: z.number(),
+          boardLoadId: z.number(),
+          driverUsername: z.string(),
+          lane: z.string(),
+          reason: z.string().nullable(),
+          createdAt: z.string(),
+        }),
+      ),
+      reassignments: z.array(
+        z.object({
+          id: z.number(),
+          boardLoadId: z.number(),
+          lane: z.string(),
+          fromDriver: z.string(),
+          toDriver: z.string(),
+          proposedBy: z.string(),
+          reason: z.string().nullable(),
+          status: z.string(),
+          overrideBy: z.string().nullable(),
+          overrideReason: z.string().nullable(),
+          createdAt: z.string(),
+        }),
+      ),
+    }),
+    async handler(ctx, args) {
+      const fail = {
+        ok: false,
+        companyName: null,
+        myRole: null,
+        isOwner: false,
+        settings: null,
+        drivers: [],
+        pendingOffDuty: [],
+        pendingReleases: [],
+        reassignments: [],
+      };
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const mine = await myMembership(ctx, me);
+      if (!mine || (mine.role !== "owner" && mine.role !== "dispatch")) {
+        return { ...fail, error: "The fleet calendar is the desk's view — owner and dispatch seats only. Your own calendar is under the Calendar tab." };
+      }
+      const fromMs = Date.parse(args.fromIso);
+      const toMs = Date.parse(args.toIso);
+      if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || toMs <= fromMs || toMs - fromMs > 370 * 86_400_000) {
+        return { ...fail, error: "That calendar window doesn't parse — pick a week or a month to look at." };
+      }
+      const now = Date.now();
+      const settings = await calendarSettingsFor(ctx, mine.company.id);
+      const windowHours = safetyWindowHoursOf(settings);
+      const inWindow = (ms: number) => ms >= fromMs && ms < toMs;
+      const members = await db
+        .select()
+        .from(schema.companyMembers)
+        .where(eq(schema.companyMembers.companyId, mine.company.id));
+      const drivers = members.filter((m) => m.role !== "dispatch");
+      const companyBoard = await db
+        .select()
+        .from(schema.boardLoads)
+        .where(and(eq(schema.boardLoads.companyId, mine.company.id), inArray(schema.boardLoads.status, ["assigned", "taken"])));
+      const companyRequests = await db
+        .select()
+        .from(schema.offDutyRequests)
+        .where(eq(schema.offDutyRequests.companyId, mine.company.id));
+      const stubDeliveries = await db
+        .select()
+        .from(schema.payStubDeliveries)
+        .where(and(eq(schema.payStubDeliveries.companyId, mine.company.id), eq(schema.payStubDeliveries.status, "accepted")));
+      const driverPayloads: {
+        username: string;
+        role: string;
+        events: {
+          kind: string;
+          at: string;
+          endAt: string | null;
+          title: string;
+          detail: string | null;
+          boardLoadId: number | null;
+          state: string | null;
+          locked: boolean;
+        }[];
+      }[] = [];
+      for (const driver of drivers) {
+        type GridEvent = {
+          kind: string;
+          at: string;
+          endAt: string | null;
+          title: string;
+          detail: string | null;
+          boardLoadId: number | null;
+          state: string | null;
+          locked: boolean;
+        };
+        const evts: GridEvent[] = [];
+        for (const row of companyBoard) {
+          if (row.claimedBy !== driver.username) continue;
+          const pickupMs = row.pickupApptAt ? row.pickupApptAt.getTime() : null;
+          const deliveryMs = row.deliveryApptAt ? row.deliveryApptAt.getTime() : null;
+          const anchorMs = pickupMs ?? deliveryMs ?? (row.claimedAt ? row.claimedAt.getTime() : null);
+          if (anchorMs == null || !inWindow(anchorMs)) continue;
+          const locked = withinSafetyWindow(now, pickupMs, windowHours);
+          evts.push({
+            kind: "load",
+            at: new Date(anchorMs).toISOString(),
+            endAt: deliveryMs != null && pickupMs != null ? new Date(deliveryMs).toISOString() : null,
+            title: boardLaneOf(row),
+            detail: row.referenceNumber ? `Ref ${row.referenceNumber}` : null,
+            boardLoadId: row.id,
+            state: row.status === "assigned" ? "offered" : locked ? "locked" : "committed",
+            locked,
+          });
+        }
+        for (const r of companyRequests) {
+          if (r.driverUsername !== driver.username) continue;
+          if (r.status !== "approved" && r.status !== "pending") continue;
+          if (!(r.startsAt.getTime() < toMs && r.endsAt.getTime() > fromMs)) continue;
+          evts.push({
+            kind: r.status === "approved" ? "off_duty" : "off_duty_pending",
+            at: r.startsAt.toISOString(),
+            endAt: r.endsAt.toISOString(),
+            title: OFF_DUTY_REQUEST_LABELS[r.type as OffDutyRequestType] ?? "Time off",
+            detail: r.note ?? (r.status === "pending" ? "Waiting on the desk to approve" : null),
+            boardLoadId: null,
+            state: r.status,
+            locked: false,
+          });
+        }
+        const commitmentRows = await homeTimeCommitmentRowsFor(ctx, mine.company.id, driver.username);
+        const likes = commitmentRows.map(toHomeTimeCommitmentLike).filter((c) => c.voidedAt == null);
+        for (const d of allDeadlines(likes, fromMs, toMs)) {
+          evts.push({
+            kind: "commitment",
+            at: new Date(d.deadlineAt).toISOString(),
+            endAt: null,
+            title: "Home-time deadline",
+            detail: describeCommitment(likes.find((c) => c.id === d.commitmentId) ?? likes[0]!),
+            boardLoadId: null,
+            state: null,
+            locked: false,
+          });
+        }
+        const paidDays = stubDeliveries.filter((d) => d.recipientUsername === driver.username).map((d) => d.paidAt.getTime());
+        for (const paydayMs of projectPaydays(settings, fromMs, toMs)) {
+          const state = paydayState(paydayMs, paidDays);
+          evts.push({
+            kind: "payday",
+            at: new Date(paydayMs).toISOString(),
+            endAt: null,
+            title: state === "paid" ? "Payday — paid" : "Payday — expected",
+            detail: null,
+            boardLoadId: null,
+            state,
+            locked: false,
+          });
+        }
+        evts.sort((a, b) => a.at.localeCompare(b.at));
+        driverPayloads.push({ username: driver.username, role: driver.role, events: evts });
+      }
+      const laneFor = async (boardLoadId: number): Promise<string> => {
+        const rows = await db.select().from(schema.boardLoads).where(eq(schema.boardLoads.id, boardLoadId)).limit(1);
+        return rows[0] ? boardLaneOf(rows[0]) : "Load";
+      };
+      const pendingOffDuty = companyRequests
+        .filter((r) => r.status === "pending")
+        .map((r) => ({
+          id: r.id,
+          driverUsername: r.driverUsername,
+          type: r.type,
+          typeLabel: OFF_DUTY_REQUEST_LABELS[r.type as OffDutyRequestType] ?? "Time off",
+          startsAt: r.startsAt.toISOString(),
+          endsAt: r.endsAt.toISOString(),
+          note: r.note ?? null,
+          createdAt: r.createdAt.toISOString(),
+        }));
+      const releaseRowsQ = await db
+        .select()
+        .from(schema.loadReleaseRequests)
+        .where(and(eq(schema.loadReleaseRequests.companyId, mine.company.id), eq(schema.loadReleaseRequests.status, "pending")))
+        .orderBy(desc(schema.loadReleaseRequests.id));
+      const pendingReleases: {
+        id: number;
+        boardLoadId: number;
+        driverUsername: string;
+        lane: string;
+        reason: string | null;
+        createdAt: string;
+      }[] = [];
+      for (const r of releaseRowsQ) {
+        pendingReleases.push({
+          id: r.id,
+          boardLoadId: r.boardLoadId,
+          driverUsername: r.driverUsername,
+          lane: await laneFor(r.boardLoadId),
+          reason: r.reason ?? null,
+          createdAt: r.createdAt.toISOString(),
+        });
+      }
+      const reassignRows = await db
+        .select()
+        .from(schema.loadReassignments)
+        .where(
+          and(
+            eq(schema.loadReassignments.companyId, mine.company.id),
+            inArray(schema.loadReassignments.status, ["pending_consent", "refused"]),
+          ),
+        )
+        .orderBy(desc(schema.loadReassignments.id));
+      const reassignments: {
+        id: number;
+        boardLoadId: number;
+        lane: string;
+        fromDriver: string;
+        toDriver: string;
+        proposedBy: string;
+        reason: string | null;
+        status: string;
+        overrideBy: string | null;
+        overrideReason: string | null;
+        createdAt: string;
+      }[] = [];
+      for (const p of reassignRows) {
+        reassignments.push({
+          id: p.id,
+          boardLoadId: p.boardLoadId,
+          lane: await laneFor(p.boardLoadId),
+          fromDriver: p.fromDriver,
+          toDriver: p.toDriver,
+          proposedBy: p.proposedBy,
+          reason: p.reason ?? null,
+          status: p.status,
+          overrideBy: p.overrideBy ?? null,
+          overrideReason: p.overrideReason ?? null,
+          createdAt: p.createdAt.toISOString(),
+        });
+      }
+      return {
+        ok: true,
+        error: null,
+        companyName: mine.company.name,
+        myRole: mine.role,
+        isOwner: mine.role === "owner",
+        settings: calendarSettingsShape(settings),
+        drivers: driverPayloads,
+        pendingOffDuty,
+        pendingReleases,
+        reassignments,
+      };
+    },
+  }),
+
+  setFleetCalendarSettings: defineAction({
+    description: "Set the fleet's calendar settings — dispatch mode (Assigned = forced, Offered = drivers answer), the safety-window hours, and the pay cycle that projects paydays. Owner only; every change is sealed.",
+    request: z.object({
+      dispatchMode: z.enum(["assigned", "offered"]),
+      safetyWindowHours: z.number().int().min(1).max(168),
+      payCycleKind: z.enum(["none", "weekly", "biweekly"]),
+      payWeekday: z.number().int().min(0).max(6).nullable().default(null),
+      payAnchorOn: z.string().max(10).nullable().default(null),
+    }),
+    response: z.object({
+      ok: z.boolean(),
+      error: z.string().nullable(),
+      settings: z
+        .object({
+          dispatchMode: z.string(),
+          safetyWindowHours: z.number(),
+          payCycleKind: z.string(),
+          payWeekday: z.number().nullable(),
+          payAnchorOn: z.string().nullable(),
+        })
+        .nullable(),
+    }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const mine = await myMembership(ctx, me);
+      if (!mine || mine.role !== "owner") {
+        return { ok: false, error: "Only the fleet owner sets the calendar settings — dispatch mode and the pay cycle are the owner's call.", settings: null };
+      }
+      const checked = validateCalendarSettings(args);
+      if (!checked.ok) return { ok: false, error: checked.error, settings: null };
+      const now = new Date();
+      const existing = await db
+        .select()
+        .from(schema.fleetCalendarSettings)
+        .where(eq(schema.fleetCalendarSettings.companyId, mine.company.id))
+        .limit(1);
+      if (existing[0]) {
+        await db
+          .update(schema.fleetCalendarSettings)
+          .set({ ...checked.settings, updatedBy: me, updatedAt: now })
+          .where(eq(schema.fleetCalendarSettings.id, existing[0].id));
+      } else {
+        await db.insert(schema.fleetCalendarSettings).values({
+          companyId: mine.company.id,
+          ...checked.settings,
+          updatedBy: me,
+        });
+      }
+      await appendChain(ctx, {
+        refKind: "team",
+        refId: mine.company.id,
+        sessionId: null,
+        event: "fleet_calendar_settings_updated",
+        payload: { companyId: mine.company.id, by: me, ...checked.settings, at: now.toISOString() },
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null, settings: calendarSettingsShape(checked.settings) };
+    },
+  }),
+
+  requestOffDuty: defineAction({
+    description: "Request a block of time off — home time, medical / doctor visit (incl. DOT physical), family, personal, or a 34-hour reset — with an optional note so the desk sees why. In an Assigned fleet a company driver's request waits for the desk; otherwise (Offered fleet, owner-operators, no fleet) it takes effect as stated. Approved requests become commitments the home-time gate enforces. Sealed.",
+    request: z.object({
+      type: z.enum(["home_time", "medical", "family", "personal", "reset"]),
+      startsAtIso: z.string().min(10).max(40),
+      endsAtIso: z.string().min(10).max(40),
+      note: z.string().max(300).nullable().default(null),
+    }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable(), requestId: z.number().nullable(), status: z.string().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const mine = await myMembership(ctx, me);
+      if (mine && mine.role === "dispatch") {
+        return { ok: false, error: "Dispatch doesn't run loads — time off is a driver's calendar.", requestId: null, status: null };
+      }
+      const checked = validateOffDutyRequest({
+        type: args.type,
+        startsAtMs: Date.parse(args.startsAtIso),
+        endsAtMs: Date.parse(args.endsAtIso),
+        note: args.note,
+      });
+      if (!checked.ok) return { ok: false, error: checked.error, requestId: null, status: null };
+      const settings = mine ? await calendarSettingsFor(ctx, mine.company.id) : null;
+      const needsApproval = mine && settings ? requestNeedsApproval({ mode: dispatchModeOf(settings), requesterRole: mine.role }) : false;
+      const now = new Date();
+      const ins = await db
+        .insert(schema.offDutyRequests)
+        .values({
+          companyId: mine?.company.id ?? null,
+          driverUsername: me,
+          type: checked.type,
+          startsAt: new Date(checked.startsAtMs),
+          endsAt: new Date(checked.endsAtMs),
+          note: checked.note,
+          status: needsApproval ? "pending" : "approved",
+          decidedBy: needsApproval ? null : me,
+          decidedAt: needsApproval ? null : now,
+        })
+        .returning({ id: schema.offDutyRequests.id });
+      const requestId = ins[0]?.id ?? null;
+      await appendChain(ctx, {
+        refKind: "team",
+        refId: mine?.company.id ?? null,
+        sessionId: null,
+        event: "off_duty_requested",
+        payload: {
+          requestId,
+          companyId: mine?.company.id ?? null,
+          driver: me,
+          type: checked.type,
+          startsAt: new Date(checked.startsAtMs).toISOString(),
+          endsAt: new Date(checked.endsAtMs).toISOString(),
+          status: needsApproval ? "pending" : "approved",
+          at: now.toISOString(),
+        },
+      });
+      if (!needsApproval && mine && requestId != null) {
+        const commitmentId = await createOffDutyCommitmentShadow(ctx, {
+          companyId: mine.company.id,
+          driverUsername: me,
+          requestId,
+          type: checked.type,
+          startsAt: new Date(checked.startsAtMs),
+          endsAt: new Date(checked.endsAtMs),
+          note: checked.note,
+          statedAt: now,
+        });
+        await appendChain(ctx, {
+          refKind: "team",
+          refId: mine.company.id,
+          sessionId: null,
+          event: "off_duty_approved",
+          payload: { requestId, companyId: mine.company.id, driver: me, by: me, selfApproved: true, commitmentId, at: now.toISOString() },
+        });
+      }
+      if (needsApproval && mine) {
+        await notifyDeskMembers(ctx, mine.company.id, {
+          kind: "system",
+          title: "Time-off request waiting",
+          body: `@${me} asked for ${OFF_DUTY_REQUEST_LABELS[checked.type]} (${new Date(checked.startsAtMs).toLocaleDateString("en-US")} – ${new Date(checked.endsAtMs).toLocaleDateString("en-US")}) — it isn't a commitment until the desk approves it.`,
+          except: me,
+        });
+      }
+      ctx.invalidateQueries();
+      return { ok: true, error: null, requestId, status: needsApproval ? "pending" : "approved" };
+    },
+  }),
+
+  decideOffDutyRequest: defineAction({
+    description: "Approve or deny a driver's pending time-off request (owner/dispatch). Approval makes it a commitment the home-time gate enforces; denial keeps the record. Both are sealed and the driver is notified in-app.",
+    request: z.object({
+      id: z.number().int().positive(),
+      approve: z.boolean(),
+      note: z.string().max(300).nullable().default(null),
+    }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const mine = await myMembership(ctx, me);
+      if (!mine || (mine.role !== "owner" && mine.role !== "dispatch")) {
+        return { ok: false, error: "Only the owner or dispatch can decide a time-off request." };
+      }
+      const rows = await db.select().from(schema.offDutyRequests).where(eq(schema.offDutyRequests.id, args.id)).limit(1);
+      const req = rows[0];
+      if (!req || req.companyId !== mine.company.id) {
+        return { ok: false, error: "That request isn't on your fleet's calendar." };
+      }
+      if (req.status !== "pending") {
+        return { ok: false, error: `That request was already ${req.status} — the record stands as it is.` };
+      }
+      const now = new Date();
+      const note = (args.note ?? "").trim().slice(0, 300) || null;
+      await db
+        .update(schema.offDutyRequests)
+        .set({ status: args.approve ? "approved" : "denied", decidedBy: me, decisionNote: note, decidedAt: now, updatedAt: now })
+        .where(eq(schema.offDutyRequests.id, req.id));
+      let commitmentId: number | null = null;
+      if (args.approve) {
+        commitmentId = await createOffDutyCommitmentShadow(ctx, {
+          companyId: mine.company.id,
+          driverUsername: req.driverUsername,
+          requestId: req.id,
+          type: req.type,
+          startsAt: req.startsAt,
+          endsAt: req.endsAt,
+          note: req.note,
+          statedAt: req.createdAt,
+        });
+      }
+      await appendChain(ctx, {
+        refKind: "team",
+        refId: mine.company.id,
+        sessionId: null,
+        event: args.approve ? "off_duty_approved" : "off_duty_denied",
+        payload: {
+          requestId: req.id,
+          companyId: mine.company.id,
+          driver: req.driverUsername,
+          by: me,
+          note,
+          commitmentId,
+          type: req.type,
+          startsAt: req.startsAt.toISOString(),
+          endsAt: req.endsAt.toISOString(),
+          at: now.toISOString(),
+        },
+      });
+      await recordNotificationSafe(ctx, {
+        username: req.driverUsername,
+        kind: "system",
+        title: args.approve ? "Time off approved" : "Time-off request not approved",
+        body: args.approve
+          ? `Your ${OFF_DUTY_REQUEST_LABELS[req.type as OffDutyRequestType] ?? "time off"} (${req.startsAt.toLocaleDateString("en-US")} – ${req.endsAt.toLocaleDateString("en-US")}) is approved and on your calendar as a commitment.`
+          : `Your ${OFF_DUTY_REQUEST_LABELS[req.type as OffDutyRequestType] ?? "time off"} request (${req.startsAt.toLocaleDateString("en-US")} – ${req.endsAt.toLocaleDateString("en-US")}) wasn't approved${note ? ` — ${note}` : ""}. The record is kept on your calendar.`,
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
+    },
+  }),
+
+  cancelOffDutyRequest: defineAction({
+    description: "Cancel your own time-off request (pending or approved). Cancelling an approved request voids the commitment it created. Sealed.",
+    request: z.object({ id: z.number().int().positive() }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const rows = await db.select().from(schema.offDutyRequests).where(eq(schema.offDutyRequests.id, args.id)).limit(1);
+      const req = rows[0];
+      if (!req || req.driverUsername !== me) {
+        return { ok: false, error: "That request isn't yours." };
+      }
+      if (req.status !== "pending" && req.status !== "approved") {
+        return { ok: false, error: `That request is already ${req.status} — nothing to cancel.` };
+      }
+      const now = new Date();
+      await db
+        .update(schema.offDutyRequests)
+        .set({ status: "cancelled", updatedAt: now })
+        .where(eq(schema.offDutyRequests.id, req.id));
+      if (req.commitmentId != null) {
+        await db
+          .update(schema.homeTimeCommitments)
+          .set({ voidedAt: now, voidedBy: me, updatedAt: now })
+          .where(eq(schema.homeTimeCommitments.id, req.commitmentId));
+      }
+      await appendChain(ctx, {
+        refKind: "team",
+        refId: req.companyId ?? null,
+        sessionId: null,
+        event: "off_duty_cancelled",
+        payload: { requestId: req.id, companyId: req.companyId ?? null, driver: me, commitmentId: req.commitmentId ?? null, at: now.toISOString() },
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
+    },
+  }),
+
+  declineBoundLoad: defineAction({
+    description: "Decline a load already bound to you (accepted ahead, or assigned in an Assigned fleet) BEFORE the safety window — it recycles at once to the board it came from, with your reason on the record for the desk. Inside the safety window the load is locked: send a release request instead. Declines are recorded as facts, never scored.",
+    request: z.object({ id: z.number().int().positive(), reason: z.string().max(300) }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const checked = validateDeclineReason(args.reason);
+      if (!checked.ok) return { ok: false, error: checked.error };
+      const rows = await db.select().from(schema.boardLoads).where(eq(schema.boardLoads.id, args.id)).limit(1);
+      const row = rows[0];
+      if (!row || row.status !== "taken" || row.claimedBy !== me) {
+        return { ok: false, error: "That load isn't bound to you — it may have been moved or handed back already." };
+      }
+      const settings = await calendarSettingsFor(ctx, row.companyId);
+      if (withinSafetyWindow(Date.now(), row.pickupApptAt ? row.pickupApptAt.getTime() : null, safetyWindowHoursOf(settings))) {
+        return {
+          ok: false,
+          error: `That load is inside the safety window now — pickup is less than ${safetyWindowHoursOf(settings)} hours out, so it can't be declined outright. Send a release request from your calendar and dispatch decides.`,
+        };
+      }
+      if (row.loadId != null) {
+        const linked = await boardLinkedState(ctx, row);
+        const probe = toBoardLoad(row, linked);
+        if (!probe.canUnassign) {
+          return { ok: false, error: probe.unassignBlockedReason ?? "That load can't be handed back anymore." };
+        }
+      }
+      await recycleBoundLoad(ctx, {
+        row,
+        driverUsername: me,
+        actorIsDriverSession: true,
+        declineReason: checked.reason,
+        handbackReason: "driver declined a bound load before the safety window — recycled to its board",
+      });
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: row.loadId ?? null,
+        sessionId: null,
+        event: "board_load_bound_declined",
+        payload: {
+          boardLoadId: row.id,
+          companyId: row.companyId,
+          boardScope: row.boardScope ?? "fleet",
+          driver: me,
+          reason: checked.reason,
+          lane: boardLaneOf(row),
+          at: new Date().toISOString(),
+        },
+      });
+      await notifyDeskMembers(ctx, row.companyId, {
+        kind: "load_offer",
+        title: "Bound load declined",
+        body: `@${me} declined ${boardLaneOf(row)} before the safety window — it's back on the board. Reason on the record: ${checked.reason}`,
+        refId: row.id,
+        except: me,
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
+    },
+  }),
+
+  requestLoadRelease: defineAction({
+    description: "Ask the desk to release you from a load LOCKED inside the safety window. The desk decides; the request and the decision are sealed, and you're notified in-app.",
+    request: z.object({ id: z.number().int().positive(), reason: z.string().max(300).nullable().default(null) }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable(), requestId: z.number().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const rows = await db.select().from(schema.boardLoads).where(eq(schema.boardLoads.id, args.id)).limit(1);
+      const row = rows[0];
+      if (!row || (row.status !== "taken" && row.status !== "assigned") || row.claimedBy !== me) {
+        return { ok: false, error: "That load isn't on your calendar anymore.", requestId: null };
+      }
+      const settings = await calendarSettingsFor(ctx, row.companyId);
+      if (!withinSafetyWindow(Date.now(), row.pickupApptAt ? row.pickupApptAt.getTime() : null, safetyWindowHoursOf(settings))) {
+        return {
+          ok: false,
+          error: "That load isn't locked — you're still outside the safety window, so you can decline it outright from your calendar instead.",
+          requestId: null,
+        };
+      }
+      const existing = await db
+        .select()
+        .from(schema.loadReleaseRequests)
+        .where(
+          and(
+            eq(schema.loadReleaseRequests.boardLoadId, row.id),
+            eq(schema.loadReleaseRequests.driverUsername, me),
+            eq(schema.loadReleaseRequests.status, "pending"),
+          ),
+        )
+        .limit(1);
+      if (existing[0]) {
+        return { ok: false, error: "You already have a release request in for this load — it's waiting on the desk.", requestId: existing[0].id };
+      }
+      const reason = (args.reason ?? "").trim().slice(0, 300) || null;
+      const ins = await db
+        .insert(schema.loadReleaseRequests)
+        .values({ companyId: row.companyId, boardLoadId: row.id, driverUsername: me, reason, status: "pending" })
+        .returning({ id: schema.loadReleaseRequests.id });
+      const requestId = ins[0]?.id ?? null;
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: row.loadId ?? null,
+        sessionId: null,
+        event: "load_release_requested",
+        payload: { requestId, boardLoadId: row.id, companyId: row.companyId, driver: me, reason, lane: boardLaneOf(row), at: new Date().toISOString() },
+      });
+      await notifyDeskMembers(ctx, row.companyId, {
+        kind: "load_offer",
+        title: "Release request — locked load",
+        body: `@${me} is asking to be released from ${boardLaneOf(row)} — it's inside the safety window, so the call is the desk's.${reason ? ` Their words: ${reason}` : ""}`,
+        refId: row.id,
+        except: me,
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null, requestId };
+    },
+  }),
+
+  decideLoadRelease: defineAction({
+    description: "Decide a driver's release request for a locked load (owner/dispatch). Approving hands the load back to the board it came from; denying leaves it bound. Sealed; the driver is notified in-app.",
+    request: z.object({
+      id: z.number().int().positive(),
+      approve: z.boolean(),
+      note: z.string().max(300).nullable().default(null),
+    }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const mine = await myMembership(ctx, me);
+      if (!mine || (mine.role !== "owner" && mine.role !== "dispatch")) {
+        return { ok: false, error: "Only the owner or dispatch can decide a release request." };
+      }
+      const rows = await db.select().from(schema.loadReleaseRequests).where(eq(schema.loadReleaseRequests.id, args.id)).limit(1);
+      const req = rows[0];
+      if (!req || req.companyId !== mine.company.id) {
+        return { ok: false, error: "That release request isn't on your fleet's board." };
+      }
+      if (req.status !== "pending") {
+        return { ok: false, error: `That request was already ${req.status} — the record stands.` };
+      }
+      const now = new Date();
+      const note = (args.note ?? "").trim().slice(0, 300) || null;
+      const boardRows = await db.select().from(schema.boardLoads).where(eq(schema.boardLoads.id, req.boardLoadId)).limit(1);
+      const row = boardRows[0];
+      const stillBound = row != null && (row.status === "taken" || row.status === "assigned") && row.claimedBy === req.driverUsername;
+      if (args.approve && !stillBound) {
+        return { ok: false, error: `That load isn't with @${req.driverUsername} anymore — it already moved. Close this request by denying it, so the record says why.` };
+      }
+      await db
+        .update(schema.loadReleaseRequests)
+        .set({ status: args.approve ? "approved" : "denied", decidedBy: me, decisionNote: note, decidedAt: now, updatedAt: now })
+        .where(eq(schema.loadReleaseRequests.id, req.id));
+      if (args.approve && row) {
+        if (row.status === "assigned") {
+          // A pending offer pulled back: nothing exists on the
+          // driver's side — the row simply returns to open.
+          await db
+            .update(schema.boardLoads)
+            .set({ status: "open", claimMethod: null, claimedBy: null, claimedAt: null, carrierOfRecord: null, updatedAt: now })
+            .where(eq(schema.boardLoads.id, row.id));
+        } else {
+          await recycleBoundLoad(ctx, {
+            row,
+            driverUsername: req.driverUsername,
+            actorIsDriverSession: false,
+            declineReason: null,
+            handbackReason: "release request approved by the desk — load handed back to its board",
+          });
+        }
+      }
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: row?.loadId ?? null,
+        sessionId: null,
+        event: args.approve ? "load_release_approved" : "load_release_denied",
+        payload: {
+          requestId: req.id,
+          boardLoadId: req.boardLoadId,
+          companyId: mine.company.id,
+          driver: req.driverUsername,
+          by: me,
+          note,
+          lane: row ? boardLaneOf(row) : null,
+          at: now.toISOString(),
+        },
+      });
+      await recordNotificationSafe(ctx, {
+        username: req.driverUsername,
+        kind: "load_offer",
+        title: args.approve ? "You're released" : "Release not approved",
+        body: args.approve
+          ? `${row ? boardLaneOf(row) : "The load"} was handed back to the board — you're released from it.`
+          : `The desk kept you on ${row ? boardLaneOf(row) : "the load"}${note ? ` — ${note}` : ""}. It's still on your calendar as committed work.`,
+        refKind: "board_load",
+        refId: req.boardLoadId,
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
+    },
+  }),
+
+  proposeReassignment: defineAction({
+    description: "Propose moving a bound load from its current driver to another driver in the fleet (owner/dispatch). The move fires ONLY when the current driver consents in-app — the prompt shows them your reason. The target driver passes the same DQF + home-time gates as an assignment. Sealed.",
+    request: z.object({
+      id: z.number().int().positive(),
+      targetUsername: z.string().min(1).max(60),
+      reason: z.string().min(1).max(300),
+      homeTimeOverride: homeTimeOverrideArg,
+    }),
+    response: z.object({
+      ok: z.boolean(),
+      error: z.string().nullable(),
+      proposalId: z.number().nullable(),
+      homeTimeWarning: homeTimeWarningShape.nullable().optional(),
+    }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const mine = await myMembership(ctx, me);
+      if (!mine || (mine.role !== "owner" && mine.role !== "dispatch")) {
+        return { ok: false, error: "Only the owner or dispatch can propose moving a load to another driver.", proposalId: null };
+      }
+      const reason = args.reason.trim().slice(0, 300);
+      if (!reason) return { ok: false, error: "Give the driver the reason — the consent prompt shows it to them.", proposalId: null };
+      const rows = await db.select().from(schema.boardLoads).where(eq(schema.boardLoads.id, args.id)).limit(1);
+      const row = rows[0];
+      if (!row || row.companyId !== mine.company.id) {
+        return { ok: false, error: "That load isn't on your company's board.", proposalId: null };
+      }
+      if (row.status !== "taken" || !row.claimedBy) {
+        return { ok: false, error: "That load isn't bound to a driver right now — reassigning is for loads already on someone's calendar.", proposalId: null };
+      }
+      const fromDriver = row.claimedBy;
+      const members = await db
+        .select()
+        .from(schema.companyMembers)
+        .where(eq(schema.companyMembers.companyId, mine.company.id));
+      const targetRow = members.find((m) => m.username.toLowerCase() === args.targetUsername.trim().toLowerCase());
+      if (!targetRow || !reassignmentTargetOk({ targetRole: targetRow.role, targetUsername: targetRow.username, fromUsername: fromDriver })) {
+        return {
+          ok: false,
+          error: targetRow
+            ? `@${targetRow.username} can't take this move — the target has to be a hauling member of the fleet who doesn't already hold the load.`
+            : `@${args.targetUsername.trim()} isn't a member of ${mine.company.name}.`,
+          proposalId: null,
+        };
+      }
+      const existing = await db
+        .select()
+        .from(schema.loadReassignments)
+        .where(and(eq(schema.loadReassignments.boardLoadId, row.id), eq(schema.loadReassignments.status, "pending_consent")))
+        .limit(1);
+      if (existing[0]) {
+        return { ok: false, error: `A move of this load is already waiting on @${existing[0].fromDriver} to answer.`, proposalId: null };
+      }
+      if (row.loadId != null) {
+        const linked = await boardLinkedState(ctx, row);
+        const probe = toBoardLoad(row, linked);
+        if (!probe.canUnassign) {
+          return { ok: false, error: probe.unassignBlockedReason ?? "That load can't be moved anymore.", proposalId: null };
+        }
+      }
+      const targetStanding = await feeStandingForCarrier(ctx, mine.company.id, targetRow.username);
+      if (targetStanding.gate.blocked) {
+        return { ok: false, error: `@${targetRow.username} can't take new board loads right now — ${gateRefusalMessage(targetStanding.gate)}`, proposalId: null };
+      }
+      const dq = await dqGateForBoardTake(ctx, { companyId: mine.company.id, driverUsername: targetRow.username, board: row, actor: me, method: "assign" });
+      if (dq.blocked) {
+        return { ok: false, error: `@${targetRow.username} isn't qualified to take this load — ${dq.summary}`, proposalId: null };
+      }
+      const ht = await homeTimeGateForBoardTake(ctx, {
+        companyId: mine.company.id,
+        driverUsername: targetRow.username,
+        board: row,
+        actor: me,
+        actorIsDesk: true,
+        method: "assign",
+        override: args.homeTimeOverride ?? null,
+      });
+      if (ht.state === "warn") {
+        return {
+          ok: false,
+          error: `${ht.warning.detail} To propose the move anyway, confirm the override with a reason — @${targetRow.username} is notified.`,
+          proposalId: null,
+          homeTimeWarning: {
+            summary: ht.warning.summary,
+            detail: ht.warning.detail,
+            deadlineAt: new Date(ht.conflict.deadlineAt).toISOString(),
+            homeEtaAt: new Date(ht.conflict.homeEtaAt).toISOString(),
+            commitmentId: ht.conflict.commitmentId,
+          },
+        };
+      }
+      if (ht.state === "refused") {
+        return { ok: false, error: ht.error, proposalId: null, homeTimeWarning: null };
+      }
+      const ins = await db
+        .insert(schema.loadReassignments)
+        .values({
+          companyId: mine.company.id,
+          boardLoadId: row.id,
+          fromDriver,
+          toDriver: targetRow.username,
+          proposedBy: me,
+          reason,
+          status: "pending_consent",
+        })
+        .returning({ id: schema.loadReassignments.id });
+      const proposalId = ins[0]?.id ?? null;
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: row.loadId ?? null,
+        sessionId: null,
+        event: "load_reassignment_proposed",
+        payload: {
+          proposalId,
+          boardLoadId: row.id,
+          companyId: mine.company.id,
+          from: fromDriver,
+          to: targetRow.username,
+          by: me,
+          reason,
+          lane: boardLaneOf(row),
+          at: new Date().toISOString(),
+        },
+      });
+      await recordNotificationSafe(ctx, {
+        username: fromDriver,
+        kind: "load_offer",
+        title: "Dispatch wants to move a load",
+        body: `@${me} is asking to move ${boardLaneOf(row)} from you to @${targetRow.username}. Reason: ${reason}. It moves only if you agree — answer from your calendar.`,
+        refKind: "board_load",
+        refId: row.id,
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null, proposalId, homeTimeWarning: null };
+    },
+  }),
+
+  respondReassignment: defineAction({
+    description: "Answer a reassignment proposal on a load bound to you. Consenting fires the move (your load record closes, the load lands on the other driver's calendar); refusing leaves the load with you and notifies dispatch. Both are sealed.",
+    request: z.object({ id: z.number().int().positive(), consent: z.boolean() }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const rows = await db.select().from(schema.loadReassignments).where(eq(schema.loadReassignments.id, args.id)).limit(1);
+      const proposal = rows[0];
+      if (!proposal || proposal.fromDriver !== me) {
+        return { ok: false, error: "That proposal isn't waiting on you." };
+      }
+      if (proposal.status !== "pending_consent") {
+        return { ok: false, error: `That proposal was already ${proposal.status} — the record stands.` };
+      }
+      const boardRows = await db.select().from(schema.boardLoads).where(eq(schema.boardLoads.id, proposal.boardLoadId)).limit(1);
+      const row = boardRows[0];
+      if (!row || row.status !== "taken" || row.claimedBy !== me) {
+        return { ok: false, error: "That load isn't bound to you anymore — it already moved. Refresh your calendar." };
+      }
+      const now = new Date();
+      if (!args.consent) {
+        await db
+          .update(schema.loadReassignments)
+          .set({ status: "refused", respondedAt: now, updatedAt: now })
+          .where(eq(schema.loadReassignments.id, proposal.id));
+        await appendChain(ctx, {
+          refKind: "load",
+          refId: row.loadId ?? null,
+          sessionId: null,
+          event: "load_reassignment_refused",
+          payload: {
+            proposalId: proposal.id,
+            boardLoadId: row.id,
+            companyId: proposal.companyId,
+            from: me,
+            to: proposal.toDriver,
+            proposedBy: proposal.proposedBy,
+            lane: boardLaneOf(row),
+            at: now.toISOString(),
+          },
+        });
+        await notifyDeskMembers(ctx, proposal.companyId, {
+          kind: "load_offer",
+          title: "Reassignment refused",
+          body: `@${me} said no to moving ${boardLaneOf(row)} to @${proposal.toDriver} — the load stays with @${me}. Only the fleet owner can override a refusal, with a stated reason.`,
+          refId: row.id,
+          except: me,
+        });
+        ctx.invalidateQueries();
+        return { ok: true, error: null };
+      }
+      // Consent: the move fires. My load + trip close here, in my
+      // own session; the board row flips to the new driver, whose
+      // load materializes in THEIR session on their next open.
+      if (row.loadId != null) {
+        await deleteDriverLoadAndTrip(ctx, {
+          loadId: row.loadId,
+          tripQueueId: row.tripQueueId,
+          boardLoadId: row.id,
+          reason: "reassignment — the driver consented to the move",
+        });
+      }
+      await db
+        .update(schema.boardLoads)
+        .set({
+          claimedBy: proposal.toDriver,
+          claimedAt: now,
+          carrierOfRecord: proposal.toDriver,
+          loadId: null,
+          tripQueueId: null,
+          updatedAt: now,
+        })
+        .where(eq(schema.boardLoads.id, row.id));
+      await db
+        .update(schema.loadReassignments)
+        .set({ status: "consented", respondedAt: now, updatedAt: now })
+        .where(eq(schema.loadReassignments.id, proposal.id));
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: row.loadId ?? null,
+        sessionId: null,
+        event: "load_reassignment_consented",
+        payload: {
+          proposalId: proposal.id,
+          boardLoadId: row.id,
+          companyId: proposal.companyId,
+          from: me,
+          to: proposal.toDriver,
+          proposedBy: proposal.proposedBy,
+          reason: proposal.reason ?? null,
+          lane: boardLaneOf(row),
+          at: now.toISOString(),
+        },
+      });
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: null,
+        sessionId: null,
+        event: "board_load_reassigned",
+        payload: {
+          boardLoadId: row.id,
+          companyId: proposal.companyId,
+          from: me,
+          to: proposal.toDriver,
+          by: me,
+          consent: true,
+          proposalId: proposal.id,
+          lane: boardLaneOf(row),
+          at: now.toISOString(),
+        },
+      });
+      await recordNotificationSafe(ctx, {
+        username: proposal.toDriver,
+        kind: "load_offer",
+        title: "Load assigned to you",
+        body: `${boardLaneOf(row)} was moved to you from @${me} with their agreement — it's on your calendar as committed work.`,
+        refKind: "board_load",
+        refId: row.id,
+      });
+      await notifyDeskMembers(ctx, proposal.companyId, {
+        kind: "load_offer",
+        title: "Reassignment consented",
+        body: `@${me} agreed — ${boardLaneOf(row)} now sits with @${proposal.toDriver}.`,
+        refId: row.id,
+        except: me,
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
+    },
+  }),
+
+  overrideReassignmentRefusal: defineAction({
+    description: "Override a driver's refusal of a reassignment — FLEET OWNER ONLY, and only with a stated reason. Dispatch can never do this. The override is sealed and the reason is shown to the driver.",
+    request: z.object({
+      id: z.number().int().positive(),
+      reason: z.string().min(1).max(300),
+    }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const mine = await myMembership(ctx, me);
+      if (!mine || mine.role !== "owner") {
+        return { ok: false, error: "Only the fleet owner can override a driver's refusal — dispatch can't force a move over a no." };
+      }
+      if (!canOverrideReassignmentRefusal({ actorRole: mine.role, reason: args.reason })) {
+        return { ok: false, error: "An override needs a stated reason — it goes on the sealed record and the driver sees it." };
+      }
+      const reason = args.reason.trim().slice(0, 300);
+      const rows = await db.select().from(schema.loadReassignments).where(eq(schema.loadReassignments.id, args.id)).limit(1);
+      const proposal = rows[0];
+      if (!proposal || proposal.companyId !== mine.company.id) {
+        return { ok: false, error: "That proposal isn't on your fleet's board." };
+      }
+      if (proposal.status !== "refused") {
+        return { ok: false, error: "Only a refused proposal can be overridden — this one isn't refused." };
+      }
+      const boardRows = await db.select().from(schema.boardLoads).where(eq(schema.boardLoads.id, proposal.boardLoadId)).limit(1);
+      const row = boardRows[0];
+      if (!row || row.status !== "taken" || row.claimedBy !== proposal.fromDriver) {
+        return { ok: false, error: `That load isn't with @${proposal.fromDriver} anymore — it already moved.` };
+      }
+      const now = new Date();
+      // The board row flips now; the old driver's load copy is
+      // swept by their own session (hand-back debt) — their
+      // profile scope is theirs.
+      if (row.loadId != null) {
+        await db.insert(schema.driverLoadHandbacks).values({
+          companyId: mine.company.id,
+          driverUsername: proposal.fromDriver,
+          boardLoadId: row.id,
+          loadId: row.loadId,
+          tripQueueId: row.tripQueueId,
+          reason: `reassignment — the owner overrode the driver's refusal: ${reason}`,
+        });
+      }
+      await db
+        .update(schema.boardLoads)
+        .set({
+          claimedBy: proposal.toDriver,
+          claimedAt: now,
+          carrierOfRecord: proposal.toDriver,
+          loadId: null,
+          tripQueueId: null,
+          updatedAt: now,
+        })
+        .where(eq(schema.boardLoads.id, row.id));
+      await db
+        .update(schema.loadReassignments)
+        .set({ status: "overridden", overrideBy: me, overrideReason: reason, updatedAt: now })
+        .where(eq(schema.loadReassignments.id, proposal.id));
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: row.loadId ?? null,
+        sessionId: null,
+        event: "load_reassignment_overridden",
+        payload: {
+          proposalId: proposal.id,
+          boardLoadId: row.id,
+          companyId: mine.company.id,
+          from: proposal.fromDriver,
+          to: proposal.toDriver,
+          proposedBy: proposal.proposedBy,
+          overrideBy: me,
+          reason,
+          lane: boardLaneOf(row),
+          at: now.toISOString(),
+        },
+      });
+      await recordNotificationSafe(ctx, {
+        username: proposal.fromDriver,
+        kind: "load_offer",
+        title: "A load was moved off your calendar",
+        body: `The owner moved ${boardLaneOf(row)} to @${proposal.toDriver} over your refusal. The reason on the sealed record: ${reason}`,
+        refKind: "board_load",
+        refId: row.id,
+      });
+      await recordNotificationSafe(ctx, {
+        username: proposal.toDriver,
+        kind: "load_offer",
+        title: "Load assigned to you",
+        body: `${boardLaneOf(row)} was moved to you from @${proposal.fromDriver} by the owner — it's on your calendar as committed work.`,
+        refKind: "board_load",
+        refId: row.id,
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
+    },
+  }),
 
   getAccountingSync: defineAction({
     description:
