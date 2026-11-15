@@ -1046,6 +1046,7 @@ export function ShipperPortalPanel({
   const [acctEmail, setAcctEmail] = useState("");
   const [acctContact, setAcctContact] = useState("");
   const [acctLinked, setAcctLinked] = useState("");
+  const [acctReferral, setAcctReferral] = useState("");
   const [acctDemo, setAcctDemo] = useState(false);
   const [acctCommodity, setAcctCommodity] = useState("");
   const [acctClass, setAcctClass] = useState("");
@@ -1154,6 +1155,7 @@ export function ShipperPortalPanel({
         email: acctEmail.trim(),
         contactName: clean(acctContact),
         linkedUsername: clean(acctLinked),
+        referralCode: clean(acctReferral),
         isDemo: acctDemo,
         defaultPickupAddress: null,
         defaultPickupCity: null,
@@ -1169,7 +1171,7 @@ export function ShipperPortalPanel({
           ? `Demo shipper account created for ${acctName.trim()} — it's labelled DEMO everywhere it appears.`
           : `Shipper account created for ${acctName.trim()} — link their STONEMILES username (below, or when you created it) and they can sign in and post.`,
       );
-      setAcctName(""); setAcctEmail(""); setAcctContact(""); setAcctLinked(""); setAcctCommodity(""); setAcctClass(""); setAcctDemo(false);
+      setAcctName(""); setAcctEmail(""); setAcctContact(""); setAcctLinked(""); setAcctReferral(""); setAcctCommodity(""); setAcctClass(""); setAcctDemo(false);
       refresh();
     } catch {
       setBanner("That account didn't save — check your connection and try again.");
@@ -1276,6 +1278,10 @@ export function ShipperPortalPanel({
               <div>
                 <label className={LABEL} htmlFor="acct-linked">Linked STONEMILES username</label>
                 <input id="acct-linked" aria-label="Linked STONEMILES username" className={INPUT} value={acctLinked} onChange={(e) => setAcctLinked(e.target.value)} placeholder="@username that signs in as this shipper" />
+              </div>
+              <div>
+                <label className={LABEL} htmlFor="acct-referral">Referred by a driver? Their referral code</label>
+                <input id="acct-referral" aria-label="Referral code" className={INPUT} value={acctReferral} onChange={(e) => setAcctReferral(e.target.value)} placeholder="MILE-REF-… — optional; the driver earns when this shipper's first load posts" />
               </div>
               <div>
                 <label className={LABEL} htmlFor="acct-commodity">Default commodity (prefills their form)</label>

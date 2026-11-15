@@ -1014,6 +1014,7 @@ type AccountDraft = {
   brokerMc: string;
   dispatcherFeePct: string;
   linkedUsername: string;
+  referralCode: string;
   contactName: string;
   defaultPickupAddress: string;
   defaultPickupCity: string;
@@ -1032,6 +1033,7 @@ const EMPTY_ACCOUNT: AccountDraft = {
   brokerMc: "",
   dispatcherFeePct: "",
   linkedUsername: "",
+  referralCode: "",
   contactName: "",
   defaultPickupAddress: "",
   defaultPickupCity: "",
@@ -1051,6 +1053,7 @@ function accountDraftOf(a: PortalData["accounts"][number]): AccountDraft {
     brokerMc: a.brokerMc ?? "",
     dispatcherFeePct: a.dispatcherFeePct != null ? String(a.dispatcherFeePct) : "",
     linkedUsername: a.linkedUsername ?? "",
+    referralCode: "",
     contactName: a.contactName ?? "",
     defaultPickupAddress: a.defaultPickupAddress ?? "",
     defaultPickupCity: a.defaultPickupCity ?? "",
@@ -1105,6 +1108,7 @@ function AccountForm({
             name: d.brokerName.trim(),
             email: d.email.trim(),
             linkedUsername: clean(d.linkedUsername),
+            referralCode: clean(d.referralCode),
             isDemo: d.isDemo,
             ...defaults,
           });
@@ -1139,6 +1143,12 @@ function AccountForm({
           <label className={LABEL} htmlFor="broker-account-invite">Linked username (@name in STONEMILES)</label>
           <input id="broker-account-invite" aria-label="Linked username" className={INPUT} {...f("linkedUsername")} placeholder="Their STONEMILES username — no leading @ needed" />
         </div>
+        {initial == null && (
+          <div>
+            <label className={LABEL} htmlFor="broker-account-referral">Referred by a driver? Their referral code</label>
+            <input id="broker-account-referral" aria-label="Referral code" className={INPUT} {...f("referralCode")} placeholder="MILE-REF-… — optional; the driver earns when this broker's first load posts" />
+          </div>
+        )}
         <div>
           <label className={LABEL} htmlFor="broker-account-email">Broker email</label>
           <input id="broker-account-email" aria-label="Broker email" className={INPUT} {...f("email")} placeholder="Broker's email — required to create" disabled={initial != null} />

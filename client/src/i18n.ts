@@ -153,6 +153,8 @@ export const PAIRS: Record<string, PairEntry> = {
   "True rate": { pt: "Taxa real", ru: "Реальная ставка", uk: "Реальна ставка" },
   "TONU & layover logger": { pt: "Registro de TONU e layover", ru: "Журнал TONU и layover", uk: "Журнал TONU і layover" },
   "Wallet & points": { pt: "Carteira e pontos", ru: "Кошелёк и баллы", uk: "Гаманець і бали" },
+  "How to earn points": { pt: "Como ganhar pontos", ru: "Как заработать баллы", uk: "Як заробити бали" },
+  "Three lanes past the daily table — drive well, feed the map, grow it; all server-counted from sealed records": { pt: "Três vias além da tabela diária — dirija bem, alimente o mapa, faça crescer; tudo contado pelo servidor a partir de registros selados", ru: "Три направления сверх дневной таблицы — води хорошо, подпитывай карту, развивай; всё считается сервером по запечатанным записям", uk: "Три напрями понад денну таблицю — керуй добре, підживлюй карту, розвивай; усе рахує сервер за запечатаними записами" },
   "Fleet board": { pt: "Quadro da frota", ru: "Биржа парка", uk: "Біржа парку" },
   "Broker Inbox": { pt: "Caixa do corretor", ru: "Входящие брокера", uk: "Вхідні брокера" },
   "Trailer tools": { pt: "Ferramentas do reboque", ru: "Инструменты прицепа", uk: "Інструменти причепа" },

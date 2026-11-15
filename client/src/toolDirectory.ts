@@ -56,6 +56,7 @@ export type ToolDestId =
   | "trailer_tools"
   | "maintenance"
   | "maintenance_log"
+  | "points_lanes"
   | "breakdown_log"
   | "scale_tickets"
   | "trips"
@@ -270,6 +271,12 @@ export const TOOL_GROUPS: ToolGroup[] = [
         subEn: "Your points balance and the $STONER wallet",
         subEs: "Tu saldo de puntos y la cartera $STONER",
         dest: "wallet",
+      },
+      {
+        id: "points-how-to-earn", icon: "⭐", en: "How to earn points", es: "Cómo ganar puntos",
+        subEn: "Three lanes past the daily table — drive well, feed the map, grow it; all server-counted from sealed records",
+        subEs: "Tres vías además de la tabla diaria — conduce bien, alimenta el mapa, hazlo crecer; todo contado por el servidor desde registros sellados",
+        dest: "points_lanes",
       },
       {
         id: "settlements", icon: "📋", en: "Settlement Checker", es: "Verificador de liquidaciones",

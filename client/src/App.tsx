@@ -894,6 +894,7 @@ type MecaDestId =
   | "ifta"
   | "maintenance"
   | "maintenance_log"
+  | "points_lanes"
   | "breakdown_log"
   | "facility_memory"
   | "scale_tickets"
@@ -992,6 +993,7 @@ const MECA_DEST_INFO: Record<MecaDestId, { label: string; blurb: string }> = {
   ifta: { label: "Driver → IFTA estimator", blurb: "The IFTA estimator is IFTA Complete at the top of the Driver tab — a running quarterly estimate from your sealed per-state miles and your logged fuel purchases: tax owed per state = (state miles ÷ MPG) × the state's rate, minus the tax you already paid on fuel bought in that state. Rates come from the real published IFTA, Inc. fuel tax matrix, 4th quarter 2026 (matrix dated October 15, 2026, updated November 5, 2026; not final until December 4, 2026), and the panel prints that as-of label. A jurisdiction whose rate isn't loaded (Alaska, Hawaii, DC — not IFTA members) reads 'rate not loaded' and stays out of the totals. The whole panel is labelled an estimate for planning — not a filing." },
   maintenance: { label: "Driver → Maintenance countdown", blurb: "The Maintenance Countdown is on the Driver tab — odometer-based service tracking for oil, tires, brakes, and the annual DOT inspection. You set each interval and the odometer (or date) at the last service; the miles-remaining readout runs off the newest odometer the app already records (your fuel log, DVIRs, and daily logs), with due-soon, due, and overdue states. The DOT annual can run date-based on the 12-month rule. The starting intervals shown are labelled defaults — yours to change to your truck's spec." },
   maintenance_log: { label: "Driver → Maintenance log", blurb: "The Maintenance Log is on the Driver tab, right under the Maintenance Countdown — the full record of every service and repair on your truck: date, odometer, category, what was done, the shop, the cost, when it's next due, and your notes, each entry sealed. Receipts and paperwork (photos or PDFs) attach to an entry and download from it any time — the same document storage as the Document Vault. The whole thing — your truck's identity and specs (Settings → Truck → My Truck) over the full log — downloads as one truck record (spreadsheet or printable text) from the panel's Download truck record button." },
+  points_lanes: { label: "Driver → SM Points — How to earn", blurb: "Beyond the daily table, SM Points pay through THREE LANES, all computed by the server from sealed records — never from a self-report alone — and only on paying seats (Gold / Diamond / Owner; seats included free with a fleet don't earn them). LANE 1, Drive well: lifetime sealed-miles milestones (10,000 / 50,000 / 100,000), +100 for every 5 sealed loads delivered on time in a row, +25 for a day logged with a clean pre-trip inspection (no defects), +150 for a full Mon–Sun week with zero HOS violations in the sealed duty log. LANE 2, Feed the map: a road report (parking, scale open/closed, hazard, closure) or fuel price report pays +20 ONLY when another driver backs it up at the same spot — a GPS confirm or a matching report within 4 hours; you can't back up your own report, contradicted reports earn nothing, and at most 5 Lane 2 awards land per day. LANE 3, Grow it: +500 when a broker or shipper you brought in (your referral code on their desk-created account) posts their first load to a board, +100 for the first sealed load ever on a city-to-city lane, +250 for Founding Testers active on 10 of their first 14 days. Every award lands in the points history with its reason and lane; voiding the record behind an award reverses it. The lanes block sits inside the SM Points panel on the Driver tab, under the daily table. Points are points — the lanes never attach a cash value to them." },
   breakdown_log: { label: "Driver → Breakdown mode", blurb: "Breakdown Mode has two halves. For help NOW: the Drive screen's Breakdown button finds the nearest repair shops, tow services, and safe parking from the app's map data, with your coordinates big and copyable. For the record: the Breakdown Log on the Driver tab times the downtime (start/end), collects the cost entries (tow, repair, parts, hotel), seals it all, and exports it in the shape warranty and claim paperwork needs. It logs and locates — it dispatches nobody and pays nobody." },
   trailer_tools: { label: "Loads → Trailer tools", blurb: "The Trailer Package lives in the Loads tab → 'Trailer tools' panel, and inside each load's details. It hangs off the ONE trailer profile on the truck profile (Settings → Truck → Trailer type, or the picker at the top of the Trailer tools panel): Dry Van, Reefer, Flatbed, Step Deck, or RGN — one active profile per truck, switchable any time; the profile tunes default heights, which tools surface first, and the pre-trip checklist. The tools: REEFER COLD-CHAIN LOG (reefer loads — setpoint + the driver's own ± band, temperature check-ins the DRIVER types in at stops, sealed into the load's record with time and location and carried in the load's paperwork export; every temp is driver-entered — the app has NO reefer sensor feed and never calls them sensor readings; a check outside the band warns on the spot). SECUREMENT CALCULATOR (flatbed / step deck first) — the published FMCSA general-freight minimums: 49 CFR 393.110 tiedown counts by article length & weight, blocked vs unblocked, and 393.106(d)'s aggregate working load limit of at least 50% of cargo weight (indirect tiedowns count full WLL, direct count half); labelled a planning guide, not legal advice, and special freight (logs, coils, paper rolls, pipe, autos, boulders) is out of its scope. LOADED-HEIGHT TRACKER (flatbed / step deck / RGN) — the driver records the load's actual loaded height on the load, and THAT height drives the trip's low-bridge alerts while it's set; the truck profile's empty height is the fallback and the app labels which height is in use. AXLE WEIGHT & SPACING CALCULATOR (RGN / heavy haul) — the federal Bridge Formula, 23 CFR 658.17: allowed vs actual per axle group (single 20,000 lb, tandem ≤8 ft apart 34,000 lb, gross 80,000 lb), planning guidance that sits beside Permit Mode and never replaces a permit. DOCK HELPER (all trailers, dry van first) — delivery appointment, dock door, lumper fee, and the lumper receipt scan filed on the load record. PRE-TRIP INSPECTION — the checklist for the active trailer type (reefer unit & setpoint for reefer, deck/chains/winches for flatbed, neck & hydraulics for RGN, doors & seals for van), defects noted per item, an optional photo, sealed into the record. HIGH-WIND ADVISORY — on the Drive (Go) screen, when gusts reach the 40 mph advisory threshold AND the trailer is an empty dry van or reefer, a blow-over-risk advisory shows; it labels itself a STONEMILES advisory, not an official warning. All trailer tools are core driver tools on every plan — nothing here moves money." },
   atlas: { label: "Atlas", blurb: "The Atlas lives under More → Atlas — a state-by-state road reference built into the app: one page for each of the 50 states with weight limits, length & width basics, low-clearance highlights, weigh/inspection stations, and state DOT and highway patrol contacts. The federal Interstate baseline prints on every page — 80,000 lb gross, 20,000 lb single axle, 34,000 lb tandem, 102-inch width — and a state note is added only where a state's own rule is a well-established public fact (Michigan's 164,000 lb axle-table law, Maine and Vermont's 100,000 lb Interstate exception, California's 40-ft and Florida's 41-ft kingpin rules, New York City's 55-ft length cap); every other entry is labelled 'Federal standard — verify state specifics before you roll.' Low-clearance highlights name only famous, sourced traps (Durham's Can Opener bridge, New York's car-only parkways, Boston's Storrow Drive) — everything else points at the real OpenStreetMap clearance tags the Drive map reads around the truck, and no clearance is ever invented. Weigh stations are NOT a second list inside the Atlas: the state page hands you to the app's one station list on the Drive screen, with the same driver-reported OPEN/CLOSED status. Phone numbers print only where the agency's real published line is verified (Caltrans and the CHP in California, TxDOT in Texas, and the cell-phone patrol lines in Florida, Georgia, Missouri, and Ohio); everywhere else the number is omitted rather than guessed, and 511 reaches travel information in most states. The Atlas is BUNDLED and STATIC — it works fully offline in dead zones, on every plan tier (a core driver safety reference, never paywalled), and every page carries the standing label: 'Reference only — posted signs, your permit, and your ELD govern.' Ask for a state by name — 'open the Texas atlas page' — and the Take me there jump lands on that state's page." },
@@ -10021,6 +10023,9 @@ export function App() {
     if (/true rate|rate per (all|total) mile|net after fuel|net after fees|factoring|dispatcher (fee|%|percent|cut)|deadhead.*(rate|mile)|all miles.*rate/.test(q)) return "true_rate";
     if (/ifta.*(owe|tax|quarter|estimate)|owe.*ifta|fuel tax/.test(q)) return "ifta";
     if (/maintenance log|repair (log|record|history)|service (log|record|history)|truck record|repair receipts?/.test(q)) return "maintenance_log";
+    // Points lanes (2026-11-15): "how do I earn more points" lands
+    // on the three-lanes block inside the SM Points panel.
+    if (/how (do|can) i earn|earn(ing)? (more )?points|points lanes|ways to earn|earn points/.test(q)) return "points_lanes";
     if (/maintenance|oil change|when.*(oil|tires?|brakes?).*(due|change|service)|service (due|countdown|interval)|miles (left|remaining).*(oil|service|brake|tire)|brakes? due|tires? due/.test(q)) return "maintenance";
     if (/breakdown (log|record|mode)|downtime|cost log|truck (broke|is down|went down)|broke down|repair (log|record)|tow (log|record)/.test(q)) return "breakdown_log";
     // Tax Worksheet (2026-11-12) — the full worksheet by name,
@@ -10382,6 +10387,7 @@ export function App() {
       case "library": exitConsole(); setTab("driver"); scrollToAnchor("library-panel", 700); break;
       case "maintenance": exitConsole(); setTab("driver"); scrollToAnchor("maintenance", 700); break;
       case "maintenance_log": exitConsole(); setTab("driver"); scrollToAnchor("maintenance-log", 700); break;
+      case "points_lanes": exitConsole(); setTab("driver"); scrollToAnchor("points-lanes", 700); break;
       case "breakdown_log": exitConsole(); setTab("driver"); scrollToAnchor("breakdown-log", 700); break;
       case "facility_memory": exitConsole(); setTab("loads"); scrollToAnchor("facility-memory", 700); break;
       case "scale_tickets": exitConsole(); setTab("driver"); scrollToAnchor("scale-tickets", 700); break;
@@ -10425,7 +10431,7 @@ export function App() {
       const whereHow = /where|how do i|how can i|how do you|take me|go to/.test(q);
       const showCheck =
         /show|open|check/.test(q) &&
-        ["hours", "trips", "fleet_board", "open_board", "broker_inbox", "shipper_portal", "broker_portal", "team_portal", "app_performance", "language", "console_dashboard", "console_fleetmap", "console_drivers", "documents", "wallet", "pay_book", "pay_book_ytd", "milestones_board", "company", "chat", "loads", "loads_tracker", "detention", "explore", "go", "road_learning", "si_layer", "live_updates", "route_weather", "sign_check", "satellite_view", "weigh_station_status", "dispatch_desk", "my_desk", "broker_desk", "owner_desk", "sign_out", "atlas", "trailer_tools", "doc_expiry", "owed_board", "true_rate", "claims_log", "ifta", "maintenance", "maintenance_log", "breakdown_log", "facility_memory", "scale_tickets", "scale_finder", "tax_records", "tax_worksheet", "night_parking"].includes(navDestEarly);
+        ["hours", "trips", "fleet_board", "open_board", "broker_inbox", "shipper_portal", "broker_portal", "team_portal", "app_performance", "language", "console_dashboard", "console_fleetmap", "console_drivers", "documents", "wallet", "pay_book", "pay_book_ytd", "milestones_board", "company", "chat", "loads", "loads_tracker", "detention", "explore", "go", "road_learning", "si_layer", "live_updates", "route_weather", "sign_check", "satellite_view", "weigh_station_status", "dispatch_desk", "my_desk", "broker_desk", "owner_desk", "sign_out", "atlas", "trailer_tools", "doc_expiry", "owed_board", "true_rate", "claims_log", "ifta", "maintenance", "maintenance_log", "points_lanes", "breakdown_log", "facility_memory", "scale_tickets", "scale_finder", "tax_records", "tax_worksheet", "night_parking"].includes(navDestEarly);
       if (whereHow || showCheck || (lang !== "en" && destForLocalizedQuery(lang, qRaw) === navDestEarly)) {
         const nav = buildMecaNav(navDestEarly, q);
         const info = MECA_DEST_INFO[navDestEarly];
@@ -10505,6 +10511,9 @@ export function App() {
     }
     if (navDestEarly === "maintenance_log" || /maintenance log|repair (log|record|history)|service (log|record|history)|truck record|repair receipts?/.test(q)) {
       return "The Maintenance Log (Driver tab, right under the Maintenance Countdown) is your truck's full record: every service and repair with its date, odometer, cost, and the receipt or paperwork attached to the entry — photos and PDFs, stored like the Document Vault and downloadable from the entry. Your truck itself — year, make, model, unit, VIN, plate, engine, transmission — goes in Settings → Truck → My Truck, and the panel's Download truck record button pulls identity + specs + the whole log down as one file. Tap “Take me there” below.";
+    }
+    if (navDestEarly === "points_lanes" || /how (do|can) i earn|earn(ing)? (more )?points|points lanes|ways to earn|earn points/.test(q)) {
+      return "Past the daily table, points pay through three lanes — all server-computed from sealed records, on paying seats (Gold / Diamond / Owner; seats included free with a fleet don't earn them). Drive well: sealed-miles milestones at 10,000 / 50,000 / 100,000, +100 per 5 on-time sealed loads in a row, +25 for a clean-inspection day, +150 for a zero-violation HOS week. Feed the map: a road or fuel-price report pays +20 only when another driver backs it up at the same spot. Grow it: +500 when a broker or shipper you referred posts their first load, +100 for the first sealed load on a new lane, +250 for Founding Tester completion. The full list — with what each lane has paid you so far — is in the SM Points panel on the Driver tab, right under the daily table. Tap “Take me there” below.";
     }
     if (navDestEarly === "maintenance" || /maintenance|oil change|service (due|countdown)|miles (left|remaining).*(oil|service)/.test(q)) {
       const svc = maintenanceQuery.data;
@@ -34124,6 +34133,44 @@ function DriverPanel({
             </div>
           </div>
         )}
+        {pointsQuery.data?.lanes && (
+          <div id="points-lanes" className="mt-3 rounded-xl bg-[var(--surface2)] p-3" aria-label="How to earn — the three points lanes">
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="text-xs font-bold uppercase tracking-wide text-[var(--dim)]">How to earn — three more lanes</span>
+              <span className="font-condensed text-sm font-bold">
+                {pointsQuery.data.lanes.totals.lane1 + pointsQuery.data.lanes.totals.lane2 + pointsQuery.data.lanes.totals.lane3} pts earned
+              </span>
+            </div>
+            {!pointsQuery.data.lanes.eligible && (
+              <p className="mt-2 text-sm leading-relaxed">
+                The three lanes pay on paying plans — Gold, Diamond, and Owner seats earn them; seats included free
+                with a fleet don't. Your daily table above pays on every plan.
+              </p>
+            )}
+            <div className="mt-2 space-y-3">
+              {pointsQuery.data.lanes.howToEarn.map((lane) => (
+                <div key={lane.lane}>
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="text-sm font-semibold">{lane.title}</span>
+                    <span className="shrink-0 font-condensed font-bold text-[var(--ok)]">
+                      {pointsQuery.data!.lanes.totals[lane.lane] > 0 ? `+${pointsQuery.data!.lanes.totals[lane.lane]} so far` : ""}
+                    </span>
+                  </div>
+                  <ul className="mt-1 space-y-0.5 text-sm text-[var(--dim)]">
+                    {lane.lines.map((line) => (
+                      <li key={line}>• {line}</li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+            <p className="mt-2 text-xs leading-relaxed text-[var(--dim)]">
+              Every lane award is computed by the server from your sealed records — miles, seals, logs, and other
+              drivers' confirmations — never from a self-report alone, and each one lands in the history below with
+              its reason. If a record behind an award is voided, the award reverses the same way.
+            </p>
+          </div>
+        )}
         <div className="mt-3 text-xs font-bold uppercase tracking-wide text-[var(--dim)]">Earn / spend history</div>
         <ul className="mt-1.5 space-y-1.5">
           {(pointsQuery.data?.history ?? []).map((h) => (
@@ -34132,6 +34179,7 @@ function DriverPanel({
                 <span className="block">{h.reason}</span>
                 <span className="block text-xs text-[var(--dim)]">
                   {new Date(h.createdAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                  {h.lane ? ` · ${h.lane === "lane1" ? "Drive well" : h.lane === "lane2" ? "Feed the map" : "Grow it"}` : ""}
                 </span>
               </span>
               <span className={`shrink-0 font-condensed text-lg font-bold ${h.amount >= 0 ? "text-[var(--ok)]" : "text-[var(--danger)]"}`}>
