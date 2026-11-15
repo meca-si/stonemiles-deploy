@@ -294,6 +294,9 @@ export function hosViolationsInWindow(
       if (nonDriveRun >= 0.5 * H) drivingSinceBreak = 0;
       continue;
     }
+    // Any duty segment ends the off-duty run (the server's own HOS
+    // replay does the same: `else offRun = 0`).
+    offRun = 0;
     nonDriveRun = 0;
     const effStart = Math.max(segStart, resetAt);
     if (state === "on_duty" || state === "driving") {
