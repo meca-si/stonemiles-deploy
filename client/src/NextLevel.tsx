@@ -2882,9 +2882,23 @@ export function VaultPanel({ setBanner, lang = "en" }: { setBanner: Banner; lang
 }
 
 export const DVIR_ITEMS = [
-  "Tires & wheels", "Brakes", "Lights & reflectors", "Steering", "Horn", "Mirrors",
-  "Coupling (fifth wheel / kingpin)", "Load securement", "Emergency equipment",
+  "Tires & wheels", "Brakes", "Trailer brakes & lights", "Lights & reflectors", "Steering", "Horn", "Mirrors",
+  "Coupling (fifth wheel / kingpin)", "Load securement", "Emergency equipment", "Fluids & leaks",
 ];
+
+/** Best-effort one-shot GPS for a signing stamp: resolves with the
+ *  fix or nulls inside ~2 s — a DVIR never waits on the sky. */
+function gpsOnce(): Promise<{ lat: number | null; lon: number | null }> {
+  return new Promise((resolve) => {
+    if (!("geolocation" in navigator)) { resolve({ lat: null, lon: null }); return; }
+    const timer = setTimeout(() => resolve({ lat: null, lon: null }), 2000);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => { clearTimeout(timer); resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude }); },
+      () => { clearTimeout(timer); resolve({ lat: null, lon: null }); },
+      { timeout: 2000, maximumAge: 60000 },
+    );
+  });
+}
 
 export type DvirKind = "pretrip" | "posttrip";
 
@@ -2895,11 +2909,15 @@ export function DvirPanel({ setBanner, focus, lang = "en" }: { setBanner: Banner
   const [defectNotes, setDefectNotes] = useState<Record<string, string>>({});
   const [signName, setSignName] = useState("");
   const [odometer, setOdometer] = useState("");
+  const [defectPhotos, setDefectPhotos] = useState<Record<string, { base64: string; mime: string } | null>>({});
+  const [attestSafe, setAttestSafe] = useState(false);
   const [busy, setBusy] = useState(false);
   const [starting, setStarting] = useState(false);
   const [started, setStarted] = useState<{ kind: DvirKind; at: string; dutyStamped: boolean } | null>(null);
   const list = useQuery({ queryKey: ["dvirs"], queryFn: () => api.listDvirs({ limit: 20 }) });
-  const criticalItems = new Set(["Tires & wheels", "Brakes", "Lights & reflectors", "Coupling (fifth wheel / kingpin)", "Load securement"]);
+  const openDefects = useQuery({ queryKey: ["dvir-open-defects"], queryFn: () => api.getOpenDvirDefects({}) });
+  const criticalItems = new Set(["Tires & wheels", "Brakes", "Trailer brakes & lights", "Lights & reflectors", "Coupling (fifth wheel / kingpin)", "Load securement"]);
+  const defectMissingNote = DVIR_ITEMS.some((i) => checks[i] === false && !(defectNotes[i] ?? "").trim());
   // A Today-tab checklist button lands here with a kind picked: switch
   // the form to it and clear any earlier "started" stamp for the other.
   useEffect(() => {
@@ -2932,8 +2950,21 @@ export function DvirPanel({ setBanner, focus, lang = "en" }: { setBanner: Banner
   return (
     <Section title={tt(lang, "records.dvir")} ariaLabel="Pre-trip and post-trip inspection checklists">
       <p className="text-sm text-[var(--dim)]">
-        The walk-around, formalized: start the checklist, check each system, flag defects with notes, sign it. The signed report seals into your record for the day; defects marked on safety-critical systems flag 🚨 to the owner portal feed immediately. A critical defect warns YOU — the go/no-go call is always the driver's.
+        The walk-around, formalized: start the checklist, check each system, flag defects with notes, sign it. The signed report seals into your record for the day — with the time, your GPS, and your truck &amp; trailer's identity — and every defect drafts a repair entry in your maintenance log. Defects marked on safety-critical systems flag 🚨 to the owner portal feed immediately. A critical defect warns YOU — the go/no-go call is always the driver's.
       </p>
+      {(openDefects.data?.defects.length ?? 0) > 0 && (
+        <div className="mt-3 rounded-xl bg-red-900/40 px-3 py-2.5" role="alert">
+          <p className="text-sm font-bold text-red-200">⚠️ Open defects from earlier inspections — still not closed:</p>
+          <ul className="mt-1 space-y-1">
+            {openDefects.data!.defects.map((d) => (
+              <li key={d.linkId} className="text-xs text-red-100/90">
+                <strong>{d.item}</strong>{d.critical ? " 🚨 safety-critical" : ""} — {d.note || "noted"} <span className="text-red-200/70">({d.kind === "pretrip" ? "pre-trip" : "post-trip"}, {new Date(d.at).toLocaleDateString()})</span>
+                <span className="block text-red-200/70">{d.entryId != null ? "A repair entry is waiting in your maintenance log — close it there when the work is done." : "Its repair draft is gone — log the repair in your maintenance log."}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       <div className="mt-3 grid grid-cols-2 gap-2" role="group" aria-label="Choose the checklist kind">
         <button type="button" aria-pressed={kind === "pretrip"} aria-label="Pre-trip checklist — start of day" onClick={() => setKind("pretrip")} className={`btn-press rounded-xl px-3 py-3 text-left ${kind === "pretrip" ? "btn-neon" : "bg-[var(--surface2)] border border-[var(--border)]"}`}>
           <span className="block font-condensed text-lg font-bold leading-tight">🌅 Pre-trip</span>
@@ -2977,7 +3008,24 @@ export function DvirPanel({ setBanner, focus, lang = "en" }: { setBanner: Banner
               </span>
             </div>
             {checks[item] === false && (
-              <input className={`${inputCls} mt-2`} value={defectNotes[item] ?? ""} aria-label={`Defect note for ${item}`} placeholder="What's wrong? (goes to the owner feed if critical)" onChange={(e) => setDefectNotes({ ...defectNotes, [item]: e.target.value })} />
+              <>
+                <input className={`${inputCls} mt-2`} value={defectNotes[item] ?? ""} aria-label={`Defect note for ${item}`} placeholder="What's wrong? (required — the shop works from this note)" onChange={(e) => setDefectNotes({ ...defectNotes, [item]: e.target.value })} />
+                <label className="btn-press mt-2 inline-block cursor-pointer rounded-lg bg-[var(--surface)] border border-[var(--border)] px-3 py-1.5 text-xs font-bold">
+                  {defectPhotos[item] ? "📷 Photo attached — tap to replace" : "📷 Add a photo of the defect (optional)"}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    aria-label={`Photo of the ${item} defect`}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (!f) return;
+                      if (!/image\/(jpeg|png|webp)/.test(f.type)) { setBanner("Photos only — JPEG, PNG, or WebP."); return; }
+                      void fileToBase64(f).then((enc) => setDefectPhotos({ ...defectPhotos, [item]: { base64: enc.dataBase64, mime: f.type } })).catch(() => setBanner("Couldn't read that photo — try again."));
+                    }}
+                  />
+                </label>
+              </>
             )}
           </div>
         ))}
@@ -2992,21 +3040,45 @@ export function DvirPanel({ setBanner, focus, lang = "en" }: { setBanner: Banner
           <input id="dvir-odo" type="number" inputMode="numeric" className={inputCls} value={odometer} aria-label="Odometer reading" onChange={(e) => setOdometer(e.target.value)} />
         </div>
       </div>
+      {DVIR_ITEMS.some((i) => checks[i] === false) && (
+        <label className="mt-3 flex cursor-pointer items-start gap-2 rounded-xl bg-[var(--surface2)] px-3 py-2.5 text-sm">
+          <input type="checkbox" className="mt-0.5 h-5 w-5 shrink-0" checked={attestSafe} aria-label="Attest the vehicle is safe to operate with the defects noted" onChange={(e) => setAttestSafe(e.target.checked)} />
+          <span><strong>Safe-to-operate attestation:</strong> I inspected this vehicle and, with the defects noted above on the record, I attest it is safe to operate. (Leave it unchecked if it isn't — the report seals either way, and the attestation is part of the sealed record.)</span>
+        </label>
+      )}
+      {defectMissingNote && (
+        <p className="mt-2 text-xs font-semibold text-amber-300" role="status">Every defect needs a note before you can sign — the note is what the shop works from.</p>
+      )}
       <button
         type="button"
-        disabled={busy || signName.trim().length < 2}
+        disabled={busy || signName.trim().length < 2 || defectMissingNote}
         className="btn-neon btn-press mt-3 w-full rounded-xl py-3 font-bold disabled:opacity-50"
         aria-label={kind === "pretrip" ? "Sign and seal this pre-trip DVIR" : "Sign and seal this post-trip DVIR"}
         onClick={() => {
           setBusy(true);
           const items = DVIR_ITEMS.map((i) => ({ item: i, ok: checks[i] !== false }));
-          const defects = DVIR_ITEMS.filter((i) => checks[i] === false).map((i) => ({ item: i, note: defectNotes[i] ?? "", critical: criticalItems.has(i) }));
-          void api.saveDvir({ kind, items, defects, signedName: signName.trim(), odometer: odometer ? parseFloat(odometer) : null })
+          const defects = DVIR_ITEMS.filter((i) => checks[i] === false).map((i) => ({
+            item: i,
+            note: (defectNotes[i] ?? "").trim(),
+            critical: criticalItems.has(i),
+            photoDataBase64: defectPhotos[i]?.base64 ?? null,
+            photoMime: defectPhotos[i]?.mime ?? null,
+          }));
+          const safeToOperate = defects.length === 0 ? true : attestSafe;
+          void gpsOnce()
+            .then(({ lat, lon }) => api.saveDvir({ kind, items, defects, signedName: signName.trim(), odometer: odometer ? parseFloat(odometer) : null, lat, lon, safeToOperate }))
             .then((r) => {
               const pts = kind === "pretrip" ? " +50 SM Points for the day." : " +25 SM Points for the day.";
-              setBanner(r.criticalDefect ? "🚨 DVIR sealed with a SAFETY-CRITICAL defect — it flagged to the owner feed. The go/no-go call is yours; a critical defect is a strong reason not to roll." + pts : defects.length > 0 ? "DVIR signed & sealed — defects noted for the owner feed." + pts : "DVIR signed & sealed — all systems OK." + pts);
+              const drafts = r.draftEntryIds.length > 0 ? ` ${r.draftEntryIds.length} repair draft${r.draftEntryIds.length === 1 ? "" : "s"} went into your maintenance log — confirm them there; a defect stays open until you close its repair.` : "";
+              setBanner(r.criticalDefect ? "🚨 DVIR sealed with a SAFETY-CRITICAL defect — it flagged to the owner feed. The go/no-go call is yours; a critical defect is a strong reason not to roll." + drafts + pts : defects.length > 0 ? "DVIR signed & sealed — defects noted for the owner feed." + drafts + pts : "DVIR signed & sealed — all systems OK." + pts);
               void queryClient.invalidateQueries({ queryKey: ["dvirs"] });
               void queryClient.invalidateQueries({ queryKey: ["points"] });
+              void queryClient.invalidateQueries({ queryKey: ["dvir-open-defects"] });
+              void queryClient.invalidateQueries({ queryKey: ["maintenance-log"] });
+              setChecks({});
+              setDefectNotes({});
+              setDefectPhotos({});
+              setAttestSafe(false);
               setStarted(null);
             })
             .catch(() => setBanner("Couldn't save the DVIR — try again."))
@@ -3019,6 +3091,8 @@ export function DvirPanel({ setBanner, focus, lang = "en" }: { setBanner: Banner
         {(list.data?.reports ?? []).slice(0, 6).map((r) => (
           <div key={r.id} className="rounded-xl bg-[var(--surface2)] px-3 py-2 text-sm">
             <strong>{r.kind === "pretrip" ? "Pretrip" : "Post-trip"} DVIR</strong> · {new Date(r.inspectedAt).toLocaleString()} · signed {r.signedName}
+            {r.truckLabel && <span className="block text-xs text-[var(--dim)]">{r.truckLabel}{r.trailerLabel ? ` · ${r.trailerLabel}` : ""}{r.odometer != null ? ` · ${r.odometer.toLocaleString()} mi` : ""}{r.hasLocation ? " · GPS stamped" : ""}</span>}
+            {r.safeToOperate === false && <span className="block text-xs font-semibold text-amber-300">⚠️ Not attested safe to operate at signing.</span>}
             {r.defects.length > 0 ? <span className="block text-xs font-semibold text-red-300">Defects: {r.defects.map((d) => `${d.item}${d.critical ? " 🚨" : ""}`).join(" · ")}</span> : <span className="block text-xs text-emerald-300">All {r.items} systems OK</span>}
           </div>
         ))}

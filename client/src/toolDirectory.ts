@@ -56,6 +56,7 @@ export type ToolDestId =
   | "trailer_tools"
   | "maintenance"
   | "maintenance_log"
+  | "detention_timer"
   | "points_lanes"
   | "breakdown_log"
   | "scale_tickets"
@@ -347,6 +348,12 @@ export const TOOL_GROUPS: ToolGroup[] = [
         subEn: "Every service + repair on your truck, receipts + paperwork attached, downloadable as one truck record",
         subEs: "Cada servicio y reparación de tu camión, recibos y documentos adjuntos, descargable como un solo registro del camión",
         dest: "maintenance_log",
+      },
+      {
+        id: "detention-timer", icon: "⏱️", en: "Detention timer", es: "Cronómetro de detención",
+        subEn: "Sealed dock clock — tap Arrive & Done; the proof shows time & place only, never a rate",
+        subEs: "Reloj sellado de muelle: toca Llegada y Listo; la prueba muestra solo hora y lugar, nunca una tarifa",
+        dest: "detention_timer",
       },
       {
         id: "breakdown", icon: "🛠️", en: "Breakdown mode", es: "Modo avería",

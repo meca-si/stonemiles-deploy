@@ -13,7 +13,7 @@
 // vault's own Gold gate on saving a document is unchanged (its
 // message surfaces here when it applies).
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fileToBase64 } from "@hatch/space-sdk/client";
 import { api } from "./api";
@@ -811,6 +811,14 @@ export function MaintenanceLogPanel({ setBanner, lang = "en" }: { setBanner: Ban
               <span className="font-bold">{maintenanceLogCategoryLabel(e.category)} — {e.description}</span>
               <span className="shrink-0 font-condensed text-lg font-bold">{money(e.cost)}</span>
             </div>
+            {e.status === "draft" && (
+              <p className="mt-1 rounded-lg bg-amber-900/40 px-2 py-1 text-xs font-semibold text-amber-200" role="status">
+                📝 Draft from DVIR{e.dvirId != null ? ` #${e.dvirId}` : ""} — check it, fill in the shop and cost, then Edit → Save to confirm it. It stays an open defect until you mark it Closed below.
+              </p>
+            )}
+            {e.status === "closed" && (
+              <p className="mt-1 text-xs font-semibold text-emerald-300">✅ Closed — work done{e.dvirId != null ? "; the DVIR defect is cleared" : ""}.</p>
+            )}
             <div className="mt-0.5 text-xs text-[var(--dim)]">
               {new Date(e.performedAt).toLocaleDateString()}
               {e.odometer != null ? ` · ${e.odometer.toLocaleString()} mi` : ""}
@@ -869,6 +877,25 @@ export function MaintenanceLogPanel({ setBanner, lang = "en" }: { setBanner: Ban
               >
                 📎 Attach receipt / paperwork
               </button>
+              {e.status !== "closed" ? (
+                <button
+                  type="button"
+                  className={smallBtn}
+                  aria-label={`Mark log entry ${e.description} closed — work done`}
+                  onClick={() => void api.setMaintenanceLogEntryStatus({ id: e.id, status: "closed" }).then(() => { setBanner(e.dvirId != null ? "Closed — the DVIR defect is cleared." : "Entry closed."); invalidate(); void queryClient.invalidateQueries({ queryKey: ["dvir-open-defects"] }); }).catch(() => setBanner("Couldn't close that entry — try again."))}
+                >
+                  ✅ Mark closed
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className={smallBtn}
+                  aria-label={`Reopen log entry ${e.description}`}
+                  onClick={() => void api.setMaintenanceLogEntryStatus({ id: e.id, status: "logged" }).then(() => { setBanner("Entry reopened."); invalidate(); void queryClient.invalidateQueries({ queryKey: ["dvir-open-defects"] }); }).catch(() => setBanner("Couldn't reopen that entry — try again."))}
+                >
+                  ↩️ Reopen
+                </button>
+              )}
               <button
                 type="button"
                 className={smallBtn}
@@ -1168,6 +1195,149 @@ export function BreakdownLogPanel({ setBanner, onOpenBreakdownHelp, onOpenParkin
 
 // ---------- Hub -------------------------------------------------------------------
 
+/** Detention timer (migration 0122): the sealed dock clock. ARRIVE
+ *  opens a record against a load (or standalone at a stop), DONE
+ *  seals it. Everything renders as TIME — the proof a driver sends a
+ *  broker shows appointment/arrival/departure and the wait, never a
+ *  rate: the driver's own agreement prices the time. */
+export function DetentionPanel({ setBanner, lang = "en" }: { setBanner: Banner; lang?: Lang }) {
+  const queryClient = useQueryClient();
+  const q = useQuery({ queryKey: ["detention"], queryFn: () => api.listDetention({ limit: 30 }) });
+  const loadsQ = useQuery({ queryKey: ["loads"], queryFn: () => api.listLoads({ limit: 50 }) });
+  const records = q.data?.records ?? [];
+  const open = records.filter((r) => r.departedAt == null);
+  const [site, setSite] = useState<"pickup" | "delivery" | "stop">("delivery");
+  const [loadSel, setLoadSel] = useState("");
+  const [place, setPlace] = useState("");
+  const [grace, setGrace] = useState("120");
+  const [busy, setBusy] = useState(false);
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (open.length === 0) return;
+    const t = setInterval(() => setTick((n) => n + 1), 30000);
+    return () => clearInterval(t);
+  }, [open.length]);
+  const invalidate = () => void queryClient.invalidateQueries({ queryKey: ["detention"] });
+  const fmtDur = (mins: number) => {
+    const h = Math.floor(mins / 60);
+    const m = Math.round(mins % 60);
+    return h === 0 ? `${m} min` : m === 0 ? `${h} h` : `${h} h ${m} min`;
+  };
+  const gps = (): Promise<{ lat: number | null; lon: number | null }> =>
+    new Promise((resolve) => {
+      if (!("geolocation" in navigator)) { resolve({ lat: null, lon: null }); return; }
+      const timer = setTimeout(() => resolve({ lat: null, lon: null }), 2000);
+      navigator.geolocation.getCurrentPosition(
+        (pos) => { clearTimeout(timer); resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude }); },
+        () => { clearTimeout(timer); resolve({ lat: null, lon: null }); },
+        { timeout: 2000, maximumAge: 60000 },
+      );
+    });
+  const start = () => {
+    setBusy(true);
+    void gps().then(({ lat, lon }) =>
+      api.startDetention({
+        loadId: loadSel ? parseInt(loadSel, 10) : null,
+        site,
+        placeLabel: place.trim() || null,
+        graceMinutes: Math.min(720, Math.max(0, parseInt(grace, 10) || 120)),
+        apptAt: null,
+        lat,
+        lon,
+      }),
+    ).then((r) => {
+      setBanner(r.alreadyOpen
+        ? "That clock is already running — the first ARRIVE tap stands."
+        : `Detention clock running — arrived ${new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}. Free time: ${fmtDur(r.graceMinutes)}${r.apptAt ? ` · appointment ${new Date(r.apptAt).toLocaleString()}` : ""}. Tap DONE when the dock releases you.`);
+      setPlace("");
+      invalidate();
+    }).catch(() => setBanner("Couldn't start the detention clock — try again."))
+      .finally(() => setBusy(false));
+  };
+  const end = (id: number) => {
+    setBusy(true);
+    void gps().then(({ lat, lon }) => api.endDetention({ id, lat, lon }))
+      .then((r) => {
+        setBanner(`Clock sealed — total wait ${fmtDur(r.waitMinutes)}, ${fmtDur(r.billableMinutes)} past the free time. The proof is in the record below; it shows time and place only.`);
+        invalidate();
+      })
+      .catch(() => setBanner("Couldn't stop the clock — try again."))
+      .finally(() => setBusy(false));
+  };
+  const proof = (id: number) => {
+    void api.getDetentionProof({ id })
+      .then((r) => downloadTextFile(r.filename, r.text))
+      .catch(() => setBanner("That proof isn't ready — the clock seals when you tap DONE."));
+  };
+  return (
+    <Section title={tt(lang, "money.detentionTitle")} ariaLabel="Detention timer — sealed dock clock">
+      <p className="text-sm text-[var(--dim)]">
+        Tap <strong className="text-[var(--text)]">ARRIVE</strong> at the gate and <strong className="text-[var(--text)]">DONE</strong> when the dock releases you — both stamps seal into the record with the appointment and your free time. The shareable proof shows times and place only, never a rate: your agreement prices the time, this proves it.
+      </p>
+      {open.map((r) => (
+        <div key={r.id} className="mt-3 rounded-xl bg-amber-900/40 px-3 py-3" role="status">
+          <p className="text-sm font-bold text-amber-200">⏱️ Clock running — {r.site === "pickup" ? "Pickup" : r.site === "delivery" ? "Delivery" : "Stop"}{r.placeLabel ? ` · ${r.placeLabel}` : ""}</p>
+          <p className="text-xs text-amber-100/80">
+            Arrived {new Date(r.arrivedAt).toLocaleString()} · {fmtDur((Date.now() - new Date(r.arrivedAt).getTime()) / 60000)} so far · free time {fmtDur(r.graceMinutes)}{r.apptAt ? ` · appointment ${new Date(r.apptAt).toLocaleString()}` : ""}{r.loadLabel ? ` · ${r.loadLabel}` : ""}
+          </p>
+          <button type="button" disabled={busy} className="btn-neon btn-press mt-2 w-full rounded-xl py-3 font-bold disabled:opacity-50" aria-label="Done — stop and seal this detention clock" onClick={() => end(r.id)}>
+            {busy ? "Sealing…" : "✅ DONE — dock released me, seal the clock"}
+          </button>
+        </div>
+      ))}
+      <div className="mt-3 grid grid-cols-2 gap-2 border-t border-[var(--border)] pt-3">
+        <div>
+          <label className={labelCls} htmlFor="det-site">Site</label>
+          <select id="det-site" className={inputCls} value={site} aria-label="Detention site" onChange={(e) => setSite(e.target.value as typeof site)}>
+            <option value="delivery">Delivery</option>
+            <option value="pickup">Pickup</option>
+            <option value="stop">Stop (no load)</option>
+          </select>
+        </div>
+        <div>
+          <label className={labelCls} htmlFor="det-grace">Free time (minutes)</label>
+          <input id="det-grace" type="number" inputMode="numeric" min={0} max={720} className={inputCls} value={grace} aria-label="Free or grace time in minutes" onChange={(e) => setGrace(e.target.value)} />
+        </div>
+        <div>
+          <label className={labelCls} htmlFor="det-load">Load (optional)</label>
+          <select id="det-load" className={inputCls} value={loadSel} aria-label="Load this clock belongs to" onChange={(e) => setLoadSel(e.target.value)}>
+            <option value="">No load — standalone stop</option>
+            {(loadsQ.data?.loads ?? []).map((l) => (
+              <option key={l.id} value={l.id}>Load #{l.id} · {[l.pickupCity, l.pickupState].filter(Boolean).join(", ") || "?"} → {[l.deliveryCity, l.deliveryState].filter(Boolean).join(", ") || "?"}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className={labelCls} htmlFor="det-place">Place (optional)</label>
+          <input id="det-place" className={inputCls} value={place} aria-label="Facility or place label" placeholder="e.g. Dallas, TX — gate 4" onChange={(e) => setPlace(e.target.value)} />
+        </div>
+      </div>
+      <button type="button" disabled={busy} className="btn-neon btn-press mt-2 w-full rounded-xl py-3 font-bold disabled:opacity-50" aria-label="Arrive — start the detention clock" onClick={start}>
+        {busy ? "Starting…" : "🅿️ ARRIVE — start the detention clock"}
+      </button>
+      <div className="mt-3 space-y-1.5">
+        {records.filter((r) => r.departedAt != null).slice(0, 8).map((r) => (
+          <div key={r.id} className="rounded-xl bg-[var(--surface2)] px-3 py-2 text-sm">
+            <div className="flex items-center justify-between gap-2">
+              <span className="min-w-0">
+                <strong>{r.site === "pickup" ? "Pickup" : r.site === "delivery" ? "Delivery" : "Stop"}</strong>{r.placeLabel ? ` · ${r.placeLabel}` : ""}
+                <span className="block text-xs text-[var(--dim)]">
+                  {new Date(r.arrivedAt).toLocaleString()} → {r.departedAt ? new Date(r.departedAt).toLocaleString() : ""} · wait {r.waitMinutes != null ? fmtDur(r.waitMinutes) : "—"} · past free time {r.billableMinutes != null ? fmtDur(r.billableMinutes) : "—"}{r.loadLabel ? ` · ${r.loadLabel}` : ""}
+                </span>
+              </span>
+              <button type="button" className={`${smallBtn} shrink-0`} aria-label={`Download the detention proof for record ${r.id}`} onClick={() => proof(r.id)}>⬇ Proof</button>
+            </div>
+          </div>
+        ))}
+        {records.length === 0 && !q.isLoading && <p className="text-xs text-[var(--dim)]">No detention clocked yet — your first ARRIVE tap starts the record.</p>}
+      </div>
+      {q.data && q.data.totalBillableMinutes > 0 && (
+        <p className="mt-2 text-xs font-semibold text-[var(--dim)]">Total time past free time on sealed visits: {fmtDur(q.data.totalBillableMinutes)} — time only; what it pays is set by your agreement.</p>
+      )}
+    </Section>
+  );
+}
+
 export function MoneyFlowHub({ setBanner, mpg, onOpenBreakdownHelp, onOpenParking, lang = "en" }: { setBanner: Banner; mpg: number; onOpenBreakdownHelp?: () => void; onOpenParking?: () => void; lang?: Lang }) {
   return (
     <>
@@ -1182,6 +1352,9 @@ export function MoneyFlowHub({ setBanner, mpg, onOpenBreakdownHelp, onOpenParkin
       </div>
       <div id="claims-log" className="scroll-mt-4">
         <ClaimsPanel setBanner={setBanner} lang={lang} />
+      </div>
+      <div id="detention-timer" className="scroll-mt-4">
+        <DetentionPanel setBanner={setBanner} lang={lang} />
       </div>
       <div id="maintenance" className="scroll-mt-4">
         <MaintenancePanel setBanner={setBanner} lang={lang} />
