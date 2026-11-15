@@ -27,6 +27,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { api, type ApiResponse } from "./api";
 import { FleetBoardPanel } from "./FleetBoard";
+import { GlobalSearch } from "./GlobalSearch";
 import { ExceptionQueuePanel } from "./AutonomyPanel";
 import { FleetDqfPanel } from "./DqfPanel";
 import { FleetHomeTimePanel } from "./HomeTimePanel";
@@ -94,6 +95,19 @@ export function OwnerDesk({
           <button type="button" className={BTN_GHOST} onClick={onClose} aria-label="Close Owner Desk">
             Close
           </button>
+        </div>
+
+        <div className="mt-3">
+          <GlobalSearch
+            placeholder="Driver name, city, shipper, reference, or load #"
+            onOpenLoad={() => onOpenFleetBoard()}
+            onOpenBoardLoad={() => onOpenFleetBoard()}
+            onOpenDriver={() => {
+              setTimeout(() => {
+                document.getElementById("fleet-board")?.scrollIntoView({ behavior: "smooth", block: "start" });
+              }, 60);
+            }}
+          />
         </div>
 
         {deskQuery.isPending ? (

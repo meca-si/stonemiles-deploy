@@ -255,10 +255,28 @@ import {
   podCopyOutboundText,
   EMPTY_PAPERWORK_CANDIDATES,
   PAPERWORK_STAGE_LABELS,
+  PAPERWORK_DOC_LABELS,
   type PaperworkCandidates,
   type PaperworkDocKind,
   type PaperworkFieldFlags,
 } from "./paperwork";
+import {
+  capSearchGroup,
+  cleanSearchQuery,
+  searchFieldsMatch,
+  searchLoadIdMatch,
+} from "./globalSearch";
+import {
+  rankNextLoadsForDriver,
+  type DriverFitFacts,
+  type SuggestionLeg,
+  type TimedWindow,
+} from "./nextLoad";
+import {
+  docsDoorStateFor,
+  sniffDoorDocMime,
+  DOOR_SUBMISSIONS_PER_HOUR,
+} from "./paperworkDoor";
 import {
   bondAlertStatus,
   bondNotification,
@@ -2637,8 +2655,11 @@ function copyUrlFor(token: string): string {
 function trackUrlFor(token: string): string {
   return `${APP_PUBLIC_ORIGIN}/track/${token}`;
 }
-function newReceiveToken(kind: "action" | "copy" | "track"): string {
-  return `${kind === "copy" ? "cpy" : kind === "track" ? "trk" : "rcv"}_${Buffer.from(randomBytes(16)).toString("hex")}`;
+function docsUrlFor(token: string): string {
+  return `${APP_PUBLIC_ORIGIN}/docs/${token}`;
+}
+function newReceiveToken(kind: "action" | "copy" | "track" | "docs"): string {
+  return `${kind === "copy" ? "cpy" : kind === "track" ? "trk" : kind === "docs" ? "doc" : "rcv"}_${Buffer.from(randomBytes(16)).toString("hex")}`;
 }
 
 function deliveryPathLabel(path: string): string {
@@ -2744,6 +2765,32 @@ async function ensureTrackLink(
   const ins = await db
     .insert(schema.receiveLinks)
     .values({ loadId, token: newReceiveToken("track"), kind: "track", status: "active", createdBy })
+    .returning();
+  return { row: ins[0]!, created: true };
+}
+
+/** The paperwork INTAKE door link for a load (kind "docs", Alvys-
+ * grab build): one active token per load, issued only on an
+ * explicit opt-in (createLoadDocsLink), revocable at any time,
+ * and ending at delivery — the expiry is derived from the load's
+ * delivery confirmation at read time, exactly like the track
+ * share. The token is the whole credential: it opens an upload
+ * form for THIS load's paperwork and nothing else. */
+async function ensureDocsLink(
+  ctx: Ctx,
+  loadId: number,
+  createdBy: string,
+): Promise<{ row: ReceiveLinkRow; created: boolean }> {
+  const db = ctx.db<typeof schema>();
+  const rows = await db
+    .select()
+    .from(schema.receiveLinks)
+    .where(and(eq(schema.receiveLinks.loadId, loadId), eq(schema.receiveLinks.kind, "docs"), eq(schema.receiveLinks.status, "active")))
+    .orderBy(desc(schema.receiveLinks.id));
+  if (rows[0]) return { row: rows[0], created: false };
+  const ins = await db
+    .insert(schema.receiveLinks)
+    .values({ loadId, token: newReceiveToken("docs"), kind: "docs", status: "active", createdBy })
     .returning();
   return { row: ins[0]!, created: true };
 }
@@ -3629,6 +3676,115 @@ async function runPaperworkExtraction(ctx: Ctx, row: LoadPaperworkRow): Promise<
   return status;
 }
 
+/** THE paperwork intake — the one path a document enters the
+ * pipeline through, whoever hands it in: the driver in the app
+ * (fileLoadPaperwork) or a broker/carrier at the public paperwork
+ * door (submitDocsDoorPaperwork). Stores the blob, upserts the
+ * (load, kind) row (a re-filing replaces the document and restarts
+ * its read + confirmation, exactly as a driver re-filing does),
+ * seals paperwork_filed, and runs the extraction read. Returns
+ * null only when the insert itself failed.
+ *
+ * Seal shapes differ by door, deliberately: the app's own filing
+ * carries filedBy as it always has; a DOOR filing's seal carries
+ * ids/kind/fingerprint only — no sender label ever lands on the
+ * chain from a public surface (the label lives on the row and in
+ * the driver's notification). */
+async function filePaperworkDocument(
+  ctx: Ctx,
+  args: {
+    loadId: number;
+    docKind: PaperworkDocKind;
+    bytes: Uint8Array;
+    mime: string;
+    filedBy: string;
+    driverUsername: string;
+    via: "app" | "door";
+  },
+): Promise<{ row: LoadPaperworkRow; replaced: boolean } | null> {
+  const db = ctx.db<typeof schema>();
+  const sha256 = await sha256Bytes(new Uint8Array(args.bytes));
+  const blobKey = `paperwork-${args.loadId}-${args.docKind}-${sha256.slice(0, 16)}`;
+  await ctx.blobs.put(blobKey, args.bytes, { contentType: args.mime });
+  const now = new Date();
+  const existing = await paperworkRowFor(ctx, args.loadId, args.docKind);
+  let row: LoadPaperworkRow;
+  if (existing) {
+    await db
+      .update(schema.loadPaperwork)
+      .set({
+        blobKey,
+        mime: args.mime,
+        sha256,
+        filedBy: args.filedBy,
+        extractionStatus: "pending",
+        candidateFieldsJson: null,
+        extractionAt: null,
+        confirmStatus: "unconfirmed",
+        confirmedFieldsJson: null,
+        confirmedBy: null,
+        confirmedAt: null,
+        sendStatus: "not_ready",
+        sendAt: null,
+        sendProviderId: null,
+        updatedAt: now,
+      })
+      .where(eq(schema.loadPaperwork.id, existing.id));
+    row = { ...existing, blobKey, mime: args.mime, sha256, filedBy: args.filedBy };
+  } else {
+    const prefill = args.docKind === "pod" ? await paperworkRecipientPrefill(ctx, args.loadId) : null;
+    const ins = await db
+      .insert(schema.loadPaperwork)
+      .values({
+        loadId: args.loadId,
+        docKind: args.docKind,
+        driverUsername: args.driverUsername,
+        blobKey,
+        mime: args.mime,
+        sha256,
+        filedBy: args.filedBy,
+        extractionStatus: "pending",
+        recipientEmail: prefill?.email ?? null,
+        recipientLabel: prefill?.label ?? null,
+      })
+      .returning({ id: schema.loadPaperwork.id });
+    const id = ins[0]?.id;
+    if (id == null) return null;
+    const rows = await db.select().from(schema.loadPaperwork).where(eq(schema.loadPaperwork.id, id)).limit(1);
+    row = rows[0]!;
+  }
+  await appendChain(ctx, {
+    refKind: "load",
+    refId: args.loadId,
+    sessionId: null,
+    event: "paperwork_filed",
+    payload:
+      args.via === "door"
+        ? {
+            loadId: args.loadId,
+            paperworkId: row.id,
+            docKind: args.docKind,
+            sha256,
+            mime: args.mime,
+            via: "door",
+            replaced: existing != null,
+            at: now.toISOString(),
+          }
+        : {
+            loadId: args.loadId,
+            paperworkId: row.id,
+            docKind: args.docKind,
+            sha256,
+            mime: args.mime,
+            filedBy: args.filedBy,
+            replaced: existing != null,
+            at: now.toISOString(),
+          },
+  });
+  await runPaperworkExtraction(ctx, row);
+  return { row, replaced: existing != null };
+}
+
 /** The broker/factor address on file for a load: the broker
  * account the load came through (board → poster → account email).
  * Null when the load didn't come through a broker account — the
@@ -3938,6 +4094,7 @@ async function buildPaperworkState(ctx: Ctx, loadId: number, scope: { via: "mine
   const rows = await paperworkRowsFor(ctx, loadId);
   const bol = rows.find((r) => r.docKind === "bol") ?? null;
   const pod = rows.find((r) => r.docKind === "pod") ?? null;
+  const rateCon = rows.find((r) => r.docKind === "rate_con") ?? null;
   const load = scope.load;
   // Invoice state: the driver's own context reads the invoice row;
   // a fleet scope derives it from the sealed chain instead (the
@@ -3986,6 +4143,7 @@ async function buildPaperworkState(ctx: Ctx, loadId: number, scope: { via: "mine
     stageLabel: PAPERWORK_STAGE_LABELS[stage],
     bol: paperworkDocState(bol, load),
     pod: paperworkDocState(pod, load),
+    rateCon: paperworkDocState(rateCon, load),
     recipientEmail: pod?.recipientEmail ?? null,
     recipientLabel: pod?.recipientLabel ?? null,
     sendStatus: pod?.sendStatus ?? null,
@@ -4030,6 +4188,7 @@ const paperworkStateResponse = z.object({
   stageLabel: z.string(),
   bol: paperworkDocStateSchema,
   pod: paperworkDocStateSchema,
+  rateCon: paperworkDocStateSchema,
   recipientEmail: z.string().nullable(),
   recipientLabel: z.string().nullable(),
   sendStatus: z.string().nullable(),
@@ -4048,6 +4207,7 @@ function paperworkStateFail(error: string) {
     stageLabel: PAPERWORK_STAGE_LABELS.none,
     bol: paperworkDocState(null, null),
     pod: paperworkDocState(null, null),
+    rateCon: paperworkDocState(null, null),
     recipientEmail: null,
     recipientLabel: null,
     sendStatus: null,
@@ -27972,6 +28132,493 @@ export const Actions = {
     },
   }),
 
+  // ---- Global search (Alvys-grab build) -----------------------------------
+  // One query across the caller's OWN world: their loads, their
+  // fleet's drivers + board (desk seats), a broker's own posted
+  // loads, and the paperwork filed against any of it. The scope
+  // is the caller's — the driver's loads come through the scoped
+  // db, the desk's through their company id, the broker's through
+  // their poster rows — and no shape below carries a rate or any
+  // money value (globalSearch.ts holds the matching rules; the
+  // flow tests pin seeded figures absent).
+
+  globalSearch: defineAction({
+    description: "Search within your own scope: your loads (number, lane, shipper/broker, reference), your fleet's drivers and board loads (desk), your posted loads (broker), and filed paperwork. Identity facts only — never a rate.",
+    request: z.object({ query: z.string().min(1).max(120) }),
+    response: z.object({
+      ok: z.boolean(),
+      error: z.string().nullable(),
+      groups: z.array(
+        z.object({
+          kind: z.string(), // loads | drivers | documents
+          label: z.string(),
+          capped: z.boolean(),
+          total: z.number(),
+          results: z.array(
+            z.object({
+              kind: z.string(), // load | board_load | driver | document
+              loadId: z.number().nullable(),
+              boardLoadId: z.number().nullable(),
+              username: z.string().nullable(),
+              title: z.string(),
+              detail: z.string().nullable(),
+            }),
+          ),
+        }),
+      ),
+    }),
+    async handler(ctx, args) {
+      const cleaned = cleanSearchQuery(args.query);
+      if (!cleaned) {
+        return { ok: false, error: "Type at least a couple of letters — a city, a name, a reference, or a load number.", groups: [] };
+      }
+      const { query, raw } = cleaned;
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      type SearchResult = {
+        kind: string;
+        loadId: number | null;
+        boardLoadId: number | null;
+        username: string | null;
+        title: string;
+        detail: string | null;
+      };
+      const loadResults: SearchResult[] = [];
+      const driverResults: SearchResult[] = [];
+      const docResults: SearchResult[] = [];
+      const seenLoadKeys = new Set<string>();
+      const pushLoad = (r: SearchResult) => {
+        const key = `${r.kind}:${r.loadId ?? ""}:${r.boardLoadId ?? ""}`;
+        if (seenLoadKeys.has(key)) return;
+        seenLoadKeys.add(key);
+        loadResults.push(r);
+      };
+      const laneOf = (pickupCity: string | null, pickupState: string | null, deliveryCity: string | null, deliveryState: string | null) =>
+        laneLabel(pickupCity, pickupState, deliveryCity, deliveryState) ?? "Load";
+      const boardFields = (b: BoardLoadRow) => [b.shipper, b.brokerName, b.brokerCompany, b.referenceNumber, b.pickupCity, b.deliveryCity, b.commodity];
+      const boardDetail = (b: BoardLoadRow) =>
+        [b.shipper ?? b.brokerCompany ?? b.brokerName, b.referenceNumber ? `Ref ${b.referenceNumber}` : null, plainLoadStatus(b.status)]
+          .filter(Boolean)
+          .join(" · ") || null;
+
+      // -- My own loads (the scoped db returns only mine), plus
+      // the board rows I'm bound to (their broker names ride the
+      // board row, not my load record).
+      const ownLoads = await db.select().from(schema.loads).orderBy(desc(schema.loads.id));
+      const ownLoadIds = new Set(ownLoads.map((l) => l.id));
+      for (const load of ownLoads) {
+        const hit =
+          searchLoadIdMatch(raw, load.id) ||
+          searchFieldsMatch(query, [load.shipper, load.referenceNumber, load.pickupCity, load.pickupState, load.deliveryCity, load.deliveryState, load.commodity]);
+        if (!hit) continue;
+        pushLoad({
+          kind: "load",
+          loadId: load.id,
+          boardLoadId: null,
+          username: null,
+          title: `Load #${load.id} — ${laneOf(load.pickupCity, load.pickupState, load.deliveryCity, load.deliveryState)}`,
+          detail: [load.shipper, load.referenceNumber ? `Ref ${load.referenceNumber}` : null, plainLoadStatus(load.status)].filter(Boolean).join(" · ") || null,
+        });
+      }
+      const myBoardRows = await db
+        .select()
+        .from(schema.boardLoads)
+        .where(eq(schema.boardLoads.claimedBy, me))
+        .orderBy(desc(schema.boardLoads.id));
+      for (const b of myBoardRows) {
+        if (!searchFieldsMatch(query, boardFields(b))) continue;
+        pushLoad({
+          kind: "board_load",
+          loadId: b.loadId ?? null,
+          boardLoadId: b.id,
+          username: null,
+          title: `Load — ${laneOf(b.pickupCity, b.pickupState, b.deliveryCity, b.deliveryState)}`,
+          detail: boardDetail(b),
+        });
+      }
+
+      // -- Desk scope: my fleet's drivers + my fleet's board.
+      const membership = await myMembership(ctx, me);
+      const isDesk = membership != null && (membership.role === "owner" || membership.role === "dispatch");
+      if (isDesk && membership) {
+        const members = await db
+          .select()
+          .from(schema.companyMembers)
+          .where(eq(schema.companyMembers.companyId, membership.company.id));
+        for (const m of members) {
+          if (m.role === "dispatch") continue;
+          const social = (
+            await db.select().from(schema.socialUsers).where(eq(schema.socialUsers.username, m.username)).limit(1)
+          )[0];
+          if (!searchFieldsMatch(query, [m.username, social?.displayName ?? null])) continue;
+          driverResults.push({
+            kind: "driver",
+            loadId: null,
+            boardLoadId: null,
+            username: m.username,
+            title: social?.displayName ? `${social.displayName} (@${m.username})` : `@${m.username}`,
+            detail: m.role === "owner" ? "Fleet owner" : "Driver",
+          });
+        }
+        const fleetRows = await db
+          .select()
+          .from(schema.boardLoads)
+          .where(eq(schema.boardLoads.companyId, membership.company.id))
+          .orderBy(desc(schema.boardLoads.id));
+        for (const b of fleetRows) {
+          const hit = (b.loadId != null && searchLoadIdMatch(raw, b.loadId)) || searchFieldsMatch(query, boardFields(b));
+          if (!hit) continue;
+          pushLoad({
+            kind: "board_load",
+            loadId: b.loadId ?? null,
+            boardLoadId: b.id,
+            username: null,
+            title: `Load — ${laneOf(b.pickupCity, b.pickupState, b.deliveryCity, b.deliveryState)}`,
+            detail: boardDetail(b),
+          });
+        }
+      }
+
+      // -- Broker scope: the loads my broker account posted.
+      const brokerAcct = await myBrokerAccount(ctx, me);
+      if (brokerAcct) {
+        const posterRows = await db
+          .select()
+          .from(schema.brokerPosterLoads)
+          .where(eq(schema.brokerPosterLoads.brokerId, brokerAcct.id));
+        const postedIds = new Set(posterRows.map((p) => p.boardLoadId).filter((id): id is number => id != null));
+        if (postedIds.size > 0) {
+          const rows = await db
+            .select()
+            .from(schema.boardLoads)
+            .where(inArray(schema.boardLoads.id, [...postedIds]))
+            .orderBy(desc(schema.boardLoads.id));
+          for (const b of rows) {
+            if (!searchFieldsMatch(query, boardFields(b))) continue;
+            pushLoad({
+              kind: "board_load",
+              loadId: b.loadId ?? null,
+              boardLoadId: b.id,
+              username: null,
+              title: `Load — ${laneOf(b.pickupCity, b.pickupState, b.deliveryCity, b.deliveryState)}`,
+              detail: boardDetail(b),
+            });
+          }
+        }
+      }
+
+      // -- Paperwork filed against any load in my scope: matched
+      // by the load's own facts, by the document kind's name, or
+      // by the reference the driver confirmed off the document.
+      const scopedLoadIds = new Set<number>(ownLoadIds);
+      for (const r of loadResults) if (r.loadId != null) scopedLoadIds.add(r.loadId);
+      if (isDesk && membership) {
+        const fleetRows = await db
+          .select({ loadId: schema.boardLoads.loadId })
+          .from(schema.boardLoads)
+          .where(eq(schema.boardLoads.companyId, membership.company.id));
+        for (const r of fleetRows) if (r.loadId != null) scopedLoadIds.add(r.loadId);
+      }
+      if (scopedLoadIds.size > 0) {
+        const pwRows = await db
+          .select()
+          .from(schema.loadPaperwork)
+          .where(inArray(schema.loadPaperwork.loadId, [...scopedLoadIds]))
+          .orderBy(desc(schema.loadPaperwork.id));
+        for (const pw of pwRows) {
+          const load = ownLoads.find((l) => l.id === pw.loadId) ?? null;
+          const label = PAPERWORK_DOC_LABELS[pw.docKind as PaperworkDocKind] ?? "Paperwork";
+          const confirmed = parsePaperworkCandidates(pw.confirmedFieldsJson);
+          const hit =
+            searchFieldsMatch(query, [label, pw.docKind, confirmed.reference]) ||
+            (load != null &&
+              (searchLoadIdMatch(raw, load.id) ||
+                searchFieldsMatch(query, [load.shipper, load.referenceNumber, load.pickupCity, load.deliveryCity])));
+          if (!hit) continue;
+          docResults.push({
+            kind: "document",
+            loadId: pw.loadId,
+            boardLoadId: null,
+            username: null,
+            title: `${label} — Load #${pw.loadId}`,
+            detail: [
+              load ? laneOf(load.pickupCity, load.pickupState, load.deliveryCity, load.deliveryState) : null,
+              pw.confirmStatus === "confirmed" ? "Confirmed" : "Waiting on confirmation",
+            ]
+              .filter(Boolean)
+              .join(" · ") || null,
+          });
+        }
+      }
+
+      const groups = [];
+      const loadsGroup = capSearchGroup(loadResults);
+      if (loadsGroup.total > 0) groups.push({ kind: "loads", label: "Loads", capped: loadsGroup.capped, total: loadsGroup.total, results: loadsGroup.items });
+      const driversGroup = capSearchGroup(driverResults);
+      if (driversGroup.total > 0) groups.push({ kind: "drivers", label: "Drivers", capped: driversGroup.capped, total: driversGroup.total, results: driversGroup.items });
+      const docsGroup = capSearchGroup(docResults);
+      if (docsGroup.total > 0) groups.push({ kind: "documents", label: "Paperwork", capped: docsGroup.capped, total: docsGroup.total, results: docsGroup.items });
+      return { ok: true, error: null, groups };
+    },
+  }),
+
+  // ---- Paperwork intake door (Alvys-grab build) ---------------------------
+  // A per-load, no-account LINK a driver or desk hands a broker or
+  // carrier so the rate confirmation / BOL / POD for THAT load can
+  // be uploaded without an account — the "send it into the load"
+  // door that works today (paperworkDoor.ts holds the rules).
+  // Uploads enter the same paperwork pipeline the driver's own
+  // filings use; the driver confirms before anything counts. The
+  // door shows only that the load exists for paperwork (lane +
+  // date) — never a rate, never any other load data.
+
+  getLoadDocsLinks: defineAction({
+    description: "This load's paperwork-door links + their derived states (live / delivered / revoked).",
+    request: z.object({ loadId: z.number().int().positive() }),
+    response: z.object({
+      ok: z.boolean(),
+      error: z.string().nullable(),
+      delivered: z.boolean(),
+      links: z.array(
+        z.object({
+          id: z.number(),
+          url: z.string(),
+          state: z.string(),
+          createdBy: z.string(),
+          createdAt: z.string(),
+        }),
+      ),
+    }),
+    async handler(ctx, args) {
+      const scope = await libraryLoadScope(ctx, args.loadId);
+      if (!scope) return { ok: false, error: "That load isn't in your scope.", delivered: false, links: [] };
+      const db = ctx.db<typeof schema>();
+      const delivered = (await deliveryConfirmationFor(ctx, args.loadId)) != null;
+      const rows = await db
+        .select()
+        .from(schema.receiveLinks)
+        .where(and(eq(schema.receiveLinks.loadId, args.loadId), eq(schema.receiveLinks.kind, "docs")))
+        .orderBy(desc(schema.receiveLinks.id));
+      return {
+        ok: true,
+        error: null,
+        delivered,
+        links: rows.map((r) => ({
+          id: r.id,
+          url: docsUrlFor(r.token),
+          state: docsDoorStateFor({ linkStatus: r.status, delivered }),
+          createdBy: r.createdBy,
+          createdAt: r.createdAt.toISOString(),
+        })),
+      };
+    },
+  }),
+
+  createLoadDocsLink: defineAction({
+    description: "Opt in: create (or return) this load's paperwork-door link — a broker/carrier uploads this load's rate con / BOL / POD through it, no account needed. Sealed; the door never carries the rate.",
+    request: z.object({ loadId: z.number().int().positive() }),
+    response: z.object({
+      ok: z.boolean(),
+      error: z.string().nullable(),
+      url: z.string().nullable(),
+      state: z.string().nullable(),
+    }),
+    async handler(ctx, args) {
+      const scope = await libraryLoadScope(ctx, args.loadId);
+      if (!scope) return { ok: false, error: "That load isn't in your scope.", url: null, state: null };
+      const delivered = (await deliveryConfirmationFor(ctx, args.loadId)) != null;
+      if (delivered)
+        return {
+          ok: false,
+          error: "This load is already delivered — the paperwork door ends at delivery, like the tracking share.",
+          url: null,
+          state: null,
+        };
+      const me = await myUsername(ctx);
+      const { row, created } = await ensureDocsLink(ctx, args.loadId, me);
+      if (created) {
+        await appendChain(ctx, {
+          refKind: "load",
+          refId: args.loadId,
+          sessionId: null,
+          event: "paperwork_door_created",
+          payload: { loadId: args.loadId, linkId: row.id, by: me, via: scope.via, at: new Date().toISOString() },
+        });
+      }
+      ctx.invalidateQueries();
+      return { ok: true, error: null, url: docsUrlFor(row.token), state: "live" };
+    },
+  }),
+
+  revokeLoadDocsLink: defineAction({
+    description: "Revoke one of this load's paperwork-door links — the link dies immediately, everywhere.",
+    request: z.object({ loadId: z.number().int().positive(), linkId: z.number().int().positive() }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable() }),
+    async handler(ctx, args) {
+      const scope = await libraryLoadScope(ctx, args.loadId);
+      if (!scope) return { ok: false, error: "That load isn't in your scope." };
+      const db = ctx.db<typeof schema>();
+      const rows = await db
+        .select()
+        .from(schema.receiveLinks)
+        .where(and(eq(schema.receiveLinks.id, args.linkId), eq(schema.receiveLinks.loadId, args.loadId), eq(schema.receiveLinks.kind, "docs")))
+        .limit(1);
+      const row = rows[0];
+      if (!row) return { ok: false, error: "That paperwork-door link isn't on this load." };
+      if (row.status === "revoked") return { ok: true, error: null };
+      await db
+        .update(schema.receiveLinks)
+        .set({ status: "revoked", revokedAt: new Date() })
+        .where(eq(schema.receiveLinks.id, row.id));
+      const me = await myUsername(ctx);
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: args.loadId,
+        sessionId: null,
+        event: "paperwork_door_revoked",
+        payload: { loadId: args.loadId, linkId: row.id, by: me, via: scope.via, at: new Date().toISOString() },
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
+    },
+  }),
+
+  getDocsDoorInfo: defineAction({
+    description: "PUBLIC: the paperwork door's face for one load — lane + date only, so a broker can confirm they're at the right load. Never any rate or other load data.",
+    request: z.object({ token: z.string().min(8).max(80) }),
+    response: z.object({
+      valid: z.boolean(),
+      state: z.string().nullable(),
+      lane: z.string().nullable(),
+      pickupLabel: z.string().nullable(),
+      deliveryLabel: z.string().nullable(),
+      dateText: z.string().nullable(),
+      fleetName: z.string().nullable(),
+    }),
+    async handler(ctx, args) {
+      const invalid = { valid: false, state: null, lane: null, pickupLabel: null, deliveryLabel: null, dateText: null, fleetName: null };
+      if (receiveThrottleBlocked(args.token)) return invalid;
+      const resolved = await resolveReceiveToken(ctx, args.token);
+      if (!resolved || resolved.link.kind !== "docs") {
+        receiveThrottleFail(args.token);
+        return invalid;
+      }
+      receiveThrottleOk(args.token);
+      const { load } = resolved;
+      const delivered = (await deliveryConfirmationFor(ctx, load.id)) != null;
+      const state = docsDoorStateFor({ linkStatus: resolved.link.status, delivered });
+      const driverUsername = await driverUsernameForLoad(ctx, load);
+      const db = ctx.db<typeof schema>();
+      const driver = driverUsername
+        ? (await db.select().from(schema.socialUsers).where(eq(schema.socialUsers.username, driverUsername)).limit(1))[0]
+        : undefined;
+      const side = (city: string | null, st: string | null) => [city, st].filter(Boolean).join(", ") || null;
+      return {
+        valid: true,
+        state,
+        lane: laneLabel(load.pickupCity, load.pickupState, load.deliveryCity, load.deliveryState),
+        pickupLabel: side(load.pickupCity, load.pickupState),
+        deliveryLabel: side(load.deliveryCity, load.deliveryState),
+        dateText: load.pickupText ?? load.deliveryText ?? null,
+        fleetName: driver?.company ?? "STONEMILES carrier",
+      };
+    },
+  }),
+
+  submitDocsDoorPaperwork: defineAction({
+    description: "PUBLIC: upload one document (rate confirmation / BOL / POD) for the load this door token names. The type is sniffed from the bytes; the filing enters the load's paperwork pipeline for the driver to confirm. Sealed with ids/kind only.",
+    request: z.object({
+      token: z.string().min(8).max(80),
+      docKind: z.enum(["rate_con", "bol", "pod"]),
+      senderLabel: z.string().max(120).nullable().default(null),
+      dataBase64: z.string().min(100).max(12_000_000),
+    }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable() }),
+    async handler(ctx, args) {
+      const refuse = (error: string) => ({ ok: false, error });
+      if (receiveThrottleBlocked(args.token)) return refuse("This link has had too many failed tries — ask the driver or the desk for a fresh link.");
+      const resolved = await resolveReceiveToken(ctx, args.token);
+      if (!resolved || resolved.link.kind !== "docs") {
+        receiveThrottleFail(args.token);
+        return refuse("This paperwork link isn't valid — nothing was filed. Check the link and try again.");
+      }
+      receiveThrottleOk(args.token);
+      const { load } = resolved;
+      const delivered = (await deliveryConfirmationFor(ctx, load.id)) != null;
+      if (docsDoorStateFor({ linkStatus: resolved.link.status, delivered }) !== "live") {
+        return refuse(
+          delivered
+            ? "This load has been delivered, so its paperwork door is closed — send the document to the carrier directly."
+            : "This paperwork link has been closed — ask the driver or the desk for a fresh link.",
+        );
+      }
+      // Per-load submission cap, counted from the sealed door
+      // filings themselves (the house DB-count style): a leaked
+      // link can't flood one load's pipeline or run the reader
+      // without limit.
+      const db = ctx.db<typeof schema>();
+      const hourAgo = new Date(Date.now() - 60 * 60 * 1000);
+      const doorEvents = await db
+        .select({ id: schema.chainLog.id, payload: schema.chainLog.payload })
+        .from(schema.chainLog)
+        .where(
+          and(
+            eq(schema.chainLog.refKind, "load"),
+            eq(schema.chainLog.refId, load.id),
+            eq(schema.chainLog.event, "paperwork_filed"),
+            gte(schema.chainLog.createdAt, hourAgo),
+          ),
+        );
+      let doorCount = 0;
+      for (const e of doorEvents) {
+        try {
+          if ((JSON.parse(e.payload) as { via?: unknown }).via === "door") doorCount++;
+        } catch { /* a malformed payload is not a door filing */ }
+      }
+      if (doorCount >= DOOR_SUBMISSIONS_PER_HOUR) {
+        return refuse("This load's paperwork door has taken a lot of uploads in the last hour — nothing was filed. Try again in a little while, or contact the carrier directly.");
+      }
+      let bytes: Uint8Array;
+      try {
+        bytes = base64ToBytes(args.dataBase64);
+      } catch {
+        return refuse("That file couldn't be read — nothing was filed. Try the upload again.");
+      }
+      // The type is SNIFFED from the bytes (the claimed type is
+      // never trusted on a public door): PDF, JPG, or PNG only.
+      const mime = sniffDoorDocMime(bytes);
+      if (!mime) {
+        return refuse("That file isn't a PDF, JPG, or PNG document — nothing was filed. Send the rate confirmation, BOL, or POD as a PDF or a photo.");
+      }
+      const driverUsername = await driverUsernameForLoad(ctx, load);
+      if (!driverUsername) return refuse("This load's paperwork can't be filed right now — contact the carrier directly.");
+      const sender = args.senderLabel?.trim().slice(0, 120) ?? "";
+      const filed = await filePaperworkDocument(ctx, {
+        loadId: load.id,
+        docKind: args.docKind,
+        bytes,
+        mime,
+        filedBy: sender ? `door: ${sender}` : "paperwork door",
+        driverUsername,
+        via: "door",
+      });
+      if (!filed) return refuse("The document couldn't be filed — try again.");
+      // The driver hears about it in-app (never email): the paper
+      // is in their pipeline, waiting on their confirmation.
+      const lane = laneLabel(load.pickupCity, load.pickupState, load.deliveryCity, load.deliveryState);
+      await recordNotificationSafe(ctx, {
+        username: driverUsername,
+        kind: "system",
+        title: `Load #${load.id} — ${PAPERWORK_DOC_LABELS[args.docKind]} arrived`,
+        body: `${lane ?? `Load #${load.id}`} — a ${PAPERWORK_DOC_LABELS[args.docKind].toLowerCase()} came in through this load's paperwork door${sender ? ` from ${sender}` : ""}. It's in the load's paperwork, waiting on your check and confirmation.`,
+        refKind: "load",
+        refId: load.id,
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
+    },
+  }),
+
   // ---- Autonomy core (Research Wave 2 item 1) ------------------------------
   // Automatic check calls + status syndication + exception queues.
   // The evaluator (evaluateLoadAutonomy above) derives milestones
@@ -28337,10 +28984,10 @@ export const Actions = {
   }),
 
   fileLoadPaperwork: defineAction({
-    description: "Paperwork-to-pay intake: file a scanned BOL/POD against a load (vault blob + sealed filing), then run the extraction read. Candidates stay provisional until the driver confirms.",
+    description: "Paperwork-to-pay intake: file a scanned rate con / BOL / POD against a load (vault blob + sealed filing), then run the extraction read. Candidates stay provisional until the driver confirms.",
     request: z.object({
       loadId: z.number().int().positive(),
-      docKind: z.enum(["bol", "pod"]),
+      docKind: z.enum(["bol", "pod", "rate_con"]),
       dataBase64: z.string().min(100).max(12_000_000),
       mime: z.string().max(60),
     }),
@@ -28355,82 +29002,23 @@ export const Actions = {
       const load = scope.load;
       const me = await myUsername(ctx);
       const driverUsername = (await driverUsernameForLoad(ctx, load)) ?? me;
-      const db = ctx.db<typeof schema>();
-      const bytes = base64ToBytes(args.dataBase64);
-      const sha256 = await sha256Bytes(new Uint8Array(bytes));
-      const blobKey = `paperwork-${args.loadId}-${args.docKind}-${sha256.slice(0, 16)}`;
-      await ctx.blobs.put(blobKey, bytes, { contentType: mime });
-      const now = new Date();
-      const existing = await paperworkRowFor(ctx, args.loadId, args.docKind);
-      let row: LoadPaperworkRow;
-      if (existing) {
-        // Re-filing replaces the document: the read and the
-        // confirmation start over for the new bytes, and a POD
-        // that already went out sends again once re-confirmed
-        // (a corrected POD is a new document; the earlier send
-        // stands on the record).
-        await db
-          .update(schema.loadPaperwork)
-          .set({
-            blobKey,
-            mime,
-            sha256,
-            filedBy: me,
-            extractionStatus: "pending",
-            candidateFieldsJson: null,
-            extractionAt: null,
-            confirmStatus: "unconfirmed",
-            confirmedFieldsJson: null,
-            confirmedBy: null,
-            confirmedAt: null,
-            sendStatus: "not_ready",
-            sendAt: null,
-            sendProviderId: null,
-            updatedAt: now,
-          })
-          .where(eq(schema.loadPaperwork.id, existing.id));
-        row = { ...existing, blobKey, mime, sha256, filedBy: me };
-      } else {
-        // First filing: prefill the POD's recipient from the
-        // broker account the load came through, when there is one.
-        const prefill = args.docKind === "pod" ? await paperworkRecipientPrefill(ctx, args.loadId) : null;
-        const ins = await db
-          .insert(schema.loadPaperwork)
-          .values({
-            loadId: args.loadId,
-            docKind: args.docKind,
-            driverUsername,
-            blobKey,
-            mime,
-            sha256,
-            filedBy: me,
-            extractionStatus: "pending",
-            recipientEmail: prefill?.email ?? null,
-            recipientLabel: prefill?.label ?? null,
-          })
-          .returning({ id: schema.loadPaperwork.id });
-        const id = ins[0]?.id;
-        if (id == null) return paperworkStateFail("The document couldn't be filed — try again.");
-        const rows = await db.select().from(schema.loadPaperwork).where(eq(schema.loadPaperwork.id, id)).limit(1);
-        row = rows[0]!;
-      }
-      await appendChain(ctx, {
-        refKind: "load",
-        refId: args.loadId,
-        sessionId: null,
-        event: "paperwork_filed",
-        payload: {
-          loadId: args.loadId,
-          paperworkId: row.id,
-          docKind: args.docKind,
-          sha256,
-          mime,
-          filedBy: me,
-          replaced: existing != null,
-          at: now.toISOString(),
-        },
+      // The one intake path (shared with the public paperwork
+      // door): blob + row upsert + seal + extraction read. A
+      // re-filing replaces the document — the read and the
+      // confirmation start over for the new bytes, and a POD that
+      // already went out sends again once re-confirmed (a
+      // corrected POD is a new document; the earlier send stands
+      // on the record).
+      const filed = await filePaperworkDocument(ctx, {
+        loadId: args.loadId,
+        docKind: args.docKind,
+        bytes: base64ToBytes(args.dataBase64),
+        mime,
+        filedBy: me,
+        driverUsername,
+        via: "app",
       });
-      await runPaperworkExtraction(ctx, row);
+      if (!filed) return paperworkStateFail("The document couldn't be filed — try again.");
       ctx.invalidateQueries();
       return buildPaperworkState(ctx, args.loadId, scope);
     },
@@ -28456,7 +29044,7 @@ export const Actions = {
     description: "Confirm (or correct) one filed document's fields + the broker/factor recipient. Confirmation is the only write of read values anywhere, and it is what the auto-send / auto-invoice trigger stands on.",
     request: z.object({
       loadId: z.number().int().positive(),
-      docKind: z.enum(["bol", "pod"]),
+      docKind: z.enum(["bol", "pod", "rate_con"]),
       fields: z.object({
         lane: z.string().max(200).nullable(),
         reference: z.string().max(120).nullable(),
@@ -59747,6 +60335,227 @@ export const Actions = {
           };
         }),
       };
+    },
+  }),
+
+  // Suggested next load (Alvys-grab build): for each driver in the
+  // caller's fleet, rank the fleet's OPEN board loads by FIT —
+  // deadhead (the assign ranking's basis rule), calendar
+  // availability (bound loads + approved time off), item-9
+  // home-time, and the sealed duty clock — with the reasons
+  // printed per suggestion (nextLoad.ts holds the pure rules).
+  // A suggestion is a ranking, never a bypass: the one-tap action
+  // is assignBoardLoad itself, where dispatch mode, the DQF gate,
+  // the home-time gate, and the fee gate run exactly as always.
+  // Pickup points are geocoded by the desk's client through the
+  // app's existing geocode chain and passed in (the
+  // getAssignCandidates pattern); without a point the deadhead
+  // leg answers "not checked" — never an invented distance. No
+  // rate or money field is read into any shape below.
+  getNextLoadSuggestions: defineAction({
+    description: "Rank this fleet's open loads per driver by fit (deadhead, calendar, home-time, hours) with printed reasons. Suggestions only — binding still runs the assign funnel and all its gates.",
+    request: z.object({
+      pickupPoints: z
+        .array(
+          z.object({
+            boardLoadId: z.number().int().positive(),
+            lat: z.number().min(-90).max(90),
+            lon: z.number().min(-180).max(180),
+          }),
+        )
+        .max(100)
+        .default([]),
+    }),
+    response: z.object({
+      ok: z.boolean(),
+      error: z.string().nullable(),
+      companyName: z.string().nullable(),
+      drivers: z.array(
+        z.object({
+          username: z.string(),
+          displayName: z.string().nullable(),
+          suggestions: z.array(
+            z.object({
+              boardLoadId: z.number(),
+              lane: z.string().nullable(),
+              pickupAt: z.string().nullable(),
+              deliveryAt: z.string().nullable(),
+              deadheadMi: z.number().nullable(),
+              conflict: z.boolean(),
+              reasons: z.array(z.string()),
+              legs: z.object({
+                deadhead: z.object({ status: z.string(), detail: z.string() }),
+                availability: z.object({ status: z.string(), detail: z.string() }),
+                homeTime: z.object({ status: z.string(), detail: z.string() }),
+                hos: z.object({ status: z.string(), detail: z.string() }),
+              }),
+            }),
+          ),
+        }),
+      ),
+    }),
+    async handler(ctx, args) {
+      const fail = { ok: false, error: null as string | null, companyName: null, drivers: [] };
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const mine = await myMembership(ctx, me);
+      if (!mine || (mine.role !== "owner" && mine.role !== "dispatch"))
+        return { ...fail, error: "Only the owner or dispatch can see suggested next loads." };
+      const companyId = mine.company.id;
+      const openRows = await db
+        .select()
+        .from(schema.boardLoads)
+        .where(and(eq(schema.boardLoads.companyId, companyId), eq(schema.boardLoads.status, "open")))
+        .orderBy(asc(schema.boardLoads.id));
+      const points = new Map(args.pickupPoints.map((p) => [p.boardLoadId, { lat: p.lat, lon: p.lon }]));
+      const members = await db
+        .select()
+        .from(schema.companyMembers)
+        .where(eq(schema.companyMembers.companyId, companyId));
+      const duty = await dutyPicture(ctx);
+      const positions = await db.select().from(schema.driverPositions);
+      const allBoard = await db
+        .select()
+        .from(schema.boardLoads)
+        .where(eq(schema.boardLoads.companyId, companyId));
+      const { events: dutyEvents } = await effectiveDutyTimeline(ctx);
+      const now = new Date();
+      const nowMs = now.getTime();
+      const drivers = [];
+      for (const m of members) {
+        if (m.role === "dispatch") continue; // dispatch doesn't haul loads
+        const social = (
+          await db.select().from(schema.socialUsers).where(eq(schema.socialUsers.username, m.username)).limit(1)
+        )[0];
+        const snap = await fleetStatusFor(ctx, m.username);
+        const snapActive = await snapshotActiveLoad(ctx, snap);
+        const board = allBoard.find((b) => b.status === "taken" && b.claimedBy === m.username) ?? null;
+        const hasActiveLoad = snapActive || board != null;
+        const pos = positions.find((p) => p.username === m.username) ?? null;
+        const gate = fleetPositionGate({
+          isMe: m.username === me,
+          duty,
+          snapshotActive: snapActive,
+          snapshotFresh: snapshotFreshFor(snap?.publishedAt ?? null, now),
+          hasPos: pos != null,
+        });
+        // Calendar facts: bound windows (timed only), approved
+        // off-duty blocks — the same rows the calendar reads.
+        const boundWindows: TimedWindow[] = [];
+        let untimedBoundCount = 0;
+        for (const b of allBoard) {
+          if (b.claimedBy !== m.username || (b.status !== "assigned" && b.status !== "taken")) continue;
+          if (b.pickupApptAt && b.deliveryApptAt) {
+            boundWindows.push({
+              startMs: b.pickupApptAt.getTime(),
+              endMs: b.deliveryApptAt.getTime(),
+              label: boardLaneOf(b),
+            });
+          } else {
+            untimedBoundCount++;
+          }
+        }
+        const offRows = await db
+          .select()
+          .from(schema.offDutyRequests)
+          .where(and(eq(schema.offDutyRequests.driverUsername, m.username), eq(schema.offDutyRequests.status, "approved")));
+        const offDutyWindows: TimedWindow[] = offRows.map((r) => ({
+          startMs: r.startsAt.getTime(),
+          endMs: r.endsAt.getTime(),
+          label: OFF_DUTY_REQUEST_LABELS[r.type as OffDutyRequestType] ?? "Time off",
+        }));
+        const facts: DriverFitFacts = {
+          currentPos: gate.visible && pos ? { lat: pos.lat, lon: pos.lon } : null,
+          routeEnd:
+            snapActive && snap && snap.endLat != null && snap.endLon != null
+              ? { lat: snap.endLat, lon: snap.endLon }
+              : null,
+          hasActiveLoad,
+          boundWindows,
+          untimedBoundCount,
+          offDutyWindows,
+          dutyEvents: dutyEvents
+            .filter((e) => e.username === m.username)
+            .map((e) => ({ state: e.state, at: e.at })),
+        };
+        // Item-9 verdicts, computed with the gate's own pure
+        // check so the suggestion and the funnel can never
+        // disagree about the math.
+        const commitmentRows = await homeTimeCommitmentRowsFor(ctx, companyId, m.username);
+        const commitments = commitmentRows.map(toHomeTimeCommitmentLike).filter((c) => c.voidedAt == null);
+        const home = commitments.length > 0 ? await homeProfileFor(ctx, m.username) : null;
+        const inputs = openRows.map((row) => {
+          const lane = boardLaneOf(row);
+          let homeTime: SuggestionLeg;
+          if (commitments.length === 0) {
+            homeTime = {
+              status: "ok",
+              detail: "Home-time safe — no home-time commitments on file for this driver.",
+              short: "home-time safe",
+            };
+          } else if (row.deliveryApptAt == null) {
+            homeTime = {
+              status: "not_checked",
+              detail: "Home time not checked — this load has no delivery time on file to check the commitment against.",
+              short: "home time not checked",
+            };
+          } else {
+            const conflict = checkHomeTimeConflict({
+              commitments,
+              deliveryApptAtMs: row.deliveryApptAt.getTime(),
+              deliveryState: row.deliveryState ?? null,
+              homeState: home?.homeState ?? null,
+              nowMs,
+            });
+            homeTime = conflict
+              ? {
+                  status: "conflict",
+                  detail: homeTimeConflictWarning(conflict, lane).summary,
+                  short: "breaks home time",
+                }
+              : {
+                  status: "ok",
+                  detail: "Home-time safe — delivery plus the drive home lands ahead of the deadline.",
+                  short: "home-time safe",
+                };
+          }
+          return {
+            candidate: {
+              boardLoadId: row.id,
+              pickupAtMs: row.pickupApptAt ? row.pickupApptAt.getTime() : null,
+              deliveryAtMs: row.deliveryApptAt ? row.deliveryApptAt.getTime() : null,
+              pickupPoint: points.get(row.id) ?? null,
+            },
+            homeTime,
+          };
+        });
+        const ranked = rankNextLoadsForDriver(facts, inputs, nowMs).slice(0, 3);
+        const byId = new Map(openRows.map((r) => [r.id, r]));
+        drivers.push({
+          username: m.username,
+          displayName: social?.displayName ?? null,
+          suggestions: ranked.map((s) => {
+            const row = byId.get(s.boardLoadId)!;
+            return {
+              boardLoadId: s.boardLoadId,
+              lane: boardLaneOf(row),
+              pickupAt: row.pickupApptAt?.toISOString() ?? null,
+              deliveryAt: row.deliveryApptAt?.toISOString() ?? null,
+              deadheadMi: s.deadheadMi,
+              conflict: s.conflict,
+              reasons: s.reasons,
+              legs: {
+                deadhead: { status: s.legs.deadhead.status, detail: s.legs.deadhead.detail },
+                availability: { status: s.legs.availability.status, detail: s.legs.availability.detail },
+                homeTime: { status: s.legs.homeTime.status, detail: s.legs.homeTime.detail },
+                hos: { status: s.legs.hos.status, detail: s.legs.hos.detail },
+              },
+            };
+          }),
+        });
+      }
+      drivers.sort((a, b) => a.username.localeCompare(b.username));
+      return { ok: true, error: null, companyName: mine.company.name, drivers };
     },
   }),
 

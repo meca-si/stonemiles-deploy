@@ -1903,4 +1903,12 @@ export const PUBLIC_ACTIONS = new Set<string>([
   // through any public action.
   "getApplyInfo",
   "submitDriverApplication",
+  // Paperwork intake door (2026-11-15, Alvys-grab build): the
+  // per-load "docs" token is the same capability pattern — it
+  // opens an upload form for THAT load's rate con / BOL / POD and
+  // nothing else. getDocsDoorInfo returns lane + date only (never
+  // a rate); submissions enter the load's paperwork pipeline for
+  // the driver to confirm, sealed with ids/kind only.
+  "getDocsDoorInfo",
+  "submitDocsDoorPaperwork",
 ]);

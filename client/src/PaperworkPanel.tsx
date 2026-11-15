@@ -54,7 +54,7 @@ function PaperworkDocForm({
   onDone,
 }: {
   loadId: number;
-  docKind: "bol" | "pod";
+  docKind: "bol" | "pod" | "rate_con";
   doc: DocState;
   recipientEmail: string | null;
   recipientLabel: string | null;
@@ -80,7 +80,8 @@ function PaperworkDocForm({
     pieces: setPieces,
     deliveryText: setDeliveryText,
   };
-  const title = docKind === "pod" ? "PROOF OF DELIVERY (POD)" : "BILL OF LADING (BOL)";
+  const title =
+    docKind === "pod" ? "PROOF OF DELIVERY (POD)" : docKind === "rate_con" ? "RATE CONFIRMATION" : "BILL OF LADING (BOL)";
 
   return (
     <div className="mt-3 border-t border-[var(--border)] pt-2">
@@ -221,6 +222,90 @@ function PaperworkDocForm({
   );
 }
 
+// The paperwork door: one shareable LINK per load that a broker or
+// carrier opens to upload this load's rate con / BOL / POD with no
+// account. The link shows them the lane and date only — never the
+// rate — and everything they send lands right here in this
+// paperwork block for the driver's check and confirmation. Copy
+// says LINK everywhere: nothing about this door is email.
+function PaperworkDoorLinks({ loadId, setBanner }: { loadId: number; setBanner: (s: string) => void }) {
+  const queryClient = useQueryClient();
+  const linksQuery = useQuery({
+    queryKey: ["load-docs-links", loadId],
+    queryFn: () => api.getLoadDocsLinks({ loadId }),
+  });
+  const [busy, setBusy] = useState(false);
+  const data = linksQuery.data;
+  const refresh = () => void queryClient.invalidateQueries({ queryKey: ["load-docs-links", loadId] });
+  const live = data?.links.find((l) => l.state === "live") ?? null;
+  return (
+    <div className="mt-3 border-t border-[var(--border)] pt-2">
+      <div className="text-xs font-bold text-[var(--dim)]">PAPERWORK LINK — let the broker send it in</div>
+      <p className="mt-1 text-xs leading-relaxed text-[var(--dim)]">
+        Give this link to the broker or carrier and they can upload this load's rate confirmation, BOL, or POD
+        straight into the paperwork above — no account needed. The link shows them the lane and the date only,
+        never the rate. It closes on its own when the load is delivered.
+      </p>
+      {data?.ok && live ? (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <code className="min-w-40 flex-1 break-all rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-2 text-xs">
+            {live.url}
+          </code>
+          <button
+            type="button"
+            className="rounded-lg bg-[var(--surface)] border border-[var(--border)] px-3 py-2 text-xs font-bold"
+            onClick={() => {
+              void navigator.clipboard?.writeText(live.url).then(
+                () => setBanner("Paperwork link copied ✓"),
+                () => setBanner("Copy didn't work — long-press the link to copy it."),
+              );
+            }}
+          >
+            Copy link
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            className="rounded-lg bg-[var(--surface)] border border-[var(--border)] px-3 py-2 text-xs font-bold disabled:opacity-50"
+            onClick={() => {
+              setBusy(true);
+              void api
+                .revokeLoadDocsLink({ loadId, linkId: live.id })
+                .then((r) => {
+                  setBanner(r.ok ? "Paperwork link closed ✓" : (r.error ?? "Couldn't close that link."));
+                  refresh();
+                })
+                .finally(() => setBusy(false));
+            }}
+          >
+            Close link
+          </button>
+        </div>
+      ) : data?.ok && data.delivered ? (
+        <p className="mt-2 text-xs text-[var(--dim)]">This load is delivered — its paperwork door is closed.</p>
+      ) : data?.ok ? (
+        <button
+          type="button"
+          disabled={busy}
+          className="mt-2 rounded-lg bg-[var(--surface)] border border-[var(--border)] px-3 py-2 text-xs font-bold disabled:opacity-50"
+          onClick={() => {
+            setBusy(true);
+            void api
+              .createLoadDocsLink({ loadId })
+              .then((r) => {
+                setBanner(r.ok ? "Paperwork link created ✓" : (r.error ?? "Couldn't create the link."));
+                refresh();
+              })
+              .finally(() => setBusy(false));
+          }}
+        >
+          🔗 Create the paperwork link
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 export function LoadPaperworkBlock({ loadId, setBanner }: { loadId: number; setBanner: (s: string) => void }) {
   const queryClient = useQueryClient();
   const pwQuery = useQuery({
@@ -269,6 +354,17 @@ export function LoadPaperworkBlock({ loadId, setBanner }: { loadId: number; setB
         setBanner={setBanner}
         onDone={refresh}
       />
+      <PaperworkDocForm
+        key={`ratecon:${data.rateCon.sha256 ?? "none"}:${data.rateCon.confirmed ? "c" : "u"}`}
+        loadId={loadId}
+        docKind="rate_con"
+        doc={data.rateCon}
+        recipientEmail={null}
+        recipientLabel={null}
+        setBanner={setBanner}
+        onDone={refresh}
+      />
+      <PaperworkDoorLinks loadId={loadId} setBanner={setBanner} />
     </div>
   );
 }

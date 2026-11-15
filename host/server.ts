@@ -442,6 +442,22 @@ async function routeRequest(req: Request): Promise<Response> {
       return json({ error: "not found" }, 404);
     }
 
+    // ---- Paperwork intake door (2026-11-15, Alvys-grab build):
+    // /docs/<token> is a load's public paperwork-upload page — no
+    // account, no session. The page reads the token from its own
+    // path and talks to the PUBLIC getDocsDoorInfo /
+    // submitDocsDoorPaperwork actions. It exposes the load's lane
+    // + date and the upload form, nothing else.
+    if (req.method === "GET" && pathname.startsWith("/docs/")) {
+      const page = Bun.file(path.join(STANDALONE_ROOT, "host", "docs.html"));
+      if (await page.exists()) {
+        return new Response(page, {
+          headers: { "content-type": "text/html" },
+        });
+      }
+      return json({ error: "not found" }, 404);
+    }
+
     // ---- Recruiting application door (2026-11-15, Wave 2 item
     // 10): /apply/<token> is a fleet's public driver-application
     // page — no account, no session. The page reads the token

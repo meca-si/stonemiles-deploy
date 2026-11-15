@@ -47,7 +47,15 @@
 
 import type { DocSideFields } from "./docVerify";
 
-export type PaperworkDocKind = "bol" | "pod";
+export type PaperworkDocKind = "bol" | "pod" | "rate_con";
+
+/** Plain labels for the three paperwork kinds — the words the
+ * driver, the desk, and a broker at the paperwork door all see. */
+export const PAPERWORK_DOC_LABELS: Record<PaperworkDocKind, string> = {
+  rate_con: "Rate confirmation",
+  bol: "Bill of lading (BOL)",
+  pod: "Proof of delivery (POD)",
+};
 
 /** The candidate fields one extraction read proposes. Every field
  * is nullable: null means "not printed / not read", never zero or

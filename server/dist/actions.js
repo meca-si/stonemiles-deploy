@@ -17380,6 +17380,11 @@ function outwardTimeline(rows) {
 }
 
 // src/paperwork.ts
+var PAPERWORK_DOC_LABELS = {
+  rate_con: "Rate confirmation",
+  bol: "Bill of lading (BOL)",
+  pod: "Proof of delivery (POD)"
+};
 var EMPTY_PAPERWORK_CANDIDATES = {
   lane: null,
   reference: null,
@@ -17491,6 +17496,310 @@ function podCopyOutboundText(args) {
 function paperworkAttachmentFilename(docKind, loadId, mime) {
   const ext = mime === "application/pdf" ? "pdf" : mime === "image/png" ? "png" : mime === "image/jpeg" ? "jpg" : "bin";
   return `${docKind}-load-${loadId}.${ext}`;
+}
+
+// src/globalSearch.ts
+var SEARCH_GROUP_CAP = 8;
+var SEARCH_MIN_QUERY = 2;
+var SEARCH_MAX_QUERY = 80;
+function normalizeSearchText(s) {
+  if (!s)
+    return "";
+  return s.toLowerCase().replace(/[^a-z0-9# ]+/g, " ").replace(/\s+/g, " ").trim();
+}
+function cleanSearchQuery(raw) {
+  const trimmed = raw.trim();
+  if (trimmed.length < SEARCH_MIN_QUERY || trimmed.length > SEARCH_MAX_QUERY)
+    return null;
+  const query = normalizeSearchText(trimmed);
+  if (query.length < 1)
+    return null;
+  return { query, raw: trimmed };
+}
+function searchFieldsMatch(query, fields) {
+  if (!query)
+    return false;
+  for (const f of fields) {
+    if (!f)
+      continue;
+    if (normalizeSearchText(f).includes(query))
+      return true;
+  }
+  return false;
+}
+function searchLoadIdMatch(raw, loadId) {
+  const m = /^#?(\d{1,9})$/.exec(raw.trim());
+  if (!m)
+    return false;
+  return Number(m[1]) === loadId;
+}
+function capSearchGroup(items) {
+  return {
+    items: items.slice(0, SEARCH_GROUP_CAP),
+    capped: items.length > SEARCH_GROUP_CAP,
+    total: items.length
+  };
+}
+
+// src/nextLoad.ts
+var HOUR_MS = 3600000;
+var WINDOW_MS = 14 * HOUR_MS;
+var RESET_MS = 10 * HOUR_MS;
+var round12 = (n) => Math.round(n * 10) / 10;
+var weekdayOf = (ms) => new Date(ms).toLocaleString("en-US", { weekday: "short", timeZone: "UTC" });
+var whenOf = (ms) => new Date(ms).toLocaleString("en-US", {
+  weekday: "short",
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+  timeZone: "UTC"
+});
+function deadheadLeg(facts, candidate) {
+  const fromRouteEnd = facts.hasActiveLoad && facts.routeEnd != null;
+  const anchor = fromRouteEnd ? facts.routeEnd : facts.currentPos;
+  if (!candidate.pickupPoint) {
+    return {
+      mi: null,
+      leg: {
+        status: "not_checked",
+        detail: "Deadhead not checked \u2014 the pickup city couldn't be located.",
+        short: "deadhead not checked"
+      }
+    };
+  }
+  if (!anchor) {
+    return {
+      mi: null,
+      leg: {
+        status: "not_checked",
+        detail: "Deadhead not checked \u2014 the truck's position isn't shared right now.",
+        short: "deadhead not checked"
+      }
+    };
+  }
+  const mi = round12(haversineMi(anchor, candidate.pickupPoint));
+  return {
+    mi,
+    leg: {
+      status: "ok",
+      detail: fromRouteEnd ? `${mi.toLocaleString()} mi deadhead from where the current load ends.` : `${mi.toLocaleString()} mi deadhead from the truck's current position.`,
+      short: `${mi.toLocaleString()} mi deadhead`
+    }
+  };
+}
+function overlaps(aStart, aEnd, bStart, bEnd) {
+  return aStart < bEnd && bStart < aEnd;
+}
+function availabilityLeg(facts, candidate) {
+  if (candidate.pickupAtMs == null || candidate.deliveryAtMs == null) {
+    return {
+      status: "not_checked",
+      detail: "Availability not checked \u2014 this load has no pickup or delivery time on file to check the calendar against.",
+      short: "availability not checked"
+    };
+  }
+  for (const w of facts.boundWindows) {
+    if (overlaps(candidate.pickupAtMs, candidate.deliveryAtMs, w.startMs, w.endMs)) {
+      return {
+        status: "conflict",
+        detail: `Overlaps ${w.label} already on the calendar.`,
+        short: "overlaps a bound load"
+      };
+    }
+  }
+  for (const w of facts.offDutyWindows) {
+    if (overlaps(candidate.pickupAtMs, candidate.deliveryAtMs, w.startMs, w.endMs)) {
+      return {
+        status: "conflict",
+        detail: `Overlaps approved time off (${w.label}).`,
+        short: "overlaps time off"
+      };
+    }
+  }
+  let freeFrom = null;
+  let freeUntil = null;
+  for (const w of [...facts.boundWindows, ...facts.offDutyWindows]) {
+    if (w.endMs <= candidate.pickupAtMs && (freeFrom == null || w.endMs > freeFrom))
+      freeFrom = w.endMs;
+    if (w.startMs >= candidate.deliveryAtMs && (freeUntil == null || w.startMs < freeUntil))
+      freeUntil = w.startMs;
+  }
+  const caveat = facts.untimedBoundCount > 0 ? ` ${facts.untimedBoundCount} bound load${facts.untimedBoundCount === 1 ? " has" : "s have"} no times on file \u2014 those couldn't be overlap-checked.` : "";
+  if (freeFrom != null) {
+    return {
+      status: "ok",
+      detail: `Free from ${whenOf(freeFrom)} UTC \u2014 nothing bound or off-duty overlaps this load.${caveat}`,
+      short: `free from ${weekdayOf(freeFrom)}`
+    };
+  }
+  if (freeUntil != null) {
+    return {
+      status: "ok",
+      detail: `Calendar clear \u2014 next commitment starts ${whenOf(freeUntil)} UTC.${caveat}`,
+      short: "calendar clear"
+    };
+  }
+  return {
+    status: "ok",
+    detail: `Calendar clear \u2014 nothing bound or off-duty overlaps this load.${caveat}`,
+    short: "calendar clear"
+  };
+}
+function openDutyWindowStart(events, nowMs) {
+  const sorted = [...events].map((e) => ({ state: e.state, start: Date.parse(e.at) })).filter((e) => Number.isFinite(e.start) && e.start <= nowMs).sort((a, b) => a.start - b.start);
+  let resetAt = 0;
+  let offRun = 0;
+  let offRunStart = 0;
+  let windowStart = null;
+  for (let i = 0;i < sorted.length; i++) {
+    const segStart = sorted[i].start;
+    const segEnd = i + 1 < sorted.length ? sorted[i + 1].start : nowMs;
+    if (segEnd <= segStart)
+      continue;
+    const state = sorted[i].state;
+    if (state === "off_duty" || state === "sleeper") {
+      if (offRun === 0)
+        offRunStart = segStart;
+      offRun += segEnd - segStart;
+      if (offRun >= RESET_MS && resetAt < offRunStart + RESET_MS) {
+        resetAt = offRunStart + RESET_MS;
+        windowStart = null;
+      }
+      continue;
+    }
+    offRun = 0;
+    if ((state === "on_duty" || state === "driving") && windowStart === null && segEnd > resetAt) {
+      windowStart = Math.max(segStart, resetAt);
+    }
+  }
+  return windowStart;
+}
+function hosLeg(events, nowMs, pickupAtMs) {
+  if (events.length === 0) {
+    return {
+      status: "not_checked",
+      detail: "Hours not checked \u2014 no sealed duty record on file for this driver.",
+      short: "hours not checked"
+    };
+  }
+  if (pickupAtMs == null) {
+    return {
+      status: "not_checked",
+      detail: "Hours not checked \u2014 this load has no pickup time on file to check the duty clock against.",
+      short: "hours not checked"
+    };
+  }
+  const windowStart = openDutyWindowStart(events, nowMs);
+  if (windowStart == null) {
+    return {
+      status: "ok",
+      detail: "Hours check out \u2014 no open duty window on the sealed record; a fresh 14-hour window starts at pickup.",
+      short: "hours check out"
+    };
+  }
+  const windowEnd = windowStart + WINDOW_MS;
+  if (pickupAtMs <= windowEnd) {
+    return {
+      status: "ok",
+      detail: `Hours check out \u2014 pickup lands inside the current 14-hour duty window (open since ${whenOf(windowStart)} UTC).`,
+      short: "hours check out"
+    };
+  }
+  if (pickupAtMs - nowMs >= RESET_MS) {
+    return {
+      status: "ok",
+      detail: "Hours check out \u2014 there is room for a full 10-hour reset before pickup.",
+      short: "hours check out"
+    };
+  }
+  return {
+    status: "conflict",
+    detail: `Hours run out ${whenOf(windowEnd)} UTC \u2014 the current 14-hour window closes before pickup, with no room for a 10-hour reset first.`,
+    short: "hours run out"
+  };
+}
+function rankNextLoadsForDriver(facts, inputs, nowMs) {
+  const ranked = inputs.map(({ candidate, homeTime }) => {
+    const { leg: deadhead, mi } = deadheadLeg(facts, candidate);
+    const availability = availabilityLeg(facts, candidate);
+    const hos = hosLeg(facts.dutyEvents, nowMs, candidate.pickupAtMs);
+    const legs = { deadhead, availability, homeTime, hos };
+    const legList = [deadhead, availability, homeTime, hos];
+    const conflicts = legList.filter((l) => l.status === "conflict").length;
+    const unchecked = legList.filter((l) => l.status === "not_checked").length;
+    const score = conflicts * 1e5 + unchecked * 1000 + (mi ?? 5000);
+    return {
+      boardLoadId: candidate.boardLoadId,
+      deadheadMi: mi,
+      legs,
+      reasons: legList.map((l) => l.short),
+      conflict: conflicts > 0,
+      score
+    };
+  });
+  const pickupOf = (id) => inputs.find((i) => i.candidate.boardLoadId === id)?.candidate.pickupAtMs ?? null;
+  ranked.sort((a, b) => {
+    if (a.score !== b.score)
+      return a.score - b.score;
+    const pa = pickupOf(a.boardLoadId);
+    const pb = pickupOf(b.boardLoadId);
+    if (pa != null && pb != null && pa !== pb)
+      return pa - pb;
+    if (pa != null && pb == null)
+      return -1;
+    if (pa == null && pb != null)
+      return 1;
+    return a.boardLoadId - b.boardLoadId;
+  });
+  return ranked;
+}
+
+// src/paperworkDoor.ts
+var DOOR_DOC_MIN_BYTES = 32;
+var DOOR_DOC_MAX_BYTES = 8000000;
+var DOOR_SUBMISSIONS_PER_HOUR = 10;
+function jpegFrameOk(bytes) {
+  let i = 2;
+  while (i + 3 < bytes.length) {
+    if (bytes[i] !== 255)
+      return false;
+    const marker = bytes[i + 1];
+    if (marker === 216 || marker === 1 || marker >= 208 && marker <= 215) {
+      i += 2;
+      continue;
+    }
+    const len = bytes[i + 2] << 8 | bytes[i + 3];
+    if (len < 2)
+      return false;
+    if (marker === 192 || marker === 193 || marker === 194)
+      return true;
+    if (marker === 218)
+      return false;
+    i += 2 + len;
+  }
+  return false;
+}
+function sniffDoorDocMime(bytes) {
+  if (bytes.length < DOOR_DOC_MIN_BYTES || bytes.length > DOOR_DOC_MAX_BYTES)
+    return null;
+  if (bytes[0] === 37 && bytes[1] === 80 && bytes[2] === 68 && bytes[3] === 70 && bytes[4] === 45) {
+    return "application/pdf";
+  }
+  if (bytes[0] === 255 && bytes[1] === 216 && jpegFrameOk(bytes)) {
+    return "image/jpeg";
+  }
+  if (bytes[0] === 137 && bytes[1] === 80 && bytes[2] === 78 && bytes[3] === 71 && bytes[4] === 13 && bytes[5] === 10 && bytes[6] === 26 && bytes[7] === 10 && bytes[12] === 73 && bytes[13] === 72 && bytes[14] === 68 && bytes[15] === 82) {
+    return "image/png";
+  }
+  return null;
+}
+function docsDoorStateFor(args) {
+  if (args.linkStatus === "revoked")
+    return "revoked";
+  if (args.delivered)
+    return "delivered";
+  return "live";
 }
 
 // src/brokerIdentity.ts
@@ -18708,7 +19017,7 @@ function factorPartnerFromEnv(env, transport) {
 
 // src/brokerCredit.ts
 var BROKER_CREDIT_MIN_SAMPLE = 3;
-var round12 = (n) => Math.round(n * 10) / 10;
+var round13 = (n) => Math.round(n * 10) / 10;
 function brokerCreditSummary(facts) {
   const loadsCarried = facts.filter((f) => f.delivered).length;
   const spans = [];
@@ -18720,7 +19029,7 @@ function brokerCreditSummary(facts) {
     spans.push(Math.max(0, (f.paidAtMs - f.issuedAtMs) / 86400000));
   }
   const paidLoads = spans.length;
-  const avgDaysToPay = paidLoads > 0 ? round12(spans.reduce((s, d) => s + d, 0) / paidLoads) : null;
+  const avgDaysToPay = paidLoads > 0 ? round13(spans.reduce((s, d) => s + d, 0) / paidLoads) : null;
   const hasScore = paidLoads >= BROKER_CREDIT_MIN_SAMPLE && avgDaysToPay != null;
   let label;
   if (paidLoads === 0) {
@@ -19405,11 +19714,11 @@ function dqfAlertNotification(args) {
 
 // src/homeTime.ts
 var DAY_MS5 = 86400000;
-var HOUR_MS = 3600000;
-var RETURN_ALLOWANCE_SAME_STATE_MS = 6 * HOUR_MS;
-var RETURN_ALLOWANCE_OUT_OF_STATE_MS = 24 * HOUR_MS;
-var DEADLINE_LOOKBACK_MS = 12 * HOUR_MS;
-var OUTCOME_EVIDENCE_WINDOW_MS = 72 * HOUR_MS;
+var HOUR_MS2 = 3600000;
+var RETURN_ALLOWANCE_SAME_STATE_MS = 6 * HOUR_MS2;
+var RETURN_ALLOWANCE_OUT_OF_STATE_MS = 24 * HOUR_MS2;
+var DEADLINE_LOOKBACK_MS = 12 * HOUR_MS2;
+var OUTCOME_EVIDENCE_WINDOW_MS = 72 * HOUR_MS2;
 var HOME_TIME_KIND_LABELS = {
   by_date: "Home by a date",
   every_n_days: "Home every N days",
@@ -19512,7 +19821,7 @@ function checkHomeTimeConflict(args) {
         deadlineAt: d.deadlineAt,
         deliveryAt: args.deliveryApptAtMs,
         homeEtaAt,
-        allowanceHours: allowance / HOUR_MS,
+        allowanceHours: allowance / HOUR_MS2,
         sameState
       };
     }
@@ -20904,7 +21213,7 @@ function cleanReferenceNumber(input) {
 
 // src/driverCalendar.ts
 var DAY_MS6 = 86400000;
-var HOUR_MS2 = 3600000;
+var HOUR_MS3 = 3600000;
 var DEFAULT_DISPATCH_MODE = "offered";
 var DEFAULT_SAFETY_WINDOW_HOURS = 24;
 var SAFETY_WINDOW_MIN_HOURS = 1;
@@ -20961,7 +21270,7 @@ function validateCalendarSettings(input) {
 function declineCutoffMs(pickupApptAtMs, windowHours) {
   if (pickupApptAtMs == null || !Number.isFinite(pickupApptAtMs))
     return null;
-  return pickupApptAtMs - windowHours * HOUR_MS2;
+  return pickupApptAtMs - windowHours * HOUR_MS3;
 }
 function withinSafetyWindow(nowMs, pickupApptAtMs, windowHours) {
   const cutoff = declineCutoffMs(pickupApptAtMs, windowHours);
@@ -20975,7 +21284,7 @@ var OFF_DUTY_REQUEST_LABELS = {
   personal: "Personal",
   reset: "34-hour reset"
 };
-var RESET_MIN_MS = 34 * HOUR_MS2;
+var RESET_MIN_MS = 34 * HOUR_MS3;
 var OFF_DUTY_MAX_MS = 60 * DAY_MS6;
 function validateOffDutyRequest(input) {
   if (typeof input.type !== "string" || !OFF_DUTY_REQUEST_TYPES.includes(input.type)) {
@@ -24764,8 +25073,11 @@ function copyUrlFor(token) {
 function trackUrlFor(token) {
   return `${APP_PUBLIC_ORIGIN}/track/${token}`;
 }
+function docsUrlFor(token) {
+  return `${APP_PUBLIC_ORIGIN}/docs/${token}`;
+}
 function newReceiveToken(kind) {
-  return `${kind === "copy" ? "cpy" : kind === "track" ? "trk" : "rcv"}_${Buffer.from(randomBytes(16)).toString("hex")}`;
+  return `${kind === "copy" ? "cpy" : kind === "track" ? "trk" : kind === "docs" ? "doc" : "rcv"}_${Buffer.from(randomBytes(16)).toString("hex")}`;
 }
 function deliveryPathLabel(path) {
   switch (path) {
@@ -24841,6 +25153,14 @@ async function ensureTrackLink(ctx, loadId, createdBy) {
   if (rows[0])
     return { row: rows[0], created: false };
   const ins = await db.insert(receiveLinks3).values({ loadId, token: newReceiveToken("track"), kind: "track", status: "active", createdBy }).returning();
+  return { row: ins[0], created: true };
+}
+async function ensureDocsLink(ctx, loadId, createdBy) {
+  const db = ctx.db();
+  const rows = await db.select().from(receiveLinks3).where(and(eq(receiveLinks3.loadId, loadId), eq(receiveLinks3.kind, "docs"), eq(receiveLinks3.status, "active"))).orderBy(desc(receiveLinks3.id));
+  if (rows[0])
+    return { row: rows[0], created: false };
+  const ins = await db.insert(receiveLinks3).values({ loadId, token: newReceiveToken("docs"), kind: "docs", status: "active", createdBy }).returning();
   return { row: ins[0], created: true };
 }
 async function fleetStatusFor(ctx, username) {
@@ -25418,6 +25738,81 @@ async function runPaperworkExtraction(ctx, row) {
   });
   return status;
 }
+async function filePaperworkDocument(ctx, args) {
+  const db = ctx.db();
+  const sha256 = await sha256Bytes(new Uint8Array(args.bytes));
+  const blobKey = `paperwork-${args.loadId}-${args.docKind}-${sha256.slice(0, 16)}`;
+  await ctx.blobs.put(blobKey, args.bytes, { contentType: args.mime });
+  const now = new Date;
+  const existing = await paperworkRowFor(ctx, args.loadId, args.docKind);
+  let row;
+  if (existing) {
+    await db.update(loadPaperwork3).set({
+      blobKey,
+      mime: args.mime,
+      sha256,
+      filedBy: args.filedBy,
+      extractionStatus: "pending",
+      candidateFieldsJson: null,
+      extractionAt: null,
+      confirmStatus: "unconfirmed",
+      confirmedFieldsJson: null,
+      confirmedBy: null,
+      confirmedAt: null,
+      sendStatus: "not_ready",
+      sendAt: null,
+      sendProviderId: null,
+      updatedAt: now
+    }).where(eq(loadPaperwork3.id, existing.id));
+    row = { ...existing, blobKey, mime: args.mime, sha256, filedBy: args.filedBy };
+  } else {
+    const prefill = args.docKind === "pod" ? await paperworkRecipientPrefill(ctx, args.loadId) : null;
+    const ins = await db.insert(loadPaperwork3).values({
+      loadId: args.loadId,
+      docKind: args.docKind,
+      driverUsername: args.driverUsername,
+      blobKey,
+      mime: args.mime,
+      sha256,
+      filedBy: args.filedBy,
+      extractionStatus: "pending",
+      recipientEmail: prefill?.email ?? null,
+      recipientLabel: prefill?.label ?? null
+    }).returning({ id: loadPaperwork3.id });
+    const id = ins[0]?.id;
+    if (id == null)
+      return null;
+    const rows = await db.select().from(loadPaperwork3).where(eq(loadPaperwork3.id, id)).limit(1);
+    row = rows[0];
+  }
+  await appendChain(ctx, {
+    refKind: "load",
+    refId: args.loadId,
+    sessionId: null,
+    event: "paperwork_filed",
+    payload: args.via === "door" ? {
+      loadId: args.loadId,
+      paperworkId: row.id,
+      docKind: args.docKind,
+      sha256,
+      mime: args.mime,
+      via: "door",
+      replaced: existing != null,
+      at: now.toISOString()
+    } : {
+      loadId: args.loadId,
+      paperworkId: row.id,
+      docKind: args.docKind,
+      sha256,
+      mime: args.mime,
+      filedBy: args.filedBy,
+      replaced: existing != null,
+      at: now.toISOString()
+    }
+  });
+  await runPaperworkExtraction(ctx, row);
+  return { row, replaced: existing != null };
+}
 async function paperworkRecipientPrefill(ctx, loadId) {
   const db = ctx.db();
   const boardRows = await db.select().from(boardLoads3).where(eq(boardLoads3.loadId, loadId)).orderBy(desc(boardLoads3.id));
@@ -25663,6 +26058,7 @@ async function buildPaperworkState(ctx, loadId, scope) {
   const rows = await paperworkRowsFor(ctx, loadId);
   const bol = rows.find((r) => r.docKind === "bol") ?? null;
   const pod = rows.find((r) => r.docKind === "pod") ?? null;
+  const rateCon = rows.find((r) => r.docKind === "rate_con") ?? null;
   const load = scope.load;
   let invoice = null;
   let invoiceStatus = null;
@@ -25702,6 +26098,7 @@ async function buildPaperworkState(ctx, loadId, scope) {
     stageLabel: PAPERWORK_STAGE_LABELS[stage],
     bol: paperworkDocState(bol, load),
     pod: paperworkDocState(pod, load),
+    rateCon: paperworkDocState(rateCon, load),
     recipientEmail: pod?.recipientEmail ?? null,
     recipientLabel: pod?.recipientLabel ?? null,
     sendStatus: pod?.sendStatus ?? null,
@@ -25743,6 +26140,7 @@ var paperworkStateResponse = object({
   stageLabel: string2(),
   bol: paperworkDocStateSchema,
   pod: paperworkDocStateSchema,
+  rateCon: paperworkDocStateSchema,
   recipientEmail: string2().nullable(),
   recipientLabel: string2().nullable(),
   sendStatus: string2().nullable(),
@@ -25758,6 +26156,7 @@ function paperworkStateFail(error) {
     stageLabel: PAPERWORK_STAGE_LABELS.none,
     bol: paperworkDocState(null, null),
     pod: paperworkDocState(null, null),
+    rateCon: paperworkDocState(null, null),
     recipientEmail: null,
     recipientLabel: null,
     sendStatus: null,
@@ -42730,6 +43129,391 @@ var Actions = {
       return { ok: true, error: null };
     }
   }),
+  globalSearch: defineAction({
+    description: "Search within your own scope: your loads (number, lane, shipper/broker, reference), your fleet's drivers and board loads (desk), your posted loads (broker), and filed paperwork. Identity facts only \u2014 never a rate.",
+    request: object({ query: string2().min(1).max(120) }),
+    response: object({
+      ok: boolean2(),
+      error: string2().nullable(),
+      groups: array(object({
+        kind: string2(),
+        label: string2(),
+        capped: boolean2(),
+        total: number2(),
+        results: array(object({
+          kind: string2(),
+          loadId: number2().nullable(),
+          boardLoadId: number2().nullable(),
+          username: string2().nullable(),
+          title: string2(),
+          detail: string2().nullable()
+        }))
+      }))
+    }),
+    async handler(ctx, args) {
+      const cleaned = cleanSearchQuery(args.query);
+      if (!cleaned) {
+        return { ok: false, error: "Type at least a couple of letters \u2014 a city, a name, a reference, or a load number.", groups: [] };
+      }
+      const { query, raw } = cleaned;
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const loadResults = [];
+      const driverResults = [];
+      const docResults = [];
+      const seenLoadKeys = new Set;
+      const pushLoad = (r) => {
+        const key = `${r.kind}:${r.loadId ?? ""}:${r.boardLoadId ?? ""}`;
+        if (seenLoadKeys.has(key))
+          return;
+        seenLoadKeys.add(key);
+        loadResults.push(r);
+      };
+      const laneOf = (pickupCity, pickupState, deliveryCity, deliveryState) => laneLabel(pickupCity, pickupState, deliveryCity, deliveryState) ?? "Load";
+      const boardFields = (b) => [b.shipper, b.brokerName, b.brokerCompany, b.referenceNumber, b.pickupCity, b.deliveryCity, b.commodity];
+      const boardDetail = (b) => [b.shipper ?? b.brokerCompany ?? b.brokerName, b.referenceNumber ? `Ref ${b.referenceNumber}` : null, plainLoadStatus(b.status)].filter(Boolean).join(" \xB7 ") || null;
+      const ownLoads = await db.select().from(loads3).orderBy(desc(loads3.id));
+      const ownLoadIds = new Set(ownLoads.map((l) => l.id));
+      for (const load of ownLoads) {
+        const hit = searchLoadIdMatch(raw, load.id) || searchFieldsMatch(query, [load.shipper, load.referenceNumber, load.pickupCity, load.pickupState, load.deliveryCity, load.deliveryState, load.commodity]);
+        if (!hit)
+          continue;
+        pushLoad({
+          kind: "load",
+          loadId: load.id,
+          boardLoadId: null,
+          username: null,
+          title: `Load #${load.id} \u2014 ${laneOf(load.pickupCity, load.pickupState, load.deliveryCity, load.deliveryState)}`,
+          detail: [load.shipper, load.referenceNumber ? `Ref ${load.referenceNumber}` : null, plainLoadStatus(load.status)].filter(Boolean).join(" \xB7 ") || null
+        });
+      }
+      const myBoardRows = await db.select().from(boardLoads3).where(eq(boardLoads3.claimedBy, me)).orderBy(desc(boardLoads3.id));
+      for (const b of myBoardRows) {
+        if (!searchFieldsMatch(query, boardFields(b)))
+          continue;
+        pushLoad({
+          kind: "board_load",
+          loadId: b.loadId ?? null,
+          boardLoadId: b.id,
+          username: null,
+          title: `Load \u2014 ${laneOf(b.pickupCity, b.pickupState, b.deliveryCity, b.deliveryState)}`,
+          detail: boardDetail(b)
+        });
+      }
+      const membership = await myMembership(ctx, me);
+      const isDesk = membership != null && (membership.role === "owner" || membership.role === "dispatch");
+      if (isDesk && membership) {
+        const members = await db.select().from(companyMembers3).where(eq(companyMembers3.companyId, membership.company.id));
+        for (const m of members) {
+          if (m.role === "dispatch")
+            continue;
+          const social = (await db.select().from(socialUsers3).where(eq(socialUsers3.username, m.username)).limit(1))[0];
+          if (!searchFieldsMatch(query, [m.username, social?.displayName ?? null]))
+            continue;
+          driverResults.push({
+            kind: "driver",
+            loadId: null,
+            boardLoadId: null,
+            username: m.username,
+            title: social?.displayName ? `${social.displayName} (@${m.username})` : `@${m.username}`,
+            detail: m.role === "owner" ? "Fleet owner" : "Driver"
+          });
+        }
+        const fleetRows = await db.select().from(boardLoads3).where(eq(boardLoads3.companyId, membership.company.id)).orderBy(desc(boardLoads3.id));
+        for (const b of fleetRows) {
+          const hit = b.loadId != null && searchLoadIdMatch(raw, b.loadId) || searchFieldsMatch(query, boardFields(b));
+          if (!hit)
+            continue;
+          pushLoad({
+            kind: "board_load",
+            loadId: b.loadId ?? null,
+            boardLoadId: b.id,
+            username: null,
+            title: `Load \u2014 ${laneOf(b.pickupCity, b.pickupState, b.deliveryCity, b.deliveryState)}`,
+            detail: boardDetail(b)
+          });
+        }
+      }
+      const brokerAcct = await myBrokerAccount(ctx, me);
+      if (brokerAcct) {
+        const posterRows = await db.select().from(brokerPosterLoads3).where(eq(brokerPosterLoads3.brokerId, brokerAcct.id));
+        const postedIds = new Set(posterRows.map((p) => p.boardLoadId).filter((id) => id != null));
+        if (postedIds.size > 0) {
+          const rows = await db.select().from(boardLoads3).where(inArray(boardLoads3.id, [...postedIds])).orderBy(desc(boardLoads3.id));
+          for (const b of rows) {
+            if (!searchFieldsMatch(query, boardFields(b)))
+              continue;
+            pushLoad({
+              kind: "board_load",
+              loadId: b.loadId ?? null,
+              boardLoadId: b.id,
+              username: null,
+              title: `Load \u2014 ${laneOf(b.pickupCity, b.pickupState, b.deliveryCity, b.deliveryState)}`,
+              detail: boardDetail(b)
+            });
+          }
+        }
+      }
+      const scopedLoadIds = new Set(ownLoadIds);
+      for (const r of loadResults)
+        if (r.loadId != null)
+          scopedLoadIds.add(r.loadId);
+      if (isDesk && membership) {
+        const fleetRows = await db.select({ loadId: boardLoads3.loadId }).from(boardLoads3).where(eq(boardLoads3.companyId, membership.company.id));
+        for (const r of fleetRows)
+          if (r.loadId != null)
+            scopedLoadIds.add(r.loadId);
+      }
+      if (scopedLoadIds.size > 0) {
+        const pwRows = await db.select().from(loadPaperwork3).where(inArray(loadPaperwork3.loadId, [...scopedLoadIds])).orderBy(desc(loadPaperwork3.id));
+        for (const pw of pwRows) {
+          const load = ownLoads.find((l) => l.id === pw.loadId) ?? null;
+          const label = PAPERWORK_DOC_LABELS[pw.docKind] ?? "Paperwork";
+          const confirmed = parsePaperworkCandidates(pw.confirmedFieldsJson);
+          const hit = searchFieldsMatch(query, [label, pw.docKind, confirmed.reference]) || load != null && (searchLoadIdMatch(raw, load.id) || searchFieldsMatch(query, [load.shipper, load.referenceNumber, load.pickupCity, load.deliveryCity]));
+          if (!hit)
+            continue;
+          docResults.push({
+            kind: "document",
+            loadId: pw.loadId,
+            boardLoadId: null,
+            username: null,
+            title: `${label} \u2014 Load #${pw.loadId}`,
+            detail: [
+              load ? laneOf(load.pickupCity, load.pickupState, load.deliveryCity, load.deliveryState) : null,
+              pw.confirmStatus === "confirmed" ? "Confirmed" : "Waiting on confirmation"
+            ].filter(Boolean).join(" \xB7 ") || null
+          });
+        }
+      }
+      const groups = [];
+      const loadsGroup = capSearchGroup(loadResults);
+      if (loadsGroup.total > 0)
+        groups.push({ kind: "loads", label: "Loads", capped: loadsGroup.capped, total: loadsGroup.total, results: loadsGroup.items });
+      const driversGroup = capSearchGroup(driverResults);
+      if (driversGroup.total > 0)
+        groups.push({ kind: "drivers", label: "Drivers", capped: driversGroup.capped, total: driversGroup.total, results: driversGroup.items });
+      const docsGroup = capSearchGroup(docResults);
+      if (docsGroup.total > 0)
+        groups.push({ kind: "documents", label: "Paperwork", capped: docsGroup.capped, total: docsGroup.total, results: docsGroup.items });
+      return { ok: true, error: null, groups };
+    }
+  }),
+  getLoadDocsLinks: defineAction({
+    description: "This load's paperwork-door links + their derived states (live / delivered / revoked).",
+    request: object({ loadId: number2().int().positive() }),
+    response: object({
+      ok: boolean2(),
+      error: string2().nullable(),
+      delivered: boolean2(),
+      links: array(object({
+        id: number2(),
+        url: string2(),
+        state: string2(),
+        createdBy: string2(),
+        createdAt: string2()
+      }))
+    }),
+    async handler(ctx, args) {
+      const scope = await libraryLoadScope(ctx, args.loadId);
+      if (!scope)
+        return { ok: false, error: "That load isn't in your scope.", delivered: false, links: [] };
+      const db = ctx.db();
+      const delivered = await deliveryConfirmationFor(ctx, args.loadId) != null;
+      const rows = await db.select().from(receiveLinks3).where(and(eq(receiveLinks3.loadId, args.loadId), eq(receiveLinks3.kind, "docs"))).orderBy(desc(receiveLinks3.id));
+      return {
+        ok: true,
+        error: null,
+        delivered,
+        links: rows.map((r) => ({
+          id: r.id,
+          url: docsUrlFor(r.token),
+          state: docsDoorStateFor({ linkStatus: r.status, delivered }),
+          createdBy: r.createdBy,
+          createdAt: r.createdAt.toISOString()
+        }))
+      };
+    }
+  }),
+  createLoadDocsLink: defineAction({
+    description: "Opt in: create (or return) this load's paperwork-door link \u2014 a broker/carrier uploads this load's rate con / BOL / POD through it, no account needed. Sealed; the door never carries the rate.",
+    request: object({ loadId: number2().int().positive() }),
+    response: object({
+      ok: boolean2(),
+      error: string2().nullable(),
+      url: string2().nullable(),
+      state: string2().nullable()
+    }),
+    async handler(ctx, args) {
+      const scope = await libraryLoadScope(ctx, args.loadId);
+      if (!scope)
+        return { ok: false, error: "That load isn't in your scope.", url: null, state: null };
+      const delivered = await deliveryConfirmationFor(ctx, args.loadId) != null;
+      if (delivered)
+        return {
+          ok: false,
+          error: "This load is already delivered \u2014 the paperwork door ends at delivery, like the tracking share.",
+          url: null,
+          state: null
+        };
+      const me = await myUsername(ctx);
+      const { row, created } = await ensureDocsLink(ctx, args.loadId, me);
+      if (created) {
+        await appendChain(ctx, {
+          refKind: "load",
+          refId: args.loadId,
+          sessionId: null,
+          event: "paperwork_door_created",
+          payload: { loadId: args.loadId, linkId: row.id, by: me, via: scope.via, at: new Date().toISOString() }
+        });
+      }
+      ctx.invalidateQueries();
+      return { ok: true, error: null, url: docsUrlFor(row.token), state: "live" };
+    }
+  }),
+  revokeLoadDocsLink: defineAction({
+    description: "Revoke one of this load's paperwork-door links \u2014 the link dies immediately, everywhere.",
+    request: object({ loadId: number2().int().positive(), linkId: number2().int().positive() }),
+    response: object({ ok: boolean2(), error: string2().nullable() }),
+    async handler(ctx, args) {
+      const scope = await libraryLoadScope(ctx, args.loadId);
+      if (!scope)
+        return { ok: false, error: "That load isn't in your scope." };
+      const db = ctx.db();
+      const rows = await db.select().from(receiveLinks3).where(and(eq(receiveLinks3.id, args.linkId), eq(receiveLinks3.loadId, args.loadId), eq(receiveLinks3.kind, "docs"))).limit(1);
+      const row = rows[0];
+      if (!row)
+        return { ok: false, error: "That paperwork-door link isn't on this load." };
+      if (row.status === "revoked")
+        return { ok: true, error: null };
+      await db.update(receiveLinks3).set({ status: "revoked", revokedAt: new Date }).where(eq(receiveLinks3.id, row.id));
+      const me = await myUsername(ctx);
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: args.loadId,
+        sessionId: null,
+        event: "paperwork_door_revoked",
+        payload: { loadId: args.loadId, linkId: row.id, by: me, via: scope.via, at: new Date().toISOString() }
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
+    }
+  }),
+  getDocsDoorInfo: defineAction({
+    description: "PUBLIC: the paperwork door's face for one load \u2014 lane + date only, so a broker can confirm they're at the right load. Never any rate or other load data.",
+    request: object({ token: string2().min(8).max(80) }),
+    response: object({
+      valid: boolean2(),
+      state: string2().nullable(),
+      lane: string2().nullable(),
+      pickupLabel: string2().nullable(),
+      deliveryLabel: string2().nullable(),
+      dateText: string2().nullable(),
+      fleetName: string2().nullable()
+    }),
+    async handler(ctx, args) {
+      const invalid = { valid: false, state: null, lane: null, pickupLabel: null, deliveryLabel: null, dateText: null, fleetName: null };
+      if (receiveThrottleBlocked(args.token))
+        return invalid;
+      const resolved = await resolveReceiveToken(ctx, args.token);
+      if (!resolved || resolved.link.kind !== "docs") {
+        receiveThrottleFail(args.token);
+        return invalid;
+      }
+      receiveThrottleOk(args.token);
+      const { load } = resolved;
+      const delivered = await deliveryConfirmationFor(ctx, load.id) != null;
+      const state = docsDoorStateFor({ linkStatus: resolved.link.status, delivered });
+      const driverUsername = await driverUsernameForLoad(ctx, load);
+      const db = ctx.db();
+      const driver = driverUsername ? (await db.select().from(socialUsers3).where(eq(socialUsers3.username, driverUsername)).limit(1))[0] : undefined;
+      const side = (city, st) => [city, st].filter(Boolean).join(", ") || null;
+      return {
+        valid: true,
+        state,
+        lane: laneLabel(load.pickupCity, load.pickupState, load.deliveryCity, load.deliveryState),
+        pickupLabel: side(load.pickupCity, load.pickupState),
+        deliveryLabel: side(load.deliveryCity, load.deliveryState),
+        dateText: load.pickupText ?? load.deliveryText ?? null,
+        fleetName: driver?.company ?? "STONEMILES carrier"
+      };
+    }
+  }),
+  submitDocsDoorPaperwork: defineAction({
+    description: "PUBLIC: upload one document (rate confirmation / BOL / POD) for the load this door token names. The type is sniffed from the bytes; the filing enters the load's paperwork pipeline for the driver to confirm. Sealed with ids/kind only.",
+    request: object({
+      token: string2().min(8).max(80),
+      docKind: _enum(["rate_con", "bol", "pod"]),
+      senderLabel: string2().max(120).nullable().default(null),
+      dataBase64: string2().min(100).max(12000000)
+    }),
+    response: object({ ok: boolean2(), error: string2().nullable() }),
+    async handler(ctx, args) {
+      const refuse = (error) => ({ ok: false, error });
+      if (receiveThrottleBlocked(args.token))
+        return refuse("This link has had too many failed tries \u2014 ask the driver or the desk for a fresh link.");
+      const resolved = await resolveReceiveToken(ctx, args.token);
+      if (!resolved || resolved.link.kind !== "docs") {
+        receiveThrottleFail(args.token);
+        return refuse("This paperwork link isn't valid \u2014 nothing was filed. Check the link and try again.");
+      }
+      receiveThrottleOk(args.token);
+      const { load } = resolved;
+      const delivered = await deliveryConfirmationFor(ctx, load.id) != null;
+      if (docsDoorStateFor({ linkStatus: resolved.link.status, delivered }) !== "live") {
+        return refuse(delivered ? "This load has been delivered, so its paperwork door is closed \u2014 send the document to the carrier directly." : "This paperwork link has been closed \u2014 ask the driver or the desk for a fresh link.");
+      }
+      const db = ctx.db();
+      const hourAgo = new Date(Date.now() - 60 * 60 * 1000);
+      const doorEvents = await db.select({ id: chainLog3.id, payload: chainLog3.payload }).from(chainLog3).where(and(eq(chainLog3.refKind, "load"), eq(chainLog3.refId, load.id), eq(chainLog3.event, "paperwork_filed"), gte(chainLog3.createdAt, hourAgo)));
+      let doorCount = 0;
+      for (const e of doorEvents) {
+        try {
+          if (JSON.parse(e.payload).via === "door")
+            doorCount++;
+        } catch {}
+      }
+      if (doorCount >= DOOR_SUBMISSIONS_PER_HOUR) {
+        return refuse("This load's paperwork door has taken a lot of uploads in the last hour \u2014 nothing was filed. Try again in a little while, or contact the carrier directly.");
+      }
+      let bytes;
+      try {
+        bytes = base64ToBytes(args.dataBase64);
+      } catch {
+        return refuse("That file couldn't be read \u2014 nothing was filed. Try the upload again.");
+      }
+      const mime = sniffDoorDocMime(bytes);
+      if (!mime) {
+        return refuse("That file isn't a PDF, JPG, or PNG document \u2014 nothing was filed. Send the rate confirmation, BOL, or POD as a PDF or a photo.");
+      }
+      const driverUsername = await driverUsernameForLoad(ctx, load);
+      if (!driverUsername)
+        return refuse("This load's paperwork can't be filed right now \u2014 contact the carrier directly.");
+      const sender = args.senderLabel?.trim().slice(0, 120) ?? "";
+      const filed = await filePaperworkDocument(ctx, {
+        loadId: load.id,
+        docKind: args.docKind,
+        bytes,
+        mime,
+        filedBy: sender ? `door: ${sender}` : "paperwork door",
+        driverUsername,
+        via: "door"
+      });
+      if (!filed)
+        return refuse("The document couldn't be filed \u2014 try again.");
+      const lane = laneLabel(load.pickupCity, load.pickupState, load.deliveryCity, load.deliveryState);
+      await recordNotificationSafe(ctx, {
+        username: driverUsername,
+        kind: "system",
+        title: `Load #${load.id} \u2014 ${PAPERWORK_DOC_LABELS[args.docKind]} arrived`,
+        body: `${lane ?? `Load #${load.id}`} \u2014 a ${PAPERWORK_DOC_LABELS[args.docKind].toLowerCase()} came in through this load's paperwork door${sender ? ` from ${sender}` : ""}. It's in the load's paperwork, waiting on your check and confirmation.`,
+        refKind: "load",
+        refId: load.id
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
+    }
+  }),
   getLoadAutonomy: defineAction({
     description: "This load's automatic status timeline + its open exceptions (the load's driver, or its fleet's desk).",
     request: object({ loadId: number2().int().positive() }),
@@ -43003,10 +43787,10 @@ var Actions = {
     }
   }),
   fileLoadPaperwork: defineAction({
-    description: "Paperwork-to-pay intake: file a scanned BOL/POD against a load (vault blob + sealed filing), then run the extraction read. Candidates stay provisional until the driver confirms.",
+    description: "Paperwork-to-pay intake: file a scanned rate con / BOL / POD against a load (vault blob + sealed filing), then run the extraction read. Candidates stay provisional until the driver confirms.",
     request: object({
       loadId: number2().int().positive(),
-      docKind: _enum(["bol", "pod"]),
+      docKind: _enum(["bol", "pod", "rate_con"]),
       dataBase64: string2().min(100).max(12000000),
       mime: string2().max(60)
     }),
@@ -43022,70 +43806,17 @@ var Actions = {
       const load = scope.load;
       const me = await myUsername(ctx);
       const driverUsername = await driverUsernameForLoad(ctx, load) ?? me;
-      const db = ctx.db();
-      const bytes = base64ToBytes(args.dataBase64);
-      const sha256 = await sha256Bytes(new Uint8Array(bytes));
-      const blobKey = `paperwork-${args.loadId}-${args.docKind}-${sha256.slice(0, 16)}`;
-      await ctx.blobs.put(blobKey, bytes, { contentType: mime });
-      const now = new Date;
-      const existing = await paperworkRowFor(ctx, args.loadId, args.docKind);
-      let row;
-      if (existing) {
-        await db.update(loadPaperwork3).set({
-          blobKey,
-          mime,
-          sha256,
-          filedBy: me,
-          extractionStatus: "pending",
-          candidateFieldsJson: null,
-          extractionAt: null,
-          confirmStatus: "unconfirmed",
-          confirmedFieldsJson: null,
-          confirmedBy: null,
-          confirmedAt: null,
-          sendStatus: "not_ready",
-          sendAt: null,
-          sendProviderId: null,
-          updatedAt: now
-        }).where(eq(loadPaperwork3.id, existing.id));
-        row = { ...existing, blobKey, mime, sha256, filedBy: me };
-      } else {
-        const prefill = args.docKind === "pod" ? await paperworkRecipientPrefill(ctx, args.loadId) : null;
-        const ins = await db.insert(loadPaperwork3).values({
-          loadId: args.loadId,
-          docKind: args.docKind,
-          driverUsername,
-          blobKey,
-          mime,
-          sha256,
-          filedBy: me,
-          extractionStatus: "pending",
-          recipientEmail: prefill?.email ?? null,
-          recipientLabel: prefill?.label ?? null
-        }).returning({ id: loadPaperwork3.id });
-        const id = ins[0]?.id;
-        if (id == null)
-          return paperworkStateFail("The document couldn't be filed \u2014 try again.");
-        const rows = await db.select().from(loadPaperwork3).where(eq(loadPaperwork3.id, id)).limit(1);
-        row = rows[0];
-      }
-      await appendChain(ctx, {
-        refKind: "load",
-        refId: args.loadId,
-        sessionId: null,
-        event: "paperwork_filed",
-        payload: {
-          loadId: args.loadId,
-          paperworkId: row.id,
-          docKind: args.docKind,
-          sha256,
-          mime,
-          filedBy: me,
-          replaced: existing != null,
-          at: now.toISOString()
-        }
+      const filed = await filePaperworkDocument(ctx, {
+        loadId: args.loadId,
+        docKind: args.docKind,
+        bytes: base64ToBytes(args.dataBase64),
+        mime,
+        filedBy: me,
+        driverUsername,
+        via: "app"
       });
-      await runPaperworkExtraction(ctx, row);
+      if (!filed)
+        return paperworkStateFail("The document couldn't be filed \u2014 try again.");
       ctx.invalidateQueries();
       return buildPaperworkState(ctx, args.loadId, scope);
     }
@@ -43110,7 +43841,7 @@ var Actions = {
     description: "Confirm (or correct) one filed document's fields + the broker/factor recipient. Confirmation is the only write of read values anywhere, and it is what the auto-send / auto-invoice trigger stands on.",
     request: object({
       loadId: number2().int().positive(),
-      docKind: _enum(["bol", "pod"]),
+      docKind: _enum(["bol", "pod", "rate_con"]),
       fields: object({
         lane: string2().max(200).nullable(),
         reference: string2().max(120).nullable(),
@@ -68563,6 +69294,178 @@ ${args.question}`, { schema: answerSchema });
           };
         })
       };
+    }
+  }),
+  getNextLoadSuggestions: defineAction({
+    description: "Rank this fleet's open loads per driver by fit (deadhead, calendar, home-time, hours) with printed reasons. Suggestions only \u2014 binding still runs the assign funnel and all its gates.",
+    request: object({
+      pickupPoints: array(object({
+        boardLoadId: number2().int().positive(),
+        lat: number2().min(-90).max(90),
+        lon: number2().min(-180).max(180)
+      })).max(100).default([])
+    }),
+    response: object({
+      ok: boolean2(),
+      error: string2().nullable(),
+      companyName: string2().nullable(),
+      drivers: array(object({
+        username: string2(),
+        displayName: string2().nullable(),
+        suggestions: array(object({
+          boardLoadId: number2(),
+          lane: string2().nullable(),
+          pickupAt: string2().nullable(),
+          deliveryAt: string2().nullable(),
+          deadheadMi: number2().nullable(),
+          conflict: boolean2(),
+          reasons: array(string2()),
+          legs: object({
+            deadhead: object({ status: string2(), detail: string2() }),
+            availability: object({ status: string2(), detail: string2() }),
+            homeTime: object({ status: string2(), detail: string2() }),
+            hos: object({ status: string2(), detail: string2() })
+          })
+        }))
+      }))
+    }),
+    async handler(ctx, args) {
+      const fail = { ok: false, error: null, companyName: null, drivers: [] };
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const mine = await myMembership(ctx, me);
+      if (!mine || mine.role !== "owner" && mine.role !== "dispatch")
+        return { ...fail, error: "Only the owner or dispatch can see suggested next loads." };
+      const companyId = mine.company.id;
+      const openRows = await db.select().from(boardLoads3).where(and(eq(boardLoads3.companyId, companyId), eq(boardLoads3.status, "open"))).orderBy(asc(boardLoads3.id));
+      const points = new Map(args.pickupPoints.map((p) => [p.boardLoadId, { lat: p.lat, lon: p.lon }]));
+      const members = await db.select().from(companyMembers3).where(eq(companyMembers3.companyId, companyId));
+      const duty = await dutyPicture(ctx);
+      const positions = await db.select().from(driverPositions3);
+      const allBoard = await db.select().from(boardLoads3).where(eq(boardLoads3.companyId, companyId));
+      const { events: dutyEvents } = await effectiveDutyTimeline(ctx);
+      const now = new Date;
+      const nowMs = now.getTime();
+      const drivers = [];
+      for (const m of members) {
+        if (m.role === "dispatch")
+          continue;
+        const social = (await db.select().from(socialUsers3).where(eq(socialUsers3.username, m.username)).limit(1))[0];
+        const snap = await fleetStatusFor(ctx, m.username);
+        const snapActive = await snapshotActiveLoad(ctx, snap);
+        const board = allBoard.find((b) => b.status === "taken" && b.claimedBy === m.username) ?? null;
+        const hasActiveLoad = snapActive || board != null;
+        const pos = positions.find((p) => p.username === m.username) ?? null;
+        const gate = fleetPositionGate({
+          isMe: m.username === me,
+          duty,
+          snapshotActive: snapActive,
+          snapshotFresh: snapshotFreshFor(snap?.publishedAt ?? null, now),
+          hasPos: pos != null
+        });
+        const boundWindows = [];
+        let untimedBoundCount = 0;
+        for (const b of allBoard) {
+          if (b.claimedBy !== m.username || b.status !== "assigned" && b.status !== "taken")
+            continue;
+          if (b.pickupApptAt && b.deliveryApptAt) {
+            boundWindows.push({
+              startMs: b.pickupApptAt.getTime(),
+              endMs: b.deliveryApptAt.getTime(),
+              label: boardLaneOf(b)
+            });
+          } else {
+            untimedBoundCount++;
+          }
+        }
+        const offRows = await db.select().from(offDutyRequests3).where(and(eq(offDutyRequests3.driverUsername, m.username), eq(offDutyRequests3.status, "approved")));
+        const offDutyWindows = offRows.map((r) => ({
+          startMs: r.startsAt.getTime(),
+          endMs: r.endsAt.getTime(),
+          label: OFF_DUTY_REQUEST_LABELS[r.type] ?? "Time off"
+        }));
+        const facts = {
+          currentPos: gate.visible && pos ? { lat: pos.lat, lon: pos.lon } : null,
+          routeEnd: snapActive && snap && snap.endLat != null && snap.endLon != null ? { lat: snap.endLat, lon: snap.endLon } : null,
+          hasActiveLoad,
+          boundWindows,
+          untimedBoundCount,
+          offDutyWindows,
+          dutyEvents: dutyEvents.filter((e) => e.username === m.username).map((e) => ({ state: e.state, at: e.at }))
+        };
+        const commitmentRows = await homeTimeCommitmentRowsFor(ctx, companyId, m.username);
+        const commitments = commitmentRows.map(toHomeTimeCommitmentLike).filter((c) => c.voidedAt == null);
+        const home = commitments.length > 0 ? await homeProfileFor(ctx, m.username) : null;
+        const inputs = openRows.map((row) => {
+          const lane = boardLaneOf(row);
+          let homeTime;
+          if (commitments.length === 0) {
+            homeTime = {
+              status: "ok",
+              detail: "Home-time safe \u2014 no home-time commitments on file for this driver.",
+              short: "home-time safe"
+            };
+          } else if (row.deliveryApptAt == null) {
+            homeTime = {
+              status: "not_checked",
+              detail: "Home time not checked \u2014 this load has no delivery time on file to check the commitment against.",
+              short: "home time not checked"
+            };
+          } else {
+            const conflict = checkHomeTimeConflict({
+              commitments,
+              deliveryApptAtMs: row.deliveryApptAt.getTime(),
+              deliveryState: row.deliveryState ?? null,
+              homeState: home?.homeState ?? null,
+              nowMs
+            });
+            homeTime = conflict ? {
+              status: "conflict",
+              detail: homeTimeConflictWarning(conflict, lane).summary,
+              short: "breaks home time"
+            } : {
+              status: "ok",
+              detail: "Home-time safe \u2014 delivery plus the drive home lands ahead of the deadline.",
+              short: "home-time safe"
+            };
+          }
+          return {
+            candidate: {
+              boardLoadId: row.id,
+              pickupAtMs: row.pickupApptAt ? row.pickupApptAt.getTime() : null,
+              deliveryAtMs: row.deliveryApptAt ? row.deliveryApptAt.getTime() : null,
+              pickupPoint: points.get(row.id) ?? null
+            },
+            homeTime
+          };
+        });
+        const ranked = rankNextLoadsForDriver(facts, inputs, nowMs).slice(0, 3);
+        const byId = new Map(openRows.map((r) => [r.id, r]));
+        drivers.push({
+          username: m.username,
+          displayName: social?.displayName ?? null,
+          suggestions: ranked.map((s) => {
+            const row = byId.get(s.boardLoadId);
+            return {
+              boardLoadId: s.boardLoadId,
+              lane: boardLaneOf(row),
+              pickupAt: row.pickupApptAt?.toISOString() ?? null,
+              deliveryAt: row.deliveryApptAt?.toISOString() ?? null,
+              deadheadMi: s.deadheadMi,
+              conflict: s.conflict,
+              reasons: s.reasons,
+              legs: {
+                deadhead: { status: s.legs.deadhead.status, detail: s.legs.deadhead.detail },
+                availability: { status: s.legs.availability.status, detail: s.legs.availability.detail },
+                homeTime: { status: s.legs.homeTime.status, detail: s.legs.homeTime.detail },
+                hos: { status: s.legs.hos.status, detail: s.legs.hos.detail }
+              }
+            };
+          })
+        });
+      }
+      drivers.sort((a, b) => a.username.localeCompare(b.username));
+      return { ok: true, error: null, companyName: mine.company.name, drivers };
     }
   }),
   runTrackPurge: defineAction({

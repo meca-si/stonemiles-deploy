@@ -207,6 +207,7 @@ import { corridorReturn, permitOfferFor, type PermitDocket } from "./permit";
 import { MarketPulseCard } from "./MarketPulseCard";
 import { StopPlannerSheet } from "./StopPlannerSheet";
 import { DispatchDesk } from "./DispatchDesk";
+import { GlobalSearch } from "./GlobalSearch";
 import { MyDesk } from "./MyDesk";
 import { AtlasPanel } from "./AtlasPanel";
 import { atlasStateSummary, findAtlasStateInText } from "./atlas";
@@ -16063,6 +16064,26 @@ export function App() {
                 The stack is ordered by context and the single next action
                 is always the biggest button on the screen. Cards retire
                 themselves when their moment passes. */}
+            <GlobalSearch
+              onOpenLoad={(loadId) => {
+                tapFx();
+                setActiveLoadId(loadId);
+                setTrackerDetailId(loadId);
+                setLoadsView("tracker");
+                setTab("loads");
+              }}
+              onOpenBoardLoad={() => {
+                tapFx();
+                setLoadsView("board");
+                setTab("loads");
+              }}
+              onOpenDriver={() => {
+                tapFx();
+                if (ownerDeskEligible) setShowOwnerDesk(true);
+                else setShowDispatchDesk(true);
+                scrollToAnchor("fleet-board", 650);
+              }}
+            />
             {offlineLoadCard}
             {dutyPrompt && tripUi.active ? (
               <DutyPromptCard onAnswer={answerDutyPrompt} />

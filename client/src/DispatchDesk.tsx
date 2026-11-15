@@ -30,6 +30,7 @@ import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type ApiResponse } from "./api";
 import { FleetBoardPanel } from "./FleetBoard";
+import { GlobalSearch } from "./GlobalSearch";
 import { ExceptionQueuePanel } from "./AutonomyPanel";
 import { FleetDqfPanel } from "./DqfPanel";
 import { FleetHomeTimePanel } from "./HomeTimePanel";
@@ -181,6 +182,19 @@ export function DispatchDesk({
             {banner}
           </p>
         )}
+
+        <div className="mt-3">
+          <GlobalSearch
+            placeholder="Driver name, city, shipper, reference, or load #"
+            onOpenLoad={() => onPostLoad()}
+            onOpenBoardLoad={() => onPostLoad()}
+            onOpenDriver={() => {
+              setTimeout(() => {
+                document.getElementById("fleet-board")?.scrollIntoView({ behavior: "smooth", block: "start" });
+              }, 60);
+            }}
+          />
+        </div>
 
         {deskQuery.isPending ? (
           <p className="mt-4 text-sm text-[var(--dim)]">Opening the desk…</p>
