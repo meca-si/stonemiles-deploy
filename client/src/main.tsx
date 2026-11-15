@@ -13,10 +13,11 @@ import appIconMaskable512 from "./assets/app-icon-maskable-512.png";
 
 // Installable home-screen app: inject the web app manifest (standalone
 // display, cab-dark splash/theme colors matching the brand tokens, the
-// Chain Seal icon set — 192/512 for Android & Chrome, a padded maskable
-// 512, and the 180 Apple touch icon) so drivers can put STONEMILES on
-// their home screen: full-screen, own icon, no browser chrome. The rest
-// of the head wiring (theme-color, capable metas) lives in index.html.
+// Plate Badge 389 icon set — 192/512 for Android & Chrome, a padded
+// maskable 512, and the 180 Apple touch icon) so drivers can put
+// STONEMILES on their home screen: full-screen, own icon, no browser
+// chrome. The rest of the head wiring (theme-color, capable metas)
+// lives in index.html.
 // All app logic is client-side + typed server actions, so a native
 // wrapper (e.g. Capacitor) can package this same build without a rewrite.
 try {
@@ -48,6 +49,19 @@ try {
   touch.rel = "apple-touch-icon";
   touch.href = appIcon180;
   document.head.appendChild(touch);
+  // Browser-tab favicon: index.html ships an empty inline icon (data:,)
+  // to stop the browser fetching /favicon.ico, which lives outside the
+  // space's routes and fails auth. Replace that placeholder with the
+  // real badge so the tab carries the same Plate Badge 389 mark as the
+  // home screen (the 192 PNG is already a bundled asset via the import
+  // above, so this ships in the built output like the touch icon).
+  document.querySelectorAll('link[rel="icon"]').forEach((el) => el.remove());
+  const favicon = document.createElement("link");
+  favicon.rel = "icon";
+  favicon.type = "image/png";
+  favicon.sizes = "192x192";
+  favicon.href = appIcon192;
+  document.head.appendChild(favicon);
 } catch {
   // Manifest injection is progressive enhancement; the app runs without it.
 }
