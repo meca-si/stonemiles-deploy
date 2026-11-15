@@ -280,7 +280,7 @@ export function LibraryPanel({ setBanner, lang = "en" }: { setBanner: (s: string
 
           <Section icon="🧾" title="Statements">
             {statementGroups.length === 0 && (
-              <p className="text-sm text-[var(--dim)]">No statements yet — settlements and pay entries land here, grouped by period.</p>
+              <p className="text-sm text-[var(--dim)]">No statements yet — settlements, pay entries, invoices, and profit &amp; loss statements land here, grouped by period.</p>
             )}
             {statementGroups.map((g) => (
               <div key={g.key} className="space-y-2">

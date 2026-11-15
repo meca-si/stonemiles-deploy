@@ -6,14 +6,16 @@
 // pass: Q4 2026 published rates, "rate not loaded", planning label).
 //
 // Every number here comes from the driver's own records through
-// server actions; the math lives in moneyMath.ts (unit-tested).
-// Records only — nothing here moves money, sends an invoice,
-// dispatches help, or files a tax return. Working driver tools on
-// every plan, following the Trailer Package pattern; the document
-// vault's own Gold gate on saving a document is unchanged (its
-// message surfaces here when it applies).
+// server actions; the math lives in moneyMath.ts (unit-tested) and,
+// for invoicing + P&L (TMS queue item 3), server/src/invoicing.ts.
+// Records and documents only — nothing here moves money, dispatches
+// help, or files a tax return; an invoice is a document the driver
+// sends, and marking one paid only records the payment. Working
+// driver tools on every plan, following the Trailer Package pattern;
+// the document vault's own Gold gate on saving a document is
+// unchanged (its message surfaces here when it applies).
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fileToBase64 } from "@hatch/space-sdk/client";
 import { api } from "./api";
@@ -1497,8 +1499,14 @@ export function MoneyFlowHub({ setBanner, mpg, onOpenBreakdownHelp, onOpenParkin
       <div id="owed-board" className="scroll-mt-4">
         <OwedBoardPanel setBanner={setBanner} lang={lang} />
       </div>
+      <div id="invoices" className="scroll-mt-4">
+        <InvoicesPanel setBanner={setBanner} lang={lang} />
+      </div>
       <div id="my-settlement" className="scroll-mt-4">
         <SettlementPanel setBanner={setBanner} lang={lang} />
+      </div>
+      <div id="profit-loss" className="scroll-mt-4">
+        <ProfitLossPanel setBanner={setBanner} lang={lang} />
       </div>
       <div id="true-rate" className="scroll-mt-4">
         <TrueRatePanel setBanner={setBanner} mpg={mpg} lang={lang} />
@@ -1519,5 +1527,431 @@ export function MoneyFlowHub({ setBanner, mpg, onOpenBreakdownHelp, onOpenParkin
         <BreakdownLogPanel setBanner={setBanner} onOpenBreakdownHelp={onOpenBreakdownHelp} onOpenParking={onOpenParking} lang={lang} />
       </div>
     </>
+  );
+}
+
+// ---- Invoicing + P&L (TMS queue item 3) --------------------------------------
+// A branded invoice cut from a sealed load, and the owner's profit
+// & loss rollup. The math lives server-side in invoicing.ts; these
+// panels render the driver's own records only. The rate appears on
+// the invoice itself — it is never rendered into a share or public
+// surface anywhere in the app.
+
+const INVOICE_STATUS_STYLE: Record<string, string> = {
+  draft: "bg-[var(--surface)] text-[var(--dim)]",
+  issued: "bg-sky-500/15 text-sky-300",
+  overdue: "bg-red-500/15 text-red-300",
+  paid: "bg-emerald-500/15 text-emerald-300",
+};
+
+const INVOICE_INPUT_CLS = "w-full rounded-xl border border-[var(--border)] bg-[var(--surface2)] px-3 py-2 text-sm";
+
+function savePdfBase64(filename: string, dataBase64: string) {
+  const bin = atob(dataBase64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+export function InvoicesPanel({ setBanner, lang = "en" }: { setBanner: Banner; lang?: Lang }) {
+  const queryClient = useQueryClient();
+  const list = useQuery({ queryKey: ["invoices"], queryFn: () => api.listInvoices({}) });
+  const owed = useQuery({ queryKey: ["owed-board"], queryFn: () => api.getOwedBoard({}) });
+  const [openId, setOpenId] = useState<number | null>(null);
+  const [emailTo, setEmailTo] = useState("");
+  const [busy, setBusy] = useState("");
+  const detail = useQuery({
+    queryKey: ["invoice", openId],
+    queryFn: () => api.getInvoice({ id: openId as number }),
+    enabled: openId != null,
+  });
+  const invoices = list.data?.invoices ?? [];
+  const invoicedLoadIds = useMemo(() => new Set(invoices.map((i) => i.loadId)), [invoices]);
+  const invoiceable = (owed.data?.rows ?? [])
+    .filter((r) => !invoicedLoadIds.has(r.loadId) && r.freight != null)
+    .map((r) => ({
+      loadId: r.loadId,
+      payer: r.brokerCompany ?? r.brokerName ?? r.shipper ?? "Payer not named on the load",
+      lane: laneOf(r),
+      totalOwed: (r.freight ?? 0) + r.claimsTotal,
+    }));
+  const refresh = () => {
+    void queryClient.invalidateQueries({ queryKey: ["invoices"] });
+    void queryClient.invalidateQueries({ queryKey: ["invoice"] });
+    void queryClient.invalidateQueries({ queryKey: ["owed-board"] });
+    void queryClient.invalidateQueries({ queryKey: ["library"] });
+  };
+  async function act(label: string, fn: () => Promise<unknown>, okMsg: string) {
+    setBusy(label);
+    try {
+      await fn();
+      refresh();
+      setBanner(okMsg);
+    } catch (e) {
+      setBanner(e instanceof Error ? e.message : "That didn't go through — try again.");
+    } finally {
+      setBusy("");
+    }
+  }
+  const d = detail.data;
+  return (
+    <Section title={tt(lang, "money.invoicesTitle")} ariaLabel="Invoices — bill the load, track the pay">
+      <p className="text-xs text-[var(--dim)]">
+        A real bill for a delivered load — your business name and logo (Settings → Business profile), the lane, and the amount owed. Cut it from a sealed load, issue it, send the PDF, and mark it paid when the money lands: marking paid records the payment and clears the load off the board above. The rate prints on the invoice only — never on a share link.
+      </p>
+
+      {invoiceable.length > 0 && (
+        <div className="mt-3 space-y-2">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-[var(--dim)]">Ready to invoice</p>
+          {invoiceable.map((r) => (
+            <div key={r.loadId} className="flex items-center justify-between gap-2 rounded-xl bg-[var(--surface2)] px-3 py-2">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-bold">Load #{r.loadId} — {r.payer}</p>
+                <p className="truncate text-xs text-[var(--dim)]">{r.lane} · {money(r.totalOwed ?? 0)} owed</p>
+              </div>
+              <button
+                type="button"
+                className="btn-gold shrink-0 !px-3 !py-1.5 text-xs"
+                disabled={busy !== ""}
+                onClick={() => void act("create", () => api.createInvoice({ loadId: r.loadId, dueDays: 30, notes: null }), "Invoice cut — it's the draft below.")}
+              >
+                Cut invoice
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {list.isLoading ? (
+        <p className="mt-3 text-sm text-[var(--dim)]">Loading…</p>
+      ) : invoices.length === 0 ? (
+        <p className="mt-3 text-sm text-[var(--dim)]">No invoices yet. When a load is delivered and sealed, it shows up above ready to invoice.</p>
+      ) : (
+        <div className="mt-3 space-y-2">
+          {invoices.map((inv) => (
+            <button
+              key={inv.id}
+              type="button"
+              onClick={() => setOpenId(openId === inv.id ? null : inv.id)}
+              className="flex w-full items-center justify-between gap-2 rounded-xl bg-[var(--surface2)] px-3 py-2 text-left"
+            >
+              <div className="min-w-0">
+                <p className="truncate text-sm font-bold">{inv.number} — {inv.billToName}</p>
+                <p className="truncate text-xs text-[var(--dim)]">Load #{inv.loadId} · {inv.lane}{inv.dueAt ? ` · due ${inv.dueAt.slice(0, 10)}` : ""}</p>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <span className="font-condensed text-base font-bold">{money(inv.amount)}</span>
+                <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold uppercase ${INVOICE_STATUS_STYLE[inv.displayStatus] ?? ""}`}>{inv.displayStatus}</span>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {openId != null && d && (
+        <div className="mt-3 rounded-xl border border-[var(--border)] bg-[var(--surface2)] p-3">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <p className="font-condensed text-lg font-bold">INVOICE {d.number}</p>
+              <p className="text-xs text-[var(--dim)]">From: {d.business.name ?? "Your business"}{d.business.hasLogo ? " · logo on file" : ""}</p>
+            </div>
+            <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold uppercase ${INVOICE_STATUS_STYLE[d.displayStatus] ?? ""}`}>{d.displayStatus}</span>
+          </div>
+          <div className="mt-2 space-y-1 text-sm">
+            <p><span className="text-[var(--dim)]">Bill to:</span> {d.billToName}{d.shipper ? ` · shipper ${d.shipper}` : ""}</p>
+            <p><span className="text-[var(--dim)]">Load:</span> #{d.loadId} — {d.lane}{d.referenceNumber ? ` · ref #${d.referenceNumber}` : ""}{d.commodity ? ` · ${d.commodity}` : ""}</p>
+            <p><span className="text-[var(--dim)]">Delivered:</span> {d.deliveredAt.slice(0, 10)}</p>
+          </div>
+          <div className="mt-2 border-t border-[var(--border)] pt-2">
+            {d.lines.map((l, i) => (
+              <div key={i} className="flex items-center justify-between text-sm">
+                <span>{l.label}</span>
+                <span className="font-bold">{money(l.amount)}</span>
+              </div>
+            ))}
+            <div className="mt-1 flex items-center justify-between border-t border-[var(--border)] pt-1.5">
+              <span className="font-condensed font-bold">TOTAL DUE</span>
+              <span className="font-condensed text-lg font-bold">{money(d.amount)}</span>
+            </div>
+          </div>
+          <p className="mt-2 text-xs text-[var(--dim)]">
+            {d.issuedAt ? `Issued ${d.issuedAt.slice(0, 10)}` : "Not issued yet"} · Terms Net {d.dueDays}{d.dueAt ? ` · due ${d.dueAt.slice(0, 10)}` : ""}{d.paidAt ? ` · PAID ${d.paidAt.slice(0, 10)}` : ""}
+          </p>
+          <p className="text-xs text-[var(--dim)]">
+            {d.business.paymentInstructions ? `Pay: ${d.business.paymentInstructions}` : "No payment instructions yet — add them in Settings → Business profile and they print on the invoice."}
+          </p>
+          {d.notes && <p className="text-xs text-[var(--dim)]">Note: {d.notes}</p>}
+          <div className="mt-3 flex flex-wrap gap-2">
+            {d.status === "draft" && (
+              <button type="button" className="btn-gold !px-3 !py-1.5 text-xs" disabled={busy !== ""} onClick={() => void act("issue", () => api.issueInvoice({ id: d.id }), `Invoice ${d.number} issued — due date set.`)}>Issue invoice</button>
+            )}
+            {d.status !== "paid" && (
+              <button type="button" className="btn-gold !px-3 !py-1.5 text-xs" disabled={busy !== ""} onClick={() => void act("paid", () => api.markInvoicePaid({ id: d.id, paidAt: null, note: null }), `Invoice ${d.number} marked paid — the load is off the board.`)}>Mark paid</button>
+            )}
+            <button
+              type="button"
+              className="rounded-full border border-[var(--border)] px-3 py-1.5 text-xs font-bold"
+              disabled={busy !== ""}
+              onClick={() => void act("pdf", async () => { const doc = await api.getLibraryDocument({ ref: `invoice:${d.id}` }); if (!doc.dataBase64 || !doc.filename) throw new Error(doc.error ?? "That document couldn't be built."); savePdfBase64(doc.filename, doc.dataBase64); }, "Invoice PDF downloaded.")}
+            >
+              Download PDF
+            </button>
+            {d.status === "draft" && (
+              <button type="button" className="rounded-full border border-red-500/40 px-3 py-1.5 text-xs font-bold text-red-300" disabled={busy !== ""} onClick={() => void act("del", async () => { await api.deleteInvoice({ id: d.id }); setOpenId(null); }, `Draft ${d.number} deleted.`)}>Delete draft</button>
+            )}
+          </div>
+          <div className="mt-2 flex gap-2">
+            <input type="email" value={emailTo} onChange={(e) => setEmailTo(e.target.value)} placeholder="Email the invoice to…" className={INVOICE_INPUT_CLS} />
+            <button
+              type="button"
+              className="btn-gold shrink-0 !px-3 !py-1.5 text-xs"
+              disabled={busy !== "" || !emailTo.includes("@")}
+              onClick={() => void act("email", () => api.emailLibraryDocument({ ref: `invoice:${d.id}`, toEmail: emailTo.trim() }), `Invoice ${d.number} emailed.`)}
+            >
+              Email invoice
+            </button>
+          </div>
+        </div>
+      )}
+    </Section>
+  );
+}
+
+const PL_MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+function plStepPeriod(kind: "month" | "quarter" | "year", year: number, index: number, dir: 1 | -1): { year: number; index: number } {
+  if (kind === "year") return { year: year + dir, index: 1 };
+  const span = kind === "month" ? 12 : 4;
+  let y = year;
+  let i = index + dir;
+  if (i > span) { i = 1; y += 1; }
+  if (i < 1) { i = span; y -= 1; }
+  return { year: y, index: i };
+}
+
+export function ProfitLossPanel({ setBanner, lang = "en" }: { setBanner: Banner; lang?: Lang }) {
+  const now = new Date();
+  const [kind, setKind] = useState<"month" | "quarter" | "year">("month");
+  const [year, setYear] = useState(now.getFullYear());
+  const [index, setIndex] = useState(now.getMonth() + 1);
+  const [emailTo, setEmailTo] = useState("");
+  const [busy, setBusy] = useState("");
+  const q = useQuery({ queryKey: ["profit-loss", kind, year, index], queryFn: () => api.getProfitLoss({ kind, year, index }) });
+  const ref = `pl:${kind}:${year}:${index}`;
+  const d = q.data;
+  function pickKind(k: "month" | "quarter" | "year") {
+    const n = new Date();
+    setKind(k);
+    setYear(n.getFullYear());
+    setIndex(k === "month" ? n.getMonth() + 1 : k === "quarter" ? Math.floor(n.getMonth() / 3) + 1 : 1);
+  }
+  function step(dir: 1 | -1) {
+    const next = plStepPeriod(kind, year, index, dir);
+    setYear(next.year);
+    setIndex(next.index);
+  }
+  async function act(label: string, fn: () => Promise<unknown>, okMsg: string) {
+    setBusy(label);
+    try {
+      await fn();
+      setBanner(okMsg);
+    } catch (e) {
+      setBanner(e instanceof Error ? e.message : "That didn't go through — try again.");
+    } finally {
+      setBusy("");
+    }
+  }
+  return (
+    <Section title={tt(lang, "money.plTitle")} ariaLabel="Profit and loss — what the operation made">
+      <p className="text-xs text-[var(--dim)]">
+        What your operation actually made: income from sealed loads and claim events, against fuel, expenses, and maintenance — the same lanes as the Tax Worksheet, rolled up by month, quarter, or year. Your numbers only; nothing here is shared.
+      </p>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        {(["month", "quarter", "year"] as const).map((k) => (
+          <button key={k} type="button" onClick={() => pickKind(k)} className={`rounded-full px-3 py-1.5 text-xs font-bold ${kind === k ? "btn-gold" : "border border-[var(--border)]"}`}>
+            {k === "month" ? "Month" : k === "quarter" ? "Quarter" : "Year"}
+          </button>
+        ))}
+        <div className="ml-auto flex items-center gap-2">
+          <button type="button" aria-label="Previous period" onClick={() => step(-1)} className="rounded-full border border-[var(--border)] px-2.5 py-1 text-sm font-bold">‹</button>
+          <span className="min-w-32 text-center font-condensed text-base font-bold">{d?.period.label ?? "…"}</span>
+          <button type="button" aria-label="Next period" onClick={() => step(1)} className="rounded-full border border-[var(--border)] px-2.5 py-1 text-sm font-bold">›</button>
+        </div>
+      </div>
+      {q.isLoading || !d ? (
+        <p className="mt-3 text-sm text-[var(--dim)]">Loading…</p>
+      ) : (
+        <>
+          <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+            <div className="rounded-xl bg-[var(--surface2)] px-2 py-2.5">
+              <p className="text-[11px] font-bold uppercase tracking-wide text-[var(--dim)]">Income</p>
+              <p className="font-condensed text-lg font-bold text-emerald-300">{money(d.incomeTotal)}</p>
+            </div>
+            <div className="rounded-xl bg-[var(--surface2)] px-2 py-2.5">
+              <p className="text-[11px] font-bold uppercase tracking-wide text-[var(--dim)]">Costs</p>
+              <p className="font-condensed text-lg font-bold text-red-300">{money(d.costsTotal)}</p>
+            </div>
+            <div className="rounded-xl bg-[var(--surface2)] px-2 py-2.5">
+              <p className="text-[11px] font-bold uppercase tracking-wide text-[var(--dim)]">Net</p>
+              <p className={`font-condensed text-lg font-bold ${d.net >= 0 ? "text-emerald-300" : "text-red-300"}`}>{money(d.net)}</p>
+            </div>
+          </div>
+          <div className="mt-3 space-y-1 text-sm">
+            <div className="flex items-center justify-between"><span>Freight (sealed loads delivered)</span><span className="font-bold">{money(d.incomeFreight)}</span></div>
+            <div className="flex items-center justify-between"><span>Claim events (TONU / layover / assist)</span><span className="font-bold">{money(d.incomeClaims)}</span></div>
+            {d.costLines.map((l) => (
+              <div key={l.key} className="flex items-center justify-between text-[var(--dim)]"><span>− {l.label}</span><span className="font-bold">{money(l.amount)}</span></div>
+            ))}
+          </div>
+          {d.unfiguredLoads > 0 && (
+            <p className="mt-2 rounded-lg bg-amber-500/10 px-2.5 py-1.5 text-xs text-amber-200">
+              {d.unfiguredLoads} delivered load{d.unfiguredLoads === 1 ? " has" : "s have"} no rate on file — its freight is not in these totals. Nothing is invented; add the rate on the load to count it.
+            </p>
+          )}
+          {d.perLoad.length > 0 && (
+            <div className="mt-3 space-y-1.5">
+              <p className="text-[11px] font-bold uppercase tracking-wide text-[var(--dim)]">Per load</p>
+              {d.perLoad.map((l) => (
+                <div key={l.loadId} className="flex items-center justify-between gap-2 rounded-xl bg-[var(--surface2)] px-3 py-2 text-sm">
+                  <div className="min-w-0">
+                    <p className="truncate font-bold">Load #{l.loadId} — {l.lane}</p>
+                    <p className="truncate text-xs text-[var(--dim)]">{l.deliveredAt.slice(0, 10)}{l.shipper ? ` · ${l.shipper}` : ""} · costs {money(l.costs)}</p>
+                  </div>
+                  <span className={`shrink-0 font-condensed font-bold ${l.net != null && l.net < 0 ? "text-red-300" : ""}`}>{l.net != null ? money(l.net) : "no rate"}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="mt-3 flex gap-2">
+            <input type="email" value={emailTo} onChange={(e) => setEmailTo(e.target.value)} placeholder="Email the statement to…" className={INVOICE_INPUT_CLS} />
+            <button type="button" className="btn-gold shrink-0 !px-3 !py-1.5 text-xs" disabled={busy !== "" || !emailTo.includes("@")} onClick={() => void act("email", () => api.emailLibraryDocument({ ref, toEmail: emailTo.trim() }), "Statement emailed.")}>Email</button>
+            <button
+              type="button"
+              className="shrink-0 rounded-full border border-[var(--border)] px-3 py-1.5 text-xs font-bold"
+              disabled={busy !== ""}
+              onClick={() => void act("pdf", async () => { const doc = await api.getLibraryDocument({ ref }); if (!doc.dataBase64 || !doc.filename) throw new Error(doc.error ?? "That document couldn't be built."); savePdfBase64(doc.filename, doc.dataBase64); }, "Statement PDF downloaded.")}
+            >
+              PDF
+            </button>
+          </div>
+          <p className="mt-2 text-[11px] text-[var(--dim)]">Statement periods: {PL_MONTH_NAMES[index - 1] && kind === "month" ? `${PL_MONTH_NAMES[index - 1]} ${year}` : kind === "quarter" ? `Q${index} ${year}` : `${year}`} · built from your sealed records — a record for your books, not tax advice.</p>
+        </>
+      )}
+    </Section>
+  );
+}
+
+// ---- Business profile (Settings) ----------------------------------------------
+// The business identity that brands invoices + P&L statements: name,
+// address, phone, email, payment instructions, and a logo. Its own
+// save path (saveBusinessProfile) — separate from the social profile
+// and the truck settings, so saving one never round-trips the other.
+
+export function BusinessProfilePanel() {
+  const queryClient = useQueryClient();
+  const q = useQuery({ queryKey: ["business-profile"], queryFn: () => api.getBusinessProfile({}) });
+  const [form, setForm] = useState({ name: "", address: "", phone: "", email: "", paymentInstructions: "" });
+  const [logoFile, setLogoFile] = useState<{ base64: string; mime: string } | null>(null);
+  const [removeLogo, setRemoveLogo] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (q.data) {
+      setForm({
+        name: q.data.name ?? "",
+        address: q.data.address ?? "",
+        phone: q.data.phone ?? "",
+        email: q.data.email ?? "",
+        paymentInstructions: q.data.paymentInstructions ?? "",
+      });
+    }
+  }, [q.data]);
+  async function onLogoFile(e: ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    const enc = await fileToBase64(f);
+    setLogoFile({ base64: enc.dataBase64, mime: enc.mimeType || f.type || "image/png" });
+    setRemoveLogo(false);
+  }
+  async function save() {
+    setBusy(true);
+    setMsg("");
+    try {
+      await api.saveBusinessProfile({
+        name: form.name.trim() || null,
+        address: form.address.trim() || null,
+        phone: form.phone.trim() || null,
+        email: form.email.trim() || null,
+        paymentInstructions: form.paymentInstructions.trim() || null,
+        logoDataBase64: logoFile?.base64 ?? null,
+        logoMime: logoFile?.mime ?? null,
+        removeLogo,
+      });
+      setLogoFile(null);
+      setRemoveLogo(false);
+      void queryClient.invalidateQueries({ queryKey: ["business-profile"] });
+      setMsg("Business profile saved — it brands your invoices and P&L statements.");
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : "Couldn't save — try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  const showLogo = !removeLogo && (logoFile != null || q.data?.logoUrl);
+  return (
+    <div>
+      <h3 className="font-condensed text-xl font-bold">🏢 Business profile — your invoice letterhead</h3>
+      <p className="mt-1 text-xs text-[var(--dim)]">
+        The business you bill as. This name, address, and logo print on every invoice you cut, and the name heads your profit &amp; loss statements. Your payment instructions tell the payer exactly how to pay you. It never shows on your public profile or a share link.
+      </p>
+      <div className="mt-3 space-y-2">
+        <label className="block">
+          <span className="text-[11px] font-bold uppercase tracking-wide text-[var(--dim)]">Business name</span>
+          <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. RUGGS LOGISTICS" className={INVOICE_INPUT_CLS} />
+        </label>
+        <label className="block">
+          <span className="text-[11px] font-bold uppercase tracking-wide text-[var(--dim)]">Business address</span>
+          <textarea value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} rows={2} placeholder="Street, city, state, ZIP" className={INVOICE_INPUT_CLS} />
+        </label>
+        <div className="grid grid-cols-2 gap-2">
+          <label className="block">
+            <span className="text-[11px] font-bold uppercase tracking-wide text-[var(--dim)]">Phone</span>
+            <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className={INVOICE_INPUT_CLS} />
+          </label>
+          <label className="block">
+            <span className="text-[11px] font-bold uppercase tracking-wide text-[var(--dim)]">Email</span>
+            <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className={INVOICE_INPUT_CLS} />
+          </label>
+        </div>
+        <label className="block">
+          <span className="text-[11px] font-bold uppercase tracking-wide text-[var(--dim)]">Payment instructions</span>
+          <textarea value={form.paymentInstructions} onChange={(e) => setForm({ ...form, paymentInstructions: e.target.value })} rows={2} placeholder="e.g. ACH to the account on file · checks payable to your business name" className={INVOICE_INPUT_CLS} />
+        </label>
+        <div className="flex items-center gap-3">
+          {showLogo ? (
+            <img src={logoFile ? `data:${logoFile.mime};base64,${logoFile.base64}` : (q.data?.logoUrl ?? "")} alt="Business logo" className="h-12 w-auto rounded-lg border border-[var(--border)] bg-white/90 object-contain p-1" />
+          ) : (
+            <span className="text-xs text-[var(--dim)]">No logo yet.</span>
+          )}
+          <label className="cursor-pointer rounded-full border border-[var(--border)] px-3 py-1.5 text-xs font-bold">
+            {q.data?.hasLogo || logoFile ? "Replace logo" : "Upload logo"}
+            <input type="file" accept="image/*" className="hidden" onChange={(e) => void onLogoFile(e)} />
+          </label>
+          {(q.data?.hasLogo || logoFile) && !removeLogo && (
+            <button type="button" className="text-xs font-bold text-red-300" onClick={() => { setRemoveLogo(true); setLogoFile(null); }}>Remove</button>
+          )}
+        </div>
+        <p className="text-[11px] text-[var(--dim)]">A JPEG logo also prints on the invoice PDF; other formats show in the app.</p>
+        <button type="button" className="btn-gold w-full !py-2.5 text-sm" disabled={busy || q.isLoading} onClick={() => void save()}>
+          {busy ? "Saving…" : "SAVE BUSINESS PROFILE"}
+        </button>
+        {msg && <p className="text-xs text-[var(--dim)]">{msg}</p>}
+      </div>
+    </div>
   );
 }

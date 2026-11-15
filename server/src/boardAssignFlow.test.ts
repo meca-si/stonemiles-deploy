@@ -639,7 +639,9 @@ describe("user library", () => {
     // Statements ride along, grouped by period.
     expect(mine.statements.length).toBeGreaterThanOrEqual(2);
     expect(mine.statements.some((s) => s.periodKey === "Nov 2026")).toBe(true);
-    const pay = mine.statements.find((s) => s.kind !== "settlement");
+    // (Kind named explicitly since invoicing + P&L, migration 0126:
+    // statements also carry "invoice" and "pl" rows now.)
+    const pay = mine.statements.find((s) => s.kind === "pay");
     expect(pay?.net).toBe(1050);
 
     const fleet = await Actions.getLibrary.handler(libOwnerCtx, {} as never);

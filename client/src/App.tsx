@@ -182,7 +182,7 @@ import {
 import { LoadTrailerSection, TrailerToolsPanel, WindAdvisoryBanner } from "./TrailerPanel";
 import { TOOL_GROUPS, type ToolItem } from "./toolDirectory";
 import { asLang, destForLocalizedQuery, destLabel, localeFor, pairText, t as tt, type Lang } from "./i18n";
-import { MoneyFlowHub } from "./MoneyFlow";
+import { BusinessProfilePanel, MoneyFlowHub } from "./MoneyFlow";
 import { docAlertCount, docAlertTier, mostUrgentDoc, truckSummaryLine } from "./moneyMath";
 import { fmtHeightIn as fmtTrailerHeightIn, heightInUse as trailerHeightInUse, type TrailerType } from "./trailer";
 import { PermitsPanel, PermitPlacardChips } from "./PermitsPanel";
@@ -22614,6 +22614,14 @@ export function App() {
                   </button>
                 </div>
               )}
+            </div>
+
+            {/* Business profile — the identity that brands the
+                driver's invoices + P&L (TMS queue item 3). Its own
+                save path (saveBusinessProfile), separate from the
+                social profile above. */}
+            <div className="mt-5 border-t border-[var(--border)] pt-4">
+              <BusinessProfilePanel />
             </div>
 
             {/* Automation — "AI runs it" */}

@@ -212,6 +212,15 @@ settlementLineFor,
 settlementTotals,
 } from "./settlement";
 import {
+DEFAULT_DUE_DAYS,
+buildProfitLoss,
+formatInvoiceNumber,
+invoiceDisplayStatus,
+invoiceLinesFor,
+plPeriodRange,
+type PlPeriodKind,
+} from "./invoicing";
+import {
 SEASON_EPOCH,
 SEASON_MS,
 pointsBalanceFromLedger,
@@ -13905,8 +13914,13 @@ function libraryPdfBytes(args: {
   title: string;
   subtitle?: string | null;
   sections: { heading?: string; lines: string[] }[];
+  /** Optional JPEG media block under the header (the business logo
+   *  on invoices, migration 0126) — buildPdf draws JPEG XObjects
+   *  only, so callers pass an image only when the stored logo is a
+   *  real JPEG (jpegDimensions checked). */
+  image?: { jpegBytes: Uint8Array; widthPt: number; heightPt: number } | null;
 }): Uint8Array {
-  return buildPdf({ title: args.title, subtitle: args.subtitle ?? null, sections: args.sections, footer: LIBRARY_PDF_FOOTER });
+  return buildPdf({ title: args.title, subtitle: args.subtitle ?? null, sections: args.sections, footer: LIBRARY_PDF_FOOTER, image: args.image ?? null });
 }
 
 const moneyText = (n: number | null | undefined): string =>
@@ -14096,9 +14110,184 @@ async function iftaPdfSections(
   ];
 }
 
+// ---- Invoicing + P&L helpers (TMS queue item 3, migration 0126) -------------
+// The pure math lives in invoicing.ts; these helpers gather the
+// caller's own rows (every read is host-scoped, like getMySettlement)
+// and shape them for the actions and the Library documents.
+
+type InvoiceRow = typeof schema.loadInvoices.$inferSelect;
+
+interface BusinessIdentity {
+  name: string | null;
+  address: string | null;
+  phone: string | null;
+  email: string | null;
+  paymentInstructions: string | null;
+  logoBlobKey: string | null;
+  logoMime: string | null;
+}
+
+/** The caller's business identity as it brands their documents:
+ *  the biz_* fields from Settings → Business profile, with the
+ *  billing name falling back biz name → company name → chat name so
+ *  an invoice always has a "from" name. */
+async function businessIdentityFor(ctx: Ctx): Promise<BusinessIdentity> {
+  const db = ctx.db<typeof schema>();
+  const rows = await db
+    .select()
+    .from(schema.profile)
+    .where(eq(schema.profile.id, myProfileId(ctx)))
+    .limit(1);
+  const p = rows[0];
+  return {
+    name: p?.bizName ?? p?.companyName ?? p?.chatName ?? null,
+    address: p?.bizAddress ?? null,
+    phone: p?.bizPhone ?? null,
+    email: p?.bizEmail ?? null,
+    paymentInstructions: p?.bizPaymentInstructions ?? null,
+    logoBlobKey: p?.bizLogoBlobKey ?? null,
+    logoMime: p?.bizLogoMime ?? null,
+  };
+}
+
+/** The business logo as a PDF media block, when the stored logo is
+ *  a real JPEG (buildPdf draws JPEG XObjects only — a PNG logo
+ *  still shows in the app; it just doesn't print on the PDF). */
+async function businessLogoImageFor(
+  ctx: Ctx,
+  biz: BusinessIdentity,
+): Promise<{ jpegBytes: Uint8Array; widthPt: number; heightPt: number } | null> {
+  if (!biz.logoBlobKey) return null;
+  const got = await readBlobBytes(ctx, biz.logoBlobKey);
+  if (!got) return null;
+  const dims = jpegDimensions(got.bytes);
+  if (!dims) return null;
+  const widthPt = 132;
+  const heightPt = Math.max(24, Math.min(72, Math.round((widthPt * dims.height) / Math.max(1, dims.width))));
+  return { jpegBytes: got.bytes, widthPt, heightPt };
+}
+
+function invoiceLinesParsed(row: InvoiceRow): { label: string; amount: number }[] {
+  try {
+    const parsed = JSON.parse(row.linesJson) as { label: string; amount: number }[];
+    return Array.isArray(parsed) ? parsed.filter((l) => typeof l?.label === "string" && Number.isFinite(l?.amount)) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Gather the caller's records and build one period's P&L through
+ *  the pure module. Load meta rides along for the statement's
+ *  per-load display lines. */
+async function profitLossDataFor(
+  ctx: Ctx,
+  kind: PlPeriodKind,
+  year: number,
+  index: number,
+): Promise<{
+  pl: ReturnType<typeof buildProfitLoss>;
+  loadMeta: Map<number, { lane: string; shipper: string | null; deliveredAt: string }>;
+}> {
+  const db = ctx.db<typeof schema>();
+  const period = plPeriodRange(kind, year, index);
+  const loads = await db.select().from(schema.loads);
+  const pods = await podStatusByLoad(ctx);
+  const claims = await db.select().from(schema.claimEvents);
+  const claimsByLoad = new Map<number, number>();
+  for (const c of claims) {
+    if (c.loadId == null) continue;
+    claimsByLoad.set(c.loadId, Math.round(((claimsByLoad.get(c.loadId) ?? 0) + c.amount) * 100) / 100);
+  }
+  const expenses = await db.select().from(schema.expenses);
+  const fuel = await db.select().from(schema.fuelPurchases);
+  const maint = await db.select().from(schema.maintenanceLogEntries);
+  const loadMeta = new Map<number, { lane: string; shipper: string | null; deliveredAt: string }>();
+  const plLoads: { loadId: number; deliveredAtMs: number; gross: number | null; claimsTotal: number }[] = [];
+  for (const l of loads) {
+    const pod = pods.get(l.id);
+    if (!pod?.sealed || !pod.sealedAt) continue; // income = delivered (sealed) loads only
+    loadMeta.set(l.id, { lane: laneTextOf(l), shipper: l.shipper ?? null, deliveredAt: pod.sealedAt });
+    plLoads.push({
+      loadId: l.id,
+      deliveredAtMs: Date.parse(pod.sealedAt),
+      gross: l.rate != null ? Math.round((l.rate + (l.extraCharges ?? 0)) * 100) / 100 : null,
+      claimsTotal: claimsByLoad.get(l.id) ?? 0,
+    });
+  }
+  const pl = buildProfitLoss({
+    loads: plLoads,
+    expenses: expenses.map((e) => ({ spentAtMs: e.spentAt.getTime(), category: e.category, amount: e.amount, loadId: e.loadId ?? null })),
+    fuelPurchases: fuel.map((f) => ({ purchasedAtMs: f.purchasedAt.getTime(), total: f.total })),
+    // Draft maintenance entries are unconfirmed work (a DVIR's
+    // auto-draft) — their cost is not a cost yet. Logged + closed
+    // entries count.
+    maintenance: maint
+      .filter((m) => m.status !== "draft")
+      .map((m) => ({ performedAtMs: m.performedAt.getTime(), cost: m.cost ?? 0 })),
+    period,
+  });
+  return { pl, loadMeta };
+}
+
+/** The invoice document's PDF sections — the bill itself. This is
+ *  the ONE document that prints the load's rate (as its freight
+ *  lines + total): the receiver is the payer. */
+function invoicePdfSections(row: InvoiceRow, biz: BusinessIdentity): { heading?: string; lines: string[] }[] {
+  const lines = invoiceLinesParsed(row);
+  const status = invoiceDisplayStatus({ status: row.status, dueAtMs: row.dueAt?.getTime() ?? null }, Date.now());
+  const fromLines = [
+    biz.name ?? "Your business",
+    ...(biz.address ? biz.address.split("\n").map((s) => s.trim()).filter(Boolean) : []),
+    ...(biz.phone ? [`Phone: ${biz.phone}`] : []),
+    ...(biz.email ? [`Email: ${biz.email}`] : []),
+  ];
+  return [
+    { heading: "From", lines: fromLines },
+    {
+      heading: "Bill to",
+      lines: [
+        row.billToName,
+        ...(row.billToCompany && row.billToCompany !== row.billToName ? [row.billToCompany] : []),
+        ...(row.shipper ? [`Shipper: ${row.shipper}`] : []),
+      ],
+    },
+    {
+      heading: "Load",
+      lines: [
+        `Load #${row.loadId} - ${laneTextOf(row)}`,
+        ...(row.referenceNumber ? [`Reference #: ${row.referenceNumber}`] : []),
+        ...(row.commodity ? [`Freight: ${row.commodity}`] : []),
+        `Delivered: ${row.deliveredAt.toISOString().slice(0, 10)}`,
+      ],
+    },
+    {
+      heading: "Charges",
+      lines: [
+        ...lines.map((l) => `${l.label}: ${moneyText(l.amount)}`),
+        `TOTAL DUE: ${moneyText(row.amount)}`,
+      ],
+    },
+    {
+      heading: "Payment",
+      lines: [
+        `Status: ${status === "paid" ? `PAID${row.paidAt ? ` - ${row.paidAt.toISOString().slice(0, 10)}` : ""}` : status === "overdue" ? "OVERDUE" : status === "issued" ? "Issued - awaiting payment" : "Draft - not issued yet"}`,
+        ...(row.issuedAt ? [`Issued: ${row.issuedAt.toISOString().slice(0, 10)}`] : []),
+        ...(row.dueAt
+          ? [`Due: ${row.dueAt.toISOString().slice(0, 10)}`]
+          : [`Terms: Net ${row.dueDays} (due date sets when the invoice is issued)`]),
+        ...(biz.paymentInstructions
+          ? [`Payment instructions: ${biz.paymentInstructions}`]
+          : ["Payment instructions: add them in Settings - Business profile and they print here."]),
+        ...(row.notes ? [`Note: ${row.notes}`] : []),
+      ],
+    },
+  ];
+}
+
 /** Resolve a Library document reference to real bytes, scope-checked
  *  on every call. Refs: settlement:{id} - pay:{id} - ifta:{y}:{q} -
  *  filing:{chainId} - sealed:{loadId} - packet:{loadId} -
+ *  invoice:{id} - pl:{kind}:{year}:{index} -
  *  upload:filed:{id} - upload:personal:{id} - upload:scale:{id} -
  *  upload:settlement:{id}. Generated documents render as PDF;
  *  uploads return the original file bytes. */
@@ -14264,6 +14453,89 @@ async function resolveLibraryDocument(ctx: Ctx, ref: string): Promise<ResolvedLi
       ],
     });
     return { ok: true, error: null, docKind: "filing", title, filename: `stonemiles-tax-summary-${year}.pdf`, mime: "application/pdf", bytes };
+  }
+
+  if (kind === "invoice") {
+    // The branded invoice for one sealed load (TMS queue item 3).
+    // Scope: the invoices table is host-scoped, so a ref naming
+    // another driver's invoice reads exactly like one that doesn't
+    // exist. THE RATE LAW: this document is the one place the load's
+    // rate prints — the bill the payer receives. No share link,
+    // receive page, or public payload ever resolves an invoice ref.
+    const id = Number(parts[1]);
+    const rows = await db.select().from(schema.loadInvoices).where(eq(schema.loadInvoices.id, id)).limit(1);
+    const r = rows[0];
+    if (!r) return docRefused("invoice");
+    const biz = await businessIdentityFor(ctx);
+    const title = `Invoice ${r.number} - ${r.billToName} - Load #${r.loadId}`;
+    const bytes = buildPdf({
+      title: `INVOICE ${r.number}`,
+      subtitle: `${biz.name ?? "Your business"} - Load #${r.loadId} - ${laneTextOf(r)}`,
+      sections: invoicePdfSections(r, biz),
+      footer: LIBRARY_PDF_FOOTER,
+      image: await businessLogoImageFor(ctx, biz),
+    });
+    return { ok: true, error: null, docKind: "invoice", title, filename: `invoice-${r.number}.pdf`, mime: "application/pdf", bytes };
+  }
+
+  if (kind === "pl") {
+    // A profit & loss statement for one period (TMS queue item 3) —
+    // the owner's own numbers, owner scope only: the statement is
+    // built from the caller's host-scoped records, so there is no
+    // ref that reaches another driver's statement.
+    const pKind = parts[1] as PlPeriodKind;
+    const year = Number(parts[2]);
+    const index = Number(parts[3]);
+    if ((pKind !== "month" && pKind !== "quarter" && pKind !== "year") || !Number.isInteger(year) || year < 2020 || year > 2100 || !Number.isInteger(index))
+      return { ...docRefused("pl"), error: "That statement period isn't valid." };
+    const { pl, loadMeta } = await profitLossDataFor(ctx, pKind, year, index);
+    const biz = await businessIdentityFor(ctx);
+    const title = `Profit & loss - ${pl.period.label}`;
+    const sections: { heading?: string; lines: string[] }[] = [
+      {
+        heading: "Income",
+        lines: [
+          `Freight (sealed loads delivered): ${moneyText(pl.incomeFreight)}`,
+          `Claim events (TONU / layover / assist): ${moneyText(pl.incomeClaims)}`,
+          `Total income: ${moneyText(pl.incomeTotal)}`,
+          ...(pl.unfiguredLoads > 0
+            ? [`${pl.unfiguredLoads} delivered load${pl.unfiguredLoads === 1 ? " has" : "s have"} no rate on file — its freight is NOT in these totals (nothing is invented).`]
+            : []),
+        ],
+      },
+      {
+        heading: "Costs",
+        lines: pl.costLines.length
+          ? [...pl.costLines.map((l) => `${l.label}: ${moneyText(l.amount)}`), `Total costs: ${moneyText(pl.costsTotal)}`]
+          : ["No costs recorded in this period."],
+      },
+      {
+        heading: "Net",
+        lines: [`Net profit: ${moneyText(pl.net)}`],
+      },
+    ];
+    if (pl.perLoad.length) {
+      sections.push({
+        heading: "Per load",
+        lines: pl.perLoad.map((l) => {
+          const meta = loadMeta.get(l.loadId);
+          const head = `Load #${l.loadId}${meta ? ` - ${meta.lane}` : ""}`;
+          return l.income != null
+            ? `${head}: income ${moneyText(l.income)} - costs ${moneyText(l.costs)} = net ${moneyText(l.net)}`
+            : `${head}: no rate on file - costs ${moneyText(l.costs)} - net not figured`;
+        }),
+      });
+    }
+    sections.push({
+      heading: "About this statement",
+      lines: [
+        "Built from your own records in STONEMILES: sealed loads, claim events, the expense tracker, fuel purchases, and the maintenance log.",
+        "Fuel purchases stand as their own line, apart from any fuel logged as an expense — the same two-block honesty as the Tax Worksheet, so nothing double-counts.",
+        "A record for your books — not tax advice.",
+      ],
+    });
+    const bytes = libraryPdfBytes({ title, subtitle: `${biz.name ?? "Your business"} - from your sealed STONEMILES records`, sections });
+    return { ok: true, error: null, docKind: "pl", title, filename: `profit-loss-${pl.period.key.replace(/:/g, "-")}.pdf`, mime: "application/pdf", bytes };
   }
 
   if (kind === "bol") {
@@ -14543,7 +14815,86 @@ async function buildLibrary(ctx: Ctx) {
       createdAt: r.paidAt.toISOString(),
       hasDoc: r.stubBlobKey != null,
     }));
-  const statements = [...settlementRows, ...payRows].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  // 2b) Invoices + P&L statements (TMS queue item 3): invoices cut
+  //    from sealed loads, and a P&L statement per period the
+  //    viewer's records touch — both resolve through the same
+  //    document doors (invoice:{id} / pl:{kind}:{year}:{index}).
+  const invoiceRows = (await db.select().from(schema.loadInvoices).orderBy(desc(schema.loadInvoices.id)).limit(50)).map((r) => ({
+    ref: `invoice:${r.id}`,
+    kind: "invoice",
+    title: `Invoice ${r.number} - ${r.billToName} - Load #${r.loadId}`,
+    periodKey: monthLabelOf(r.issuedAt ?? r.createdAt),
+    periodLabel: monthLabelOf(r.issuedAt ?? r.createdAt),
+    gross: r.amount as number | null,
+    net: r.amount as number | null,
+    createdAt: r.createdAt.toISOString(),
+    hasDoc: true,
+  }));
+  const plClaims = await db.select().from(schema.claimEvents);
+  const plClaimsByLoad = new Map<number, number>();
+  for (const c of plClaims) {
+    if (c.loadId == null) continue;
+    plClaimsByLoad.set(c.loadId, Math.round(((plClaimsByLoad.get(c.loadId) ?? 0) + c.amount) * 100) / 100);
+  }
+  const plExpenses = await db.select().from(schema.expenses);
+  const plFuel = await db.select().from(schema.fuelPurchases);
+  const plMaint = (await db.select().from(schema.maintenanceLogEntries)).filter((m) => m.status !== "draft");
+  const plLoadInputs = myLoads
+    .filter((l) => pod.get(l.id)?.sealed && pod.get(l.id)?.sealedAt)
+    .map((l) => ({
+      loadId: l.id,
+      deliveredAtMs: Date.parse(pod.get(l.id)!.sealedAt!),
+      gross: l.rate != null ? Math.round((l.rate + (l.extraCharges ?? 0)) * 100) / 100 : null,
+      claimsTotal: plClaimsByLoad.get(l.id) ?? 0,
+    }));
+  const touched = new Map<string, { kind: PlPeriodKind; year: number; index: number; latestMs: number }>();
+  const touch = (ms: number) => {
+    if (!Number.isFinite(ms)) return;
+    const d = new Date(ms);
+    const y = d.getUTCFullYear();
+    const m = d.getUTCMonth() + 1;
+    const keys: { kind: PlPeriodKind; year: number; index: number }[] = [
+      { kind: "month", year: y, index: m },
+      { kind: "quarter", year: y, index: Math.floor((m - 1) / 3) + 1 },
+      { kind: "year", year: y, index: 1 },
+    ];
+    for (const k of keys) {
+      const key = `${k.kind}:${k.year}:${k.index}`;
+      const cur = touched.get(key);
+      if (!cur || ms > cur.latestMs) touched.set(key, { ...k, latestMs: ms });
+    }
+  };
+  for (const l of plLoadInputs) touch(l.deliveredAtMs);
+  for (const e of plExpenses) touch(e.spentAt.getTime());
+  for (const f of plFuel) touch(f.purchasedAt.getTime());
+  for (const m of plMaint) touch(m.performedAt.getTime());
+  const plPeriods = (["month", "quarter", "year"] as PlPeriodKind[]).flatMap((kind) =>
+    [...touched.values()]
+      .filter((p) => p.kind === kind)
+      .sort((a, b) => b.latestMs - a.latestMs)
+      .slice(0, kind === "month" ? 6 : kind === "quarter" ? 4 : 3),
+  );
+  const plRows = plPeriods.map((p) => {
+    const pl = buildProfitLoss({
+      loads: plLoadInputs,
+      expenses: plExpenses.map((e) => ({ spentAtMs: e.spentAt.getTime(), category: e.category, amount: e.amount, loadId: e.loadId ?? null })),
+      fuelPurchases: plFuel.map((f) => ({ purchasedAtMs: f.purchasedAt.getTime(), total: f.total })),
+      maintenance: plMaint.map((m) => ({ performedAtMs: m.performedAt.getTime(), cost: m.cost ?? 0 })),
+      period: plPeriodRange(p.kind, p.year, p.index),
+    });
+    return {
+      ref: `pl:${p.kind}:${p.year}:${p.index}`,
+      kind: "pl",
+      title: `Profit & loss - ${pl.period.label}`,
+      periodKey: pl.period.label,
+      periodLabel: pl.period.label,
+      gross: pl.incomeTotal as number | null,
+      net: pl.net as number | null,
+      createdAt: new Date(p.latestMs).toISOString(),
+      hasDoc: true,
+    };
+  });
+  const statements = [...settlementRows, ...payRows, ...invoiceRows, ...plRows].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
   // 3) Fuel tax, state by state — quarters present in the viewer's own
   //    trips/fuel, newest first, through the one IFTA aggregation.
@@ -42456,6 +42807,481 @@ export const Actions = {
         totalGross: totals.totalGross,
         figured: totals.figured,
         unfigured: totals.unfigured,
+      };
+    },
+  }),
+
+  // ---- Invoicing + P&L (TMS queue item 3) -----------------------------------
+  // A branded invoice cut from a sealed load (the who-owes-me entry
+  // wearing a suit) + the owner's profit & loss rollup. Records and
+  // documents only: nothing here moves money. The rate appears ONLY
+  // on the invoice itself (its Library document) — no share, receive,
+  // or public surface reads the invoices table. Business identity
+  // lives on the profile (Settings → Business profile) and brands
+  // both the invoice and the P&L statement.
+
+  getBusinessProfile: defineAction({
+    description: "The caller's business identity for invoices + P&L (Settings → Business profile).",
+    request: z.object({}),
+    response: z.object({
+      name: z.string().nullable(),
+      address: z.string().nullable(),
+      phone: z.string().nullable(),
+      email: z.string().nullable(),
+      paymentInstructions: z.string().nullable(),
+      hasLogo: z.boolean(),
+      logoUrl: z.string().nullable(),
+    }),
+    async handler(ctx) {
+      const db = ctx.db<typeof schema>();
+      const rows = await db
+        .select()
+        .from(schema.profile)
+        .where(eq(schema.profile.id, myProfileId(ctx)))
+        .limit(1);
+      const p = rows[0];
+      const biz = await businessIdentityFor(ctx);
+      return {
+        // The form edits the RAW biz fields (no fallback dressing) —
+        // the fallback name only brands documents.
+        name: p?.bizName ?? null,
+        address: biz.address,
+        phone: biz.phone,
+        email: biz.email,
+        paymentInstructions: biz.paymentInstructions,
+        hasLogo: biz.logoBlobKey != null,
+        logoUrl: biz.logoBlobKey ? await ctx.blobs.getUrl(biz.logoBlobKey) : null,
+      };
+    },
+  }),
+
+  saveBusinessProfile: defineAction({
+    description: "Save the business identity (name, address, phone, email, payment instructions, logo) that brands invoices + P&L.",
+    request: z.object({
+      name: z.string().max(120).nullable(),
+      address: z.string().max(400).nullable(),
+      phone: z.string().max(40).nullable(),
+      email: z.string().max(120).nullable(),
+      paymentInstructions: z.string().max(500).nullable(),
+      logoDataBase64: z.string().max(10_000_000).nullable(),
+      logoMime: z.string().max(80).nullable(),
+      removeLogo: z.boolean().default(false),
+    }),
+    response: z.object({ ok: z.literal(true) }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const rows = await db
+        .select()
+        .from(schema.profile)
+        .where(eq(schema.profile.id, myProfileId(ctx)))
+        .limit(1);
+      const p = rows[0];
+      if (!p) throw new Error("saveBusinessProfile: no profile");
+      const me = await myUsername(ctx);
+      let logoBlobKey = p.bizLogoBlobKey ?? null;
+      let logoMime = p.bizLogoMime ?? null;
+      if (args.removeLogo) {
+        if (logoBlobKey) {
+          try { await ctx.blobs.delete(logoBlobKey); } catch { /* already gone */ }
+        }
+        logoBlobKey = null;
+        logoMime = null;
+      } else if (args.logoDataBase64 && args.logoMime) {
+        const nextKey = `biz-logo-${me}-${Date.now()}`;
+        await ctx.blobs.put(nextKey, base64ToBytes(args.logoDataBase64), { contentType: args.logoMime });
+        if (logoBlobKey && logoBlobKey !== nextKey) {
+          try { await ctx.blobs.delete(logoBlobKey); } catch { /* already gone */ }
+        }
+        logoBlobKey = nextKey;
+        logoMime = args.logoMime;
+      }
+      await db
+        .update(schema.profile)
+        .set({
+          bizName: args.name?.trim() || null,
+          bizAddress: args.address?.trim() || null,
+          bizPhone: args.phone?.trim() || null,
+          bizEmail: args.email?.trim() || null,
+          bizPaymentInstructions: args.paymentInstructions?.trim() || null,
+          bizLogoBlobKey: logoBlobKey,
+          bizLogoMime: logoMime,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.profile.id, myProfileId(ctx)));
+      ctx.invalidateQueries();
+      return { ok: true as const };
+    },
+  }),
+
+  createInvoice: defineAction({
+    description: "Cut a draft invoice from a sealed load (snapshot bill-to, lines, amount; per-driver sequential number).",
+    request: z.object({
+      loadId: z.number().int().positive(),
+      dueDays: z.number().int().min(0).max(120).default(DEFAULT_DUE_DAYS),
+      notes: z.string().max(300).nullable(),
+    }),
+    response: z.object({ id: z.number(), number: z.string() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const loads = await db.select().from(schema.loads).where(eq(schema.loads.id, args.loadId)).limit(1);
+      const load = loads[0];
+      if (!load) throw new Error("createInvoice: no such load");
+      const pods = await podStatusByLoad(ctx);
+      const pod = pods.get(load.id);
+      if (!pod?.sealed || !pod.sealedAt) {
+        throw new Error("That load hasn't been delivered and sealed yet — an invoice is cut from a sealed load, so the bill always matches the sealed record.");
+      }
+      if (load.rate == null) {
+        throw new Error("This load has no rate on file — add the rate on the load first. An invoice never invents an amount.");
+      }
+      const existing = await db.select().from(schema.loadInvoices).where(eq(schema.loadInvoices.loadId, load.id)).limit(1);
+      if (existing[0]) {
+        throw new Error(`Load #${load.id} already has invoice ${existing[0].number} — one invoice per load. Delete the draft if you need to cut it again.`);
+      }
+      const claims = (await db.select().from(schema.claimEvents).where(eq(schema.claimEvents.loadId, load.id)))
+        .map((c) => ({ kind: c.kind, amount: c.amount }));
+      const built = invoiceLinesFor(
+        { rate: load.rate, extraCharges: load.extraCharges ?? 0, extraChargesNote: load.extraChargesNote ?? null },
+        claims,
+      );
+      if (built.amount == null) throw new Error("createInvoice: amount could not be figured from the load's rate");
+      const year = new Date().getUTCFullYear();
+      // Per-driver sequential numbering, derived from the sealed
+      // chain's invoice_created events on the caller's own loads —
+      // so a deleted draft's number is never reused: the sequence
+      // only ever climbs.
+      const myLoads = await db.select({ id: schema.loads.id }).from(schema.loads);
+      const myLoadIds = new Set(myLoads.map((l) => l.id));
+      const createdEvents = await db.select().from(schema.chainLog).where(eq(schema.chainLog.event, "invoice_created"));
+      let maxSeq = 0;
+      for (const r of createdEvents) {
+        if (r.refId == null || !myLoadIds.has(r.refId)) continue;
+        try {
+          const p = JSON.parse(r.payload) as { number?: string };
+          const m = p.number ? new RegExp(`^INV-${year}-(\\d+)$`).exec(p.number) : null;
+          if (m) maxSeq = Math.max(maxSeq, Number(m[1]));
+        } catch {
+          /* a malformed chain payload never blocks invoicing */
+        }
+      }
+      const number = formatInvoiceNumber(year, maxSeq + 1);
+      const billToName = load.brokerCompany ?? load.brokerName ?? load.shipper ?? "Payer not named on the load";
+      const ins = await db
+        .insert(schema.loadInvoices)
+        .values({
+          loadId: load.id,
+          number,
+          status: "draft",
+          billToName,
+          billToCompany: load.brokerCompany ?? null,
+          shipper: load.shipper ?? null,
+          pickupCity: load.pickupCity ?? null,
+          pickupState: load.pickupState ?? null,
+          deliveryCity: load.deliveryCity ?? null,
+          deliveryState: load.deliveryState ?? null,
+          referenceNumber: load.referenceNumber ?? null,
+          commodity: load.commodity ?? null,
+          deliveredAt: new Date(pod.sealedAt),
+          linesJson: JSON.stringify(built.lines),
+          amount: built.amount,
+          dueDays: args.dueDays,
+          notes: args.notes?.trim() || null,
+        })
+        .returning({ id: schema.loadInvoices.id });
+      const row = ins[0];
+      if (!row) throw new Error("createInvoice: insert returned no rows");
+      const hash = await appendChain(ctx, {
+        refKind: "load",
+        refId: load.id,
+        sessionId: null,
+        event: "invoice_created",
+        payload: { invoiceId: row.id, number, loadId: load.id, amount: built.amount, billToName, at: new Date().toISOString() },
+      });
+      await db.update(schema.loadInvoices).set({ chainHash: hash }).where(eq(schema.loadInvoices.id, row.id));
+      ctx.invalidateQueries();
+      return { id: row.id, number };
+    },
+  }),
+
+  listInvoices: defineAction({
+    description: "The caller's invoices, newest first, with derived display status (overdue from the due date).",
+    request: z.object({}),
+    response: z.object({
+      invoices: z.array(
+        z.object({
+          id: z.number(),
+          number: z.string(),
+          loadId: z.number(),
+          billToName: z.string(),
+          lane: z.string(),
+          amount: z.number(),
+          status: z.string(),
+          displayStatus: z.string(),
+          issuedAt: z.string().nullable(),
+          dueAt: z.string().nullable(),
+          paidAt: z.string().nullable(),
+          createdAt: z.string(),
+        }),
+      ),
+    }),
+    async handler(ctx) {
+      const db = ctx.db<typeof schema>();
+      const rows = await db.select().from(schema.loadInvoices).orderBy(desc(schema.loadInvoices.id));
+      const now = Date.now();
+      return {
+        invoices: rows.map((r) => ({
+          id: r.id,
+          number: r.number,
+          loadId: r.loadId,
+          billToName: r.billToName,
+          lane: laneTextOf(r),
+          amount: r.amount,
+          status: r.status,
+          displayStatus: invoiceDisplayStatus({ status: r.status, dueAtMs: r.dueAt?.getTime() ?? null }, now),
+          issuedAt: r.issuedAt?.toISOString() ?? null,
+          dueAt: r.dueAt?.toISOString() ?? null,
+          paidAt: r.paidAt?.toISOString() ?? null,
+          createdAt: r.createdAt.toISOString(),
+        })),
+      };
+    },
+  }),
+
+  getInvoice: defineAction({
+    description: "One invoice in full: snapshot lines, lifecycle dates, and the caller's business identity that brands it.",
+    request: z.object({ id: z.number().int().positive() }),
+    response: z.object({
+      id: z.number(),
+      number: z.string(),
+      loadId: z.number(),
+      billToName: z.string(),
+      billToCompany: z.string().nullable(),
+      shipper: z.string().nullable(),
+      lane: z.string(),
+      referenceNumber: z.string().nullable(),
+      commodity: z.string().nullable(),
+      deliveredAt: z.string(),
+      lines: z.array(z.object({ label: z.string(), amount: z.number() })),
+      amount: z.number(),
+      status: z.string(),
+      displayStatus: z.string(),
+      dueDays: z.number(),
+      issuedAt: z.string().nullable(),
+      dueAt: z.string().nullable(),
+      paidAt: z.string().nullable(),
+      notes: z.string().nullable(),
+      business: z.object({
+        name: z.string().nullable(),
+        address: z.string().nullable(),
+        phone: z.string().nullable(),
+        email: z.string().nullable(),
+        paymentInstructions: z.string().nullable(),
+        hasLogo: z.boolean(),
+      }),
+    }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const rows = await db.select().from(schema.loadInvoices).where(eq(schema.loadInvoices.id, args.id)).limit(1);
+      const r = rows[0];
+      if (!r) throw new Error("getInvoice: no such invoice");
+      const biz = await businessIdentityFor(ctx);
+      return {
+        id: r.id,
+        number: r.number,
+        loadId: r.loadId,
+        billToName: r.billToName,
+        billToCompany: r.billToCompany ?? null,
+        shipper: r.shipper ?? null,
+        lane: laneTextOf(r),
+        referenceNumber: r.referenceNumber ?? null,
+        commodity: r.commodity ?? null,
+        deliveredAt: r.deliveredAt.toISOString(),
+        lines: invoiceLinesParsed(r),
+        amount: r.amount,
+        status: r.status,
+        displayStatus: invoiceDisplayStatus({ status: r.status, dueAtMs: r.dueAt?.getTime() ?? null }, Date.now()),
+        dueDays: r.dueDays,
+        issuedAt: r.issuedAt?.toISOString() ?? null,
+        dueAt: r.dueAt?.toISOString() ?? null,
+        paidAt: r.paidAt?.toISOString() ?? null,
+        notes: r.notes ?? null,
+        business: {
+          name: biz.name,
+          address: biz.address,
+          phone: biz.phone,
+          email: biz.email,
+          paymentInstructions: biz.paymentInstructions,
+          hasLogo: biz.logoBlobKey != null,
+        },
+      };
+    },
+  }),
+
+  issueInvoice: defineAction({
+    description: "Issue a draft invoice: stamps the issue date and sets the due date from its terms (Net N).",
+    request: z.object({ id: z.number().int().positive() }),
+    response: z.object({ ok: z.literal(true), dueAt: z.string() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const rows = await db.select().from(schema.loadInvoices).where(eq(schema.loadInvoices.id, args.id)).limit(1);
+      const r = rows[0];
+      if (!r) throw new Error("issueInvoice: no such invoice");
+      if (r.status !== "draft") throw new Error(`Invoice ${r.number} is already ${r.status} — only a draft can be issued.`);
+      const issuedAt = new Date();
+      const dueAt = new Date(issuedAt.getTime() + r.dueDays * 86_400_000);
+      await db
+        .update(schema.loadInvoices)
+        .set({ status: "issued", issuedAt, dueAt, updatedAt: new Date() })
+        .where(eq(schema.loadInvoices.id, r.id));
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: r.loadId,
+        sessionId: null,
+        event: "invoice_issued",
+        payload: { invoiceId: r.id, number: r.number, loadId: r.loadId, amount: r.amount, issuedAt: issuedAt.toISOString(), dueAt: dueAt.toISOString() },
+      });
+      ctx.invalidateQueries();
+      return { ok: true as const, dueAt: dueAt.toISOString() };
+    },
+  }),
+
+  markInvoicePaid: defineAction({
+    description: "Mark an invoice paid — records the covering payment on the load so the who-owes-me board clears (record only, no money moves).",
+    request: z.object({
+      id: z.number().int().positive(),
+      paidAt: z.string().max(40).nullable(),
+      note: z.string().max(200).nullable(),
+    }),
+    response: z.object({ ok: z.literal(true), recordedPayment: z.number() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const rows = await db.select().from(schema.loadInvoices).where(eq(schema.loadInvoices.id, args.id)).limit(1);
+      const r = rows[0];
+      if (!r) throw new Error("markInvoicePaid: no such invoice");
+      if (r.status === "paid") throw new Error(`Invoice ${r.number} is already marked paid.`);
+      const paidAt = args.paidAt && Number.isFinite(Date.parse(args.paidAt)) ? new Date(args.paidAt) : new Date();
+      // The board's own math (getOwedBoard): freight + claims −
+      // recorded payments. Recording the outstanding remainder is
+      // what clears the load off the board.
+      const loads = await db.select().from(schema.loads).where(eq(schema.loads.id, r.loadId)).limit(1);
+      const load = loads[0];
+      const claims = await db.select().from(schema.claimEvents).where(eq(schema.claimEvents.loadId, r.loadId));
+      const claimsTotal = Math.round(claims.reduce((s, c) => s + c.amount, 0) * 100) / 100;
+      const payments = await db.select().from(schema.loadPayments).where(eq(schema.loadPayments.loadId, r.loadId));
+      const paidTotal = Math.round(payments.reduce((s, p) => s + p.amount, 0) * 100) / 100;
+      const freight = load?.rate != null ? Math.round((load.rate + (load.extraCharges ?? 0)) * 100) / 100 : null;
+      const totalOwed = freight != null ? Math.round((freight + claimsTotal) * 100) / 100 : null;
+      const outstanding = totalOwed != null ? Math.round((totalOwed - paidTotal) * 100) / 100 : 0;
+      let recordedPayment = 0;
+      if (outstanding > 0.005) {
+        recordedPayment = outstanding;
+        const ins = await db
+          .insert(schema.loadPayments)
+          .values({ loadId: r.loadId, amount: outstanding, paidAt, note: args.note?.trim() || `Invoice ${r.number} marked paid` })
+          .returning({ id: schema.loadPayments.id });
+        const payRow = ins[0];
+        if (!payRow) throw new Error("markInvoicePaid: payment insert returned no rows");
+        const payHash = await appendChain(ctx, {
+          refKind: "load",
+          refId: r.loadId,
+          sessionId: null,
+          event: "load_payment",
+          payload: { paymentId: payRow.id, loadId: r.loadId, amount: outstanding, paidAt: paidAt.toISOString(), note: args.note?.trim() || `Invoice ${r.number} marked paid`, viaInvoice: r.id },
+        });
+        await db.update(schema.loadPayments).set({ chainHash: payHash }).where(eq(schema.loadPayments.id, payRow.id));
+      }
+      await db
+        .update(schema.loadInvoices)
+        .set({ status: "paid", paidAt, updatedAt: new Date() })
+        .where(eq(schema.loadInvoices.id, r.id));
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: r.loadId,
+        sessionId: null,
+        event: "invoice_paid",
+        payload: { invoiceId: r.id, number: r.number, loadId: r.loadId, amount: r.amount, paidAt: paidAt.toISOString(), recordedPayment },
+      });
+      ctx.invalidateQueries();
+      return { ok: true as const, recordedPayment };
+    },
+  }),
+
+  deleteInvoice: defineAction({
+    description: "Delete a DRAFT invoice (the deletion is sealed; issued/paid invoices are records and stay).",
+    request: z.object({ id: z.number().int().positive() }),
+    response: z.object({ ok: z.literal(true) }),
+    async handler(ctx, args): Promise<{ ok: true }> {
+      const db = ctx.db<typeof schema>();
+      const rows = await db.select().from(schema.loadInvoices).where(eq(schema.loadInvoices.id, args.id)).limit(1);
+      const r = rows[0];
+      if (!r) throw new Error("deleteInvoice: no such invoice");
+      if (r.status !== "draft") throw new Error(`Invoice ${r.number} is ${r.status} — only a draft can be deleted.`);
+      await db.delete(schema.loadInvoices).where(eq(schema.loadInvoices.id, r.id));
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: r.loadId,
+        sessionId: null,
+        event: "invoice_deleted",
+        payload: { invoiceId: r.id, number: r.number, loadId: r.loadId, amount: r.amount, at: new Date().toISOString() },
+      });
+      ctx.invalidateQueries();
+      return { ok: true };
+    },
+  }),
+
+  getProfitLoss: defineAction({
+    description: "The caller's profit & loss for one period (month / quarter / year): income from sealed loads + claims, costs from fuel, expenses, and the maintenance log, plus per-load lines.",
+    request: z.object({
+      kind: z.enum(["month", "quarter", "year"]),
+      year: z.number().int().min(2020).max(2100),
+      index: z.number().int().min(1).max(12).default(1),
+    }),
+    response: z.object({
+      period: z.object({ kind: z.string(), year: z.number(), index: z.number(), label: z.string(), key: z.string() }),
+      incomeFreight: z.number(),
+      incomeClaims: z.number(),
+      incomeTotal: z.number(),
+      unfiguredLoads: z.number(),
+      costLines: z.array(z.object({ key: z.string(), label: z.string(), amount: z.number() })),
+      costsTotal: z.number(),
+      net: z.number(),
+      unassignedExpenses: z.number(),
+      perLoad: z.array(
+        z.object({
+          loadId: z.number(),
+          lane: z.string(),
+          shipper: z.string().nullable(),
+          deliveredAt: z.string(),
+          income: z.number().nullable(),
+          costs: z.number(),
+          net: z.number().nullable(),
+        }),
+      ),
+    }),
+    async handler(ctx, args) {
+      const { pl, loadMeta } = await profitLossDataFor(ctx, args.kind, args.year, args.index);
+      return {
+        period: { kind: pl.period.kind, year: pl.period.year, index: pl.period.index, label: pl.period.label, key: pl.period.key },
+        incomeFreight: pl.incomeFreight,
+        incomeClaims: pl.incomeClaims,
+        incomeTotal: pl.incomeTotal,
+        unfiguredLoads: pl.unfiguredLoads,
+        costLines: pl.costLines,
+        costsTotal: pl.costsTotal,
+        net: pl.net,
+        unassignedExpenses: pl.unassignedExpenses,
+        perLoad: pl.perLoad.map((l) => {
+          const meta = loadMeta.get(l.loadId);
+          return {
+            loadId: l.loadId,
+            lane: meta?.lane ?? `Load #${l.loadId}`,
+            shipper: meta?.shipper ?? null,
+            deliveredAt: meta?.deliveredAt ?? "",
+            income: l.income,
+            costs: l.costs,
+            net: l.net,
+          };
+        }),
       };
     },
   }),

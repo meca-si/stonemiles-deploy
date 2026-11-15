@@ -122,6 +122,22 @@ export const profile = sqliteTable("profile", {
   // month, or a day the month doesn't have, is refused).
   birthMonth: integer("birth_month"),
   birthDay: integer("birth_day"),
+  // Business identity (migration 0126, TMS queue item 3): the
+  // driver's OWN business as it prints on their invoices and P&L
+  // statements — name, address, phone, email, payment instructions,
+  // and a logo (blob key + mime on the row, bytes in ctx.blobs — the
+  // avatar pattern). All optional, all driver-entered. Distinct from
+  // companyName above (the carrier a company driver works FOR): this
+  // is the business the driver bills AS. These details brand the
+  // invoice — the one document that carries the rate — and the
+  // owner's own P&L; they never ride a share or public surface.
+  bizName: text("biz_name"),
+  bizAddress: text("biz_address"),
+  bizPhone: text("biz_phone"),
+  bizEmail: text("biz_email"),
+  bizPaymentInstructions: text("biz_payment_instructions"),
+  bizLogoBlobKey: text("biz_logo_blob_key"),
+  bizLogoMime: text("biz_logo_mime"),
   // The driver's social handle (usernames are how people follow/DM/add).
   socialUsername: text("social_username").notNull().default("driver"),
   // Subscription plan recorded for the app-store release ("basic" |
@@ -4549,6 +4565,53 @@ export const credentialAlertDismissals = sqliteTable("credential_alert_dismissal
   threshold: integer("threshold").notNull(), // 60 | 30 | 7 | 0 (expired)
   expiresOn: text("expires_on").notNull(), // YYYY-MM-DD the dismissal applies to
   dismissedAt: integer("dismissed_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+// Load invoices (migration 0126, TMS queue item 3): one branded
+// invoice per sealed load — the who-owes-me entry wearing a suit.
+// The row SNAPSHOTS the bill at creation (bill-to, lane, reference,
+// line items, amount) so a later edit to the load can never rewrite
+// a bill already cut; the lifecycle is draft → issued → paid, with
+// "overdue" derived from dueAt at read time (invoicing.ts), never a
+// stored flag. Marking paid records the covering payment on the
+// load (load_payments), which is what clears the owed board. The
+// rate lives in linesJson/amount — on the invoice ONLY, per the
+// standing rate law; no share or public payload ever reads this
+// table. One invoice per load (load_id unique): a deleted draft
+// frees the load to be invoiced again.
+export const loadInvoices = sqliteTable("load_invoices", {
+  // Auth Phase 2b: owning profile (host-stamped on insert, host-filtered
+  // on read/update/delete — see host/ctx.ts scopedDb). Null only on
+  // pre-auth rows; migration 0108 backfills them to profile 1.
+  profileId: integer("profile_id"),
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  loadId: integer("load_id").notNull().unique(),
+  number: text("number").notNull(), // INV-<year>-<seq>, per-driver sequential
+  status: text("status").notNull().default("draft"), // draft | issued | paid
+  billToName: text("bill_to_name").notNull(),
+  billToCompany: text("bill_to_company"),
+  shipper: text("shipper"),
+  pickupCity: text("pickup_city"),
+  pickupState: text("pickup_state"),
+  deliveryCity: text("delivery_city"),
+  deliveryState: text("delivery_state"),
+  referenceNumber: text("reference_number"),
+  commodity: text("commodity"),
+  deliveredAt: integer("delivered_at", { mode: "timestamp_ms" }).notNull(),
+  linesJson: text("lines_json").notNull().default("[]"), // [{label, amount}]
+  amount: real("amount").notNull(),
+  dueDays: integer("due_days").notNull().default(30),
+  issuedAt: integer("issued_at", { mode: "timestamp_ms" }),
+  dueAt: integer("due_at", { mode: "timestamp_ms" }),
+  paidAt: integer("paid_at", { mode: "timestamp_ms" }),
+  notes: text("notes"),
+  chainHash: text("chain_hash"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" })
     .notNull()
     .$defaultFn(() => new Date()),
 });
