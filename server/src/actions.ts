@@ -123,6 +123,36 @@ dailyTaskPoints,
 type DailyTaskKey,
 } from "./dailyPoints";
 import {
+LANE1_CLEAN_INSPECTION_POINTS,
+LANE1_HOS_CLEAN_WEEK_POINTS,
+LANE1_INSPECTION_SOURCE,
+LANE1_MILES_SOURCE,
+LANE1_ONTIME_SOURCE,
+LANE1_HOS_SOURCE,
+LANE2_CORROBORATION_RADIUS_MI,
+LANE2_CORROBORATION_WINDOW_MS,
+LANE2_DAILY_AWARD_CAP,
+LANE2_FUEL_SOURCE,
+LANE2_INTEL_SOURCE,
+LANE2_REPORT_POINTS,
+LANE3_FIRST_LANE_POINTS,
+LANE3_FIRST_LANE_SOURCE,
+LANE3_FOUNDING_SOURCE,
+LANE3_FOUNDING_TESTER_POINTS,
+LANE3_POSTER_REFERRAL_POINTS,
+LANE3_POSTER_SOURCE,
+fuelRelation,
+hosViolationsInWindow,
+howToEarnLanes,
+intelRelation,
+laneForSource,
+laneKeyFor,
+laneLabelForKey,
+milesMilestonesCrossed,
+onTimeBlockAwards,
+type SealedLoadTiming,
+} from "./pointsLanes";
+import {
 SEASON_EPOCH,
 SEASON_MS,
 pointsBalanceFromLedger,
@@ -1651,6 +1681,9 @@ async function completeDeliveryConfirmation(
       gradeCriteria: gradeResult.criteria,
     },
   });
+  // Points lanes (2026-11-15): a receiver-confirmed seal claims the
+  // lane in the first-sealed-lane registry just like a driver seal.
+  await recordSealedLane(ctx, { load, sealedAt: at, username: opts.actorUsername });
   try {
     await assemblePaymentPacket(ctx, load, sealHash);
   } catch (e) {
@@ -2407,6 +2440,438 @@ async function pointsBalance(ctx: Ctx, username: string): Promise<number> {
   // tier, so no rollover can ever reduce a balance (free tier
   // included). See pointsRetention.ts.
   return pointsBalanceFromLedger(rows);
+}
+
+// ---- Points earning lanes (locked by x, 2026-11-15) -------------------------
+// The three lanes (pointsLanes.ts holds every value + the pure
+// decisions) ride THIS ledger: an award is an awardPoints row whose
+// source names its lane, keyed by a deterministic refKey. The gate
+// mirrors the settled-subscription path (recordSubscriptionRewards):
+// only PAYING seats earn — a recorded paid plan AND not a comped
+// fleet-included seat (House Rule 4, isCompedFleetDriver). Lane
+// awards are evaluated lazily inside getPoints (the same pattern as
+// clean-day / clean-week / rank milestones) plus at the two Lane 2
+// corroboration moments. Nothing here converts points to a token or
+// cash — conversion stays behind its own gates, untouched.
+
+/** Lane eligibility for ANY username: paid plan + not a comped seat.
+ *  For the caller, the recorded plan goes through myPlan (trial
+ *  expiry included); for anyone else it reads their profile row. */
+async function laneEligibleFor(ctx: Ctx, username: string): Promise<boolean> {
+  if (await isCompedFleetDriver(ctx, username)) return false;
+  if (username === (await myUsername(ctx))) return isGoldPlan(await myPlan(ctx));
+  const db = ctx.db<typeof schema>();
+  const rows = await db
+    .select()
+    .from(schema.profile)
+    .where(eq(schema.profile.socialUsername, username))
+    .limit(1);
+  return isGoldPlan(normalizePlan(rows[0]?.plan));
+}
+
+/**
+ * Reverse a lane award (the House Rule 1 clawback path): write the
+ * compensating negative row under source "clawback", keyed
+ * `clawback:<refKey>` so reversing the same award twice writes
+ * nothing. Returns true when a reversal row was written.
+ */
+async function reverseLaneAward(
+  ctx: Ctx,
+  username: string,
+  refKey: string,
+  note: string,
+): Promise<boolean> {
+  const db = ctx.db<typeof schema>();
+  const rows = await db
+    .select()
+    .from(schema.pointsLog)
+    .where(eq(schema.pointsLog.username, username));
+  const award = rows.find((r) => r.refKey === refKey && r.amount > 0);
+  if (!award) return false;
+  if (rows.some((r) => r.refKey === `clawback:${refKey}`)) return false;
+  await awardPoints(ctx, {
+    username,
+    amount: -award.amount,
+    reason: `Reversal — ${note} (was: ${award.reason})`,
+    source: "clawback",
+    refKey: `clawback:${refKey}`,
+  });
+  return true;
+}
+
+/**
+ * Award Lane 2 points to a reporter whose report another driver
+ * corroborated. Enforces the paying-seat gate for the REPORTER (who
+ * is usually not the caller) and the per-driver daily Lane 2 award
+ * cap. Idempotent via the per-report refKey.
+ */
+async function awardLane2Report(
+  ctx: Ctx,
+  args: { reporter: string; source: string; refKey: string; reason: string },
+): Promise<boolean> {
+  if (!(await laneEligibleFor(ctx, args.reporter))) return false;
+  const db = ctx.db<typeof schema>();
+  const rows = await db
+    .select()
+    .from(schema.pointsLog)
+    .where(eq(schema.pointsLog.username, args.reporter));
+  const todayKey = localDayKey(new Date());
+  const todayCount = rows.filter(
+    (r) =>
+      r.amount > 0 &&
+      (r.source === LANE2_INTEL_SOURCE || r.source === LANE2_FUEL_SOURCE) &&
+      localDayKey(r.createdAt) === todayKey,
+  ).length;
+  if (todayCount >= LANE2_DAILY_AWARD_CAP) return false;
+  return awardPoints(ctx, {
+    username: args.reporter,
+    amount: LANE2_REPORT_POINTS,
+    reason: args.reason,
+    source: args.source,
+    refKey: args.refKey,
+  });
+}
+
+/**
+ * Claim a lane (origin→destination) for its first sealer — first
+ * writer wins on the sealed_lanes primary key. Called by both POD
+ * seal paths so the registry exists even before anyone opens their
+ * points; the evaluator re-checks claims lazily as a backstop.
+ * Never throws into a seal: a registry hiccup must not fail a POD.
+ */
+async function recordSealedLane(
+  ctx: Ctx,
+  args: { load: LoadRow; sealedAt: Date; username: string },
+): Promise<void> {
+  const key = laneKeyFor(
+    args.load.pickupCity,
+    args.load.pickupState,
+    args.load.deliveryCity,
+    args.load.deliveryState,
+  );
+  if (!key) return;
+  try {
+    const db = ctx.db<typeof schema>();
+    await db
+      .insert(schema.sealedLanes)
+      .values({
+        laneKey: key,
+        firstUsername: args.username,
+        firstLoadId: args.load.id,
+        firstSealedAt: args.sealedAt,
+      })
+      .onConflictDoNothing();
+  } catch {
+    /* the registry never fails a seal */
+  }
+}
+
+/**
+ * Record a Lane 3 poster referral when the desk creates a broker /
+ * shipper account carrying a driver's referral code. Returns the
+ * referrer's username when a referral was recorded, null otherwise.
+ * An unknown code — or the desk seat referring itself — records
+ * nothing and never fails the account creation.
+ */
+async function recordPosterReferral(
+  ctx: Ctx,
+  args: { referralCode: string | null; kind: "broker" | "shipper"; accountId: number; deskUsername: string },
+): Promise<string | null> {
+  const code = args.referralCode?.trim();
+  if (!code) return null;
+  try {
+    const db = ctx.db<typeof schema>();
+    const rows = await db
+      .select()
+      .from(schema.referralCodes)
+      .where(eq(schema.referralCodes.code, code))
+      .limit(1);
+    const referrer = rows[0]?.username ?? null;
+    if (!referrer || referrer === args.deskUsername) return null;
+    await db.insert(schema.posterReferrals).values({
+      referrerUsername: referrer,
+      kind: args.kind,
+      accountId: args.accountId,
+      status: "pending",
+    });
+    return referrer;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The lazy lane evaluator — run inside getPoints for the caller,
+ * idempotent everywhere (awardPoints refKeys + the sealed_lanes
+ * registry). Awards only; the one reconciliation is Lane 1 on-time
+ * blocks: a block whose seals no longer justify it (a voided POD in
+ * the run) is reversed through the clawback path.
+ */
+async function evaluatePointsLanes(ctx: Ctx, me: string): Promise<void> {
+  const db = ctx.db<typeof schema>();
+  if (!(await laneEligibleFor(ctx, me))) return;
+  const dayMs = 86400000;
+
+  // -- Lane 1: lifetime sealed-miles milestones (sealed trip sheets).
+  const trips = await db.select().from(schema.trips);
+  const totalMiles = trips.reduce((s, t) => s + (t.totalMiles || 0), 0);
+  for (const m of milesMilestonesCrossed(totalMiles)) {
+    await awardPoints(ctx, {
+      username: me,
+      amount: m.points,
+      reason: `Sealed miles milestone — ${m.miles.toLocaleString("en-US")} lifetime sealed miles`,
+      source: LANE1_MILES_SOURCE,
+      refKey: `lane1-miles-${m.miles}`,
+    });
+  }
+
+  // Sealed loads + their seal times, derived from the chain exactly
+  // like the rank evaluator in getPoints (a voided seal unseals).
+  const loads = await db.select().from(schema.loads);
+  const loadById = new Map(loads.map((l) => [l.id, l]));
+  const chain = await db
+    .select()
+    .from(schema.chainLog)
+    .orderBy(asc(schema.chainLog.id));
+  const sealMs = new Map<number, number>();
+  for (const r of chain) {
+    if (r.refId == null) continue;
+    if (r.event === "pod_seal") {
+      try {
+        const p = JSON.parse(r.payload) as { at?: string };
+        if (p.at) sealMs.set(r.refId, Date.parse(p.at));
+      } catch {
+        // ignore
+      }
+    }
+    if (r.event === "pod_seal_void") sealMs.delete(r.refId);
+  }
+  // The appointment read matches the daily table's on-time rule
+  // (sealDelivery): deliveryText parsed as the appointment, dock
+  // appointment as the fallback, +60 minutes of grace.
+  const apptOf = (load: LoadRow): number | null => {
+    if (load.deliveryText) {
+      const p = Date.parse(load.deliveryText);
+      if (Number.isFinite(p)) return p;
+    }
+    return load.dockApptAt ? load.dockApptAt.getTime() : null;
+  };
+
+  // -- Lane 1: on-time streak blocks (+ reversal reconciliation).
+  const timings: SealedLoadTiming[] = [];
+  for (const [loadId, ms] of sealMs) {
+    const load = loadById.get(loadId);
+    if (!load) continue;
+    const apptMs = apptOf(load);
+    timings.push({
+      loadId,
+      sealMs: ms,
+      apptMs,
+      onTime: apptMs != null && ms <= apptMs + 60 * 60000,
+    });
+  }
+  const blocks = onTimeBlockAwards(timings);
+  const justified = new Set(blocks.map((b) => b.refKey));
+  for (const b of blocks) {
+    await awardPoints(ctx, {
+      username: me,
+      amount: b.points,
+      reason: `On-time streak — 5 sealed loads delivered on time in a row (streak block ${b.block})`,
+      source: LANE1_ONTIME_SOURCE,
+      refKey: b.refKey,
+    });
+  }
+  const myLedger = await db
+    .select()
+    .from(schema.pointsLog)
+    .where(eq(schema.pointsLog.username, me));
+  for (const r of myLedger) {
+    if (r.source === LANE1_ONTIME_SOURCE && r.refKey && !justified.has(r.refKey)) {
+      await reverseLaneAward(
+        ctx,
+        me,
+        r.refKey,
+        "a seal in that on-time streak was voided, so the streak no longer holds",
+      );
+    }
+  }
+
+  // -- Lane 1: clean inspections — a CLOSED daily log (the sealed
+  // log) whose pre-trip inspection passed with zero defects. The
+  // app keeps no separate roadside-inspection outcome record; the
+  // sealed daily log's signed pre-trip IS its inspection record.
+  const logs = await db
+    .select()
+    .from(schema.dailyLogs)
+    .where(eq(schema.dailyLogs.username, me));
+  for (const l of logs) {
+    if (l.status === "open" || !l.pretrip) continue;
+    let clean = false;
+    try {
+      const p = JSON.parse(l.pretrip) as { result?: string; defects?: unknown[] };
+      clean = p.result === "pass" && Array.isArray(p.defects) && p.defects.length === 0;
+    } catch {
+      clean = false;
+    }
+    if (!clean) continue;
+    await awardPoints(ctx, {
+      username: me,
+      amount: LANE1_CLEAN_INSPECTION_POINTS,
+      reason: `Clean inspection logged — pre-trip passed with no defects (${l.logDate})`,
+      source: LANE1_INSPECTION_SOURCE,
+      refKey: `lane1-inspection-${l.id}`,
+    });
+  }
+
+  // -- Lane 1: HOS clean weeks — a completed Mon–Sun week (same
+  // calendar as the clean-week streak) with at least one closed
+  // daily log, at least one sealed duty event, and zero violations
+  // when the sealed duty timeline is replayed server-side.
+  const eff = await effectiveDutyTimeline(ctx);
+  const myEvents = eff.events
+    .filter((e) => e.username == null || e.username === me)
+    .map((e) => ({ state: e.state, at: e.at }));
+  const weekdayFmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: DRIVER_TZ,
+    weekday: "short",
+  });
+  const mondayOf = (t: number) => {
+    let start = localDayStartMs(new Date(t));
+    for (let i = 0; i < 7; i++) {
+      if (weekdayFmt.format(new Date(start + 12 * 3600000)) === "Mon") break;
+      start = localDayStartMs(new Date(start - 12 * 3600000));
+    }
+    return start;
+  };
+  const thisMonday = mondayOf(Date.now());
+  for (let w = 1; w <= 8; w++) {
+    const ws = mondayOf(thisMonday - w * 7 * dayMs + 12 * 3600000);
+    const we = localDayStartMs(new Date(ws + 7 * dayMs + 12 * 3600000));
+    const weekKeys = new Set<string>();
+    for (let d = 0; d < 7; d++) weekKeys.add(localDayKey(new Date(ws + d * dayMs + 12 * 3600000)));
+    if (!logs.some((l) => l.status !== "open" && weekKeys.has(l.logDate))) continue;
+    if (!myEvents.some((e) => {
+      const t = Date.parse(e.at);
+      return t >= ws && t < we;
+    })) continue;
+    if (hosViolationsInWindow(myEvents, ws, we).length > 0) continue;
+    await awardPoints(ctx, {
+      username: me,
+      amount: LANE1_HOS_CLEAN_WEEK_POINTS,
+      reason: `Clean HOS week — week of ${new Date(ws + 12 * 3600000).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: DRIVER_TZ })}: sealed duty log, zero violations`,
+      source: LANE1_HOS_SOURCE,
+      refKey: `lane1-hosweek-${localDayKey(new Date(ws + 12 * 3600000))}`,
+    });
+  }
+
+  // -- Lane 3: poster referrals — pays when the referred broker /
+  // shipper's first load is RELEASED to a board (board_load_id set),
+  // never at signup.
+  const refs = await db
+    .select()
+    .from(schema.posterReferrals)
+    .where(eq(schema.posterReferrals.referrerUsername, me));
+  for (const ref of refs) {
+    if (ref.status !== "pending") continue;
+    let landed = false;
+    if (ref.kind === "broker") {
+      const rows = await db
+        .select()
+        .from(schema.brokerPosterLoads)
+        .where(eq(schema.brokerPosterLoads.brokerId, ref.accountId));
+      landed = rows.some((r) => r.boardLoadId != null);
+    } else {
+      const rows = await db
+        .select()
+        .from(schema.shipperLoads)
+        .where(eq(schema.shipperLoads.shipperId, ref.accountId));
+      landed = rows.some((r) => r.boardLoadId != null);
+    }
+    if (!landed) continue;
+    const awarded = await awardPoints(ctx, {
+      username: me,
+      amount: LANE3_POSTER_REFERRAL_POINTS,
+      reason: `You brought a ${ref.kind} to the load board — their first load posted`,
+      source: LANE3_POSTER_SOURCE,
+      refKey: `lane3-poster-${ref.id}`,
+    });
+    if (awarded) {
+      await db
+        .update(schema.posterReferrals)
+        .set({ status: "landed", landedAt: new Date() })
+        .where(eq(schema.posterReferrals.id, ref.id));
+    }
+  }
+
+  // -- Lane 3: first sealed load on a lane nobody has logged.
+  const sealedLoads = [...sealMs.entries()]
+    .map(([loadId, ms]) => ({ load: loadById.get(loadId), ms }))
+    .filter((x): x is { load: LoadRow; ms: number } => x.load != null)
+    .sort((a, b) => a.ms - b.ms);
+  for (const { load, ms } of sealedLoads) {
+    const key = laneKeyFor(load.pickupCity, load.pickupState, load.deliveryCity, load.deliveryState);
+    if (!key) continue;
+    await db
+      .insert(schema.sealedLanes)
+      .values({ laneKey: key, firstUsername: me, firstLoadId: load.id, firstSealedAt: new Date(ms) })
+      .onConflictDoNothing();
+    const reg = await db
+      .select()
+      .from(schema.sealedLanes)
+      .where(eq(schema.sealedLanes.laneKey, key))
+      .limit(1);
+    if (reg[0] && reg[0].firstUsername === me && reg[0].firstLoadId === load.id) {
+      await awardPoints(ctx, {
+        username: me,
+        amount: LANE3_FIRST_LANE_POINTS,
+        reason: `First sealed load on a new lane — ${laneLabelForKey(key)}`,
+        source: LANE3_FIRST_LANE_SOURCE,
+        refKey: `lane3-firstlane-${load.id}`,
+      });
+    }
+  }
+
+  // -- Lane 3: Founding Tester completion — the same computation the
+  // owner's tester list runs (host/auth.ts testerCompletionList):
+  // a session on >= 10 of the 14 days from invite acceptance, window
+  // complete. Until now it fed only the Diamond→Gold-year flip; this
+  // wires its completion into the points ledger.
+  const viewer = viewerOf(ctx);
+  if (viewer) {
+    const invites = await db
+      .select()
+      .from(schema.accountInvites)
+      .where(
+        and(
+          eq(schema.accountInvites.kind, "tester"),
+          eq(schema.accountInvites.acceptedAccountId, viewer.accountId),
+        ),
+      );
+    const inv = invites.find((i) => i.acceptedAt);
+    if (inv?.acceptedAt) {
+      const acceptedAt = inv.acceptedAt;
+      if (Date.now() >= acceptedAt.getTime() + 14 * dayMs) {
+        const days = await db
+          .select()
+          .from(schema.authActivityDays)
+          .where(eq(schema.authActivityDays.accountId, viewer.accountId));
+        const windowDays = new Set<string>();
+        for (let i = 0; i < 14; i++) {
+          windowDays.add(new Date(acceptedAt.getTime() + i * dayMs).toISOString().slice(0, 10));
+        }
+        const active = days.filter((d) => windowDays.has(d.day)).length;
+        if (active >= 10) {
+          await awardPoints(ctx, {
+            username: me,
+            amount: LANE3_FOUNDING_TESTER_POINTS,
+            reason: `Founding Tester — active on ${active} of your first 14 days`,
+            source: LANE3_FOUNDING_SOURCE,
+            refKey: `lane3-founding-${viewer.accountId}`,
+          });
+        }
+      }
+    }
+  }
 }
 
 // ---- Account standing lifecycle (clauses A2d/A2e/A2f) -----------------------
@@ -26217,6 +26682,14 @@ export const Actions = {
           gradeCriteria: gradeResult.criteria,
         },
       });
+      // Points lanes (2026-11-15): claim this load's lane in the
+      // first-sealed-lane registry (first writer wins; the Lane 3
+      // award itself lands lazily in the points evaluator).
+      await recordSealedLane(ctx, {
+        load: rows[0],
+        sealedAt: sealAt,
+        username: await myUsername(ctx),
+      });
       // Phase 0: the delivery seal assembles the load's Payment Packet
       // and registers its invoice fingerprint (records only — no money
       // movement). A packet failure is sealed as its own event and
@@ -26380,6 +26853,25 @@ export const Actions = {
           createdAt: milesAward.createdAt,
         });
         if (clawedMiles) pointsClawedBack += milesAward.amount;
+      }
+      // Points lanes reversal (2026-11-15): if THIS load was the
+      // first sealed load on its lane, voiding its seal takes the
+      // Lane 3 first-lane award back through the same clawback path
+      // and deletes the registry row, so the lane honestly opens
+      // again for the next first sealer. (Lane 1 on-time blocks that
+      // this seal held up reconcile on the next points read — the
+      // evaluator reverses any block no longer justified.)
+      const firstLaneClawed = await reverseLaneAward(
+        ctx,
+        me,
+        `lane3-firstlane-${args.loadId}`,
+        `the first-seal on its lane (load #${args.loadId}) was voided`,
+      );
+      if (firstLaneClawed) {
+        pointsClawedBack += LANE3_FIRST_LANE_POINTS;
+        await db
+          .delete(schema.sealedLanes)
+          .where(eq(schema.sealedLanes.firstLoadId, args.loadId));
       }
       ctx.invalidateQueries();
       return { ok: true as const, pointsClawedBack };
@@ -27410,6 +27902,50 @@ export const Actions = {
         .returning({ id: schema.intelReports.id });
       const inserted = result[0];
       if (!inserted) throw new Error("addIntelReport: insert returned no rows");
+      // Lane 2 (2026-11-15): a report another driver has already filed
+      // CONSISTENTLY at the same spot inside the corroboration window
+      // corroborates BOTH reports — each reporter earns the Lane 2
+      // award once per report. An OPPOSITE report at the same spot
+      // (parking open vs full, scale open vs closed) contests the
+      // spot: nobody earns from this pairing. Awards ride
+      // awardLane2Report (paying-seat gate + daily cap per reporter);
+      // a failure here never fails the report itself.
+      try {
+        const nowMs = Date.now();
+        const others = await db
+          .select()
+          .from(schema.intelReports)
+          .where(gte(schema.intelReports.createdAt, new Date(nowMs - LANE2_CORROBORATION_WINDOW_MS)));
+        const near = others.filter(
+          (r) =>
+            r.id !== inserted.id &&
+            r.reporter != null &&
+            r.reporter !== me &&
+            haversineMiServer(args.lat, args.lon, r.lat, r.lon) <= LANE2_CORROBORATION_RADIUS_MI,
+        );
+        const relations = near.map((r) => ({ row: r, rel: intelRelation(args.kind, r.kind) }));
+        if (!relations.some((x) => x.rel === "contradicted")) {
+          const consistent = relations.filter((x) => x.rel === "consistent");
+          if (consistent.length > 0) {
+            await awardLane2Report(ctx, {
+              reporter: me,
+              source: LANE2_INTEL_SOURCE,
+              refKey: `lane2-intel-${inserted.id}`,
+              reason: `Road report backed up by another driver (${args.kind.replace(/_/g, " ")})`,
+            });
+            for (const x of consistent) {
+              await awardLane2Report(ctx, {
+                reporter: x.row.reporter!,
+                source: LANE2_INTEL_SOURCE,
+                refKey: `lane2-intel-${x.row.id}`,
+                reason: `Road report backed up by another driver (${x.row.kind.replace(/_/g, " ")})`,
+              });
+            }
+          }
+        }
+      } catch {
+        /* Lane 2 awards never fail a report */
+      }
       ctx.invalidateQueries();
       return { id: inserted.id, points: 0 };
     },
@@ -27553,6 +28089,22 @@ export const Actions = {
         .update(schema.intelReports)
         .set({ confirmedAt: new Date(), points: pointsAwarded })
         .where(eq(schema.intelReports.id, args.id));
+      // Lane 2 (2026-11-15): a GPS confirm by a DIFFERENT driver is
+      // corroboration — the original reporter earns the Lane 2 award
+      // (once per report; self-confirmation pays nothing, and the
+      // award helper enforces the reporter's paying seat + cap).
+      if (row.reporter && row.reporter !== me) {
+        try {
+          await awardLane2Report(ctx, {
+            reporter: row.reporter,
+            source: LANE2_INTEL_SOURCE,
+            refKey: `lane2-intel-${row.id}`,
+            reason: `Road report confirmed by another driver (${row.kind.replace(/_/g, " ")})`,
+          });
+        } catch {
+          /* Lane 2 awards never fail a confirm */
+        }
+      }
       ctx.invalidateQueries();
       return { ok: true as const, confirmed: true, pointsAwarded, reason: null };
     },
@@ -36412,9 +36964,31 @@ export const Actions = {
           amount: z.number(),
           reason: z.string(),
           source: z.string(),
+          // Which earning lane the row belongs to (null for the
+          // pre-lane sources) — the client groups history by it.
+          lane: z.enum(["lane1", "lane2", "lane3"]).nullable(),
           createdAt: z.string(),
         }),
       ),
+      // The three earning lanes (2026-11-15): whether the caller is
+      // on a paying seat that can earn them, what each lane has paid
+      // them so far, and the "How to earn" list (values come from
+      // pointsLanes.ts — the one config location).
+      lanes: z.object({
+        eligible: z.boolean(),
+        totals: z.object({
+          lane1: z.number(),
+          lane2: z.number(),
+          lane3: z.number(),
+        }),
+        howToEarn: z.array(
+          z.object({
+            lane: z.enum(["lane1", "lane2", "lane3"]),
+            title: z.string(),
+            lines: z.array(z.string()),
+          }),
+        ),
+      }),
       today: z.object({
         day: z.string(),
         earned: z.number(),
@@ -36463,6 +37037,14 @@ export const Actions = {
       const me = await myUsername(ctx);
       await settleAccountLifecycle(ctx, me);
       const now = Date.now();
+      // The three earning lanes (2026-11-15) evaluate lazily here,
+      // before the ledger is read — a lane evaluation must never
+      // break the points read itself.
+      try {
+        await evaluatePointsLanes(ctx, me);
+      } catch {
+        /* lane awards land on a later read if this one hiccups */
+      }
       // Lazy verified awards (idempotent via refKey):
       // 1) Clean driving DAYS (daily table, +75): a completed
       //    driver-local day with at least one sealed trip and zero
@@ -36630,6 +37212,11 @@ export const Actions = {
         .select()
         .from(schema.pointsConversions)
         .where(eq(schema.pointsConversions.username, me));
+      const laneTotals = { lane1: 0, lane2: 0, lane3: 0 };
+      for (const r of allMine) {
+        const lane = laneForSource(r.source);
+        if (lane && r.amount > 0) laneTotals[lane] += r.amount;
+      }
       return {
         balance: pointsBalanceFromLedger(allMine),
         history: rows.map((r) => ({
@@ -36637,8 +37224,14 @@ export const Actions = {
           amount: r.amount,
           reason: r.reason,
           source: r.source,
+          lane: laneForSource(r.source),
           createdAt: r.createdAt.toISOString(),
         })),
+        lanes: {
+          eligible: await laneEligibleFor(ctx, me),
+          totals: laneTotals,
+          howToEarn: howToEarnLanes(),
+        },
         today,
         conversion: {
           live: await pointsConversionLive(ctx),
@@ -42507,6 +43100,7 @@ export const Actions = {
         return { ok: false, id: null, error: GOLD_GATE_ERROR };
       }
       const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
       const inserted = await db
         .insert(schema.fuelPriceReports)
         .values({
@@ -42517,10 +43111,59 @@ export const Actions = {
           price: args.price,
           reportedAt: new Date(),
           grade: REPORTED_PRICE_GRADE,
+          // Lane 2 (2026-11-15): manual reports carry their reporter
+          // so corroboration can pay them. Purchase-derived rows are
+          // inserted by logFuelPurchase WITHOUT a reporter — those
+          // stay anonymous by design and never earn.
+          reporter: me,
         })
         .returning({ id: schema.fuelPriceReports.id });
       const row = inserted[0];
       if (!row) return { ok: false, id: null, error: "The report didn't save — try again." };
+      // Lane 2 (2026-11-15): another driver's price report at the
+      // same station inside the corroboration window, agreeing
+      // within the price tolerance, corroborates BOTH reports (each
+      // reporter earns once per report). A clearly contradicting
+      // price at the same spot contests it — nobody earns from this
+      // pairing. Awards never fail the report itself.
+      try {
+        const nowMs = Date.now();
+        const others = await db
+          .select()
+          .from(schema.fuelPriceReports)
+          .where(gte(schema.fuelPriceReports.reportedAt, new Date(nowMs - LANE2_CORROBORATION_WINDOW_MS)));
+        const near = others.filter(
+          (r) =>
+            r.id !== row.id &&
+            r.reporter != null &&
+            r.reporter !== me &&
+            r.lat != null &&
+            r.lon != null &&
+            haversineMiServer(args.lat, args.lon, r.lat, r.lon) <= LANE2_CORROBORATION_RADIUS_MI,
+        );
+        const relations = near.map((r) => ({ row: r, rel: fuelRelation(args.price, r.price) }));
+        if (!relations.some((x) => x.rel === "contradicted")) {
+          const consistent = relations.filter((x) => x.rel === "consistent");
+          if (consistent.length > 0) {
+            await awardLane2Report(ctx, {
+              reporter: me,
+              source: LANE2_FUEL_SOURCE,
+              refKey: `lane2-fuel-${row.id}`,
+              reason: `Fuel price report matched by another driver (${args.station})`,
+            });
+            for (const x of consistent) {
+              await awardLane2Report(ctx, {
+                reporter: x.row.reporter!,
+                source: LANE2_FUEL_SOURCE,
+                refKey: `lane2-fuel-${x.row.id}`,
+                reason: `Fuel price report matched by another driver (${x.row.station})`,
+              });
+            }
+          }
+        }
+      } catch {
+        /* Lane 2 awards never fail a report */
+      }
       await appendChain(ctx, {
         refKind: "fuel_price_report",
         refId: row.id,
@@ -46234,6 +46877,12 @@ export const Actions = {
       defaultFreightClass: z.string().max(40).nullable().default(null),
       defaultContactName: z.string().max(120).nullable().default(null),
       defaultContactPhone: z.string().max(40).nullable().default(null),
+      // Lane 3 (2026-11-15): the referral code of the driver who
+      // brought this shipper in, when the desk has it. Recorded as a
+      // pending poster referral — it pays only when the shipper's
+      // first load posts to a board. An unknown code is ignored, so
+      // account creation never fails over a referral.
+      referralCode: z.string().max(40).nullable().default(null),
     }),
     response: z.object({ ok: z.boolean(), error: z.string().nullable(), id: z.number().nullable() }),
     async handler(ctx, args) {
@@ -46272,12 +46921,18 @@ export const Actions = {
         .returning({ id: schema.shipperAccounts.id });
       const id = ins[0]?.id ?? null;
       if (id == null) throw new Error("createShipperAccount: insert returned no rows");
+      const referredBy = await recordPosterReferral(ctx, {
+        referralCode: args.referralCode,
+        kind: "shipper",
+        accountId: id,
+        deskUsername: desk.me,
+      });
       await appendChain(ctx, {
         refKind: "driver",
         refId: null,
         sessionId: null,
         event: "shipper_account_created",
-        payload: { shipperId: id, name, email: args.email.trim(), linkedUsername: clean(args.linkedUsername), isDemo: args.isDemo, companyId: desk.membership.company.id, by: desk.me, at: new Date().toISOString() },
+        payload: { shipperId: id, name, email: args.email.trim(), linkedUsername: clean(args.linkedUsername), isDemo: args.isDemo, companyId: desk.membership.company.id, by: desk.me, referredBy, at: new Date().toISOString() },
       });
       ctx.invalidateQueries();
       return { ok: true, error: null, id };
@@ -46882,6 +47537,9 @@ export const Actions = {
       defaultFreightClass: z.string().max(40).nullable().default(null),
       defaultContactName: z.string().max(120).nullable().default(null),
       defaultContactPhone: z.string().max(40).nullable().default(null),
+      // Lane 3 (2026-11-15): the referral code of the driver who
+      // brought this broker in — see createShipperAccount.
+      referralCode: z.string().max(40).nullable().default(null),
     }),
     response: z.object({ ok: z.boolean(), error: z.string().nullable(), id: z.number().nullable() }),
     async handler(ctx, args) {
@@ -46924,12 +47582,18 @@ export const Actions = {
         .returning({ id: schema.brokerAccounts.id });
       const id = ins[0]?.id ?? null;
       if (id == null) throw new Error("createBrokerAccount: insert returned no rows");
+      const referredBy = await recordPosterReferral(ctx, {
+        referralCode: args.referralCode,
+        kind: "broker",
+        accountId: id,
+        deskUsername: desk.me,
+      });
       await appendChain(ctx, {
         refKind: "driver",
         refId: null,
         sessionId: null,
         event: "broker_account_created",
-        payload: { brokerId: id, name, email: args.email.trim(), brokerMc: clean(args.brokerMc), linkedUsername: clean(args.linkedUsername), isDemo: args.isDemo, companyId: desk.membership.company.id, by: desk.me, at: new Date().toISOString() },
+        payload: { brokerId: id, name, email: args.email.trim(), brokerMc: clean(args.brokerMc), linkedUsername: clean(args.linkedUsername), isDemo: args.isDemo, companyId: desk.membership.company.id, by: desk.me, referredBy, at: new Date().toISOString() },
       });
       ctx.invalidateQueries();
       return { ok: true, error: null, id };
