@@ -24,6 +24,8 @@ export type MaintenanceCategory =
 
 export const DVIR_ITEM_CATEGORIES: Record<string, MaintenanceCategory> = {
   "Brakes": "brakes",
+  "Parking brake": "brakes",
+  "Windshield wipers": "electrical",
   "Trailer brakes & lights": "brakes",
   "Tires & wheels": "tires",
   "Lights & reflectors": "electrical",

@@ -142,6 +142,8 @@ async function seedDqf(companyId: number, username: string) {
     { kind: "road_test", entryDate: d(-299), expiresOn: null, payloadJson: "{}" },
     { kind: "mvr_review", entryDate: d(-30), expiresOn: null, payloadJson: JSON.stringify({ outcome: "acceptable" }) },
     { kind: "clearinghouse_query", entryDate: d(-301), expiresOn: null, payloadJson: JSON.stringify({ queryType: "pre_employment", result: "clear" }) },
+    { kind: "employment_history", entryDate: d(-300), expiresOn: null, payloadJson: JSON.stringify({ employer: "Prior Carrier LLC" }) },
+    { kind: "violation_record", entryDate: d(-30), expiresOn: null, payloadJson: JSON.stringify({ description: "No violations in the past year" }) },
   ];
   for (const r of rows) await db.insert(schema.dqfEntries).values({ fileId, recordedBy: username, ...r });
 }

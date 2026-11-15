@@ -153,6 +153,12 @@ onTimeBlockAwards,
 type SealedLoadTiming,
 } from "./pointsLanes";
 import {
+  CYCLE_LIMITS,
+  cycleTypeOf,
+  hosClocksFromEvents,
+  type CycleType,
+} from "./hosEngine";
+import {
 LAYER2_HOLD_DUPLICATE_THRESHOLD,
 LAYER2_HOLD_ODOMETER_THRESHOLD,
 LAYER2_REFERRAL_ACTIVE_MIN_ACTIVITY_DAYS,
@@ -201,6 +207,7 @@ dvirDraftNotes,
 } from "./dvir";
 import {
 evaluateInspectionPrompt,
+inspectionSealedInScope,
 type InspectionPromptFacts,
 } from "./inspectionPrompts";
 import { resolveDutyRemark } from "./dutyRemarks";
@@ -5357,7 +5364,7 @@ async function evaluatePointsLanes(ctx: Ctx, me: string): Promise<void> {
       const t = Date.parse(e.at);
       return t >= ws && t < we;
     })) continue;
-    if (hosViolationsInWindow(myEvents, ws, we).length > 0) continue;
+    if (hosViolationsInWindow(myEvents, ws, we, await effectiveCycleType(ctx, me)).length > 0) continue;
     await awardPoints(ctx, {
       username: me,
       amount: LANE1_HOS_CLEAN_WEEK_POINTS,
@@ -9834,64 +9841,56 @@ async function purgeOldTrackPoints(ctx: Ctx, username: string): Promise<number> 
  *  latest sealed duty state + whether a trip is GPS-active. Duty events
  *  are sealed chain rows (single-driver staging records). */
 /** HOS planning clocks from one driver's effective duty segments —
- *  the same rules as the in-app clocks and the DOT packet (11h drive
- *  after a 10h reset, 14h window, 70h/8-day cycle, 30-min break after
- *  8h driving). Planning aid only, never an ELD claim. */
+ *  the shared engine (hosEngine.ts): 11h drive after a reset, 14h
+ *  window (split-sleeper pairs excluded, 395.1(g)), the driver's
+ *  cycle limit (60/7 or 70/8, 395.3(b) — audit A3), 30-min break
+ *  after 8h driving. Planning aid only, never an ELD claim. */
 function hosClocksFor(
   events: { state: string; at: string }[],
   nowMs: number,
+  cycleType: CycleType = "70/8",
 ): { hasData: boolean; driveRemainH: number; windowRemainH: number; cycleRemainH: number; breakRemainH: number } {
-  const H = 3600000;
-  const sorted = [...events].sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
-  const segs: { state: string; start: number; end: number }[] = [];
-  for (let i = 0; i < sorted.length; i++) {
-    const start = Date.parse(sorted[i]!.at);
-    const end = i + 1 < sorted.length ? Date.parse(sorted[i + 1]!.at) : nowMs;
-    if (Number.isFinite(start) && end > start) segs.push({ state: sorted[i]!.state, start, end });
-  }
-  if (segs.length === 0) return { hasData: false, driveRemainH: 11, windowRemainH: 14, cycleRemainH: 70, breakRemainH: 8 };
-  let resetAt = 0;
-  let offRun = 0;
-  let offRunStart = 0;
-  for (const s of segs) {
-    if (s.state === "off_duty" || s.state === "sleeper") {
-      if (offRun === 0) offRunStart = s.start;
-      offRun += s.end - s.start;
-      if (offRun >= 10 * H) resetAt = Math.max(resetAt, offRunStart + 10 * H);
-    } else offRun = 0;
-  }
-  const since = segs.filter((s) => s.end > resetAt);
-  let driving = 0;
-  let windowStart: number | null = null;
-  for (const s of since) {
-    const st = Math.max(s.start, resetAt);
-    if (s.state === "driving") driving += s.end - st;
-    if ((s.state === "on_duty" || s.state === "driving") && windowStart === null) windowStart = st;
-  }
-  const cycleFrom = nowMs - 8 * 24 * H;
-  let cycle = 0;
-  for (const s of segs) {
-    if (s.state !== "on_duty" && s.state !== "driving") continue;
-    const st = Math.max(s.start, cycleFrom);
-    if (s.end > st) cycle += s.end - st;
-  }
-  let drivingSinceBreak = 0;
-  let nonDriveRun = 0;
-  for (const s of segs) {
-    if (s.state === "driving") {
-      if (nonDriveRun >= 0.5 * H) drivingSinceBreak = 0;
-      nonDriveRun = 0;
-      drivingSinceBreak += s.end - s.start;
-    } else nonDriveRun += s.end - s.start;
-  }
-  if (nonDriveRun >= 0.5 * H) drivingSinceBreak = 0;
+  const c = hosClocksFromEvents(events, nowMs, cycleType);
+  const r2 = (n: number) => Math.round(n * 100) / 100;
   return {
-    hasData: true,
-    driveRemainH: Math.max(0, Math.round((11 - driving / H) * 100) / 100),
-    windowRemainH: Math.max(0, Math.round((windowStart === null ? 14 : 14 - (nowMs - windowStart) / H) * 100) / 100),
-    cycleRemainH: Math.max(0, Math.round((70 - cycle / H) * 100) / 100),
-    breakRemainH: Math.max(0, Math.round((8 - drivingSinceBreak / H) * 100) / 100),
+    hasData: c.hasData,
+    driveRemainH: r2(c.driveRemainH),
+    windowRemainH: r2(c.windowRemainH),
+    cycleRemainH: r2(c.cycleRemainH),
+    breakRemainH: r2(c.breakRemainH),
   };
+}
+
+/** The HOS cycle type that governs a driver (audit A3 — 49 CFR
+ *  395.3(b)): the cycle follows the CARRIER's operating schedule,
+ *  so a fleet's company-setup override wins for its drivers; else
+ *  the driver's own profile setting; else the standing default
+ *  "70/8" (the pre-A3 behaviour). Only the CALLER's own profile row
+ *  is readable in this staging design, so for another driver the
+ *  override-or-default is all that can be resolved — stated here
+ *  rather than papered over. */
+async function effectiveCycleType(ctx: Ctx, username: string): Promise<CycleType> {
+  const db = ctx.db<typeof schema>();
+  const mine = await myMembership(ctx, username);
+  if (mine) {
+    const setups = await db
+      .select()
+      .from(schema.companySetup)
+      .where(eq(schema.companySetup.companyId, mine.company.id))
+      .limit(1);
+    const override = setups[0]?.cycleType;
+    if (override === "60/7" || override === "70/8") return override;
+  }
+  const me = await myUsername(ctx);
+  if (username.toLowerCase() === me.toLowerCase()) {
+    const prof = await db
+      .select()
+      .from(schema.profile)
+      .where(eq(schema.profile.id, myProfileId(ctx)))
+      .limit(1);
+    return cycleTypeOf(prof[0]?.cycleType);
+  }
+  return "70/8";
 }
 
 async function dutyPicture(
@@ -10270,6 +10269,12 @@ const profileShape = z.object({
   driverCpm: z.number().min(0.05).max(20).nullable(),
   payBasis: z.enum(["cpm", "percent"]),
   driverPayPct: z.number().min(0.1).max(100).nullable(),
+  // HOS cycle type (migration 0139, audit A3 — 49 CFR 395.3(b)):
+  // "60/7" or "70/8", following the carrier's operating schedule.
+  // Defaulted so older saved profiles still validate; the default
+  // is the pre-A3 behaviour. A fleet's company-setup override wins
+  // over this for its drivers (see effectiveCycleType).
+  cycleType: z.enum(["60/7", "70/8"]).default("70/8"),
   // The driver's OWN factoring / dispatcher percentages (migration
   // 0115): % of a load's gross pay their factoring company / their
   // dispatcher takes. Their own costs — never platform fees.
@@ -19193,6 +19198,44 @@ async function resolveLibraryDocument(ctx: Ctx, ref: string): Promise<ResolvedLi
   const parts = ref.split(":");
   const kind = parts[0] ?? "";
 
+  if (kind === "inspection") {
+    // DOT inspection packet as a Library PDF (audit T2): ref =
+    // inspection:{todayLocal}:{utcOffsetMinutes} — the same
+    // driver-local day window the on-screen packet uses, rendered
+    // from the same buildInspectionPacket result, so the PDF can
+    // never disagree with the screen or the email.
+    const todayLocal = parts[1] ?? "";
+    const utcOffsetMinutes = Number(parts[2]);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(todayLocal) || !Number.isFinite(utcOffsetMinutes) || Math.abs(utcOffsetMinutes) > 900) {
+      return { ...docRefused("inspection"), error: "That inspection packet reference isn't valid." };
+    }
+    const packet = await buildInspectionPacket(ctx, { todayLocal, utcOffsetMinutes });
+    const headingLines = new Set([
+      "HOS SUMMARY (planning clocks from the sealed duty log)",
+      "LAST 8 DAYS OF DUTY LOGS",
+      "DVIR — TODAY + PREVIOUS DAY",
+      "DVIRs FROM THE CARRIER ELD (source-labelled, listed separately)",
+    ]);
+    const sections: { heading?: string; lines: string[] }[] = [];
+    let current: { heading?: string; lines: string[] } = { lines: [] };
+    sections.push(current);
+    for (const line of packet.packetText.split("\n")) {
+      if (headingLines.has(line)) {
+        current = { heading: line, lines: [] };
+        sections.push(current);
+      } else {
+        current.lines.push(line);
+      }
+    }
+    const title = `DOT Inspection Packet - ${packet.driverName} - ${todayLocal}`;
+    const bytes = libraryPdfBytes({
+      title,
+      subtitle: `Verify code: ${packet.verifyCode ?? "none"} - sealed-record packet, generated ${packet.generatedAt}`,
+      sections: sections.filter((s) => s.heading || s.lines.some((l) => l.trim().length > 0)),
+    });
+    return { ok: true, error: null, docKind: "inspection", title, filename: "stonemiles-dot-inspection-packet.pdf", mime: "application/pdf", bytes };
+  }
+
   if (kind === "settlement") {
     const id = Number(parts[1]);
     const rows = await db.select().from(schema.settlements).where(eq(schema.settlements.id, id)).limit(1);
@@ -21091,6 +21134,605 @@ async function inspectionPromptFacts(ctx: Ctx): Promise<InspectionPromptFacts> {
     deliveries: [...deliveryByLoad.entries()].map(([loadId, atMs]) => ({ loadId, atMs })),
     newLoadStarts,
     dismissedKeys,
+  };
+}
+
+/**
+ * The DOT inspection packet (officer view) — built in ONE place
+ * (regulatory transfer completion, audit T1/T2, 2026-11-15) so the
+ * on-screen packet, the Library PDF, and the emailed packet can
+ * never drift apart: all three render this exact result. Contents
+ * follow the audit fixes: HOS clocks from the shared engine under
+ * the driver's cycle (A3/A10), per-day log certification state
+ * (A1), per-day truck/trailer unit numbers (A2), and DVIR defect
+ * repair certifications (A5). Missing facts read as missing — the
+ * packet never invents a unit, a certification, or a place.
+ */
+const inspectionPacketResponse = z.object({
+  driverName: z.string(),
+  username: z.string(),
+  companyName: z.string().nullable(),
+  legalName: z.string().nullable(),
+  mcNumber: z.string().nullable(),
+  usdotNumber: z.string().nullable(),
+  eldConnected: z.boolean(),
+  eldSource: z.string().nullable(),
+  generatedAt: z.string(),
+  currentStatus: z.string().nullable(),
+  statusSince: z.string().nullable(),
+  hos: z.object({
+    hasData: z.boolean(),
+    driveRemainH: z.number(),
+    windowRemainH: z.number(),
+    cycleRemainH: z.number(),
+    breakRemainH: z.number(),
+  }),
+  // The cycle the packet's clocks were reckoned under (A3).
+  cycleType: z.enum(["60/7", "70/8"]),
+  days: z.array(
+    z.object({
+      date: z.string(),
+      segments: z.array(
+        z.object({
+          state: z.string(),
+          startAt: z.string(),
+          endAt: z.string(),
+          location: z.string().nullable(),
+        }),
+      ),
+      totalsH: z.object({
+        off_duty: z.number(),
+        sleeper: z.number(),
+        on_duty: z.number(),
+        driving: z.number(),
+      }),
+      miles: z.number(),
+      milesSource: z.string(),
+      startMiles: z.number().nullable(),
+      endMiles: z.number().nullable(),
+      startMilesSource: z.string().nullable(),
+      dutyNotes: z.array(z.string()),
+      // A1: the day's log certification (null = not yet certified).
+      certifiedName: z.string().nullable(),
+      certifiedAt: z.string().nullable(),
+      // A2: unit numbers + identity labels for the day (null = not
+      // recorded); unitSource says where the labels came from.
+      truckUnit: z.string().nullable(),
+      trailerUnit: z.string().nullable(),
+      truckLabel: z.string().nullable(),
+      trailerLabel: z.string().nullable(),
+      unitSource: z.enum(["dvir", "profile"]).nullable(),
+    }),
+  ),
+  dvirs: z.array(
+    z.object({
+      id: z.number(),
+      inspectedAt: z.string(),
+      kind: z.string(),
+      signedName: z.string(),
+      status: z.string(),
+      odometer: z.number().nullable(),
+      items: z.number(),
+      defects: z.array(
+        z.object({
+          item: z.string(),
+          note: z.string(),
+          critical: z.boolean(),
+          // A5: the carrier repair certification for this defect
+          // (null = not certified — still open or pre-dates the
+          // certification record).
+          certification: z
+            .object({
+              certifiedBy: z.string(),
+              determination: z.string(),
+              at: z.string(),
+            })
+            .nullable(),
+        }),
+      ),
+    }),
+  ),
+  eldDvirs: z.array(
+    z.object({
+      id: z.number(),
+      inspectedAt: z.string(),
+      vehicle: z.string().nullable(),
+      status: z.string(),
+      // Source label, e.g. "Samsara ELD" — ELD DVIRs are never blended
+      // with the in-app signed DVIRs above.
+      source: z.string(),
+      defects: z.array(
+        z.object({ item: z.string(), note: z.string(), critical: z.boolean() }),
+      ),
+    }),
+  ),
+  eldCloudNote: z.string().nullable(),
+  verifyCode: z.string().nullable(),
+  chainHeadShort: z.string().nullable(),
+  chainIntact: z.boolean(),
+  packetText: z.string(),
+});
+
+type InspectionPacket = z.infer<typeof inspectionPacketResponse>;
+
+async function buildInspectionPacket(
+  ctx: Ctx,
+  args: { todayLocal: string; utcOffsetMinutes: number },
+): Promise<InspectionPacket> {
+  const db = ctx.db<typeof schema>();
+  const now = new Date();
+  const nowMs = now.getTime();
+  const off = args.utcOffsetMinutes;
+  const dayStartMs = (dateStr: string) =>
+    Date.parse(`${dateStr}T00:00:00Z`) + off * 60000;
+  const localDateOf = (ms: number) =>
+    new Date(ms - off * 60000).toISOString().slice(0, 10);
+  const addDays = (dateStr: string, n: number) => {
+    const d = new Date(Date.parse(`${dateStr}T00:00:00Z`) + n * 86400000);
+    return d.toISOString().slice(0, 10);
+  };
+  const dates: string[] = [];
+  for (let i = 7; i >= 0; i--) dates.push(addDays(args.todayLocal, -i));
+
+  // Identity: driver + public company info (company setup).
+  const me = await myUsername(ctx);
+  const profRows = await db
+    .select()
+    .from(schema.profile)
+    .where(eq(schema.profile.id, myProfileId(ctx)))
+    .limit(1);
+  const socialRows = await db.select().from(schema.socialUsers);
+  const social = socialRows.find(
+    (r) => r.username.toLowerCase() === me.toLowerCase(),
+  );
+  const driverName =
+    social?.displayName ?? profRows[0]?.chatName ?? me;
+  const mine = await myMembership(ctx, me);
+  let legalName: string | null = null;
+  let mcNumber: string | null = null;
+  let usdotNumber: string | null = null;
+  if (mine) {
+    const setups = await db
+      .select()
+      .from(schema.companySetup)
+      .where(eq(schema.companySetup.companyId, mine.company.id))
+      .limit(1);
+    const s = setups[0];
+    legalName = s?.legalName ?? s?.dba ?? null;
+    mcNumber = s?.mcNumber ?? null;
+    usdotNumber = s?.usdotNumber ?? null;
+  }
+  const companyName = mine?.company.name ?? legalName;
+
+  // Duty history from the sealed chain — the EFFECTIVE timeline:
+  // sealed duty_corrections (owner / owner-operator HOS log fixes)
+  // applied over the originals, exactly as the in-app clocks read
+  // them. The originals stay in the chain; every fix also surfaces
+  // below as a duty note on the day it corrects, with who fixed it
+  // and why, so the packet never hides that an edit happened.
+  const chain = await db
+    .select()
+    .from(schema.chainLog)
+    .orderBy(asc(schema.chainLog.id));
+  type DutyEv = { state: string; at: string; location: string | null };
+  const effTimeline = await effectiveDutyTimeline(ctx);
+  const dutyEvents: DutyEv[] = effTimeline.events.map((e) => ({
+    state: e.state,
+    at: e.at,
+    location: e.location,
+  }));
+  const editStateName: Record<string, string> = {
+    off_duty: "Off Duty",
+    sleeper: "Sleeper Berth",
+    on_duty: "On Duty (not driving)",
+    driving: "Driving",
+  };
+  const promptNotes: { at: string; note: string }[] = [];
+  for (const ed of effTimeline.edits) {
+    promptNotes.push({
+      at: ed.correctedAt,
+      note: `HOS log edited by @${ed.editedBy} (${ed.editedByRole === "owner" ? "fleet owner" : ed.editedByRole === "owner_operator" ? "owner-operator" : ed.editedByRole}): ${editStateName[ed.originalState] ?? ed.originalState} at ${new Date(ed.originalAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} corrected to ${editStateName[ed.correctedState] ?? ed.correctedState} — reason: ${ed.reason}. The original entry is preserved in the sealed records.`,
+    });
+  }
+  for (const r of chain) {
+    if (r.event === "duty_choice") {
+      try {
+        const p = JSON.parse(r.payload) as { at?: string; dutyNote?: string };
+        if (p.at && p.dutyNote) promptNotes.push({ at: p.at, note: p.dutyNote });
+      } catch { /* skip malformed */ }
+    }
+  }
+  dutyEvents.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+  const currentStatus =
+    dutyEvents.length > 0 ? (dutyEvents[dutyEvents.length - 1]?.state ?? null) : null;
+  const statusSince =
+    dutyEvents.length > 0 ? (dutyEvents[dutyEvents.length - 1]?.at ?? null) : null;
+
+  // HOS clocks — the SHARED engine (hosClocksFor → hosEngine), the
+  // same reckoning as the in-app clocks: 11h drive after a 10h
+  // reset, 14h window with split-sleeper pairing (A10), the
+  // driver's cycle — 60/7 or 70/8 (A3) — and the 30-min break.
+  // This packet used to carry a third hand-rolled copy hard-coded
+  // to 70/8 with no split sleeper; it now cannot drift from the
+  // clocks the driver sees. Planning aid only.
+  const cycleType = await effectiveCycleType(ctx, me);
+  const hos = hosClocksFor(dutyEvents, nowMs, cycleType);
+  const H = 3600000;
+  const segsAll: { state: string; start: number; end: number; location: string | null }[] = [];
+  for (let i = 0; i < dutyEvents.length; i++) {
+    const ev = dutyEvents[i];
+    if (!ev) continue;
+    const start = Date.parse(ev.at);
+    const next = dutyEvents[i + 1];
+    const end = next ? Date.parse(next.at) : nowMs;
+    if (Number.isFinite(start) && end > start)
+      segsAll.push({ state: ev.state, start, end, location: ev.location });
+  }
+
+  // Miles + odometer context per day: sealed trips (GPS) and the
+  // driver's daily logs (odometer readings as recorded).
+  const trips = await db.select().from(schema.trips);
+  const dailyLogs = await db.select().from(schema.dailyLogs);
+  const myLogs = dailyLogs.filter((l) => l.username === me);
+  const eldLog = [...myLogs]
+    .reverse()
+    .find((l) => (l.startMilesSource ?? "").toLowerCase().includes("eld"));
+  const eldConnected = eldLog != null;
+  const eldSource = eldLog
+    ? `ELD odometer (as recorded on the ${eldLog.logDate} daily log)`
+    : null;
+
+  // Per-day unit numbers (A2, 49 CFR 395.8(d)(3)): the day's FIRST
+  // signed DVIR carries that day's identity snapshot; days without
+  // one fall back to the current profile identity, labelled
+  // profile-sourced. Nothing recorded anywhere → nulls → the
+  // packet prints "not recorded" — a unit is never invented.
+  const windowFromMs = dayStartMs(dates[0]!);
+  const allDvirRows = await db
+    .select()
+    .from(schema.dvirReports)
+    .orderBy(asc(schema.dvirReports.id));
+  const firstDvirByDate = new Map<string, (typeof allDvirRows)[number]>();
+  for (const r of allDvirRows) {
+    if (r.inspectedAt.getTime() < windowFromMs) continue;
+    const d = localDateOf(r.inspectedAt.getTime());
+    if (!firstDvirByDate.has(d)) firstDvirByDate.set(d, r);
+  }
+  const prof = profRows[0];
+  const profTruckName = [prof?.truckYear ?? null, prof?.truckMake ?? null, prof?.truckModel ?? null].filter(Boolean).join(" ");
+  const profTruckLabel = profTruckName ? (prof?.truckUnitNumber ? `${profTruckName} · Unit ${prof.truckUnitNumber}` : profTruckName) : null;
+  const profTrailerName = [prof?.trailerYear ?? null, prof?.trailerMake ?? null, prof?.trailerModel ?? null].filter(Boolean).join(" ");
+  const profTrailerTypeLabel = prof?.trailerType ? prof.trailerType.replace(/_/g, " ") : null;
+  const profTrailerLabel = [profTrailerName || null, profTrailerTypeLabel].filter(Boolean).join(" · ") || null;
+  const unitFromLabel = (label: string | null): string | null => {
+    if (!label) return null;
+    const m = /· Unit (.+)$/.exec(label);
+    return m ? m[1]!.trim() : null;
+  };
+
+  const days = dates.map((date) => {
+    const dStart = dayStartMs(date);
+    const dEnd = dStart + 86400000;
+    const daySegs = segsAll
+      .filter((s) => s.end > dStart && s.start < dEnd)
+      .map((s) => ({
+        state: s.state,
+        startAt: new Date(Math.max(s.start, dStart)).toISOString(),
+        endAt: new Date(Math.min(s.end, dEnd)).toISOString(),
+        location: s.location,
+      }));
+    const totalsH = { off_duty: 0, sleeper: 0, on_duty: 0, driving: 0 };
+    for (const s of daySegs) {
+      const key = s.state as keyof typeof totalsH;
+      if (key in totalsH)
+        totalsH[key] += (Date.parse(s.endAt) - Date.parse(s.startAt)) / H;
+    }
+    for (const k of Object.keys(totalsH) as (keyof typeof totalsH)[])
+      totalsH[k] = Math.round(totalsH[k] * 100) / 100;
+    const dayTrips = trips.filter((t) => localDateOf(t.startedAt.getTime()) === date);
+    const tripsMiles =
+      Math.round(dayTrips.reduce((s, t) => s + t.totalMiles, 0) * 10) / 10;
+    const log = myLogs.find((l) => l.logDate === date) ?? null;
+    let miles = tripsMiles;
+    let milesSource = tripsMiles > 0 ? "GPS estimate" : "No miles logged";
+    if (log?.totalMiles != null) {
+      miles = log.totalMiles;
+      milesSource = (log.startMilesSource ?? "").toLowerCase().includes("eld")
+        ? "ELD odometer"
+        : "Daily log odometer (as recorded)";
+    } else if (log && tripsMiles > 0) {
+      milesSource = "GPS estimate";
+    }
+    const notes = new Set<string>();
+    for (const t of dayTrips) if (t.dutyNote) notes.add(t.dutyNote);
+    for (const pn of promptNotes)
+      if (localDateOf(Date.parse(pn.at)) === date) notes.add(pn.note);
+    // A2 identity for the day + A1 certification state of the day's
+    // daily log (nulls stay null — the surfaces print "not
+    // recorded" / "not yet certified", never a guess).
+    const dayDvir = firstDvirByDate.get(date) ?? null;
+    const truckLabel = dayDvir?.truckLabel ?? profTruckLabel;
+    const trailerLabel = dayDvir?.trailerLabel ?? profTrailerLabel;
+    const unitSource: "dvir" | "profile" | null = dayDvir ? "dvir" : truckLabel || trailerLabel ? "profile" : null;
+    return {
+      date,
+      segments: daySegs,
+      totalsH,
+      miles,
+      milesSource,
+      startMiles: log?.startMiles ?? null,
+      endMiles: log?.finishMiles ?? null,
+      startMilesSource: log?.startMilesSource ?? null,
+      dutyNotes: [...notes],
+      certifiedName: log?.certifiedName ?? null,
+      certifiedAt: log?.certifiedAt?.toISOString() ?? null,
+      truckUnit: unitFromLabel(dayDvir?.truckLabel ?? null) ?? prof?.truckUnitNumber ?? null,
+      trailerUnit: prof?.currentTrailer ?? null,
+      truckLabel,
+      trailerLabel,
+      unitSource,
+    };
+  });
+
+  // DVIRs: today + the previous day, exactly as signed.
+  const windowStart = dayStartMs(addDays(args.todayLocal, -1));
+  const dvirRows = await db
+    .select()
+    .from(schema.dvirReports)
+    .orderBy(desc(schema.dvirReports.id));
+  // A5: repair certifications live on the defect links — join them
+  // so each defect in the packet shows whether the carrier has
+  // certified it repaired / repair-not-necessary, and by whom. A
+  // defect reads certified only while its linked maintenance entry
+  // stands closed — a reopened entry un-reads the certification.
+  const defectLinks = await db.select().from(schema.dvirDefectLinks);
+  const maintEntries = await db.select().from(schema.maintenanceLogEntries);
+  const maintStatus = new Map(maintEntries.map((e) => [e.id, e.status]));
+  const certByDvirItem = new Map<string, { certifiedBy: string; determination: string; at: string }>();
+  for (const l of defectLinks) {
+    if (l.certifiedBy && l.repairDetermination && l.certifiedAt && maintStatus.get(l.maintenanceEntryId) === "closed") {
+      certByDvirItem.set(`${l.dvirId}:${l.item}`, {
+        certifiedBy: l.certifiedBy,
+        determination: l.repairDetermination,
+        at: l.certifiedAt.toISOString(),
+      });
+    }
+  }
+  const dvirs = dvirRows
+    .filter((r) => r.inspectedAt.getTime() >= windowStart)
+    .map((r) => {
+      let items = 0;
+      try { items = (JSON.parse(r.itemsJson) as unknown[]).length; } catch { items = 0; }
+      let rawDefects: { item: string; note: string; critical: boolean }[] = [];
+      try { rawDefects = JSON.parse(r.defectsJson) as typeof rawDefects; } catch { rawDefects = []; }
+      const defects = rawDefects.map((df) => ({
+        ...df,
+        certification: certByDvirItem.get(`${r.id}:${df.item}`) ?? null,
+      }));
+      return {
+        id: r.id,
+        inspectedAt: r.inspectedAt.toISOString(),
+        kind: r.kind,
+        signedName: r.signedName,
+        status: r.status,
+        odometer: r.odometer,
+        items,
+        defects,
+      };
+    });
+
+  // ELD DVIRs: from the connected cloud ELD's dvirs feed, kept in
+  // their own source-labelled list — never blended with the in-app
+  // signed DVIRs above. Empty until live sync delivers real reports;
+  // the note says plainly why the list is empty.
+  const eldConnsAll = await db.select().from(schema.eldConnections);
+  const eldActive = eldConnsAll.find((c) => c.status === "connected");
+  const eldDvirs: {
+    id: number;
+    inspectedAt: string;
+    vehicle: string | null;
+    status: string;
+    source: string;
+    defects: { item: string; note: string; critical: boolean }[];
+  }[] = [];
+  let eldCloudNote: string | null = null;
+  if (eldActive) {
+    const providerName = ELD_PROVIDER_NAMES[eldActive.provider] ?? eldActive.provider;
+    const snaps = await db
+      .select()
+      .from(schema.eldSnapshots)
+      .where(eq(schema.eldSnapshots.connectionId, eldActive.id))
+      .orderBy(desc(schema.eldSnapshots.id));
+    const dvirSnap = snaps.find((s) => s.feed === "dvirs" && !snapshotIsSimulated(s.payloadJson));
+    if (dvirSnap) {
+      try {
+        const p = JSON.parse(dvirSnap.payloadJson) as {
+          dvirs?: {
+            id?: number;
+            inspectedAt?: string;
+            date?: string;
+            vehicle?: string;
+            status?: string;
+            defects?: { item: string; note?: string; critical?: boolean }[];
+          }[];
+        };
+        for (const [i, d] of (p.dvirs ?? []).entries()) {
+          eldDvirs.push({
+            id: d.id ?? i + 1,
+            inspectedAt: d.inspectedAt ?? d.date ?? dvirSnap.receivedAt.toISOString(),
+            vehicle: d.vehicle ?? null,
+            status: d.status ?? "reported",
+            source: `${providerName} ELD`,
+            defects: (d.defects ?? []).map((df) => ({
+              item: df.item,
+              note: df.note ?? "",
+              critical: df.critical === true,
+            })),
+          });
+        }
+      } catch { /* unparseable feed contributes nothing */ }
+    }
+    eldCloudNote =
+      eldDvirs.length > 0
+        ? `${providerName} is connected (read-only) and is the official record — its DVIRs are listed separately below, source-labelled.`
+        : `${providerName} is connected (read-only), but no ELD DVIRs have been received yet — live sync activates at go-live. The DVIRs above are the in-app signed reports; ${providerName} remains the official record.`;
+  }
+
+  // Chain integrity + the packet's Verify-Anywhere code.
+  let prev = GENESIS_HASH;
+  let chainIntact = true;
+  for (const r of chain) {
+    if (r.prevHash !== prev) { chainIntact = false; break; }
+    const expected = await sha256(`${r.prevHash}|${r.event}|${r.payload}`);
+    if (expected !== r.hash) { chainIntact = false; break; }
+    prev = r.hash;
+  }
+  const headHash = chain[chain.length - 1]?.hash ?? null;
+  let verifyCode: string | null = null;
+  if (headHash) {
+    const existing = await db.select().from(schema.verifyCodes);
+    const found = existing.find(
+      (c) => c.kind === "inspection" && c.refId == null && c.recordHash === headHash,
+    );
+    if (found) {
+      verifyCode = found.code;
+    } else {
+      let code = "";
+      for (let attempt = 0; attempt < 10; attempt++) {
+        code = "SM-" + mintCodeString("", [6], CODE_ALPHABET);
+        if (!existing.some((c) => c.code === code)) break;
+      }
+      const summaryJson = JSON.stringify({
+        what: "DOT inspection packet — last 8 days of duty logs + DVIRs",
+        when: now.toISOString(),
+        scope: "Duty status history, HOS clocks, miles by day, DVIRs — state-level detail only",
+      });
+      await db.insert(schema.verifyCodes).values({
+        code,
+        kind: "inspection",
+        refId: null,
+        recordHash: headHash,
+        summary: summaryJson,
+      });
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "verify_code_issued",
+        payload: { code, kind: "inspection", refId: null, recordHash: headHash.slice(0, 16), at: now.toISOString() },
+      });
+      verifyCode = code;
+    }
+  }
+
+  // Printable packet text — every section carries the seal + code.
+  const fmtH = (h: number) => {
+    const mins = Math.max(0, Math.round(h * 60));
+    return `${Math.floor(mins / 60)}:${String(mins % 60).padStart(2, "0")}`;
+  };
+  const stateName: Record<string, string> = {
+    off_duty: "Off Duty",
+    sleeper: "Sleeper Berth",
+    on_duty: "On Duty (not driving)",
+    driving: "Driving",
+  };
+  const sealLine = `Seal / record hash: ${headHash ?? "no sealed records yet"} · Verify code: ${verifyCode ?? "none — seal a record first"} · Chain: ${chainIntact ? "INTACT" : "BROKEN — do not rely on this packet"}`;
+  const L: string[] = [
+    "STONEMILES — DOT INSPECTION PACKET",
+    "STONEMILES is a planning and record-keeping aid, not an FMCSA-registered ELD. If your carrier runs a certified ELD, that system holds the official record — STONEMILES mirrors it.",
+    sealLine,
+    `Generated: ${now.toLocaleString()}`,
+    `Driver: ${driverName} (@${me})`,
+    `Company: ${companyName ?? "No company on file"}${legalName && legalName !== companyName ? ` (legal: ${legalName})` : ""}`,
+    `MC: ${mcNumber ?? "not on file"} · USDOT: ${usdotNumber ?? "not on file"}`,
+    eldConnected
+      ? `ELD: connected — ${eldSource} is the official record; showing mirrored data.`
+      : "ELD: none connected — miles below are GPS estimates, labelled as such.",
+    `Current duty status: ${currentStatus ? (stateName[currentStatus] ?? currentStatus) : "not set"}${statusSince ? ` since ${new Date(statusSince).toLocaleString()}` : ""}`,
+    "",
+    "HOS SUMMARY (planning clocks from the sealed duty log)",
+    `Drive remaining (11h): ${fmtH(hos.driveRemainH)} · Shift remaining (14h): ${fmtH(hos.windowRemainH)} · Cycle remaining (${CYCLE_LIMITS[cycleType].hours}h/${CYCLE_LIMITS[cycleType].days}-day): ${fmtH(hos.cycleRemainH)} · 30-min break: ${hos.breakRemainH >= 8 ? "satisfied / not due" : `${fmtH(hos.breakRemainH)} of driving left before a 30-minute break is due`}`,
+    "",
+    "LAST 8 DAYS OF DUTY LOGS",
+  ];
+  for (const d of [...days].reverse()) {
+    L.push("", `— ${d.date} —`);
+    L.push(
+      `Miles: ${d.miles.toFixed(1)} (${d.milesSource})${d.startMiles != null ? ` · Start odometer: ${d.startMiles}${d.startMilesSource ? ` (${d.startMilesSource})` : ""}` : ""}${d.endMiles != null ? ` · End odometer: ${d.endMiles}` : ""}`,
+    );
+    L.push(
+      `Totals: Off Duty ${fmtH(d.totalsH.off_duty)} · Sleeper ${fmtH(d.totalsH.sleeper)} · On Duty ${fmtH(d.totalsH.on_duty)} · Driving ${fmtH(d.totalsH.driving)}`,
+    );
+    L.push(
+      `Units (49 CFR 395.8(d)(3)): Truck ${d.truckUnit ? `Unit ${d.truckUnit}` : (d.truckLabel ?? "not recorded")} · Trailer ${d.trailerUnit ?? d.trailerLabel ?? "not recorded"}${d.unitSource ? ` (identity from ${d.unitSource === "dvir" ? "the day's signed DVIR" : "the driver's truck/trailer profile"})` : ""}`,
+    );
+    L.push(
+      d.certifiedName
+        ? `Certification (49 CFR 395.8(d)(5)): "I certify these entries are true and correct" — ${d.certifiedName}${d.certifiedAt ? ` · ${new Date(d.certifiedAt).toLocaleString()}` : ""}`
+        : "Certification: not yet certified",
+    );
+    if (d.segments.length === 0) L.push("No duty log recorded for this day.");
+    for (const s of d.segments) {
+      L.push(
+        `  ${stateName[s.state] ?? s.state}: ${new Date(s.startAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} → ${new Date(s.endAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} · Location: ${s.location ?? "not recorded"}`,
+      );
+    }
+    for (const n of d.dutyNotes) L.push(`  Duty record: ${n}`);
+  }
+  L.push("", "DVIR — TODAY + PREVIOUS DAY");
+  if (dvirs.length === 0) L.push("No DVIR signed today or yesterday.");
+  for (const r of dvirs) {
+    L.push(
+      `${r.kind === "pretrip" ? "Pretrip" : "Post-trip"} DVIR · ${new Date(r.inspectedAt).toLocaleString()} · Signed: ${r.signedName} · Status: ${r.status}${r.odometer != null ? ` · Odometer: ${r.odometer}` : ""}`,
+    );
+    if (r.defects.length === 0) L.push(`  All ${r.items} systems OK — no defects.`);
+    for (const df of r.defects) {
+      L.push(`  Defect${df.critical ? " (SAFETY-CRITICAL)" : ""}: ${df.item}${df.note ? ` — ${df.note}` : ""}`);
+      L.push(
+        df.certification
+          ? `    Repair certification (49 CFR 396.11(a)(2)): ${df.certification.determination === "repair_not_necessary" ? "repair not necessary" : "repaired"} — certified by ${df.certification.certifiedBy} · ${new Date(df.certification.at).toLocaleString()}`
+          : "    Repair certification: not certified yet",
+      );
+    }
+  }
+  L.push("", "DVIRs FROM THE CARRIER ELD (source-labelled, listed separately)");
+  if (eldCloudNote) L.push(eldCloudNote);
+  if (eldDvirs.length === 0 && !eldCloudNote) L.push("No cloud ELD connected — no ELD DVIRs in this packet.");
+  for (const r of eldDvirs) {
+    L.push(
+      `${new Date(r.inspectedAt).toLocaleString()} · Source: ${r.source} · Status: ${r.status}${r.vehicle ? ` · Vehicle: ${r.vehicle}` : ""}`,
+    );
+    if (r.defects.length === 0) L.push("  No defects reported on this ELD DVIR.");
+    for (const df of r.defects)
+      L.push(`  Defect${df.critical ? " (SAFETY-CRITICAL)" : ""}: ${df.item}${df.note ? ` — ${df.note}` : ""}`);
+  }
+  L.push("", sealLine);
+  L.push(
+    "Verify this packet: enter the code above in STONEMILES → Verify-Anywhere (no account needed) — the sealed chain itself answers GENUINE or NOT VERIFIED. State-level detail only: no precise GPS track, no wallet data.",
+  );
+
+  return {
+    driverName,
+    username: me,
+    companyName,
+    legalName,
+    mcNumber,
+    usdotNumber,
+    eldConnected,
+    eldSource,
+    generatedAt: now.toISOString(),
+    currentStatus,
+    statusSince,
+    hos,
+    cycleType,
+    days,
+    dvirs,
+    eldDvirs,
+    eldCloudNote,
+    verifyCode,
+    chainHeadShort: headHash ? headHash.slice(0, 16) + "…" : null,
+    chainIntact,
+    packetText: L.join("\n"),
   };
 }
 
@@ -25743,6 +26385,7 @@ export const Actions = {
           driverCpm: row.driverCpm ?? null,
           payBasis: row.payBasis === "percent" ? ("percent" as const) : ("cpm" as const),
           driverPayPct: row.driverPayPct ?? null,
+          cycleType: cycleTypeOf(row.cycleType),
           factoringPct: row.factoringPct ?? 0,
           dispatcherPct: row.dispatcherPct ?? 0,
           trailerType: (["dry_van", "reefer", "flatbed", "step_deck", "rgn"].includes(row.trailerType ?? "")
@@ -25817,6 +26460,7 @@ export const Actions = {
         driverCpm: args.driverCpm,
         payBasis: args.payBasis,
         driverPayPct: args.driverPayPct,
+        cycleType: args.cycleType,
         factoringPct: args.factoringPct,
         dispatcherPct: args.dispatcherPct,
         trailerType: args.trailerType,
@@ -25868,6 +26512,7 @@ export const Actions = {
             driverCpm: values.driverCpm,
             payBasis: values.payBasis,
             driverPayPct: values.driverPayPct,
+            cycleType: values.cycleType,
             factoringPct: values.factoringPct,
             dispatcherPct: values.dispatcherPct,
             trailerType: values.trailerType,
@@ -33371,7 +34016,7 @@ export const Actions = {
       const eldConnected = conns.length > 0;
       const eld = eldConnected ? await mirroredEldHos(ctx) : null;
       const { events } = await effectiveDutyTimeline(ctx);
-      const app = hosClocksFor(events, Date.now());
+      const app = hosClocksFor(events, Date.now(), await effectiveCycleType(ctx, await myUsername(ctx)));
       const appClocks = app.hasData
         ? {
             driveRemainH: app.driveRemainH,
@@ -35824,6 +36469,10 @@ export const Actions = {
         canEditFleet: z.boolean(),
         companyName: z.string().nullable(),
       }),
+      // The caller's effective HOS cycle (A3): fleet override, else
+      // their profile setting, else 70/8. The client clocks run on
+      // this so every surface reckons the same cycle.
+      cycleType: z.enum(["60/7", "70/8"]),
     }),
     async handler(ctx, args) {
       const me = await myUsername(ctx);
@@ -35831,6 +36480,7 @@ export const Actions = {
       const { events, edits } = await effectiveDutyTimeline(ctx);
       const sliced = events.slice(-args.limit);
       return {
+        cycleType: await effectiveCycleType(ctx, me),
         events: sliced.map((e) => ({
           id: e.id,
           state: e.state,
@@ -38387,6 +39037,11 @@ export const Actions = {
         if (l.hosEnd) lines.push(`HOS at close: ${l.hosEnd}`);
         if (l.pretrip) lines.push(`Pretrip: ${l.pretrip}`);
         lines.push(`Loads delivered (POD sealed): ${l.loadsDelivered}`);
+        lines.push(
+          l.certifiedName
+            ? `Certification (49 CFR 395.8(d)(5)): "I certify these entries are true and correct" — ${l.certifiedName}${l.certifiedAt ? `, certified ${l.certifiedAt.toISOString()}` : ""}`
+            : "Certification: not yet certified",
+        );
         if (l.detentionText) lines.push(`Detention: ${l.detentionText}`);
         if (l.criticalDefect) lines.push("⚠ SAFETY-CRITICAL pretrip defect on this log.");
         lines.push(`Seal hash: ${hashByLog.get(l.id) ?? "in hash chain (daily_log_open / daily_log_close events)"}`);
@@ -41740,6 +42395,10 @@ export const Actions = {
           contactEmail: z.string().nullable(),
           contactPhone: z.string().nullable(),
           fleetSize: z.number().nullable(),
+          // Fleet HOS cycle override (regulatory fix A3, §395.3(b)):
+          // "60/7" | "70/8", null = no fleet override (each driver's
+          // own profile cycle rules).
+          cycleType: z.enum(["60/7", "70/8"]).nullable(),
           complete: z.boolean(),
         })
         .nullable(),
@@ -41773,6 +42432,11 @@ export const Actions = {
         .where(eq(schema.companyDocs.companyId, mine.company.id))
         .orderBy(desc(schema.companyDocs.id));
       const ein = await einMask(ctx, s?.ein ?? null);
+      // Narrow the stored text to the enum before it meets the
+      // response schema (property-access narrowing doesn't survive
+      // into the object literal's inferred type).
+      const setupCycle: "60/7" | "70/8" | null =
+        s?.cycleType === "60/7" || s?.cycleType === "70/8" ? s.cycleType : null;
       return {
         setup: s
           ? {
@@ -41788,6 +42452,7 @@ export const Actions = {
               contactEmail: s.contactEmail,
               contactPhone: s.contactPhone,
               fleetSize: s.fleetSize,
+              cycleType: setupCycle,
               complete: s.complete,
             }
           : null,
@@ -41819,6 +42484,9 @@ export const Actions = {
       contactEmail: z.string().max(120).nullable(),
       contactPhone: z.string().max(40).nullable(),
       fleetSize: z.number().int().nonnegative().nullable(),
+      // Optional so older clients keep saving setup untouched; null
+      // clears the fleet cycle override (A3).
+      cycleType: z.enum(["60/7", "70/8"]).nullable().optional(),
     }),
     response: z.object({ ok: z.boolean(), error: z.string().nullable(), complete: z.boolean() }),
     async handler(ctx, args) {
@@ -41857,6 +42525,9 @@ export const Actions = {
         contactEmail: args.contactEmail?.trim() || null,
         contactPhone: args.contactPhone?.trim() || null,
         fleetSize: args.fleetSize,
+        // Only written when the caller sent it, so a client that
+        // doesn't know the field can't clear an owner's override.
+        ...(args.cycleType !== undefined ? { cycleType: args.cycleType } : {}),
       };
       const docs = await db
         .select()
@@ -42204,6 +42875,13 @@ export const Actions = {
       hosEnd: z.string().max(600),
       loadsDelivered: z.number().int().nonnegative(),
       detentionText: z.string().max(300).nullable(),
+      // Driver's certification (regulatory fix A1, 49 CFR
+      // 395.8(d)(5)): the typed name from the "I certify these
+      // entries are true and correct" step. Optional at the schema
+      // so older clients still close — an uncertified close reads
+      // "not yet certified" everywhere and can be certified later
+      // via certifyDailyLog; it is never backfilled or assumed.
+      certifyName: z.string().max(80).nullable().optional(),
     }),
     response: z.object({ ok: z.boolean(), error: z.string().nullable() }),
     async handler(ctx, args) {
@@ -42221,6 +42899,8 @@ export const Actions = {
         args.finishMiles != null && log.startMiles != null
           ? Math.max(0, Math.round((args.finishMiles - log.startMiles) * 10) / 10)
           : null;
+      const certifyName = args.certifyName?.trim() || null;
+      const certifiedAt = certifyName ? new Date() : null;
       await db
         .update(schema.dailyLogs)
         .set({
@@ -42232,6 +42912,7 @@ export const Actions = {
           hosEnd: args.hosEnd,
           loadsDelivered: args.loadsDelivered,
           detentionText: args.detentionText,
+          ...(certifyName && certifiedAt ? { certifiedName: certifyName, certifiedAt } : {}),
         })
         .where(eq(schema.dailyLogs.id, args.logId));
       await appendChain(ctx, {
@@ -42248,7 +42929,62 @@ export const Actions = {
           fuelUsage: args.fuelUsage,
           loadsDelivered: args.loadsDelivered,
           detentionText: args.detentionText,
+          // The certification rides INSIDE the close seal (A1): the
+          // typed name, the moment it was given, and the exact
+          // statement certified. Absent = the day closed
+          // uncertified — stated, never implied.
+          certification:
+            certifyName && certifiedAt
+              ? { name: certifyName, at: certifiedAt.toISOString(), statement: "I certify these entries are true and correct", logDate: log.logDate }
+              : null,
           at: new Date().toISOString(),
+        },
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
+    },
+  }),
+
+  // Certify a daily log that closed without a certification (A1) —
+  // an older client, or the missed-close auto-close. The typed name
+  // seals as its own daily_log_certified event; the log row gains
+  // certifiedName / certifiedAt so every surface can show the state.
+  certifyDailyLog: defineAction({
+    description: "Certify a closed daily log (typed-name certification, 49 CFR 395.8(d)(5)).",
+    request: z.object({
+      logId: z.number().int().positive(),
+      certifyName: z.string().min(1).max(80),
+    }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const rows = await db
+        .select()
+        .from(schema.dailyLogs)
+        .where(eq(schema.dailyLogs.id, args.logId))
+        .limit(1);
+      const log = rows[0];
+      if (!log || log.username !== me) return { ok: false, error: "That log isn't yours to certify." };
+      if (log.status === "open") return { ok: false, error: "That log is still open — close it first, then certify." };
+      if (log.certifiedName) return { ok: false, error: "That day is already certified — a certification is never rewritten." };
+      const name = args.certifyName.trim();
+      if (!name) return { ok: false, error: "Type your name to certify — the certification is your typed signature." };
+      const certifiedAt = new Date();
+      await db
+        .update(schema.dailyLogs)
+        .set({ certifiedName: name, certifiedAt })
+        .where(eq(schema.dailyLogs.id, args.logId));
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "daily_log_certified",
+        payload: {
+          logId: args.logId,
+          username: me,
+          certification: { name, at: certifiedAt.toISOString(), statement: "I certify these entries are true and correct", logDate: log.logDate },
+          at: certifiedAt.toISOString(),
         },
       });
       ctx.invalidateQueries();
@@ -42281,6 +43017,9 @@ export const Actions = {
           loadsDelivered: z.number(),
           detentionText: z.string().nullable(),
           criticalDefect: z.boolean(),
+          // Certification state (A1): null name = not yet certified.
+          certifiedName: z.string().nullable(),
+          certifiedAt: z.string().nullable(),
         }),
       ),
     }),
@@ -42346,6 +43085,8 @@ export const Actions = {
           loadsDelivered: l.loadsDelivered,
           detentionText: l.detentionText,
           criticalDefect: l.criticalDefect,
+          certifiedName: l.certifiedName ?? null,
+          certifiedAt: l.certifiedAt?.toISOString() ?? null,
         })),
       };
     },
@@ -48502,6 +49243,108 @@ export const Actions = {
     },
   }),
 
+  // DOT packet email (audit T1): the officer-surface send — the
+  // driver types the officer's (or anyone's) address and the 8-day
+  // packet goes out through the same sendDocEmail seam as Library
+  // mail: the packet text inline plus the packet PDF attached. A
+  // successful send seals packet_emailed (address + days covered +
+  // verify code — no packet contents on chain). Unconfigured mail
+  // is reported plainly and seals NOTHING: the event means the
+  // packet was actually emailed.
+  sendInspectionPacketEmail: defineAction({
+    description: "Email the DOT inspection packet (8-day logs + DVIRs) to an address the driver enters. Seals packet_emailed on an actual send; reports plainly when mail is unconfigured.",
+    request: z.object({
+      toEmail: z.string().min(3).max(160),
+      todayLocal: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      utcOffsetMinutes: z.number().int().min(-900).max(900),
+    }),
+    response: z.object({
+      ok: z.boolean(),
+      error: z.string().nullable(),
+      status: z.enum(["sent"]).nullable(),
+    }),
+    privileged: [privileged.docEmailConfig, privileged.sendDocEmail],
+    async handler(ctx, args) {
+      const me = await myUsername(ctx);
+      if (await isAccountLocked(ctx, me)) {
+        return { ok: false, error: "This account is locked (lost-phone kill switch) — sending is off until you unlock it from the Security Center.", status: null };
+      }
+      const to = args.toEmail.trim();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
+        return { ok: false, error: "That email address doesn't look right — check it and try again.", status: null };
+      }
+      const packet = await buildInspectionPacket(ctx, {
+        todayLocal: args.todayLocal,
+        utcOffsetMinutes: args.utcOffsetMinutes,
+      });
+      const ref = `inspection:${args.todayLocal}:${args.utcOffsetMinutes}`;
+      const doc = await resolveLibraryDocument(ctx, ref);
+      if (!doc.ok || !doc.bytes) {
+        return { ok: false, error: doc.error ?? "The packet PDF couldn't be built.", status: null };
+      }
+      const myEmail = viewerOf(ctx)?.email ?? (await accountEmailFor(ctx, me));
+      const firstDay = packet.days[0]?.date ?? args.todayLocal;
+      const lastDay = packet.days[packet.days.length - 1]?.date ?? args.todayLocal;
+      const subject = `DOT Inspection Packet - ${packet.driverName} - ${firstDay} to ${lastDay}`;
+      const res = (await ctx.executePrivileged(privileged.sendDocEmail, {
+        to,
+        replyTo: myEmail ?? null,
+        subject,
+        text: [
+          subject,
+          ``,
+          `Sent by @${me} from STONEMILES at a roadside inspection. The full packet is below and attached as a PDF (${doc.filename}).`,
+          packet.verifyCode
+            ? `Verify this packet: enter code ${packet.verifyCode} in STONEMILES → Verify-Anywhere (no account needed) — the sealed chain itself answers GENUINE or NOT VERIFIED.`
+            : `This packet carries no verify code yet — seal a record in the app and regenerate to add one.`,
+          ``,
+          packet.packetText,
+        ].join("\n"),
+        attachmentBase64: Buffer.from(doc.bytes).toString("base64"),
+        attachmentFilename: doc.filename,
+      })) as { ok: boolean; notConfigured: boolean; providerId: string | null; errorMessage: string | null };
+      if (res.notConfigured) {
+        return {
+          ok: false,
+          error: "Email isn't set up on this server yet, so the packet can't be emailed right now — nothing was sent. Use the PDF download on this screen instead.",
+          status: null,
+        };
+      }
+      if (!res.ok || !res.providerId) {
+        return { ok: false, error: res.errorMessage ?? "The email didn't send — try again, or use the PDF download.", status: null };
+      }
+      const db = ctx.db<typeof schema>();
+      await db.insert(schema.documentSends).values({
+        username: me,
+        docRef: ref,
+        docKind: "inspection",
+        docTitle: subject,
+        toEmail: to,
+        replyTo: myEmail ?? null,
+        subject,
+        status: "sent",
+        providerId: res.providerId,
+        detail: null,
+        sentAt: new Date(),
+      });
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "packet_emailed",
+        payload: {
+          by: me,
+          to,
+          daysCovered: { first: firstDay, last: lastDay },
+          verifyCode: packet.verifyCode,
+          at: new Date().toISOString(),
+        },
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null, status: "sent" as const };
+    },
+  }),
+
   // Facility Memory: detention truth per shipper/facility from the driver's
   // own sealed detention events — never from any outside database.
   getFacilityMemory: defineAction({
@@ -49422,521 +50265,9 @@ export const Actions = {
       todayLocal: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
       utcOffsetMinutes: z.number().int().min(-900).max(900),
     }),
-    response: z.object({
-      driverName: z.string(),
-      username: z.string(),
-      companyName: z.string().nullable(),
-      legalName: z.string().nullable(),
-      mcNumber: z.string().nullable(),
-      usdotNumber: z.string().nullable(),
-      eldConnected: z.boolean(),
-      eldSource: z.string().nullable(),
-      generatedAt: z.string(),
-      currentStatus: z.string().nullable(),
-      statusSince: z.string().nullable(),
-      hos: z.object({
-        hasData: z.boolean(),
-        driveRemainH: z.number(),
-        windowRemainH: z.number(),
-        cycleRemainH: z.number(),
-        breakRemainH: z.number(),
-      }),
-      days: z.array(
-        z.object({
-          date: z.string(),
-          segments: z.array(
-            z.object({
-              state: z.string(),
-              startAt: z.string(),
-              endAt: z.string(),
-              location: z.string().nullable(),
-            }),
-          ),
-          totalsH: z.object({
-            off_duty: z.number(),
-            sleeper: z.number(),
-            on_duty: z.number(),
-            driving: z.number(),
-          }),
-          miles: z.number(),
-          milesSource: z.string(),
-          startMiles: z.number().nullable(),
-          endMiles: z.number().nullable(),
-          startMilesSource: z.string().nullable(),
-          dutyNotes: z.array(z.string()),
-        }),
-      ),
-      dvirs: z.array(
-        z.object({
-          id: z.number(),
-          inspectedAt: z.string(),
-          kind: z.string(),
-          signedName: z.string(),
-          status: z.string(),
-          odometer: z.number().nullable(),
-          items: z.number(),
-          defects: z.array(
-            z.object({ item: z.string(), note: z.string(), critical: z.boolean() }),
-          ),
-        }),
-      ),
-      eldDvirs: z.array(
-        z.object({
-          id: z.number(),
-          inspectedAt: z.string(),
-          vehicle: z.string().nullable(),
-          status: z.string(),
-          // Source label, e.g. "Samsara ELD" — ELD DVIRs are never blended
-          // with the in-app signed DVIRs above.
-          source: z.string(),
-          defects: z.array(
-            z.object({ item: z.string(), note: z.string(), critical: z.boolean() }),
-          ),
-        }),
-      ),
-      eldCloudNote: z.string().nullable(),
-      verifyCode: z.string().nullable(),
-      chainHeadShort: z.string().nullable(),
-      chainIntact: z.boolean(),
-      packetText: z.string(),
-    }),
+    response: inspectionPacketResponse,
     async handler(ctx, args) {
-      const db = ctx.db<typeof schema>();
-      const now = new Date();
-      const nowMs = now.getTime();
-      const off = args.utcOffsetMinutes;
-      const dayStartMs = (dateStr: string) =>
-        Date.parse(`${dateStr}T00:00:00Z`) + off * 60000;
-      const localDateOf = (ms: number) =>
-        new Date(ms - off * 60000).toISOString().slice(0, 10);
-      const addDays = (dateStr: string, n: number) => {
-        const d = new Date(Date.parse(`${dateStr}T00:00:00Z`) + n * 86400000);
-        return d.toISOString().slice(0, 10);
-      };
-      const dates: string[] = [];
-      for (let i = 7; i >= 0; i--) dates.push(addDays(args.todayLocal, -i));
-
-      // Identity: driver + public company info (company setup).
-      const me = await myUsername(ctx);
-      const profRows = await db
-        .select()
-        .from(schema.profile)
-        .where(eq(schema.profile.id, myProfileId(ctx)))
-        .limit(1);
-      const socialRows = await db.select().from(schema.socialUsers);
-      const social = socialRows.find(
-        (r) => r.username.toLowerCase() === me.toLowerCase(),
-      );
-      const driverName =
-        social?.displayName ?? profRows[0]?.chatName ?? me;
-      const mine = await myMembership(ctx, me);
-      let legalName: string | null = null;
-      let mcNumber: string | null = null;
-      let usdotNumber: string | null = null;
-      if (mine) {
-        const setups = await db
-          .select()
-          .from(schema.companySetup)
-          .where(eq(schema.companySetup.companyId, mine.company.id))
-          .limit(1);
-        const s = setups[0];
-        legalName = s?.legalName ?? s?.dba ?? null;
-        mcNumber = s?.mcNumber ?? null;
-        usdotNumber = s?.usdotNumber ?? null;
-      }
-      const companyName = mine?.company.name ?? legalName;
-
-      // Duty history from the sealed chain — the EFFECTIVE timeline:
-      // sealed duty_corrections (owner / owner-operator HOS log fixes)
-      // applied over the originals, exactly as the in-app clocks read
-      // them. The originals stay in the chain; every fix also surfaces
-      // below as a duty note on the day it corrects, with who fixed it
-      // and why, so the packet never hides that an edit happened.
-      const chain = await db
-        .select()
-        .from(schema.chainLog)
-        .orderBy(asc(schema.chainLog.id));
-      type DutyEv = { state: string; at: string; location: string | null };
-      const effTimeline = await effectiveDutyTimeline(ctx);
-      const dutyEvents: DutyEv[] = effTimeline.events.map((e) => ({
-        state: e.state,
-        at: e.at,
-        location: e.location,
-      }));
-      const editStateName: Record<string, string> = {
-        off_duty: "Off Duty",
-        sleeper: "Sleeper Berth",
-        on_duty: "On Duty (not driving)",
-        driving: "Driving",
-      };
-      const promptNotes: { at: string; note: string }[] = [];
-      for (const ed of effTimeline.edits) {
-        promptNotes.push({
-          at: ed.correctedAt,
-          note: `HOS log edited by @${ed.editedBy} (${ed.editedByRole === "owner" ? "fleet owner" : ed.editedByRole === "owner_operator" ? "owner-operator" : ed.editedByRole}): ${editStateName[ed.originalState] ?? ed.originalState} at ${new Date(ed.originalAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} corrected to ${editStateName[ed.correctedState] ?? ed.correctedState} — reason: ${ed.reason}. The original entry is preserved in the sealed records.`,
-        });
-      }
-      for (const r of chain) {
-        if (r.event === "duty_choice") {
-          try {
-            const p = JSON.parse(r.payload) as { at?: string; dutyNote?: string };
-            if (p.at && p.dutyNote) promptNotes.push({ at: p.at, note: p.dutyNote });
-          } catch { /* skip malformed */ }
-        }
-      }
-      dutyEvents.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
-      const currentStatus =
-        dutyEvents.length > 0 ? (dutyEvents[dutyEvents.length - 1]?.state ?? null) : null;
-      const statusSince =
-        dutyEvents.length > 0 ? (dutyEvents[dutyEvents.length - 1]?.at ?? null) : null;
-
-      // HOS clocks — same rules as the in-app planning clocks (11h drive
-      // after a 10h reset, 14h window, 70h/8-day cycle, 30-min break
-      // after 8h driving). Planning aid only.
-      const H = 3600000;
-      const segsAll: { state: string; start: number; end: number; location: string | null }[] = [];
-      for (let i = 0; i < dutyEvents.length; i++) {
-        const ev = dutyEvents[i];
-        if (!ev) continue;
-        const start = Date.parse(ev.at);
-        const next = dutyEvents[i + 1];
-        const end = next ? Date.parse(next.at) : nowMs;
-        if (Number.isFinite(start) && end > start)
-          segsAll.push({ state: ev.state, start, end, location: ev.location });
-      }
-      let hos = { hasData: false, driveRemainH: 11, windowRemainH: 14, cycleRemainH: 70, breakRemainH: 8 };
-      if (segsAll.length > 0) {
-        let resetAt = 0;
-        let offRun = 0;
-        let offRunStart = 0;
-        for (const s of segsAll) {
-          if (s.state === "off_duty" || s.state === "sleeper") {
-            if (offRun === 0) offRunStart = s.start;
-            offRun += s.end - s.start;
-            if (offRun >= 10 * H) resetAt = Math.max(resetAt, offRunStart + 10 * H);
-          } else offRun = 0;
-        }
-        const since = segsAll.filter((s) => s.end > resetAt);
-        let driving = 0;
-        let windowStart: number | null = null;
-        for (const s of since) {
-          const st = Math.max(s.start, resetAt);
-          if (s.state === "driving") driving += s.end - st;
-          if ((s.state === "on_duty" || s.state === "driving") && windowStart === null)
-            windowStart = st;
-        }
-        const cycleFrom = nowMs - 8 * 24 * H;
-        let cycle = 0;
-        for (const s of segsAll) {
-          if (s.state !== "on_duty" && s.state !== "driving") continue;
-          const st = Math.max(s.start, cycleFrom);
-          if (s.end > st) cycle += s.end - st;
-        }
-        let drivingSinceBreak = 0;
-        let nonDriveRun = 0;
-        for (const s of segsAll) {
-          if (s.state === "driving") {
-            if (nonDriveRun >= 0.5 * H) drivingSinceBreak = 0;
-            nonDriveRun = 0;
-            drivingSinceBreak += s.end - s.start;
-          } else nonDriveRun += s.end - s.start;
-        }
-        if (nonDriveRun >= 0.5 * H) drivingSinceBreak = 0;
-        hos = {
-          hasData: true,
-          driveRemainH: Math.max(0, 11 - driving / H),
-          windowRemainH: windowStart === null ? 14 : Math.max(0, 14 - (nowMs - windowStart) / H),
-          cycleRemainH: Math.max(0, 70 - cycle / H),
-          breakRemainH: Math.max(0, 8 - drivingSinceBreak / H),
-        };
-      }
-
-      // Miles + odometer context per day: sealed trips (GPS) and the
-      // driver's daily logs (odometer readings as recorded).
-      const trips = await db.select().from(schema.trips);
-      const dailyLogs = await db.select().from(schema.dailyLogs);
-      const myLogs = dailyLogs.filter((l) => l.username === me);
-      const eldLog = [...myLogs]
-        .reverse()
-        .find((l) => (l.startMilesSource ?? "").toLowerCase().includes("eld"));
-      const eldConnected = eldLog != null;
-      const eldSource = eldLog
-        ? `ELD odometer (as recorded on the ${eldLog.logDate} daily log)`
-        : null;
-
-      const days = dates.map((date) => {
-        const dStart = dayStartMs(date);
-        const dEnd = dStart + 86400000;
-        const daySegs = segsAll
-          .filter((s) => s.end > dStart && s.start < dEnd)
-          .map((s) => ({
-            state: s.state,
-            startAt: new Date(Math.max(s.start, dStart)).toISOString(),
-            endAt: new Date(Math.min(s.end, dEnd)).toISOString(),
-            location: s.location,
-          }));
-        const totalsH = { off_duty: 0, sleeper: 0, on_duty: 0, driving: 0 };
-        for (const s of daySegs) {
-          const key = s.state as keyof typeof totalsH;
-          if (key in totalsH)
-            totalsH[key] += (Date.parse(s.endAt) - Date.parse(s.startAt)) / H;
-        }
-        for (const k of Object.keys(totalsH) as (keyof typeof totalsH)[])
-          totalsH[k] = Math.round(totalsH[k] * 100) / 100;
-        const dayTrips = trips.filter((t) => localDateOf(t.startedAt.getTime()) === date);
-        const tripsMiles =
-          Math.round(dayTrips.reduce((s, t) => s + t.totalMiles, 0) * 10) / 10;
-        const log = myLogs.find((l) => l.logDate === date) ?? null;
-        let miles = tripsMiles;
-        let milesSource = tripsMiles > 0 ? "GPS estimate" : "No miles logged";
-        if (log?.totalMiles != null) {
-          miles = log.totalMiles;
-          milesSource = (log.startMilesSource ?? "").toLowerCase().includes("eld")
-            ? "ELD odometer"
-            : "Daily log odometer (as recorded)";
-        } else if (log && tripsMiles > 0) {
-          milesSource = "GPS estimate";
-        }
-        const notes = new Set<string>();
-        for (const t of dayTrips) if (t.dutyNote) notes.add(t.dutyNote);
-        for (const pn of promptNotes)
-          if (localDateOf(Date.parse(pn.at)) === date) notes.add(pn.note);
-        return {
-          date,
-          segments: daySegs,
-          totalsH,
-          miles,
-          milesSource,
-          startMiles: log?.startMiles ?? null,
-          endMiles: log?.finishMiles ?? null,
-          startMilesSource: log?.startMilesSource ?? null,
-          dutyNotes: [...notes],
-        };
-      });
-
-      // DVIRs: today + the previous day, exactly as signed.
-      const windowStart = dayStartMs(addDays(args.todayLocal, -1));
-      const dvirRows = await db
-        .select()
-        .from(schema.dvirReports)
-        .orderBy(desc(schema.dvirReports.id));
-      const dvirs = dvirRows
-        .filter((r) => r.inspectedAt.getTime() >= windowStart)
-        .map((r) => {
-          let items = 0;
-          try { items = (JSON.parse(r.itemsJson) as unknown[]).length; } catch { items = 0; }
-          let defects: { item: string; note: string; critical: boolean }[] = [];
-          try { defects = JSON.parse(r.defectsJson) as typeof defects; } catch { defects = []; }
-          return {
-            id: r.id,
-            inspectedAt: r.inspectedAt.toISOString(),
-            kind: r.kind,
-            signedName: r.signedName,
-            status: r.status,
-            odometer: r.odometer,
-            items,
-            defects,
-          };
-        });
-
-      // ELD DVIRs: from the connected cloud ELD's dvirs feed, kept in
-      // their own source-labelled list — never blended with the in-app
-      // signed DVIRs above. Empty until live sync delivers real reports;
-      // the note says plainly why the list is empty.
-      const eldConnsAll = await db.select().from(schema.eldConnections);
-      const eldActive = eldConnsAll.find((c) => c.status === "connected");
-      const eldDvirs: {
-        id: number;
-        inspectedAt: string;
-        vehicle: string | null;
-        status: string;
-        source: string;
-        defects: { item: string; note: string; critical: boolean }[];
-      }[] = [];
-      let eldCloudNote: string | null = null;
-      if (eldActive) {
-        const providerName = ELD_PROVIDER_NAMES[eldActive.provider] ?? eldActive.provider;
-        const snaps = await db
-          .select()
-          .from(schema.eldSnapshots)
-          .where(eq(schema.eldSnapshots.connectionId, eldActive.id))
-          .orderBy(desc(schema.eldSnapshots.id));
-        const dvirSnap = snaps.find((s) => s.feed === "dvirs" && !snapshotIsSimulated(s.payloadJson));
-        if (dvirSnap) {
-          try {
-            const p = JSON.parse(dvirSnap.payloadJson) as {
-              dvirs?: {
-                id?: number;
-                inspectedAt?: string;
-                date?: string;
-                vehicle?: string;
-                status?: string;
-                defects?: { item: string; note?: string; critical?: boolean }[];
-              }[];
-            };
-            for (const [i, d] of (p.dvirs ?? []).entries()) {
-              eldDvirs.push({
-                id: d.id ?? i + 1,
-                inspectedAt: d.inspectedAt ?? d.date ?? dvirSnap.receivedAt.toISOString(),
-                vehicle: d.vehicle ?? null,
-                status: d.status ?? "reported",
-                source: `${providerName} ELD`,
-                defects: (d.defects ?? []).map((df) => ({
-                  item: df.item,
-                  note: df.note ?? "",
-                  critical: df.critical === true,
-                })),
-              });
-            }
-          } catch { /* unparseable feed contributes nothing */ }
-        }
-        eldCloudNote =
-          eldDvirs.length > 0
-            ? `${providerName} is connected (read-only) and is the official record — its DVIRs are listed separately below, source-labelled.`
-            : `${providerName} is connected (read-only), but no ELD DVIRs have been received yet — live sync activates at go-live. The DVIRs above are the in-app signed reports; ${providerName} remains the official record.`;
-      }
-
-      // Chain integrity + the packet's Verify-Anywhere code.
-      let prev = GENESIS_HASH;
-      let chainIntact = true;
-      for (const r of chain) {
-        if (r.prevHash !== prev) { chainIntact = false; break; }
-        const expected = await sha256(`${r.prevHash}|${r.event}|${r.payload}`);
-        if (expected !== r.hash) { chainIntact = false; break; }
-        prev = r.hash;
-      }
-      const headHash = chain[chain.length - 1]?.hash ?? null;
-      let verifyCode: string | null = null;
-      if (headHash) {
-        const existing = await db.select().from(schema.verifyCodes);
-        const found = existing.find(
-          (c) => c.kind === "inspection" && c.refId == null && c.recordHash === headHash,
-        );
-        if (found) {
-          verifyCode = found.code;
-        } else {
-          let code = "";
-          for (let attempt = 0; attempt < 10; attempt++) {
-            code = "SM-" + mintCodeString("", [6], CODE_ALPHABET);
-            if (!existing.some((c) => c.code === code)) break;
-          }
-          const summaryJson = JSON.stringify({
-            what: "DOT inspection packet — last 8 days of duty logs + DVIRs",
-            when: now.toISOString(),
-            scope: "Duty status history, HOS clocks, miles by day, DVIRs — state-level detail only",
-          });
-          await db.insert(schema.verifyCodes).values({
-            code,
-            kind: "inspection",
-            refId: null,
-            recordHash: headHash,
-            summary: summaryJson,
-          });
-          await appendChain(ctx, {
-            refKind: "driver",
-            refId: null,
-            sessionId: null,
-            event: "verify_code_issued",
-            payload: { code, kind: "inspection", refId: null, recordHash: headHash.slice(0, 16), at: now.toISOString() },
-          });
-          verifyCode = code;
-        }
-      }
-
-      // Printable packet text — every section carries the seal + code.
-      const fmtH = (h: number) => {
-        const mins = Math.max(0, Math.round(h * 60));
-        return `${Math.floor(mins / 60)}:${String(mins % 60).padStart(2, "0")}`;
-      };
-      const stateName: Record<string, string> = {
-        off_duty: "Off Duty",
-        sleeper: "Sleeper Berth",
-        on_duty: "On Duty (not driving)",
-        driving: "Driving",
-      };
-      const sealLine = `Seal / record hash: ${headHash ?? "no sealed records yet"} · Verify code: ${verifyCode ?? "none — seal a record first"} · Chain: ${chainIntact ? "INTACT" : "BROKEN — do not rely on this packet"}`;
-      const L: string[] = [
-        "STONEMILES — DOT INSPECTION PACKET",
-        "STONEMILES is a planning and record-keeping aid, not an FMCSA-registered ELD. If your carrier runs a certified ELD, that system holds the official record — STONEMILES mirrors it.",
-        sealLine,
-        `Generated: ${now.toLocaleString()}`,
-        `Driver: ${driverName} (@${me})`,
-        `Company: ${companyName ?? "No company on file"}${legalName && legalName !== companyName ? ` (legal: ${legalName})` : ""}`,
-        `MC: ${mcNumber ?? "not on file"} · USDOT: ${usdotNumber ?? "not on file"}`,
-        eldConnected
-          ? `ELD: connected — ${eldSource} is the official record; showing mirrored data.`
-          : "ELD: none connected — miles below are GPS estimates, labelled as such.",
-        `Current duty status: ${currentStatus ? (stateName[currentStatus] ?? currentStatus) : "not set"}${statusSince ? ` since ${new Date(statusSince).toLocaleString()}` : ""}`,
-        "",
-        "HOS SUMMARY (planning clocks from the sealed duty log)",
-        `Drive remaining (11h): ${fmtH(hos.driveRemainH)} · Shift remaining (14h): ${fmtH(hos.windowRemainH)} · Cycle remaining (70h/8-day): ${fmtH(hos.cycleRemainH)} · 30-min break: ${hos.breakRemainH >= 8 ? "satisfied / not due" : `${fmtH(hos.breakRemainH)} of driving left before a 30-minute break is due`}`,
-        "",
-        "LAST 8 DAYS OF DUTY LOGS",
-      ];
-      for (const d of [...days].reverse()) {
-        L.push("", `— ${d.date} —`);
-        L.push(
-          `Miles: ${d.miles.toFixed(1)} (${d.milesSource})${d.startMiles != null ? ` · Start odometer: ${d.startMiles}${d.startMilesSource ? ` (${d.startMilesSource})` : ""}` : ""}${d.endMiles != null ? ` · End odometer: ${d.endMiles}` : ""}`,
-        );
-        L.push(
-          `Totals: Off Duty ${fmtH(d.totalsH.off_duty)} · Sleeper ${fmtH(d.totalsH.sleeper)} · On Duty ${fmtH(d.totalsH.on_duty)} · Driving ${fmtH(d.totalsH.driving)}`,
-        );
-        if (d.segments.length === 0) L.push("No duty log recorded for this day.");
-        for (const s of d.segments) {
-          L.push(
-            `  ${stateName[s.state] ?? s.state}: ${new Date(s.startAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} → ${new Date(s.endAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} · Location: ${s.location ?? "not recorded"}`,
-          );
-        }
-        for (const n of d.dutyNotes) L.push(`  Duty record: ${n}`);
-      }
-      L.push("", "DVIR — TODAY + PREVIOUS DAY");
-      if (dvirs.length === 0) L.push("No DVIR signed today or yesterday.");
-      for (const r of dvirs) {
-        L.push(
-          `${r.kind === "pretrip" ? "Pretrip" : "Post-trip"} DVIR · ${new Date(r.inspectedAt).toLocaleString()} · Signed: ${r.signedName} · Status: ${r.status}${r.odometer != null ? ` · Odometer: ${r.odometer}` : ""}`,
-        );
-        if (r.defects.length === 0) L.push(`  All ${r.items} systems OK — no defects.`);
-        for (const df of r.defects)
-          L.push(`  Defect${df.critical ? " (SAFETY-CRITICAL)" : ""}: ${df.item}${df.note ? ` — ${df.note}` : ""}`);
-      }
-      L.push("", "DVIRs FROM THE CARRIER ELD (source-labelled, listed separately)");
-      if (eldCloudNote) L.push(eldCloudNote);
-      if (eldDvirs.length === 0 && !eldCloudNote) L.push("No cloud ELD connected — no ELD DVIRs in this packet.");
-      for (const r of eldDvirs) {
-        L.push(
-          `${new Date(r.inspectedAt).toLocaleString()} · Source: ${r.source} · Status: ${r.status}${r.vehicle ? ` · Vehicle: ${r.vehicle}` : ""}`,
-        );
-        if (r.defects.length === 0) L.push("  No defects reported on this ELD DVIR.");
-        for (const df of r.defects)
-          L.push(`  Defect${df.critical ? " (SAFETY-CRITICAL)" : ""}: ${df.item}${df.note ? ` — ${df.note}` : ""}`);
-      }
-      L.push("", sealLine);
-      L.push(
-        "Verify this packet: enter the code above in STONEMILES → Verify-Anywhere (no account needed) — the sealed chain itself answers GENUINE or NOT VERIFIED. State-level detail only: no precise GPS track, no wallet data.",
-      );
-
-      return {
-        driverName,
-        username: me,
-        companyName,
-        legalName,
-        mcNumber,
-        usdotNumber,
-        eldConnected,
-        eldSource,
-        generatedAt: now.toISOString(),
-        currentStatus,
-        statusSince,
-        hos,
-        days,
-        dvirs,
-        eldDvirs,
-        eldCloudNote,
-        verifyCode,
-        chainHeadShort: headHash ? headHash.slice(0, 16) + "…" : null,
-        chainIntact,
-        packetText: L.join("\n"),
-      };
+      return buildInspectionPacket(ctx, args);
     },
   }),
 
@@ -50978,7 +51309,7 @@ export const Actions = {
     description: "Dismiss one fleet DQF expiry alert for its current threshold (recorded against the item's current date; the next threshold still fires, and a renewal re-arms).",
     request: z.object({
       driverUsername: z.string().min(1).max(60),
-      itemKey: z.enum(["cdl", "medical", "mvr_review"]),
+      itemKey: z.enum(["cdl", "medical", "mvr_review", "clearinghouse", "violations"]),
       threshold: z.number().int(),
     }),
     response: z.object({ ok: z.boolean(), error: z.string().nullable() }),
@@ -55830,17 +56161,31 @@ export const Actions = {
   }),
 
   setMaintenanceLogEntryStatus: defineAction({
-    description: "Set a maintenance log entry's workflow status — close it when the work is done (closing a DVIR draft clears its open defect), or reopen it.",
+    description: "Set a maintenance log entry's workflow status — close it when the work is done (closing a DVIR draft clears its open defect), or reopen it. Closing an entry linked to a DVIR defect requires the carrier repair certification (audit A5, 49 CFR 396.11(a)(2)): the certifier's name and a repaired / repair-not-necessary determination, written onto the defect's link row and sealed.",
     request: z.object({
       id: z.number().int().positive(),
       status: z.enum(["logged", "closed"]),
+      certifiedBy: z.string().max(80).nullable().optional(),
+      repairDetermination: z.enum(["repaired", "repair_not_necessary"]).nullable().optional(),
     }),
-    response: z.object({ ok: z.literal(true) }),
-    async handler(ctx, args): Promise<{ ok: true }> {
+    response: z.object({ ok: z.boolean(), error: z.string().nullable() }),
+    async handler(ctx, args): Promise<{ ok: boolean; error: string | null }> {
       const db = ctx.db<typeof schema>();
       const rows = await db.select().from(schema.maintenanceLogEntries).where(eq(schema.maintenanceLogEntries.id, args.id)).limit(1);
       const row = rows[0];
-      if (!row) throw new Error("setMaintenanceLogEntryStatus: no such entry");
+      if (!row) return { ok: false, error: "That maintenance log entry doesn't exist — nothing changed." };
+      // DVIR-linked closes carry the repair certification (A5).
+      const links = await db
+        .select()
+        .from(schema.dvirDefectLinks)
+        .where(eq(schema.dvirDefectLinks.maintenanceEntryId, args.id));
+      const certifiedBy = args.certifiedBy?.trim() || null;
+      if (args.status === "closed" && links.length > 0 && (!certifiedBy || !args.repairDetermination)) {
+        return {
+          ok: false,
+          error: "This entry clears a DVIR defect — closing it needs the repair certification: who certifies the defect was handled, and whether it was repaired or repair wasn't necessary (49 CFR 396.11(a)(2)). Nothing was closed.",
+        };
+      }
       await db.update(schema.maintenanceLogEntries).set({ status: args.status, updatedAt: new Date() }).where(eq(schema.maintenanceLogEntries.id, args.id));
       await appendChain(ctx, {
         refKind: "driver",
@@ -55849,8 +56194,31 @@ export const Actions = {
         event: "maintenance_log_entry_status",
         payload: { entryId: args.id, from: row.status, to: args.status, at: new Date().toISOString() },
       });
+      if (args.status === "closed" && links.length > 0 && certifiedBy && args.repairDetermination) {
+        const certifiedAt = new Date();
+        for (const link of links) {
+          await db
+            .update(schema.dvirDefectLinks)
+            .set({ certifiedBy, repairDetermination: args.repairDetermination, certifiedAt })
+            .where(eq(schema.dvirDefectLinks.id, link.id));
+          await appendChain(ctx, {
+            refKind: "driver",
+            refId: null,
+            sessionId: null,
+            event: "dvir_repair_certified",
+            payload: {
+              dvirId: link.dvirId,
+              item: link.item,
+              entryId: args.id,
+              certifiedBy,
+              determination: args.repairDetermination,
+              at: certifiedAt.toISOString(),
+            },
+          });
+        }
+      }
       ctx.invalidateQueries();
-      return { ok: true };
+      return { ok: true, error: null };
     },
   }),
 
@@ -56248,7 +56616,7 @@ export const Actions = {
       // against.
       const now = new Date();
       const { events } = await effectiveDutyTimeline(ctx);
-      const clocks = hosClocksFor(events.filter((e) => e.username === me), now.getTime());
+      const clocks = hosClocksFor(events.filter((e) => e.username === me), now.getTime(), await effectiveCycleType(ctx, me));
       const bindingRemainH = clocks.hasData ? Math.min(clocks.driveRemainH, clocks.windowRemainH) : null;
       const plan = parkingArrivalPlan({
         now,
@@ -56858,6 +57226,17 @@ export const Actions = {
       // DVIR history rides the truck record (spec 2026-11-15): the
       // signed inspections are part of this truck's paper trail.
       const dvirRows = await db.select().from(schema.dvirReports).orderBy(desc(schema.dvirReports.id));
+      // A5 repair certifications for the defect lines below — same
+      // rule as everywhere: certified only while the linked entry
+      // stands closed with a certification on the link.
+      const certLinks = await db.select().from(schema.dvirDefectLinks);
+      const certEntryStatus = new Map(log.rows.map((e) => [e.id, e.status]));
+      const certTextByKey = new Map<string, string>();
+      for (const l of certLinks) {
+        if (l.certifiedBy && l.repairDetermination && l.certifiedAt && certEntryStatus.get(l.maintenanceEntryId) === "closed") {
+          certTextByKey.set(`${l.dvirId}:${l.item}`, `${l.repairDetermination === "repair_not_necessary" ? "repair not necessary" : "repaired"} — certified by ${l.certifiedBy} ${day(l.certifiedAt)}`);
+        }
+      }
       const dvirCsvRows: string[] = [
         "",
         "DVIR INSPECTIONS",
@@ -56888,7 +57267,7 @@ export const Actions = {
               return [
                 `${day(r.inspectedAt)} · ${r.kind === "posttrip" ? "Post-trip" : "Pre-trip"} DVIR · signed ${r.signedName}${r.odometer != null ? ` · odometer ${r.odometer.toLocaleString()} mi` : ""}${r.truckLabel ? ` · ${r.truckLabel}` : ""}`,
                 ...(defs.length > 0
-                  ? defs.map((d) => `  ⚠ ${d.item}${d.critical ? " (safety-critical)" : ""}: ${d.note}`)
+                  ? defs.map((d) => `  ⚠ ${d.item}${d.critical ? " (safety-critical)" : ""}: ${d.note} · Repair certification: ${certTextByKey.get(`${r.id}:${d.item}`) ?? "not certified yet"}`)
                   : ["  All systems OK"]),
               ];
             })
@@ -57326,7 +57705,21 @@ export const Actions = {
           inspectedAt: z.string(),
           kind: z.string(),
           items: z.number(),
-          defects: z.array(z.object({ item: z.string(), note: z.string(), critical: z.boolean() })),
+          defects: z.array(
+            z.object({
+              item: z.string(),
+              note: z.string(),
+              critical: z.boolean(),
+              // A5 repair certification (49 CFR 396.11(a)(2)) —
+              // shown on this list because the pre-trip "review
+              // last DVIR" (§396.13) reads it. Null while the
+              // defect's maintenance entry is not closed with a
+              // certification.
+              certification: z
+                .object({ certifiedBy: z.string(), determination: z.string(), at: z.string() })
+                .nullable(),
+            }),
+          ),
           signedName: z.string(),
           status: z.string(),
           odometer: z.number().nullable(),
@@ -57340,12 +57733,25 @@ export const Actions = {
     async handler(ctx, args) {
       const db = ctx.db<typeof schema>();
       const rows = await db.select().from(schema.dvirReports).orderBy(desc(schema.dvirReports.id)).limit(args.limit);
+      // Certification join (A5): a defect reads certified only
+      // while its linked maintenance entry stands closed with a
+      // certification on the link — a reopened entry un-reads it.
+      const links = await db.select().from(schema.dvirDefectLinks);
+      const entries = await db.select().from(schema.maintenanceLogEntries);
+      const entryStatus = new Map(entries.map((e) => [e.id, e.status]));
+      const certByKey = new Map<string, { certifiedBy: string; determination: string; at: string }>();
+      for (const l of links) {
+        if (l.certifiedBy && l.repairDetermination && l.certifiedAt && entryStatus.get(l.maintenanceEntryId) === "closed") {
+          certByKey.set(`${l.dvirId}:${l.item}`, { certifiedBy: l.certifiedBy, determination: l.repairDetermination, at: l.certifiedAt.toISOString() });
+        }
+      }
       return {
         reports: rows.map((r) => {
           let items = 0;
           try { items = (JSON.parse(r.itemsJson) as unknown[]).length; } catch { items = 0; }
-          let defects: { item: string; note: string; critical: boolean }[] = [];
-          try { defects = JSON.parse(r.defectsJson) as typeof defects; } catch { defects = []; }
+          let rawDefects: { item: string; note: string; critical: boolean }[] = [];
+          try { rawDefects = JSON.parse(r.defectsJson) as typeof rawDefects; } catch { rawDefects = []; }
+          const defects = rawDefects.map((df) => ({ ...df, certification: certByKey.get(`${r.id}:${df.item}`) ?? null }));
           return { id: r.id, inspectedAt: r.inspectedAt.toISOString(), kind: r.kind, items, defects, signedName: r.signedName, status: r.status, odometer: r.odometer, truckLabel: r.truckLabel ?? null, trailerLabel: r.trailerLabel ?? null, safeToOperate: r.safeToOperate ?? null, hasLocation: r.lat != null && r.lon != null };
         }),
       };
@@ -57384,6 +57790,23 @@ export const Actions = {
         windowStart: prompt ? new Date(prompt.windowStartMs).toISOString() : null,
         currentDuty: sorted.length > 0 ? (sorted[sorted.length - 1]!.state ?? null) : null,
       };
+    },
+  }),
+
+  // Remark-driven checklist gate (owner addition 2026-11-15): the
+  // client asks, right after sealing a duty change that carried
+  // the Pre-trip / Post-trip inspection REMARK, whether that
+  // inspection is already sealed in its scope. Not sealed → the
+  // checklist opens on the spot (the driver just declared the
+  // inspection as the reason for the change — dismissal state and
+  // prompt due-ness do not apply). Sealed → it does not reopen.
+  getInspectionSealedState: defineAction({
+    description: "Whether a pre-trip / post-trip inspection is already sealed in its scope (duty window / since the relevant delivery) — the gate for the duty-remark checklist auto-open.",
+    request: z.object({ kind: z.enum(["pretrip", "posttrip"]) }),
+    response: z.object({ sealed: z.boolean() }),
+    async handler(ctx, args) {
+      const facts = await inspectionPromptFacts(ctx);
+      return { sealed: inspectionSealedInScope(facts, args.kind) };
     },
   }),
 
@@ -60131,6 +60554,9 @@ export const Actions = {
             cycleRemainH: z.number(),
             breakRemainH: z.number(),
           }),
+          // The cycle this driver's clocks were reckoned under (A3),
+          // so the board's cycle bar is labelled honestly per driver.
+          cycleType: z.enum(["60/7", "70/8"]),
           positionVisible: z.boolean(),
           positionLabel: z.string(),
           lat: z.number().nullable(),
@@ -60186,6 +60612,17 @@ export const Actions = {
       const memberNames = new Set(members.map((m) => m.username));
       const logs = (await db.select().from(schema.dailyLogs)).filter((l) => memberNames.has(l.username));
       const nowMs = Date.now();
+      // Cycle types (audit A3): mine resolves override → profile;
+      // another member's resolves override → default (their profile
+      // row isn't readable from this session — see effectiveCycleType).
+      const myCycle = await effectiveCycleType(ctx, me);
+      const boardSetups = await db
+        .select()
+        .from(schema.companySetup)
+        .where(eq(schema.companySetup.companyId, mine.company.id))
+        .limit(1);
+      const boardOverride = boardSetups[0]?.cycleType;
+      const otherCycle: CycleType = boardOverride === "60/7" || boardOverride === "70/8" ? boardOverride : "70/8";
       const drivers = members.map((m) => {
         const isMe = m.username === me;
         // Split the effective timeline per driver: rows stamped with a
@@ -60193,7 +60630,7 @@ export const Actions = {
         // to the local account (me), per the timeline's own rule.
         const mineEvents = events.filter((e) => (e.username ?? me) === m.username);
         const last = mineEvents[mineEvents.length - 1] ?? null;
-        const hos = hosClocksFor(mineEvents, nowMs);
+        const hos = hosClocksFor(mineEvents, nowMs, isMe ? myCycle : otherCycle);
         const pos = positions.find((p) => p.username === m.username) ?? null;
         // Position privacy: identical rule to getCompanyLocations.
         // Only the local account has a live duty picture on this
@@ -60211,6 +60648,7 @@ export const Actions = {
           dutySince: last?.at ?? null,
           dutyOnDevice: mineEvents.length > 0,
           hos,
+          cycleType: isMe ? myCycle : otherCycle,
           positionVisible: visible,
           positionLabel: visible
             ? duty.tripActive

@@ -28,6 +28,8 @@
  * against the real handlers (pointsLanesFlow.test.ts).
  */
 
+import { CYCLE_LIMITS, hosEpochs, type CycleType, type HosEpoch } from "./hosEngine";
+
 // ---- Values (THE config) ----------------------------------------------------
 
 /** Lane 1 — lifetime sealed-miles milestones (one-time each). */
@@ -240,24 +242,33 @@ const H = 3600000;
 
 /**
  * HOS violations inside [startMs, endMs), computed by replaying the
- * sealed duty timeline with the SAME rules the in-app clocks use
- * (computeHos in App.tsx / the DOT packet in actions.ts): 11h driving
- * after a 10h reset, 14h duty window from the first on-duty/driving
- * segment after the reset, 70h on-duty+driving in the trailing 8
- * days, 30-minute break after 8h of driving. A violation is counted
- * when a DRIVING segment that overlaps the window pushes any clock
- * past its limit (the raw used hours are compared — the display
- * clocks clamp at zero, the replay does not). Returns one entry per
- * violated rule per offending segment; an empty list means the week
- * was clean. History before the window still feeds the clocks (a
- * reset or cycle debt earned earlier counts), exactly like the live
- * clocks.
+ * sealed duty timeline with the SAME rules the clocks use (the
+ * shared hosEngine — audit fixes A3 + A10, 2026-11-15): 11h driving
+ * after a reset, 14h duty window from the first on-duty/driving
+ * segment after the reset anchor (split-sleeper pairs excluded,
+ * 395.1(g)), the driver's cycle limit in the trailing cycle days
+ * (60/7 or 70/8 per 395.3(b)), 30-minute break after 8h of driving.
+ * A violation is counted when a DRIVING segment that overlaps the
+ * window pushes any clock past its limit (the raw used hours are
+ * compared — the display clocks clamp at zero, the replay does
+ * not). Returns one entry per violated rule per offending segment;
+ * an empty list means the week was clean. History before the
+ * window still feeds the clocks (a reset or cycle debt earned
+ * earlier counts), exactly like the live clocks.
+ *
+ * Split-sleeper judging uses the completed pair with hindsight:
+ * driving done between the two periods of a pair is judged under
+ * the pair's reckoning (anchored at the first period's end), which
+ * is how 395.1(g) reads once the pair is complete — the same
+ * answer the live clocks give for the same history.
  */
 export function hosViolationsInWindow(
   events: readonly DutyEventLike[],
   startMs: number,
   endMs: number,
+  cycleType: CycleType = "70/8",
 ): { kind: "drive" | "window" | "cycle" | "break"; at: number }[] {
+  const cycle = CYCLE_LIMITS[cycleType];
   const sorted = [...events]
     .map((e) => ({ state: e.state, start: Date.parse(e.at) }))
     .filter((e) => Number.isFinite(e.start))
@@ -265,38 +276,30 @@ export function hosViolationsInWindow(
   const violations: { kind: "drive" | "window" | "cycle" | "break"; at: number }[] = [];
   if (sorted.length === 0) return violations;
 
-  // Replay state, mirroring computeHos.
-  let resetAt = 0;
-  let offRun = 0;
-  let offRunStart = 0;
-  let drivingSinceReset = 0;
-  let windowStart: number | null = null;
+  const segs: { state: string; start: number; end: number }[] = [];
+  for (let i = 0; i < sorted.length; i++) {
+    const start = sorted[i]!.start;
+    const end = i + 1 < sorted.length ? sorted[i + 1]!.start : endMs;
+    if (end > start) segs.push({ state: sorted[i]!.state, start, end });
+  }
+  const epochs = hosEpochs(events, endMs);
+  const drivingSegs = segs.filter((s) => s.state === "driving");
+  const dutySegs = segs.filter((s) => s.state === "on_duty" || s.state === "driving");
+  const overlapMs = (aStart: number, aEnd: number, bStart: number, bEnd: number) =>
+    Math.max(0, Math.min(aEnd, bEnd) - Math.max(aStart, bStart));
+
+  // Break state replays incrementally, exactly as the clocks
+  // accumulate it (see the 395.3(a)(3)(ii) note in the loop).
   let drivingSinceBreak = 0;
   let nonDriveRun = 0;
-  // Trailing-8-day duty segments (for the cycle clock).
-  const dutySegs: { start: number; end: number }[] = [];
 
-  for (let i = 0; i < sorted.length; i++) {
-    const segStart = sorted[i]!.start;
-    const segEnd = i + 1 < sorted.length ? sorted[i + 1]!.start : endMs;
-    if (segEnd <= segStart) continue;
-    const state = sorted[i]!.state;
-
+  for (const seg of segs) {
+    const { state, start: segStart, end: segEnd } = seg;
     if (state === "off_duty" || state === "sleeper") {
-      if (offRun === 0) offRunStart = segStart;
-      offRun += segEnd - segStart;
-      if (offRun >= 10 * H && resetAt < offRunStart + 10 * H) {
-        resetAt = offRunStart + 10 * H;
-        drivingSinceReset = 0;
-        windowStart = null;
-      }
       nonDriveRun += segEnd - segStart;
       if (nonDriveRun >= 0.5 * H) drivingSinceBreak = 0;
       continue;
     }
-    // Any duty segment ends the off-duty run (the server's own HOS
-    // replay does the same: `else offRun = 0`).
-    offRun = 0;
     if (state === "driving") {
       nonDriveRun = 0;
     } else {
@@ -304,45 +307,61 @@ export function hosViolationsInWindow(
       // interruption — 49 CFR 395.3(a)(3)(ii): after 8 cumulative
       // hours of DRIVING, the interruption can be off-duty, sleeper,
       // or on-duty-not-driving, in any mix, so long as 30 consecutive
-      // minutes pass with no driving. The clocks (computeHos /
-      // hosClocksFor) have always accumulated every non-driving
-      // segment this way; zeroing the run on an on-duty segment (the
-      // old line here) invented break violations the clocks never
-      // showed — e.g. 8h driving, 30 min fueling on duty, then
-      // driving on was judged a break violation. Fixed 2026-11-15.
+      // minutes pass with no driving. The clocks have always
+      // accumulated every non-driving segment this way; zeroing the
+      // run on an on-duty segment (the pre-2026-11-15 line here)
+      // invented break violations the clocks never showed.
       nonDriveRun += segEnd - segStart;
       if (nonDriveRun >= 0.5 * H) drivingSinceBreak = 0;
     }
-    const effStart = Math.max(segStart, resetAt);
-    if (state === "on_duty" || state === "driving") {
-      if (windowStart === null && segEnd > resetAt) windowStart = effStart;
-      dutySegs.push({ start: effStart, end: segEnd });
-    }
     if (state !== "driving") continue;
 
-    // A driving segment: advance the clocks over it, then judge.
-    const driveMs = Math.max(0, segEnd - effStart);
-    drivingSinceReset += driveMs;
-    drivingSinceBreak += driveMs;
+    drivingSinceBreak += segEnd - segStart;
     const overlapsWindow = segEnd > startMs && segStart < endMs;
     if (!overlapsWindow) continue;
     const judgeAt = Math.min(segEnd, endMs);
+
+    // The governing reckoning for this segment: the last epoch
+    // whose anchor is at or before the segment start (hindsight —
+    // a split pair governs the driving between its two periods
+    // once complete). No epoch → reckon from the beginning.
+    let epoch: HosEpoch | null = null;
+    for (const e of epochs) {
+      if (e.anchor <= segStart) epoch = e;
+      else break;
+    }
+    const anchor = epoch?.anchor ?? 0;
+    let drivingSinceReset = 0;
+    for (const d of drivingSegs) drivingSinceReset += overlapMs(d.start, d.end, anchor, judgeAt);
     if (drivingSinceReset > 11 * H + 60000) {
       violations.push({ kind: "drive", at: judgeAt });
     }
-    if (windowStart !== null && judgeAt - windowStart > 14 * H + 60000) {
-      violations.push({ kind: "window", at: judgeAt });
+    let windowStart: number | null = null;
+    for (const d of dutySegs) {
+      if (d.end > anchor) {
+        windowStart = Math.max(d.start, anchor);
+        break;
+      }
+    }
+    if (windowStart !== null) {
+      let elapsed = judgeAt - windowStart;
+      for (const x of epoch?.excluded ?? []) {
+        elapsed -= overlapMs(x.start, x.end, windowStart, judgeAt);
+      }
+      if (elapsed > 14 * H + 60000) {
+        violations.push({ kind: "window", at: judgeAt });
+      }
     }
     if (drivingSinceBreak > 8 * H + 60000) {
       violations.push({ kind: "break", at: judgeAt });
     }
-    const cycleFrom = judgeAt - 8 * 24 * H;
-    let cycle = 0;
+    const cycleFrom = judgeAt - cycle.days * 24 * H;
+    let cycleUsed = 0;
     for (const d of dutySegs) {
       const st = Math.max(d.start, cycleFrom);
-      if (d.end > st) cycle += Math.min(d.end, judgeAt) - st;
+      if (d.end > st) cycleUsed += Math.min(d.end, judgeAt) - st;
     }
-    if (cycle > 70 * H + 60000) {
+    if (cycleUsed > cycle.hours * H + 60000) {
       violations.push({ kind: "cycle", at: judgeAt });
     }
   }

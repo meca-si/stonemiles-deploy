@@ -198,6 +198,8 @@ async function recordCompleteFile(ctx: CtxT) {
   await saveEntry(ctx, "dqfdriver", "road_test", dateOnly(-299 * DAY), null, { examinerName: "Tester" });
   await saveEntry(ctx, "dqfdriver", "mvr_review", dateOnly(-30 * DAY), null, { outcome: "acceptable" });
   await saveEntry(ctx, "dqfdriver", "clearinghouse_query", dateOnly(-301 * DAY), null, { queryType: "pre_employment", result: "clear" });
+  await saveEntry(ctx, "dqfdriver", "employment_history", dateOnly(-300 * DAY), null, { employer: "Prior Carrier LLC" });
+  await saveEntry(ctx, "dqfdriver", "violation_record", dateOnly(-30 * DAY), null, { description: "No violations in the past year" });
 }
 
 async function chainCount(event: string): Promise<number> {
@@ -251,7 +253,7 @@ describe("(b) a complete file qualifies — claim lands, block clears", () => {
     expect(read.medicalVerification.state).toBe("on_file");
     expect(read.medicalVerification.label).toContain("electronic verification not connected");
     expect(read.seamConfigured).toBe(false);
-    expect(read.entries.length).toBe(6);
+    expect(read.entries.length).toBe(8);
 
     const id = await postFleetLoad();
     // Re-open a block on THIS load first: void the medical, claim

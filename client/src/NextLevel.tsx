@@ -2894,7 +2894,7 @@ export function VaultPanel({ setBanner, lang = "en" }: { setBanner: Banner; lang
 }
 
 export const DVIR_ITEMS = [
-  "Tires & wheels", "Brakes", "Trailer brakes & lights", "Lights & reflectors", "Steering", "Horn", "Mirrors",
+  "Tires & wheels", "Brakes", "Parking brake", "Trailer brakes & lights", "Lights & reflectors", "Steering", "Horn", "Windshield wipers", "Mirrors",
   "Coupling (fifth wheel / kingpin)", "Load securement", "Emergency equipment", "Fluids & leaks",
 ];
 
@@ -3259,6 +3259,11 @@ export function DvirPanel({ setBanner, focus, lang = "en" }: { setBanner: Banner
             {r.truckLabel && <span className="block text-xs text-[var(--dim)]">{r.truckLabel}{r.trailerLabel ? ` · ${r.trailerLabel}` : ""}{r.odometer != null ? ` · ${r.odometer.toLocaleString()} mi` : ""}{r.hasLocation ? " · GPS stamped" : ""}</span>}
             {r.safeToOperate === false && <span className="block text-xs font-semibold text-amber-300">⚠️ Not attested safe to operate at signing.</span>}
             {r.defects.length > 0 ? <span className="block text-xs font-semibold text-red-300">Defects: {r.defects.map((d) => `${d.item}${d.critical ? " 🚨" : ""}`).join(" · ")}</span> : <span className="block text-xs text-emerald-300">All {r.items} systems OK</span>}
+            {r.defects.map((d) => (
+              <span key={d.item} className="block text-xs text-[var(--dim)]">
+                {d.item}: {d.certification ? `repair certification — ${d.certification.determination === "repair_not_necessary" ? "repair not necessary" : "repaired"}, certified by ${d.certification.certifiedBy} · ${new Date(d.certification.at).toLocaleDateString()}` : "repair certification: not certified yet"}
+              </span>
+            ))}
           </div>
         ))}
       </div>

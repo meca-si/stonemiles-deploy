@@ -160,6 +160,8 @@ async function seedDqf(companyId: number, username: string) {
     { kind: "road_test", entryDate: dateOnly(-299 * DAY), expiresOn: null, payloadJson: "{}" },
     { kind: "mvr_review", entryDate: dateOnly(-30 * DAY), expiresOn: null, payloadJson: JSON.stringify({ outcome: "acceptable" }) },
     { kind: "clearinghouse_query", entryDate: dateOnly(-301 * DAY), expiresOn: null, payloadJson: JSON.stringify({ queryType: "pre_employment", result: "clear" }) },
+    { kind: "employment_history", entryDate: dateOnly(-300 * DAY), expiresOn: null, payloadJson: JSON.stringify({ employer: "Prior Carrier LLC" }) },
+    { kind: "violation_record", entryDate: dateOnly(-30 * DAY), expiresOn: null, payloadJson: JSON.stringify({ description: "No violations in the past year" }) },
   ];
   for (const r of rows) await db.insert(schema.dqfEntries).values({ fileId, recordedBy: username, ...r });
 }

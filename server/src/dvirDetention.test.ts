@@ -217,10 +217,34 @@ describe("DVIR completion — defects draft maintenance entries", () => {
     const open2 = await Actions.getOpenDvirDefects.handler(aliceCtx, {});
     expect(open2.defects.some((d) => d.entryId === brakeEntryId)).toBe(true);
 
-    await Actions.setMaintenanceLogEntryStatus.handler(aliceCtx, { id: brakeEntryId, status: "closed" });
+    // A5 (49 CFR 396.11(a)(2)): closing a DVIR-linked entry WITHOUT
+    // the repair certification is refused and closes nothing.
+    const refused = await Actions.setMaintenanceLogEntryStatus.handler(aliceCtx, { id: brakeEntryId, status: "closed" });
+    expect(refused.ok).toBe(false);
+    const stillOpen = await Actions.getOpenDvirDefects.handler(aliceCtx, {});
+    expect(stillOpen.defects.some((d) => d.entryId === brakeEntryId)).toBe(true);
+
+    const closedRes = await Actions.setMaintenanceLogEntryStatus.handler(aliceCtx, {
+      id: brakeEntryId,
+      status: "closed",
+      certifiedBy: "Alice Driver",
+      repairDetermination: "repaired",
+    });
+    expect(closedRes.ok).toBe(true);
     const open3 = await Actions.getOpenDvirDefects.handler(aliceCtx, {});
     expect(open3.defects.some((d) => d.entryId === brakeEntryId)).toBe(false);
     expect(open3.defects.length).toBe(1); // the lights defect remains open
+
+    // The certification reads back on the DVIR record itself (the
+    // §396.13 pre-trip review surface): Brakes certified repaired by
+    // Alice; the still-open lights defect carries none.
+    const reports = (await Actions.listDvirs.handler(aliceCtx, { limit: 5 })).reports;
+    const report = reports.find((r) => r.defects.some((d) => d.item === "Brakes"))!;
+    const brakes = report.defects.find((d) => d.item === "Brakes")!;
+    expect(brakes.certification?.certifiedBy).toBe("Alice Driver");
+    expect(brakes.certification?.determination).toBe("repaired");
+    const lights = report.defects.find((d) => d.item !== "Brakes");
+    if (lights) expect(lights.certification).toBeNull();
   });
 
   test("truck record export carries the DVIR history", async () => {

@@ -21,6 +21,7 @@ import { describe, expect, test } from "bun:test";
 import {
   dutyWindowStartMs,
   evaluateInspectionPrompt,
+  inspectionSealedInScope,
   posttripPromptKey,
   pretripPromptKey,
   type DutyEventLite,
@@ -173,5 +174,61 @@ describe("post-trip prompt — between loads, same window", () => {
     }));
     expect(p?.kind).toBe("pretrip");
     expect(p?.key).toBe(pretripPromptKey(at(32)));
+  });
+});
+
+describe("inspectionSealedInScope — the remark auto-open gate (owner addition 2026-11-15)", () => {
+  test("pre-trip: nothing sealed this window → not sealed (the checklist opens)", () => {
+    expect(inspectionSealedInScope(facts({}), "pretrip")).toBe(false);
+  });
+  test("pre-trip: sealed this window → sealed (no reopen)", () => {
+    expect(
+      inspectionSealedInScope(facts({ dvirs: [{ kind: "pretrip", inspectedAtMs: at(12.5) }] }), "pretrip"),
+    ).toBe(true);
+  });
+  test("pre-trip: sealed in a PRIOR window only → not sealed for this window", () => {
+    expect(
+      inspectionSealedInScope(facts({ dvirs: [{ kind: "pretrip", inspectedAtMs: at(2) }] }), "pretrip"),
+    ).toBe(false);
+  });
+  test("pre-trip: a dismissal does NOT count as sealed — the remark opens regardless of prompt state", () => {
+    expect(
+      inspectionSealedInScope(facts({ dismissedKeys: [pretripPromptKey(at(12))] }), "pretrip"),
+    ).toBe(false);
+  });
+  test("post-trip: sealed since the delivery → sealed", () => {
+    expect(
+      inspectionSealedInScope(
+        facts({
+          deliveries: [{ loadId: 7, atMs: at(13) }],
+          dvirs: [{ kind: "posttrip", inspectedAtMs: at(13.5) }],
+        }),
+        "posttrip",
+      ),
+    ).toBe(true);
+  });
+  test("post-trip: sealed BEFORE the delivery does not cover it → not sealed", () => {
+    expect(
+      inspectionSealedInScope(
+        facts({
+          deliveries: [{ loadId: 7, atMs: at(13) }],
+          dvirs: [{ kind: "posttrip", inspectedAtMs: at(12.5) }],
+        }),
+        "posttrip",
+      ),
+    ).toBe(false);
+  });
+  test("post-trip: no delivery this window — sealed earlier this shift counts", () => {
+    expect(
+      inspectionSealedInScope(facts({ dvirs: [{ kind: "posttrip", inspectedAtMs: at(12.5) }] }), "posttrip"),
+    ).toBe(true);
+  });
+  test("post-trip: nothing sealed → not sealed", () => {
+    expect(inspectionSealedInScope(facts({ deliveries: [{ loadId: 7, atMs: at(13) }] }), "posttrip")).toBe(false);
+  });
+  test("no open duty window → not sealed (the end-of-day post-trip remark still opens)", () => {
+    expect(
+      inspectionSealedInScope(facts({ dutyEvents: [ev("sleeper", 0)], nowMs: at(5) }), "posttrip"),
+    ).toBe(false);
   });
 });

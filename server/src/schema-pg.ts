@@ -90,6 +90,11 @@ export const profile = pgTable("profile", {
   // with no load rate on file the app says so instead of inventing one.
   payBasis: text("pay_basis").notNull().default("cpm"),
   driverPayPct: doublePrecision("driver_pay_pct"),
+  // HOS cycle type (migration 0032, audit A3 — 49 CFR 395.3(b)):
+  // PG twin of the sqlite column — see schema-sqlite.ts. "60/7" |
+  // "70/8"; the driver's own setting, overridden by the fleet's
+  // company_setup.cycle_type when that is set.
+  cycleType: text("cycle_type").notNull().default("70/8"),
   // The driver's OWN per-load fee percentages (migration 0115): what
   // THEIR factoring company and THEIR dispatcher take out of a load's
   // gross pay, in percent (0–100, 0 = they don't pay that fee). These
@@ -1098,6 +1103,9 @@ export const companySetup = pgTable("company_setup", {
   // default with a per-driver override on company_members.
   autoLogEnabled: boolean("auto_log_enabled").notNull().default(false),
   autoLogNotify: text("auto_log_notify").notNull().default("immediate"), // immediate | digest
+  // HOS cycle type fleet override (migration 0032, audit A3):
+  // "60/7" | "70/8" | null — see schema-sqlite.ts.
+  cycleType: text("cycle_type"),
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
     .notNull()
     .$defaultFn(() => new Date()),
@@ -1149,6 +1157,10 @@ export const dailyLogs = pgTable("daily_logs", {
   loadsDelivered: integer("loads_delivered").notNull().default(0),
   detentionText: text("detention_text"),
   criticalDefect: boolean("critical_defect").notNull().default(false),
+  // Log certification (migration 0032, audit A1 — 49 CFR
+  // 395.8(d)(5)): PG twin — see schema-sqlite.ts.
+  certifiedName: text("certified_name"),
+  certifiedAt: timestamp("certified_at", { withTimezone: true, mode: "date" }),
 });
 
 // ---- Beta access ------------------------------------------------------------
@@ -4989,6 +5001,11 @@ export const dvirDefectLinks = pgTable("dvir_defect_links", {
   dvirId: integer("dvir_id").notNull(),
   item: text("item").notNull(),
   maintenanceEntryId: integer("maintenance_entry_id").notNull(),
+  // Carrier repair certification (migration 0032, audit A5 —
+  // 49 CFR 396.11(a)(2)): PG twin — see schema-sqlite.ts.
+  certifiedBy: text("certified_by"),
+  repairDetermination: text("repair_determination"), // repaired | repair_not_necessary
+  certifiedAt: timestamp("certified_at", { withTimezone: true, mode: "date" }),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
     .notNull()
     .$defaultFn(() => new Date()),

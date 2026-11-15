@@ -268,7 +268,9 @@ export function medicalVerifierFromEnv(
 // function of the recorded entries and an as-of date.
 // ---------------------------------------------------------------------------
 
-export type DqfCheckKey = "application" | "cdl" | "medical" | "road_test" | "mvr_review" | "clearinghouse";
+export type DqfCheckKey =
+  | "application" | "cdl" | "medical" | "road_test" | "mvr_review" | "clearinghouse"
+  | "employment_history" | "violations";
 export type DqfCheckStatus = "ok" | "missing" | "expired" | "overdue" | "prohibited";
 
 export interface DqfCheck {
@@ -292,7 +294,11 @@ export interface DqfReason {
     | "missing_mvr"
     | "mvr_overdue"
     | "missing_clearinghouse"
-    | "clearinghouse_prohibited";
+    | "clearinghouse_prohibited"
+    | "clearinghouse_overdue"
+    | "missing_employment_history"
+    | "missing_violations"
+    | "violations_overdue";
   detail: string;
 }
 
@@ -328,6 +334,8 @@ export function evaluateDqf(entries: readonly DqfEntryLike[], asOf: string): Dqf
       missing("road_test", "Road test"),
       missing("mvr_review", "MVR review"),
       missing("clearinghouse", "Clearinghouse query"),
+      missing("employment_history", "Employment history"),
+      missing("violations", "Annual violations list"),
     );
     return { qualified: false, reasons, checks, fingerprint: "no_file" };
   }
@@ -413,17 +421,67 @@ export function evaluateDqf(entries: readonly DqfEntryLike[], asOf: string): Dqf
       detail: `Clearinghouse shows this driver PROHIBITED (query recorded ${query.entryDate}).`,
     });
   } else {
-    const result = dqfPayload.queryResult(query);
-    checks.push({
-      key: "clearinghouse",
-      label: "Clearinghouse query",
-      status: "ok",
-      detail:
-        result === "no_record"
-          ? `Clearinghouse query recorded ${query.entryDate} — no record found, not prohibited.`
-          : `Clearinghouse query recorded ${query.entryDate} — clear.`,
-      date: query.entryDate,
-    });
+    // Annual cadence (audit A6 — 49 CFR 382.701(b)): a query, however
+    // clean, only stands for 12 months; the annual limited query is
+    // due on the same rhythm as the MVR review above. A years-old
+    // "clear" no longer reads OK forever.
+    const dueOn = addMonthsYmd(query.entryDate, 12);
+    if (dueOn < asOf) {
+      checks.push({
+        key: "clearinghouse",
+        label: "Clearinghouse query",
+        status: "overdue",
+        detail: `Last Clearinghouse query ${query.entryDate} — the annual query came due ${dueOn}.`,
+        date: query.entryDate,
+      });
+      reasons.push({
+        code: "clearinghouse_overdue",
+        detail: `Annual Clearinghouse query overdue — last query ${query.entryDate}, due ${dueOn} (49 CFR 382.701).`,
+      });
+    } else {
+      const result = dqfPayload.queryResult(query);
+      checks.push({
+        key: "clearinghouse",
+        label: "Clearinghouse query",
+        status: "ok",
+        detail:
+          result === "no_record"
+            ? `Clearinghouse query recorded ${query.entryDate} — no record found, not prohibited. Annual query next due ${dueOn}.`
+            : `Clearinghouse query recorded ${query.entryDate} — clear. Annual query next due ${dueOn}.`,
+        date: query.entryDate,
+      });
+    }
+  }
+
+  // -- Employment history inquiries (391.23(c) / 391.51(b)(1)) -------------
+  // The safety-performance-history inquiries to prior employers (3
+  // years) are part of the file §391.51 requires. The entry kind has
+  // existed since the DQF shipped; the evaluator never required it
+  // (audit A7). Presence is the requirement — the inquiries are a
+  // hire-time record, not an annual one.
+  const empHist = latestEntry(effective, "employment_history");
+  if (empHist) {
+    checks.push({ key: "employment_history", label: "Employment history", status: "ok", detail: `Employment-history inquiries on file since ${empHist.entryDate}.`, date: empHist.entryDate });
+  } else {
+    checks.push({ key: "employment_history", label: "Employment history", status: "missing", detail: "No employment-history inquiries on file.", date: null });
+    reasons.push({ code: "missing_employment_history", detail: `No employment-history inquiries on file (49 CFR 391.23(c)).` });
+  }
+
+  // -- Annual list of violations (391.27 / 391.51(b)(3)) -------------------
+  // The driver's annual list of violations (or their certification
+  // of none), refreshed every 12 months on the MVR rhythm (audit A7).
+  const viol = latestEntry(effective, "violation_record");
+  if (!viol) {
+    checks.push({ key: "violations", label: "Annual violations list", status: "missing", detail: "No annual violations list on file.", date: null });
+    reasons.push({ code: "missing_violations", detail: `No annual list of violations on file (49 CFR 391.27).` });
+  } else {
+    const dueOn = addMonthsYmd(viol.entryDate, 12);
+    if (dueOn < asOf) {
+      checks.push({ key: "violations", label: "Annual violations list", status: "overdue", detail: `Last violations list ${viol.entryDate} — the annual list came due ${dueOn}.`, date: viol.entryDate });
+      reasons.push({ code: "violations_overdue", detail: `Annual list of violations overdue — last list ${viol.entryDate}, due ${dueOn} (49 CFR 391.27).` });
+    } else {
+      checks.push({ key: "violations", label: "Annual violations list", status: "ok", detail: `Violations list on file — ${viol.entryDate}; next due ${dueOn}.`, date: viol.entryDate });
+    }
   }
 
   return {
@@ -456,12 +514,14 @@ export function dqBlockNotification(args: { driverUsername: string; summary: str
 // a renewal (new date) re-arms everything.
 // ---------------------------------------------------------------------------
 
-export type DqfAlertItemKey = "cdl" | "medical" | "mvr_review";
+export type DqfAlertItemKey = "cdl" | "medical" | "mvr_review" | "clearinghouse" | "violations";
 
 export const DQF_ALERT_LABELS: Record<DqfAlertItemKey, string> = {
   cdl: "CDL",
   medical: "Medical certificate",
   mvr_review: "MVR annual review",
+  clearinghouse: "Clearinghouse annual query",
+  violations: "Annual violations list",
 };
 
 export interface DqfAlertStatus {
@@ -492,10 +552,17 @@ export function dqfAlertDates(entries: readonly DqfEntryLike[], asOf: string): R
   const cdl = latestEntry(effective, "cdl");
   const med = latestEntry(effective, "medical");
   const mvr = latestEntry(effective, "mvr_review");
+  const query = latestEntry(effective, "clearinghouse_query");
+  const viol = latestEntry(effective, "violation_record");
   return {
     cdl: cdl?.expiresOn ?? null,
     medical: med?.expiresOn ?? null,
     mvr_review: mvr ? addMonthsYmd(mvr.entryDate, 12) : null,
+    // The annual cadences (audit A6/A7): the Clearinghouse query
+    // and the violations list come due 12 months after the last
+    // one on file — the same due-date shape as the MVR review.
+    clearinghouse: query ? addMonthsYmd(query.entryDate, 12) : null,
+    violations: viol ? addMonthsYmd(viol.entryDate, 12) : null,
   };
 }
 
@@ -506,7 +573,7 @@ export function buildDqfAlertStatuses(
 ): DqfAlertStatus[] {
   const asOf = new Date(nowMs).toISOString().slice(0, 10);
   const dates = dqfAlertDates(entries, asOf);
-  const keys: DqfAlertItemKey[] = ["cdl", "medical", "mvr_review"];
+  const keys: DqfAlertItemKey[] = ["cdl", "medical", "mvr_review", "clearinghouse", "violations"];
   return keys.map((itemKey) => {
     const expiresOn = dates[itemKey];
     const daysLeft = expiresOn != null ? credentialDaysLeft(expiresOn, nowMs) : null;

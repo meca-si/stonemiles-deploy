@@ -19,6 +19,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fileToBase64 } from "@hatch/space-sdk/client";
 import { PdfViewer } from "@hatch/space-sdk/pdf";
 import { api, type ApiResponse } from "./api";
+import { CYCLE_LIMITS, cycleTypeOf, hosClocksFromEvents, type CycleType, type HosClockResult } from "./hosEngine";
+import { inspectionKindForRemark } from "./remarkInspection";
 import { createGpsFixFilter, type FixRejection } from "./gpsFilter";
 import { OFF_ROUTE_MI, OFF_ROUTE_SUSTAIN_MS, REROUTE_COOLDOWN_MS, bearingDeltaDeg, createParallelTrackTracker, headingFromTrack, normalizeBearingDeg, projectOntoRoute, smoothBearingDeg, snapDisplayToRoute } from "./routeGeometry";
 import { MAP_LAYER_CATEGORIES, effectiveBaseStyle, effectivePitchDeg, isIntelVisible, normalizeMapPrefs, offlineAutoSwitchApplies, resolveMapDayNight, satelliteFallbackActive, selectBearingSource, trafficLiveRefreshEnabled, trafficNotesVisible, type MapPrefs } from "./mapPrefs";
@@ -287,6 +289,10 @@ type ProfileT = {
   driverCpm: number | null;
   payBasis: "cpm" | "percent";
   driverPayPct: number | null;
+  // HOS cycle (regulatory fix A3, §395.3(b)): the cycle this
+  // driver's clocks reckon under — 60h/7-day or 70h/8-day. A fleet
+  // owner's company-setup override wins over this when one is set.
+  cycleType: "60/7" | "70/8";
   // The driver's OWN factoring / dispatcher percentages (migration
   // 0115): % of a load's gross pay THEIR factoring company / THEIR
   // dispatcher takes. Their own costs — never platform fees. 0 = they
@@ -1336,6 +1342,7 @@ const DEFAULT_PROFILE: ProfileT = {
   driverCpm: null,
   payBasis: "cpm",
   driverPayPct: null,
+  cycleType: "70/8",
   factoringPct: 0,
   dispatcherPct: 0,
   trailerType: "dry_van",
@@ -1590,77 +1597,22 @@ function weatherHazard(code: number, windMph: number, visM: number): string | nu
 
 /** Hours-of-service clocks computed from the sealed duty log.
  *  Planning aid only — the certified ELD is the official record.
- *  Rules modelled: 11h driving after a 10h reset, 14h duty window,
- *  70h/8-day cycle (on-duty + driving), 30-min break after 8h driving. */
-type HosClocks = {
-  hasData: boolean;
-  driveRemainH: number;
-  windowRemainH: number;
-  cycleRemainH: number;
-  breakRemainH: number;
+ *  The reckoning itself lives in ./hosEngine (the one engine behind
+ *  every surface — audit fixes A3 cycle type + A10 split sleeper):
+ *  11h driving after a 10h reset, 14h duty window with split-sleeper
+ *  pairing, the driver's cycle (60h/7-day or 70h/8-day), 30-min
+ *  break after 8h driving. This wrapper keeps the historical name
+ *  and defaults to 70/8 for any caller that doesn't know the
+ *  driver's cycle yet. */
+type HosClocks = HosClockResult & {
+  /** The cycle the clocks were reckoned under (A3) — labels and
+   *  ring maxima read these, never a hard-coded 70/8. */
+  cycleLimitH: number;
+  cycleDays: number;
 };
-function computeHos(events: { state: string; at: string }[], nowMs: number): HosClocks {
-  const H = 3600000;
-  const segs: { state: string; start: number; end: number }[] = [];
-  const sorted = [...events].sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
-  for (let i = 0; i < sorted.length; i++) {
-    const start = Date.parse(sorted[i]!.at);
-    const end = i + 1 < sorted.length ? Date.parse(sorted[i + 1]!.at) : nowMs;
-    if (Number.isFinite(start) && end > start) segs.push({ state: sorted[i]!.state, start, end });
-  }
-  if (segs.length === 0) {
-    return { hasData: false, driveRemainH: 11, windowRemainH: 14, cycleRemainH: 70, breakRemainH: 8 };
-  }
-  // Find the last completed 10h off/sleeper reset: walk segments, tracking
-  // continuous off_duty/sleeper time; when it reaches 10h, the reset point
-  // is the END of that block.
-  let resetAt = 0;
-  let offRun = 0;
-  let offRunStart = 0;
-  for (const s of segs) {
-    if (s.state === "off_duty" || s.state === "sleeper") {
-      if (offRun === 0) offRunStart = s.start;
-      offRun += s.end - s.start;
-      if (offRun >= 10 * H) resetAt = Math.max(resetAt, offRunStart + 10 * H);
-    } else {
-      offRun = 0;
-    }
-  }
-  const since = segs.filter((s) => s.end > resetAt);
-  let driving = 0;
-  let windowStart: number | null = null;
-  for (const s of since) {
-    const st = Math.max(s.start, resetAt);
-    if (s.state === "driving") driving += s.end - st;
-    if ((s.state === "on_duty" || s.state === "driving") && windowStart === null) windowStart = st;
-  }
-  const driveRemainH = Math.max(0, 11 - driving / H);
-  const windowRemainH =
-    windowStart === null ? 14 : Math.max(0, 14 - (nowMs - windowStart) / H);
-  // 70/8 cycle: duty time in the trailing 8 days.
-  const cycleFrom = nowMs - 8 * 24 * H;
-  let cycle = 0;
-  for (const s of segs) {
-    if (s.state !== "on_duty" && s.state !== "driving") continue;
-    const st = Math.max(s.start, cycleFrom);
-    if (s.end > st) cycle += s.end - st;
-  }
-  const cycleRemainH = Math.max(0, 70 - cycle / H);
-  // 30-min break: driving since the last >=30min non-driving stretch.
-  let drivingSinceBreak = 0;
-  let nonDriveRun = 0;
-  for (const s of segs) {
-    if (s.state === "driving") {
-      if (nonDriveRun >= 0.5 * H) drivingSinceBreak = 0;
-      nonDriveRun = 0;
-      drivingSinceBreak += s.end - s.start;
-    } else {
-      nonDriveRun += s.end - s.start;
-    }
-  }
-  if (nonDriveRun >= 0.5 * H) drivingSinceBreak = 0;
-  const breakRemainH = Math.max(0, 8 - drivingSinceBreak / H);
-  return { hasData: true, driveRemainH, windowRemainH, cycleRemainH, breakRemainH };
+function computeHos(events: { state: string; at: string }[], nowMs: number, cycleType: CycleType = "70/8"): HosClocks {
+  const lim = CYCLE_LIMITS[cycleType];
+  return { ...hosClocksFromEvents(events, nowMs, cycleType), cycleLimitH: lim.hours, cycleDays: lim.days };
 }
 /** Slippy-map tile helpers for offline corridor downloads. */
 function lon2tile(lon: number, z: number): number {
@@ -2731,7 +2683,7 @@ export function App() {
   // pending entries are badged wherever they're listed, and the
   // sealed record itself only ever comes from the server.
   const dutyEvents = mergePendingDutyEvents(dutyQuery.data?.events ?? [], pendingDutyCaptures(pendingCaptures));
-  const hos = computeHos(dutyEvents, hosNow);
+  const hos = computeHos(dutyEvents, hosNow, cycleTypeOf(dutyQuery.data?.cycleType));
   const currentDutyState = dutyEvents.length > 0 ? (dutyEvents[dutyEvents.length - 1]?.state ?? null) : null;
   // The 49 CFR 395.8(c) place stamp for a duty change: the town +
   // state where the change happens, derived the way the rest of the
@@ -2777,6 +2729,7 @@ export function App() {
         queryClient.invalidateQueries({ queryKey: ["duty"] });
         queryClient.invalidateQueries({ queryKey: ["inspection-prompts"] });
         setBanner(`Duty status: ${dutyLabel(state)} — set by you, stamped into the sealed log.`);
+        openRemarkInspection(pick);
       } catch {
         // Offline (queue item 7): the tap is captured on this device
         // with the moment it happened and seals on reconnect — the
@@ -2928,7 +2881,7 @@ export function App() {
     const clocks: { key: string; label: string; remain: number }[] = [
       { key: "drive", label: "driving limit (11h)", remain: hos.driveRemainH },
       { key: "window", label: "duty window (14h)", remain: hos.windowRemainH },
-      { key: "cycle", label: "cycle limit (70h/8-day)", remain: hos.cycleRemainH },
+      { key: "cycle", label: `cycle limit (${hos.cycleLimitH}h/${hos.cycleDays}-day)`, remain: hos.cycleRemainH },
       { key: "break", label: "30-minute break", remain: hos.breakRemainH },
     ];
     for (const c of clocks) {
@@ -3081,6 +3034,28 @@ export function App() {
     setTimeout(() => {
       document.getElementById("dvir-checklists")?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 120);
+  };
+  // Remark → checklist (owner addition 2026-11-15): a duty change
+  // sealed with the "Pre-trip inspection" / "Post-trip inspection"
+  // remark opens that checklist right then — regardless of the
+  // once-per-window prompt state, because the driver just declared
+  // the inspection as the reason for the change. Called once per
+  // sealed change from the two remark-carrying paths (the clocks'
+  // buttons and the Driver panel grid) — never from a render. The
+  // server gates the open: already sealed in scope (pre-trip this
+  // duty window, post-trip since the relevant delivery) → no
+  // reopen. If the gate can't be reached, the declared intent wins
+  // and the checklist opens anyway — it is a prompt the driver can
+  // dismiss, never a block.
+  const openRemarkInspection = (pick?: DutyRemarkPick) => {
+    const kind = inspectionKindForRemark(pick?.remark);
+    if (!kind) return;
+    void api
+      .getInspectionSealedState({ kind })
+      .then((r) => {
+        if (!r.sealed) openDvirChecklist(kind);
+      })
+      .catch(() => openDvirChecklist(kind));
   };
   // Inspection auto-prompts (x's order 2026-11-15): the server reckons
   // from the sealed record when a pre-trip (first drive of the duty
@@ -18942,6 +18917,7 @@ export function App() {
             sendPreset={sendPreset}
             dutyPromptPending={dutyPrompt != null}
             onDutyPromptAnswer={answerDutyPrompt}
+            onRemarkInspection={openRemarkInspection}
             movingOffDutyNote={
               tripUi.active && currentDutyState === "sleeper"
                 ? "Moving while Sleeper Berth by your choice — logged as chosen."
@@ -21748,6 +21724,23 @@ export function App() {
                   Speeds, route distances, and stop distances on the driving screens read in your units. Your
                   records — trip sheet, pay, IFTA — always stay in miles, like the paperwork.
                 </p>
+                <div className="mt-3">
+                  <label className={labelCls} htmlFor="set-cycle-type">HOS cycle — your carrier's schedule (49 CFR 395.3(b))</label>
+                  <select
+                    id="set-cycle-type"
+                    className={inputCls}
+                    value={profile.cycleType}
+                    onChange={(e) => setProfile({ ...profile, cycleType: e.target.value === "60/7" ? "60/7" : "70/8" })}
+                    aria-label="Hours of service cycle — 60 hours in 7 days, or 70 hours in 8 days"
+                  >
+                    <option value="70/8">70 hours / 8 days — carrier operates every day</option>
+                    <option value="60/7">60 hours / 7 days — carrier does not operate every day</option>
+                  </select>
+                  <p className="mt-1.5 text-xs leading-relaxed text-[var(--dim)]">
+                    Your cycle clock caps at this limit everywhere — clocks, logs, the DOT packet. If your fleet
+                    owner set a cycle for the whole fleet in Company setup, that fleet setting wins over this one.
+                  </p>
+                </div>
                 <div className="mt-3">
                   <label className={labelCls} htmlFor="set-overspeed">Overspeed warning</label>
                   <select
@@ -26509,6 +26502,8 @@ type SetupT = {
   contactEmail: string | null;
   contactPhone: string | null;
   fleetSize: number | null;
+  // Fleet HOS cycle override (A3): null = no override.
+  cycleType: "60/7" | "70/8" | null;
   complete: boolean;
 };
 
@@ -26753,6 +26748,22 @@ function CompanySetupSection({
                 onChange={(e) => set("address", e.target.value)}
               />
             </label>
+            <label className="col-span-2 text-xs font-bold text-[var(--dim)]">
+              Fleet HOS cycle override (49 CFR 395.3(b))
+              <select
+                className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-2 font-bold text-[var(--text)]"
+                value={val("cycleType")}
+                aria-label="Fleet hours of service cycle override"
+                onChange={(e) => set("cycleType", e.target.value)}
+              >
+                <option value="">No fleet override — each driver's own setting rules</option>
+                <option value="70/8">70 hours / 8 days for the whole fleet</option>
+                <option value="60/7">60 hours / 7 days for the whole fleet</option>
+              </select>
+              <span className="mt-1 block font-normal">
+                Set only when the whole fleet runs one schedule — it overrides every driver's own cycle setting on their clocks, logs, and DOT packet.
+              </span>
+            </label>
           </div>
           <button
             type="button"
@@ -26771,6 +26782,7 @@ function CompanySetupSection({
                   contactEmail: val("contactEmail") || null,
                   contactPhone: val("contactPhone") || null,
                   fleetSize: val("fleetSize") ? Number(val("fleetSize")) : null,
+                  cycleType: val("cycleType") === "60/7" ? "60/7" : val("cycleType") === "70/8" ? "70/8" : null,
                 })
                 .then((r) => {
                   setBanner(r.ok ? (r.complete ? "Company setup COMPLETE — driver codes are unlocked." : "Setup saved — still incomplete (check required fields + all three documents).") : (r.error ?? "Couldn't save setup."));
@@ -27931,7 +27943,7 @@ function HosRings({ hos, onOpenFull, duty }: { hos: HosClocks; onOpenFull?: () =
   const clocks = [
     { label: "Drive", sub: "of 11h", remain: hos.driveRemainH, max: 11 },
     { label: "Window", sub: "of 14h", remain: hos.windowRemainH, max: 14 },
-    { label: "Cycle", sub: "of 70h", remain: hos.cycleRemainH, max: 70 },
+    { label: "Cycle", sub: `of ${hos.cycleLimitH}h`, remain: hos.cycleRemainH, max: hos.cycleLimitH },
     { label: "Break", sub: "of 8h", remain: hos.breakRemainH, max: 8 },
   ];
   return (
@@ -27966,7 +27978,7 @@ function HosRings({ hos, onOpenFull, duty }: { hos: HosClocks; onOpenFull?: () =
 }
 
 /**
- * The four HOS clocks — 11h drive / 14h duty window / 70h cycle + 30-min
+ * The four HOS clocks — 11h drive / 14h duty window / cycle (60/7 or 70/8) + 30-min
  * break tracking — remaining time prominent, with the amber (≤1h) and red
  * (≤30min) warning states. Shared by the Drive tab (top-level panel) and
  * the Driver tab (full detail view one tap deeper).
@@ -27975,7 +27987,7 @@ function HosClocksPanel({ hos, onOpenFull, duty }: { hos: HosClocks; onOpenFull?
   const clocks = [
     { label: "Driving", sub: "11-hour limit", remain: hos.driveRemainH, max: 11 },
     { label: "Duty window", sub: "14-hour limit", remain: hos.windowRemainH, max: 14 },
-    { label: "Cycle", sub: "70-hour / 8-day", remain: hos.cycleRemainH, max: 70 },
+    { label: "Cycle", sub: `${hos.cycleLimitH}-hour / ${hos.cycleDays}-day`, remain: hos.cycleRemainH, max: hos.cycleLimitH },
     { label: "Break due in", sub: "30-min break after 8h driving", remain: hos.breakRemainH, max: 8 },
   ];
   return (
@@ -28050,6 +28062,16 @@ function DailyLogDetail({ log }: { log: DailyLogT }) {
         <dd className="inline">
           {time(log.openedAt)}
           {log.closedAt ? <> · closed {time(log.closedAt)}</> : " · still open"}
+        </dd>
+      </div>
+      <div>
+        <dt className="inline font-bold">Certification:</dt>{" "}
+        <dd className="inline">
+          {log.certifiedName
+            ? <>✓ “I certify these entries are true and correct” — {log.certifiedName}{log.certifiedAt ? ` · ${new Date(log.certifiedAt).toLocaleString()}` : ""}</>
+            : log.status === "open"
+              ? "certified when the day closes"
+              : "not yet certified"}
         </dd>
       </div>
       <div>
@@ -28137,6 +28159,11 @@ function AutoLogCard({
   const [odo, setOdo] = useState("");
   const [fuel, setFuel] = useState("");
   const [finishOdo, setFinishOdo] = useState("");
+  // Log certification (A1, §395.8(d)(5)): the typed name that seals
+  // with the close, plus per-log typed names for certifying a past
+  // day that closed uncertified.
+  const [certifyName, setCertifyName] = useState("");
+  const [pastCertify, setPastCertify] = useState<Record<number, string>>({});
   const [ackd, setAckd] = useState(false);
   const [openLogId, setOpenLogId] = useState<number | null>(null);
   const [startOpen, setStartOpen] = useState(false);
@@ -28195,6 +28222,10 @@ function AutoLogCard({
   };
   const stopDay = () => {
     if (!openToday) return;
+    if (!certifyName.trim()) {
+      setBanner("Type your name to certify today's log before closing — “I certify these entries are true and correct” (49 CFR 395.8(d)(5)). The log stays open until you do.");
+      return;
+    }
     const dayTrips = (tripsQuery.data?.trips ?? []).filter((t) => t.startedAt.slice(0, 10) === today);
     const dayMiles = dayTrips.reduce((sum, t) => sum + t.totalMiles, 0);
     const mpg = profileQuery2.data?.profile?.mpg ?? 0;
@@ -28210,9 +28241,10 @@ function AutoLogCard({
         hosEnd: hosJson,
         loadsDelivered: delivered,
         detentionText: "See the detention tracker on each load for today's sealed detention detail.",
+        certifyName: certifyName.trim(),
       })
       .then((r) => {
-        setBanner(r.ok ? "Day closed — your sealed log is in your records and the owner portal, identical in both." : (r.error ?? "Couldn't close the log."));
+        setBanner(r.ok ? "Day closed and certified — your sealed log is in your records and the owner portal, identical in both." : (r.error ?? "Couldn't close the log."));
         queryClient.invalidateQueries({ queryKey: ["daily-logs"] });
       })
       .catch(() => setBanner("Couldn't close the log — try again."));
@@ -28288,6 +28320,10 @@ function AutoLogCard({
             Finish miles (odometer, optional — blank uses start + today's GPS trip miles)
             <input className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--surface2)] px-2 py-2 font-bold text-[var(--text)]" inputMode="decimal" value={finishOdo} aria-label="Finish miles odometer" onChange={(e) => setFinishOdo(e.target.value.replace(/[^0-9.]/g, ""))} />
           </label>
+          <label className="mt-2 block text-xs font-bold text-[var(--dim)]">
+            Certify this log — type your name: “I certify these entries are true and correct” (49 CFR 395.8(d)(5))
+            <input className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--surface2)] px-2 py-2 font-bold text-[var(--text)]" value={certifyName} aria-label="Type your name to certify today's log" placeholder="Your full name — your typed signature" onChange={(e) => setCertifyName(e.target.value)} />
+          </label>
           <button type="button" className="btn-neon btn-press mt-2 w-full rounded-xl py-3.5 font-bold" aria-label="Stop clock — end my day and seal the log" onClick={stopDay}>
             ⏹ Stop clock — end my day & seal the log
           </button>
@@ -28317,12 +28353,48 @@ function AutoLogCard({
                     <strong>{l.logDate}</strong> · {l.status === "open" ? "🟢 live" : l.status === "auto_closed" ? "auto-closed (no manual stop)" : "sealed closed"}
                     {l.totalMiles != null && <> · {l.totalMiles} mi</>}
                     {l.loadsDelivered > 0 && <> · {l.loadsDelivered} delivered</>}
+                    {l.status !== "open" && (l.certifiedName ? <span className="font-bold text-emerald-300"> · ✓ certified</span> : <span className="font-bold text-amber-300"> · not yet certified</span>)}
                     {l.criticalDefect && <span className="font-bold text-red-300"> · 🚨 critical defect</span>}
                     <span className="float-right font-bold text-[var(--accent)]" aria-hidden>{open ? "▲" : "▼"}</span>
                   </button>
                   {open && (
                     <>
                       <DailyLogDetail log={l} />
+                      {l.status !== "open" && !l.certifiedName && (
+                        <div className="mt-2 rounded-lg bg-[var(--surface)] px-2.5 py-2">
+                          <label className="block text-xs font-bold text-[var(--dim)]">
+                            Certify this day — type your name: “I certify these entries are true and correct”
+                            <input
+                              className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--surface2)] px-2 py-2 font-bold text-[var(--text)]"
+                              value={pastCertify[l.id] ?? ""}
+                              aria-label={`Type your name to certify the ${l.logDate} log`}
+                              placeholder="Your full name — your typed signature"
+                              onChange={(e) => setPastCertify((p) => ({ ...p, [l.id]: e.target.value }))}
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            className="btn-neon btn-press mt-2 w-full rounded-lg py-2 text-sm font-bold"
+                            aria-label={`Certify the ${l.logDate} log`}
+                            onClick={() => {
+                              const name = (pastCertify[l.id] ?? "").trim();
+                              if (!name) {
+                                setBanner("Type your name first — the certification is your typed signature.");
+                                return;
+                              }
+                              void api
+                                .certifyDailyLog({ logId: l.id, certifyName: name })
+                                .then((r) => {
+                                  setBanner(r.ok ? `${l.logDate} certified — sealed with your typed name.` : (r.error ?? "Couldn't certify that log."));
+                                  if (r.ok) queryClient.invalidateQueries({ queryKey: ["daily-logs"] });
+                                })
+                                .catch(() => setBanner("Couldn't certify that log — try again."));
+                            }}
+                          >
+                            ✍️ Certify {l.logDate}
+                          </button>
+                        </div>
+                      )}
                       <ExportBar
                         label={`Daily log ${l.logDate}`}
                         filename={`daily-log-${l.logDate}.txt`}
@@ -30977,6 +31049,51 @@ function InspectionSheet({
   const p = packetQuery.data;
   const [checkResult, setCheckResult] = useState<{ genuine: boolean; note: string } | null>(null);
   const [checking, setChecking] = useState(false);
+  // Packet transfer (audit T1/T2): email the packet to an address the
+  // driver enters (the officer's), or download the same packet as a
+  // Library PDF — both render server-side from the sealed records.
+  const [officerEmail, setOfficerEmail] = useState("");
+  const [sendingPacket, setSendingPacket] = useState(false);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const packetRef = `inspection:${todayLocal}:${nowD.getTimezoneOffset()}`;
+  const downloadPacketPdf = () => {
+    setDownloadingPdf(true);
+    void api
+      .getLibraryDocument({ ref: packetRef })
+      .then((r) => {
+        if (!r.ok || !r.dataBase64) {
+          setBanner(r.error ?? "The packet PDF couldn't be built.");
+          return;
+        }
+        const bin = atob(r.dataBase64);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        const url = URL.createObjectURL(new Blob([bytes], { type: r.mime ?? "application/pdf" }));
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = r.filename ?? "stonemiles-dot-inspection-packet.pdf";
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+        setBanner("Packet PDF downloaded — the same 8 days, seal, and verify code as this screen.");
+      })
+      .catch(() => setBanner("The packet PDF couldn't be built — try again."))
+      .finally(() => setDownloadingPdf(false));
+  };
+  const emailPacket = () => {
+    const to = officerEmail.trim();
+    if (!to) {
+      setBanner("Enter the email address to send the packet to first.");
+      return;
+    }
+    setSendingPacket(true);
+    void api
+      .sendInspectionPacketEmail({ toEmail: to, todayLocal, utcOffsetMinutes: nowD.getTimezoneOffset() })
+      .then((r) => {
+        setBanner(r.ok ? `Packet emailed to ${to} — the send is sealed in your record (packet_emailed).` : (r.error ?? "The packet email didn't send."));
+      })
+      .catch(() => setBanner("The packet email didn't send — try again, or use the PDF download."))
+      .finally(() => setSendingPacket(false));
+  };
   const daysDesc = p ? [...p.days].reverse() : [];
   const timeInStatus =
     p?.statusSince != null
@@ -31069,7 +31186,7 @@ function InspectionSheet({
                       [
                         { label: "Drive remaining (11h)", v: p.hos.driveRemainH },
                         { label: "Shift remaining (14h)", v: p.hos.windowRemainH },
-                        { label: "Cycle remaining (70h / 8-day)", v: p.hos.cycleRemainH },
+                        { label: `Cycle remaining (${CYCLE_LIMITS[p.cycleType].hours}h / ${CYCLE_LIMITS[p.cycleType].days}-day)`, v: p.hos.cycleRemainH },
                         { label: "Before 30-min break", v: p.hos.breakRemainH },
                       ] as const
                     ).map((t) => (
@@ -31144,6 +31261,41 @@ function InspectionSheet({
               <p className="mt-1.5 text-sm text-[var(--dim)]">
                 Send inspection packet: the full 8-day log + DVIRs as one printable document — every copy carries the seal hash and the verify code above.
               </p>
+              <div className="mt-3 border-t border-[var(--border)] pt-3">
+                <button
+                  type="button"
+                  disabled={downloadingPdf}
+                  className="btn-press w-full rounded-xl bg-[var(--surface2)] border border-[var(--border)] px-5 py-3 text-lg font-bold disabled:opacity-50"
+                  aria-label="Download this inspection packet as a PDF"
+                  onClick={downloadPacketPdf}
+                >
+                  {downloadingPdf ? "Building PDF…" : "📄 Download packet as PDF"}
+                </button>
+                <label className="mt-3 block text-left text-sm font-bold text-[var(--dim)]">
+                  Email the packet (officer's address, or your own)
+                  <input
+                    className="mt-1 w-full rounded-xl border border-[var(--border)] bg-[var(--surface2)] px-3 py-3 text-lg font-bold text-[var(--text)]"
+                    type="email"
+                    inputMode="email"
+                    placeholder="officer@example.gov"
+                    aria-label="Email address to send the inspection packet to"
+                    value={officerEmail}
+                    onChange={(e) => setOfficerEmail(e.target.value)}
+                  />
+                </label>
+                <button
+                  type="button"
+                  disabled={sendingPacket}
+                  className="btn-press mt-2 w-full rounded-xl bg-[var(--accent)] px-5 py-3 text-lg font-bold text-black disabled:opacity-50"
+                  aria-label="Email this inspection packet to the address entered"
+                  onClick={emailPacket}
+                >
+                  {sendingPacket ? "Sending…" : "✉️ Email this packet"}
+                </button>
+                <p className="mt-1.5 text-sm text-[var(--dim)]">
+                  The email carries the full packet text plus the PDF. A sent packet is sealed in your record (address + days covered + verify code — never the packet contents on chain).
+                </p>
+              </div>
             </section>
 
             {/* Last 8 days, day by day */}
@@ -31167,6 +31319,17 @@ function InspectionSheet({
                         {d.startMilesSource ? ` · start source: ${d.startMilesSource}` : ""}
                       </p>
                     )}
+                    <p className="mt-1 text-base text-[var(--dim)]">
+                      Units: Truck {d.truckUnit ? `Unit ${d.truckUnit}` : (d.truckLabel ?? "not recorded")} · Trailer {d.trailerUnit ?? d.trailerLabel ?? "not recorded"}
+                      {d.unitSource ? ` (from ${d.unitSource === "dvir" ? "the day's signed DVIR" : "the truck/trailer profile"})` : ""}
+                    </p>
+                    <p className="mt-1 text-base">
+                      {d.certifiedName ? (
+                        <span className="font-semibold text-emerald-300">✓ Certified — “I certify these entries are true and correct” · {d.certifiedName}{d.certifiedAt ? ` · ${new Date(d.certifiedAt).toLocaleString()}` : ""}</span>
+                      ) : (
+                        <span className="font-semibold text-amber-300">Log certification: not yet certified</span>
+                      )}
+                    </p>
                     <p className="mt-1.5 text-base">
                       Off Duty <strong>{fmtHos(d.totalsH.off_duty)}</strong> · Sleeper <strong>{fmtHos(d.totalsH.sleeper)}</strong> · On Duty <strong>{fmtHos(d.totalsH.on_duty)}</strong> · Driving <strong>{fmtHos(d.totalsH.driving)}</strong>
                     </p>
@@ -31224,6 +31387,11 @@ function InspectionSheet({
                           <li key={i} className="text-lg font-semibold text-red-300">
                             Defect{df.critical ? " (SAFETY-CRITICAL)" : ""}: {df.item}
                             {df.note ? <span className="block text-base font-normal text-[var(--dim)]">{df.note}</span> : null}
+                            <span className="block text-base font-normal text-[var(--dim)]">
+                              {df.certification
+                                ? `Repair certification: ${df.certification.determination === "repair_not_necessary" ? "repair not necessary" : "repaired"} — certified by ${df.certification.certifiedBy} · ${new Date(df.certification.at).toLocaleString()}`
+                                : "Repair certification: not certified yet"}
+                            </span>
                           </li>
                         ))}
                       </ul>
@@ -33841,7 +34009,7 @@ function OwnerConsolePanel({
           <div className="mt-2 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
             {clockBar("Drive (11h)", d.hos.driveRemainH, 11)}
             {clockBar("Shift (14h)", d.hos.windowRemainH, 14)}
-            {clockBar("Cycle (70h/8d)", d.hos.cycleRemainH, 70)}
+            {clockBar(`Cycle (${CYCLE_LIMITS[d.cycleType].hours}h/${CYCLE_LIMITS[d.cycleType].days}d)`, d.hos.cycleRemainH, CYCLE_LIMITS[d.cycleType].hours)}
             {clockBar("Break (30-min)", d.hos.breakRemainH, 8)}
           </div>
         ) : (
@@ -34197,7 +34365,7 @@ function OwnerConsolePanel({
                     <div className="mt-2 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
                       {clockBar("Drive (11h)", d.hos.driveRemainH, 11)}
                       {clockBar("Shift (14h)", d.hos.windowRemainH, 14)}
-                      {clockBar("Cycle (70h/8d)", d.hos.cycleRemainH, 70)}
+                      {clockBar(`Cycle (${CYCLE_LIMITS[d.cycleType].hours}h/${CYCLE_LIMITS[d.cycleType].days}d)`, d.hos.cycleRemainH, CYCLE_LIMITS[d.cycleType].hours)}
                       {clockBar("Break (30-min)", d.hos.breakRemainH, 8)}
                     </div>
                   ) : (
@@ -34589,6 +34757,7 @@ function DriverPanel({
   dutyPromptPending,
   onDutyPromptAnswer,
   movingOffDutyNote,
+  onRemarkInspection,
 }: {
   setBanner: (s: string | null) => void;
   onOpenInspection: () => void;
@@ -34601,6 +34770,7 @@ function DriverPanel({
   dutyPromptPending?: boolean;
   onDutyPromptAnswer?: (choice: "driving" | "on_duty" | "stay_sleeper" | "stay_off_duty") => void;
   movingOffDutyNote?: string | null;
+  onRemarkInspection?: (pick?: DutyRemarkPick) => void;
 }) {
   const queryClient = useQueryClient();
   const dutyQuery = useQuery({ queryKey: ["duty"], queryFn: () => api.listDuty({ limit: 200 }) });
@@ -34648,9 +34818,13 @@ function DriverPanel({
         remarkNote: vars.pick?.note ?? null,
       });
     },
-    onSuccess: () => {
+    onSuccess: (_data, vars) => {
       queryClient.invalidateQueries({ queryKey: ["duty"] });
       queryClient.invalidateQueries({ queryKey: ["inspection-prompts"] });
+      // Remark → checklist (owner addition 2026-11-15): a change
+      // sealed with an inspection remark opens that checklist via
+      // the App-level handler (server-gated on already-sealed).
+      onRemarkInspection?.(vars.pick);
     },
     onError: (_e, vars) => {
       // Offline (queue item 7): capture the tap on-device instead of
@@ -34688,6 +34862,9 @@ function DriverPanel({
   const panelPendingDuty = pendingDutyCaptures(panelCaptures);
   const events = mergePendingDutyEvents(dutyQuery.data?.events ?? [], panelPendingDuty);
   const currentDuty = events.length > 0 ? events[events.length - 1]?.state : null;
+  // The driver's effective HOS cycle rides on the duty query (A3) —
+  // every clock in this panel reckons under it.
+  const myCycleType = cycleTypeOf(dutyQuery.data?.cycleType);
   const stats = statsQuery.data;
 
   // Season rollover: when a new season has started since the last visit,
@@ -34905,7 +35082,7 @@ function DriverPanel({
       </section>
 
       {(() => {
-        const h = computeHos(events, Date.now());
+        const h = computeHos(events, Date.now(), myCycleType);
         const tiles = [
           { label: "Drive", remain: h.driveRemainH },
           { label: "Window", remain: h.windowRemainH },
@@ -34945,17 +35122,17 @@ function DriverPanel({
         );
       })()}
 
-      <AutoLogCard hos={computeHos(events, Date.now())} setBanner={setBanner} variant="today" />
+      <AutoLogCard hos={computeHos(events, Date.now(), myCycleType)} setBanner={setBanner} variant="today" />
         </>
       )}
 
       {drvCat === "hours" && (
         <>
-          <HosClocksPanel hos={computeHos(events, Date.now())} duty={{ currentDuty: currentDuty ?? null, onSetDuty: (s, pick) => setDutyMut.mutate({ state: s, pick }), pending: setDutyMut.isPending }} />
+          <HosClocksPanel hos={computeHos(events, Date.now(), myCycleType)} duty={{ currentDuty: currentDuty ?? null, onSetDuty: (s, pick) => setDutyMut.mutate({ state: s, pick }), pending: setDutyMut.isPending }} />
 
           <HosLogPanel setBanner={setBanner} />
 
-          <AutoLogCard hos={computeHos(events, Date.now())} setBanner={setBanner} />
+          <AutoLogCard hos={computeHos(events, Date.now(), myCycleType)} setBanner={setBanner} />
 
           <DetentionDaysBlock />
         </>

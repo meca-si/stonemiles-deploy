@@ -75,6 +75,14 @@ export const profile = sqliteTable("profile", {
   // with no load rate on file the app says so instead of inventing one.
   payBasis: text("pay_basis").notNull().default("cpm"),
   driverPayPct: real("driver_pay_pct"),
+  // HOS cycle type (migration 0139, audit A3 — 49 CFR 395.3(b)):
+  // the cycle limit follows the CARRIER's operating schedule —
+  // "60/7" (60 hours in 7 days, carriers not operating every day)
+  // or "70/8" (70 in 8). The driver's own setting; a fleet's
+  // company_setup.cycle_type overrides it for the company's
+  // drivers when set. Default '70/8' — the pre-0139 behaviour, so
+  // no driver's hours change until someone picks the other cycle.
+  cycleType: text("cycle_type").notNull().default("70/8"),
   // The driver's OWN per-load fee percentages (migration 0115): what
   // THEIR factoring company and THEIR dispatcher take out of a load's
   // gross pay, in percent (0–100, 0 = they don't pay that fee). These
@@ -1083,6 +1091,12 @@ export const companySetup = sqliteTable("company_setup", {
   // default with a per-driver override on company_members.
   autoLogEnabled: integer("auto_log_enabled", { mode: "boolean" }).notNull().default(false),
   autoLogNotify: text("auto_log_notify").notNull().default("immediate"), // immediate | digest
+  // HOS cycle type fleet override (migration 0139, audit A3 —
+  // 49 CFR 395.3(b)): "60/7" | "70/8" | null. Null = no override —
+  // each driver's own profile setting governs. When set, it is
+  // the cycle every HOS engine uses for this company's drivers,
+  // because the cycle follows the carrier's operating schedule.
+  cycleType: text("cycle_type"),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" })
     .notNull()
     .$defaultFn(() => new Date()),
@@ -1134,6 +1148,13 @@ export const dailyLogs = sqliteTable("daily_logs", {
   loadsDelivered: integer("loads_delivered").notNull().default(0),
   detentionText: text("detention_text"),
   criticalDefect: integer("critical_defect", { mode: "boolean" }).notNull().default(false),
+  // Log certification (migration 0139, audit A1 — 49 CFR
+  // 395.8(d)(5)): the driver's typed name certifying the day's
+  // entries true and correct, and when they certified. Null =
+  // not yet certified — shown honestly as such, never backfilled.
+  // The attestation is also sealed into the chain payload.
+  certifiedName: text("certified_name"),
+  certifiedAt: integer("certified_at", { mode: "timestamp_ms" }),
 });
 
 // ---- Beta access ------------------------------------------------------------
@@ -4974,6 +4995,17 @@ export const dvirDefectLinks = sqliteTable("dvir_defect_links", {
   dvirId: integer("dvir_id").notNull(),
   item: text("item").notNull(),
   maintenanceEntryId: integer("maintenance_entry_id").notNull(),
+  // Carrier repair certification (migration 0139, audit A5 —
+  // 49 CFR 396.11(a)(2)): when the linked maintenance entry is
+  // closed, the closure records WHO certified the defect handled
+  // and the determination — "repaired" or "repair_not_necessary"
+  // — on the defect's own link row, so the certification lives
+  // with the DVIR record (and is sealed in the chain). Null =
+  // not certified (the defect is still open, or was closed
+  // before this record existed).
+  certifiedBy: text("certified_by"),
+  repairDetermination: text("repair_determination"), // repaired | repair_not_necessary
+  certifiedAt: integer("certified_at", { mode: "timestamp_ms" }),
   createdAt: integer("created_at", { mode: "timestamp_ms" })
     .notNull()
     .$defaultFn(() => new Date()),

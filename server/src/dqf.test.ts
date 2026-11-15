@@ -54,6 +54,8 @@ function completeFile(): DqfEntryLike[] {
     entry({ kind: "road_test", entryDate: "2026-01-06" }),
     entry({ kind: "mvr_review", entryDate: "2026-06-01", payload: { outcome: "acceptable" } }),
     entry({ kind: "clearinghouse_query", entryDate: "2026-01-04", payload: { queryType: "pre_employment", result: "clear" } }),
+    entry({ kind: "employment_history", entryDate: "2026-01-05", payload: { employer: "Prior Carrier LLC" } }),
+    entry({ kind: "violation_record", entryDate: "2026-01-06", payload: { description: "No violations in the past year" } }),
   ];
 }
 
@@ -280,6 +282,62 @@ describe("fleet alerts — thresholds + dismissals", () => {
     const med = buildDqfAlertStatuses(file, [], NOW_MS).find((s) => s.itemKey === "medical")!;
     expect(med.threshold).toBe(0);
     expect(med.daysLeft).toBeLessThan(0);
+  });
+});
+
+describe("evaluateDqf — audit A6/A7 requirements (2026-11-15)", () => {
+  test("a Clearinghouse query older than 12 months reads OVERDUE, not ok (382.701)", () => {
+    const file = completeFile().map((e) =>
+      e.kind === "clearinghouse_query" ? { ...e, entryDate: "2024-06-01" } : e,
+    );
+    const ev = evaluateDqf(file, AS_OF);
+    expect(ev.qualified).toBe(false);
+    expect(ev.reasons.map((r) => r.code)).toContain("clearinghouse_overdue");
+    expect(ev.checks.find((c) => c.key === "clearinghouse")!.status).toBe("overdue");
+  });
+
+  test("a prohibited query still blocks as prohibited even when also stale", () => {
+    const file = completeFile().map((e) =>
+      e.kind === "clearinghouse_query" ? { ...e, entryDate: "2024-06-01", payload: { result: "prohibited" } } : e,
+    );
+    const ev = evaluateDqf(file, AS_OF);
+    expect(ev.reasons.map((r) => r.code)).toContain("clearinghouse_prohibited");
+    expect(ev.reasons.map((r) => r.code)).not.toContain("clearinghouse_overdue");
+  });
+
+  test("no employment-history inquiries on file blocks (391.23(c))", () => {
+    const file = completeFile().filter((e) => e.kind !== "employment_history");
+    const ev = evaluateDqf(file, AS_OF);
+    expect(ev.qualified).toBe(false);
+    expect(ev.reasons.map((r) => r.code)).toContain("missing_employment_history");
+    expect(dqBlockSummary(ev)).toContain("employment-history");
+  });
+
+  test("no annual violations list blocks (391.27); a stale one reads overdue", () => {
+    const missing = evaluateDqf(completeFile().filter((e) => e.kind !== "violation_record"), AS_OF);
+    expect(missing.reasons.map((r) => r.code)).toContain("missing_violations");
+    const stale = evaluateDqf(
+      completeFile().map((e) => (e.kind === "violation_record" ? { ...e, entryDate: "2024-06-01" } : e)),
+      AS_OF,
+    );
+    expect(stale.reasons.map((r) => r.code)).toContain("violations_overdue");
+    expect(stale.checks.find((c) => c.key === "violations")!.status).toBe("overdue");
+  });
+
+  test("the alert cadence covers the annual query + violations list due dates", () => {
+    const NOW_MS = new Date("2026-11-15T12:00:00Z").getTime();
+    const statuses = buildDqfAlertStatuses(completeFile(), [], NOW_MS);
+    const ch = statuses.find((s) => s.itemKey === "clearinghouse")!;
+    // Query 2026-01-04 → annual due 2027-01-04, outside the 60-day window at Nov 2026.
+    expect(ch.expiresOn).toBe("2027-01-04");
+    const viol = statuses.find((s) => s.itemKey === "violations")!;
+    expect(viol.expiresOn).toBe("2027-01-06");
+    const stale = buildDqfAlertStatuses(
+      completeFile().map((e) => (e.kind === "clearinghouse_query" ? { ...e, entryDate: "2025-10-01" } : e)),
+      [],
+      NOW_MS,
+    ).find((s) => s.itemKey === "clearinghouse")!;
+    expect(stale.threshold).toBe(0); // due 2026-10-01 — past due at NOW_MS
   });
 });
 

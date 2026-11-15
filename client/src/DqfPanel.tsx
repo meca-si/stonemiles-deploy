@@ -7,7 +7,7 @@
 //     with their qualification status, the recorded reasons when
 //     they're not qualified, and the expiry alerts (CDL, medical,
 //     MVR review due) with per-threshold dismissals.
-//   DqfFileView — one driver's file: the six 391 checks, the
+//   DqfFileView — one driver's file: the 391 checks, the
 //     medical verification status (a paper certificate reads "on
 //     file" until a verification source actually answers — the
 //     panel says which, plainly), every recorded entry with its
@@ -175,7 +175,7 @@ export function DqfFileView({ driverUsername, onMsg }: { driverUsername: string 
   const dismissAlert = (itemKey: string, threshold: number) => {
     if (!data?.driverUsername) return;
     void api
-      .dismissDqfAlert({ driverUsername: data.driverUsername, itemKey: itemKey as "cdl" | "medical" | "mvr_review", threshold })
+      .dismissDqfAlert({ driverUsername: data.driverUsername, itemKey: itemKey as "cdl" | "medical" | "mvr_review" | "clearinghouse" | "violations", threshold })
       .then((r) => {
         if (r.ok) {
           onMsg("Alert dismissed for this round — the next mark still fires, and a renewal restarts the watch.");
@@ -215,7 +215,7 @@ export function DqfFileView({ driverUsername, onMsg }: { driverUsername: string 
         </ul>
       )}
 
-      {/* The six 391 checks */}
+      {/* The 391 checks */}
       <ul className="mt-3 space-y-1.5">
         {data.checks.map((c) => (
           <li key={c.key} className="flex items-start gap-2 rounded-lg bg-[var(--surface)] px-2.5 py-2">

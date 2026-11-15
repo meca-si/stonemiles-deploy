@@ -145,3 +145,37 @@ export function evaluateInspectionPrompt(facts: InspectionPromptFacts): Inspecti
   }
   return null;
 }
+
+/**
+ * Whether the inspection of `kind` is already sealed in its scope —
+ * the gate for the REMARK-driven auto-open (owner addition
+ * 2026-11-15: sealing a duty change with the "Pre-trip inspection"
+ * / "Post-trip inspection" remark opens that checklist right away,
+ * regardless of prompt/dismissal state — but never reopens one the
+ * driver already sealed). Scopes mirror the prompt reckoning:
+ *
+ *   PRE-TRIP — a pre-trip DVIR sealed in the current duty window.
+ *   POST-TRIP — a post-trip DVIR sealed since the relevant
+ *   delivery: the freshest delivery inside this duty window when
+ *   one exists, else since the window opened (a post-trip already
+ *   sealed this shift is not reopened on a bare remark).
+ *
+ * No open duty window → nothing is in scope → not sealed (the
+ * checklist may open; a post-trip remark on the Off Duty change at
+ * the end of a day is exactly the case that must still open when
+ * the driver hasn't sealed one — the window reckoning above keeps
+ * the just-ended window open until a full reset completes, so the
+ * sealed case is still caught there).
+ */
+export function inspectionSealedInScope(facts: InspectionPromptFacts, kind: InspectionKind): boolean {
+  const windowStart = dutyWindowStartMs(facts.dutyEvents, facts.nowMs);
+  if (windowStart === null) return false;
+  if (kind === "pretrip") {
+    return facts.dvirs.some((d) => d.kind === "pretrip" && d.inspectedAtMs >= windowStart);
+  }
+  const inWindow = facts.deliveries
+    .filter((d) => d.atMs >= windowStart && d.atMs <= facts.nowMs)
+    .sort((a, b) => b.atMs - a.atMs);
+  const since = inWindow[0]?.atMs ?? windowStart;
+  return facts.dvirs.some((d) => d.kind === "posttrip" && d.inspectedAtMs >= since);
+}

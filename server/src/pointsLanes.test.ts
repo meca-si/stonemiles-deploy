@@ -164,6 +164,38 @@ describe("hosViolationsInWindow", () => {
     expect(kinds).not.toContain("drive");
     expect(kinds).not.toContain("window");
   });
+  test("60/7 cycle (A3): seven 10-hour duty days trip a 60/7 driver's cycle but not a 70/8 driver's", () => {
+    const events: DutyEventLike[] = [];
+    for (let d = 0; d < 7; d++) {
+      events.push(ev("on_duty", d, 6), ev("driving", d, 6, 5), ev("on_duty", d, 12), ev("off_duty", d, 16));
+    }
+    const kinds60 = hosViolationsInWindow(events, MON, MON + 14 * 86400000, "60/7").map((v) => v.kind);
+    expect(kinds60).toContain("cycle");
+    const kinds70 = hosViolationsInWindow(events, MON, MON + 14 * 86400000).map((v) => v.kind);
+    expect(kinds70).not.toContain("cycle");
+  });
+  test("split sleeper (A10): an 8/2 split day is clean — the pair governs the driving between its periods", () => {
+    // Drive 5h, 8h in the berth, drive 3h (past the naive 14h window
+    // from the morning), 2h off completing the pair, drive 2h more.
+    // Judged under the completed pair: anchor = berth end (21:00),
+    // driving since anchor 5h, window 5h elapsed — clean. Judged
+    // without the split, the 21:00 driving breaks the 14h window.
+    const events = [
+      ev("off_duty", 0, 0), ev("on_duty", 0, 8), ev("driving", 0, 8, 5),
+      ev("sleeper", 0, 13), ev("driving", 0, 21), ev("off_duty", 1, 0),
+      ev("driving", 1, 2), ev("off_duty", 1, 4),
+    ];
+    expect(hosViolationsInWindow(events, week[0], week[1])).toEqual([]);
+  });
+  test("split sleeper (A10): a 6/4 split does NOT pair — the same shape violates the window", () => {
+    const events = [
+      ev("off_duty", 0, 0), ev("on_duty", 0, 8), ev("driving", 0, 8, 5),
+      ev("sleeper", 0, 13), ev("driving", 0, 19), ev("off_duty", 0, 23),
+      ev("driving", 1, 3), ev("off_duty", 1, 5),
+    ];
+    const kinds = hosViolationsInWindow(events, week[0], week[1]).map((v) => v.kind);
+    expect(kinds).toContain("window");
+  });
 });
 
 describe("corroboration relations", () => {

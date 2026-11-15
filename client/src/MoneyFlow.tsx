@@ -910,6 +910,13 @@ export function MaintenanceLogPanel({ setBanner, lang = "en" }: { setBanner: Ban
   const [attachFor, setAttachFor] = useState<number | null>(null);
   const [attachLabel, setAttachLabel] = useState("Receipt");
   const [attachFile, setAttachFile] = useState<{ base64: string; mime: string } | null>(null);
+  // DVIR repair certification (A5, 49 CFR 396.11(a)(2)): closing an
+  // entry that clears a DVIR defect first collects who certifies the
+  // repair and the determination — the server refuses the close
+  // without them.
+  const [certFor, setCertFor] = useState<number | null>(null);
+  const [certName, setCertName] = useState("");
+  const [certDetermination, setCertDetermination] = useState<"repaired" | "repair_not_necessary">("repaired");
   const set = (patch: Partial<LogForm>) => setForm((f) => ({ ...f, ...patch }));
   const invalidate = () => void queryClient.invalidateQueries({ queryKey: ["maintenance-log"] });
 
@@ -1039,7 +1046,15 @@ export function MaintenanceLogPanel({ setBanner, lang = "en" }: { setBanner: Ban
                   type="button"
                   className={smallBtn}
                   aria-label={`Mark log entry ${e.description} closed — work done`}
-                  onClick={() => void api.setMaintenanceLogEntryStatus({ id: e.id, status: "closed" }).then(() => { setBanner(e.dvirId != null ? "Closed — the DVIR defect is cleared." : "Entry closed."); invalidate(); void queryClient.invalidateQueries({ queryKey: ["dvir-open-defects"] }); }).catch(() => setBanner("Couldn't close that entry — try again."))}
+                  onClick={() => {
+                    if (e.dvirId != null) {
+                      // DVIR-linked: the close needs the repair
+                      // certification first — open the cert form.
+                      setCertFor(certFor === e.id ? null : e.id);
+                      return;
+                    }
+                    void api.setMaintenanceLogEntryStatus({ id: e.id, status: "closed" }).then((r) => { if (!r.ok) { setBanner(r.error ?? "Couldn't close that entry — try again."); return; } setBanner("Entry closed."); invalidate(); void queryClient.invalidateQueries({ queryKey: ["dvir-open-defects"] }); }).catch(() => setBanner("Couldn't close that entry — try again."));
+                  }}
                 >
                   ✅ Mark closed
                 </button>
@@ -1048,7 +1063,7 @@ export function MaintenanceLogPanel({ setBanner, lang = "en" }: { setBanner: Ban
                   type="button"
                   className={smallBtn}
                   aria-label={`Reopen log entry ${e.description}`}
-                  onClick={() => void api.setMaintenanceLogEntryStatus({ id: e.id, status: "logged" }).then(() => { setBanner("Entry reopened."); invalidate(); void queryClient.invalidateQueries({ queryKey: ["dvir-open-defects"] }); }).catch(() => setBanner("Couldn't reopen that entry — try again."))}
+                  onClick={() => void api.setMaintenanceLogEntryStatus({ id: e.id, status: "logged" }).then((r) => { if (!r.ok) { setBanner(r.error ?? "Couldn't reopen that entry — try again."); return; } setBanner("Entry reopened."); invalidate(); void queryClient.invalidateQueries({ queryKey: ["dvir-open-defects"] }); }).catch(() => setBanner("Couldn't reopen that entry — try again."))}
                 >
                   ↩️ Reopen
                 </button>
@@ -1062,6 +1077,56 @@ export function MaintenanceLogPanel({ setBanner, lang = "en" }: { setBanner: Ban
                 Delete
               </button>
             </div>
+            {certFor === e.id && e.status !== "closed" && (
+              <div className="mt-2 border-t border-[var(--border)] pt-2">
+                <p className="text-sm leading-relaxed">
+                  This entry clears a <strong>DVIR defect</strong>. Closing it certifies the repair
+                  (49 CFR 396.11(a)(2)) — the certification seals onto the DVIR record and shows on the
+                  next pre-trip review and the DOT packet.
+                </p>
+                <div className="mt-2 flex flex-wrap items-end gap-2">
+                  <div className="min-w-[160px] flex-1">
+                    <label className={labelCls} htmlFor={`ml-cert-name-${e.id}`}>Certified by (name)</label>
+                    <input id={`ml-cert-name-${e.id}`} className={inputCls} value={certName} aria-label="Name of the person certifying the repair" placeholder="e.g. the mechanic or carrier rep" onChange={(ev) => setCertName(ev.target.value)} />
+                  </div>
+                  <div className="min-w-[180px] flex-1">
+                    <label className={labelCls} htmlFor={`ml-cert-det-${e.id}`}>Determination</label>
+                    <select id={`ml-cert-det-${e.id}`} className={inputCls} value={certDetermination} aria-label="Repair determination — repaired, or repair not necessary" onChange={(ev) => setCertDetermination(ev.target.value === "repair_not_necessary" ? "repair_not_necessary" : "repaired")}>
+                      <option value="repaired">Repaired</option>
+                      <option value="repair_not_necessary">Repair not necessary</option>
+                    </select>
+                  </div>
+                  <button
+                    type="button"
+                    className={smallBtn}
+                    aria-label={`Close ${e.description} with the repair certification`}
+                    onClick={() => {
+                      if (!certName.trim()) {
+                        setBanner("Type who certifies the repair first — the certification needs a name.");
+                        return;
+                      }
+                      void api
+                        .setMaintenanceLogEntryStatus({ id: e.id, status: "closed", certifiedBy: certName.trim(), repairDetermination: certDetermination })
+                        .then((r) => {
+                          if (!r.ok) {
+                            setBanner(r.error ?? "Couldn't close that entry — try again.");
+                            return;
+                          }
+                          setBanner("Closed — the DVIR defect is cleared and the repair certification is sealed on the DVIR.");
+                          setCertFor(null);
+                          setCertName("");
+                          invalidate();
+                          void queryClient.invalidateQueries({ queryKey: ["dvir-open-defects"] });
+                          void queryClient.invalidateQueries({ queryKey: ["dvirs"] });
+                        })
+                        .catch(() => setBanner("Couldn't close that entry — try again."));
+                    }}
+                  >
+                    ✍️ Close with certification
+                  </button>
+                </div>
+              </div>
+            )}
             {attachFor === e.id && (
               <div className="mt-2 flex flex-wrap items-end gap-2 border-t border-[var(--border)] pt-2">
                 <div className="min-w-[140px] flex-1">

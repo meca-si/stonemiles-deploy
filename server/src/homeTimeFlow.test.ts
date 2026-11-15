@@ -187,6 +187,8 @@ async function recordCompleteFile(driver: string) {
   await saveEntry(driver, "road_test", dateOnly(-299 * DAY), null, { examinerName: "Tester" });
   await saveEntry(driver, "mvr_review", dateOnly(-30 * DAY), null, { outcome: "acceptable" });
   await saveEntry(driver, "clearinghouse_query", dateOnly(-301 * DAY), null, { queryType: "pre_employment", result: "clear" });
+  await saveEntry(driver, "employment_history", dateOnly(-300 * DAY), null, { employer: "Prior Carrier LLC" });
+  await saveEntry(driver, "violation_record", dateOnly(-30 * DAY), null, { description: "No violations in the past year" });
 }
 
 await recordCompleteFile(driverA.username);

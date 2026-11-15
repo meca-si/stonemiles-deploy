@@ -12,9 +12,12 @@
 //       and the client keys agree with the server's dutyRemarks.ts;
 //   (e) the log view renders the remark + the city/state stamp;
 //   (f) the 30-minute break clock counts DRIVING time only
-//       (49 CFR 395.3(a)(3)(ii)) — computeHos accumulates the break
-//       clock under driving segments and resets it on any >= 30 min
-//       non-driving stretch.
+//       (49 CFR 395.3(a)(3)(ii)) — the HOS engine accumulates the
+//       break clock under driving segments and resets it on any
+//       >= 30 min non-driving stretch. (The reckoning lived inline
+//       in App.tsx's computeHos when this pin was written; the
+//       regulatory audit build A3/A10 extracted it into
+//       client/src/hosEngine.ts — the pin follows the code.)
 //
 // Run: bun test client/src/inspectionPlacementPin.test.ts
 import { describe, expect, test } from "bun:test";
@@ -22,6 +25,7 @@ import { readFileSync } from "node:fs";
 
 const appSource = readFileSync(`${import.meta.dir}/App.tsx`, "utf8");
 const nextSource = readFileSync(`${import.meta.dir}/NextLevel.tsx`, "utf8");
+const engineSource = readFileSync(`${import.meta.dir}/hosEngine.ts`, "utf8");
 const serverRemarks = readFileSync(`${import.meta.dir}/../../server/src/dutyRemarks.ts`, "utf8");
 
 describe("inspection buttons beside the Drive HOS clocks", () => {
@@ -95,13 +99,15 @@ describe("duty remarks — quick-picks on every switch", () => {
 });
 
 describe("the 30-minute break counts driving time only", () => {
-  test("(f) computeHos accumulates the break clock under driving segments only", () => {
-    const start = appSource.indexOf("const breakRemainH = Math.max(0, 8 - drivingSinceBreak / H);");
+  test("(f) the HOS engine accumulates the break clock under driving segments only", () => {
+    const start = engineSource.indexOf("const breakRemainH = Math.max(0, 8 - drivingSinceBreak / H);");
     expect(start).toBeGreaterThan(-1);
-    const block = appSource.slice(appSource.lastIndexOf("let drivingSinceBreak = 0;", start), start);
+    const block = engineSource.slice(engineSource.lastIndexOf("let drivingSinceBreak = 0;", start), start);
     expect(block).toContain('if (s.state === "driving")');
     expect(block).toContain("drivingSinceBreak += s.end - s.start;");
     expect(block).toContain("nonDriveRun += s.end - s.start;");
     expect(block).toContain("if (nonDriveRun >= 0.5 * H) drivingSinceBreak = 0;");
+    // And App.tsx's clocks really run on that engine (A3/A10).
+    expect(appSource).toContain("hosClocksFromEvents(events, nowMs, cycleType)");
   });
 });
