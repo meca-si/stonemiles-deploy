@@ -2912,6 +2912,27 @@ function gpsOnce(): Promise<{ lat: number | null; lon: number | null }> {
   });
 }
 
+/** City + state for a GPS fix — the same Nominatim reverse lookup
+ *  (zoom 10, town level) the App's fetchCityState uses, raced at
+ *  2.5 s: a checklist start never waits on the sky, and an unnamed
+ *  place stays null rather than becoming a guess. */
+async function reverseCityState(lat: number, lon: number): Promise<{ city: string | null; state: string | null }> {
+  const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}&zoom=10`;
+  const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500));
+  const lookup = (async () => {
+    try {
+      const res = await fetch(url, { headers: { Accept: "application/json" } });
+      if (!res.ok) return null;
+      const j = (await res.json()) as { address?: { city?: string; town?: string; village?: string; state?: string } };
+      const a = j.address ?? {};
+      return { city: a.city ?? a.town ?? a.village ?? null, state: a.state ?? null };
+    } catch {
+      return null;
+    }
+  })();
+  return (await Promise.race([lookup, timeout])) ?? { city: null, state: null };
+}
+
 export type DvirKind = "pretrip" | "posttrip";
 
 export function DvirPanel({ setBanner, focus, lang = "en" }: { setBanner: Banner; focus?: { kind: DvirKind; n: number } | null; lang?: Lang }) {
@@ -2949,13 +2970,24 @@ export function DvirPanel({ setBanner, focus, lang = "en" }: { setBanner: Banner
   }, [focus]);
   const startChecklist = () => {
     setStarting(true);
-    let locationLabel: string | null = null;
-    try {
-      const st = localStorage.getItem("tgps-current-state");
-      if (st) locationLabel = `${st} (GPS state at the change)`;
-    } catch { /* no fix recorded — the stamp simply has no location */ }
-    void api.beginDvirChecklist({ kind, locationLabel })
-      .then((r) => {
+    void (async () => {
+      // The pre-trip duty stamp carries the 395.8(c) city + state like
+      // every other duty change: GPS fix → the app's usual reverse
+      // lookup, best effort, state-only fallback, never a guess.
+      let usState: string | null = null;
+      try { usState = localStorage.getItem("tgps-current-state"); } catch { /* no fix recorded */ }
+      let city: string | null = null;
+      try {
+        const { lat, lon } = await gpsOnce();
+        if (lat != null && lon != null) {
+          const r = await reverseCityState(lat, lon);
+          city = r.city;
+          if (r.state) usState = r.state;
+        }
+      } catch { /* place stays state-only or unnamed — the stamp simply has less location */ }
+      const locationLabel = city && usState ? `${city}, ${usState}` : usState ? `${usState} (GPS state at the change)` : null;
+      try {
+        const r = await api.beginDvirChecklist({ kind, locationLabel, city, usState });
         setStarted({ kind, at: r.at, dutyStamped: r.dutyStamped });
         void queryClient.invalidateQueries({ queryKey: ["duty"] });
         if (kind === "pretrip") {
@@ -2965,9 +2997,47 @@ export function DvirPanel({ setBanner, focus, lang = "en" }: { setBanner: Banner
         } else {
           setBanner("Post-trip checklist started — walk the truck, then sign below. Your duty status doesn't change here; tap Off Duty or Sleeper when you're done for the day.");
         }
-      })
-      .catch(() => setBanner("Couldn't start the checklist — check your connection and try again."))
-      .finally(() => setStarting(false));
+      } catch {
+        setBanner("Couldn't start the checklist — check your connection and try again.");
+      } finally {
+        setStarting(false);
+      }
+    })();
+  };
+  // The flow made explicit (owner's order, 2026-11-15): On Duty →
+  // Pre-trip → Drive. After a pre-trip seals, the panel offers Drive
+  // as the next step — one tap, stamped with the same place + an
+  // honest remark note. Never automatic: the driver taps when
+  // they're actually rolling.
+  const [driveOffer, setDriveOffer] = useState(false);
+  const [driveBusy, setDriveBusy] = useState(false);
+  const startDriving = () => {
+    setDriveBusy(true);
+    void (async () => {
+      let usState: string | null = null;
+      try { usState = localStorage.getItem("tgps-current-state"); } catch { /* no fix recorded */ }
+      let city: string | null = null;
+      try {
+        const { lat, lon } = await gpsOnce();
+        if (lat != null && lon != null) {
+          const r = await reverseCityState(lat, lon);
+          city = r.city;
+          if (r.state) usState = r.state;
+        }
+      } catch { /* place stays state-only or unnamed */ }
+      const locationLabel = city && usState ? `${city}, ${usState}` : usState ? `${usState} (GPS state at the change)` : null;
+      try {
+        await api.setDuty({ state: "driving", locationLabel, city, usState, remark: "other", remarkNote: "Rolling — pre-trip complete" });
+        void queryClient.invalidateQueries({ queryKey: ["duty"] });
+        void queryClient.invalidateQueries({ queryKey: ["inspection-prompts"] });
+        setBanner("🚚 You're Driving — pre-trip sealed, the flow is complete: On Duty → Pre-trip → Drive.");
+        setDriveOffer(false);
+      } catch {
+        setBanner("Couldn't set Driving from here — tap Driving on the HOS clocks instead. Nothing is blocked.");
+      } finally {
+        setDriveBusy(false);
+      }
+    })();
   };
   return (
     <Section title={tt(lang, "records.dvir")} ariaLabel="Pre-trip and post-trip inspection checklists">
@@ -3099,6 +3169,7 @@ export function DvirPanel({ setBanner, focus, lang = "en" }: { setBanner: Banner
               setBanner(r.criticalDefect ? "🚨 DVIR sealed with a SAFETY-CRITICAL defect — it flagged to the owner feed. The go/no-go call is yours; a critical defect is a strong reason not to roll." + drafts + pts : defects.length > 0 ? "DVIR signed & sealed — defects noted for the owner feed." + drafts + pts : "DVIR signed & sealed — all systems OK." + pts);
               void queryClient.invalidateQueries({ queryKey: ["dvirs"] });
               void queryClient.invalidateQueries({ queryKey: ["points"] });
+              void queryClient.invalidateQueries({ queryKey: ["inspection-prompts"] });
               void queryClient.invalidateQueries({ queryKey: ["dvir-open-defects"] });
               void queryClient.invalidateQueries({ queryKey: ["maintenance-log"] });
               setChecks({});
@@ -3106,6 +3177,8 @@ export function DvirPanel({ setBanner, focus, lang = "en" }: { setBanner: Banner
               setDefectPhotos({});
               setAttestSafe(false);
               setStarted(null);
+              // On Duty → Pre-trip → Drive: offer the last step.
+              if (kind === "pretrip") setDriveOffer(true);
             })
             .catch(() => {
               // Offline (queue item 7): the signed inspection is
@@ -3139,6 +3212,31 @@ export function DvirPanel({ setBanner, focus, lang = "en" }: { setBanner: Banner
       >
         {busy ? "Sealing…" : kind === "pretrip" ? "✍️ Sign & seal pre-trip DVIR" : "✍️ Sign & seal post-trip DVIR"}
       </button>
+      {driveOffer && kind === "pretrip" && (
+        <div className="mt-3 rounded-xl bg-emerald-900/50 px-3 py-3" role="status">
+          <p className="text-sm font-bold">✅ Pre-trip sealed — next step: Drive.</p>
+          <p className="mt-0.5 text-xs text-[var(--dim)]">The flow runs On Duty → Pre-trip → Drive. Tap when you&apos;re rolling; your duty change seals with the same city + state stamp.</p>
+          <div className="mt-2 flex gap-2">
+            <button
+              type="button"
+              disabled={driveBusy}
+              onClick={startDriving}
+              aria-label="Start driving — pre-trip complete"
+              className="btn-neon btn-press flex-1 rounded-xl py-3 font-bold disabled:opacity-50"
+            >
+              {driveBusy ? "Setting…" : "🚚 Start driving"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setDriveOffer(false)}
+              aria-label="Not yet — stay On Duty"
+              className="btn-press rounded-xl border border-[var(--border)] bg-[var(--surface2)] px-3 py-3 text-sm font-bold"
+            >
+              Not yet
+            </button>
+          </div>
+        </div>
+      )}
       {pendingDvirs.length > 0 && (
         <div className="mt-3 space-y-1.5" aria-label="DVIRs captured offline — waiting to seal">
           {pendingDvirs.map((c) => (

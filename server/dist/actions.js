@@ -15840,7 +15840,13 @@ function hosViolationsInWindow(events, startMs, endMs) {
       continue;
     }
     offRun = 0;
-    nonDriveRun = 0;
+    if (state === "driving") {
+      nonDriveRun = 0;
+    } else {
+      nonDriveRun += segEnd - segStart;
+      if (nonDriveRun >= 0.5 * H)
+        drivingSinceBreak = 0;
+    }
     const effStart = Math.max(segStart, resetAt);
     if (state === "on_duty" || state === "driving") {
       if (windowStart === null && segEnd > resetAt)
@@ -16472,6 +16478,113 @@ function dvirDraftNotes(note, dvirId, kind) {
   const n = note.trim();
   return n ? `${n}
 ${src}` : src;
+}
+
+// src/inspectionPrompts.ts
+var H2 = 3600000;
+function dutyWindowStartMs(events, nowMs) {
+  const sorted = [...events].sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+  const segs = [];
+  for (let i = 0;i < sorted.length; i++) {
+    const start = Date.parse(sorted[i].at);
+    const end = i + 1 < sorted.length ? Date.parse(sorted[i + 1].at) : nowMs;
+    if (Number.isFinite(start) && end > start)
+      segs.push({ state: sorted[i].state, start, end });
+  }
+  if (segs.length === 0)
+    return null;
+  let resetAt = 0;
+  let offRun = 0;
+  let offRunStart = 0;
+  for (const s of segs) {
+    if (s.state === "off_duty" || s.state === "sleeper") {
+      if (offRun === 0)
+        offRunStart = s.start;
+      offRun += s.end - s.start;
+      if (offRun >= 10 * H2)
+        resetAt = Math.max(resetAt, offRunStart + 10 * H2);
+    } else
+      offRun = 0;
+  }
+  for (const s of segs) {
+    if (s.end <= resetAt)
+      continue;
+    if (s.state === "on_duty" || s.state === "driving")
+      return Math.max(s.start, resetAt);
+  }
+  return null;
+}
+function pretripPromptKey(windowStartMs) {
+  return `pretrip:${windowStartMs}`;
+}
+function posttripPromptKey(loadId, deliveryAtMs) {
+  return `posttrip:${loadId}:${deliveryAtMs}`;
+}
+function evaluateInspectionPrompt(facts) {
+  const windowStart = dutyWindowStartMs(facts.dutyEvents, facts.nowMs);
+  if (windowStart === null)
+    return null;
+  const sorted = [...facts.dutyEvents].sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+  const current = sorted.length > 0 ? sorted[sorted.length - 1].state : null;
+  if (current !== "on_duty" && current !== "driving")
+    return null;
+  const dismissed = new Set(facts.dismissedKeys);
+  const inWindow = facts.deliveries.filter((d) => d.atMs >= windowStart && d.atMs <= facts.nowMs).sort((a, b) => b.atMs - a.atMs);
+  const latest = inWindow[0];
+  if (latest) {
+    const started = facts.newLoadStarts.some((s) => s.loadId !== latest.loadId && s.atMs > latest.atMs && s.atMs <= facts.nowMs);
+    if (started) {
+      const sealed = facts.dvirs.some((d) => d.kind === "posttrip" && d.inspectedAtMs >= latest.atMs);
+      const key = posttripPromptKey(latest.loadId, latest.atMs);
+      if (!sealed && !dismissed.has(key)) {
+        return { kind: "posttrip", key, windowStartMs: windowStart, deliveryLoadId: latest.loadId };
+      }
+    }
+  }
+  const preSealed = facts.dvirs.some((d) => d.kind === "pretrip" && d.inspectedAtMs >= windowStart);
+  const preKey = pretripPromptKey(windowStart);
+  if (!preSealed && !dismissed.has(preKey)) {
+    return { kind: "pretrip", key: preKey, windowStartMs: windowStart, deliveryLoadId: null };
+  }
+  return null;
+}
+
+// src/dutyRemarks.ts
+var DUTY_REMARK_KEYS = [
+  "pretrip",
+  "fuel",
+  "loading",
+  "unloading",
+  "posttrip",
+  "break",
+  "personal",
+  "other"
+];
+function isDutyRemarkKey(v) {
+  return typeof v === "string" && DUTY_REMARK_KEYS.includes(v);
+}
+function resolveDutyRemark(input) {
+  const note = (input.remarkNote ?? "").trim().slice(0, 200) || null;
+  if (isDutyRemarkKey(input.remark)) {
+    return { remark: input.remark, remarkNote: note, remarkSource: "driver" };
+  }
+  if (note) {
+    return { remark: "other", remarkNote: note, remarkSource: "driver" };
+  }
+  if (input.source === "pretrip_checklist") {
+    return { remark: "pretrip", remarkNote: null, remarkSource: "default" };
+  }
+  if (input.source === "auto_no_movement") {
+    return {
+      remark: "other",
+      remarkNote: input.autoStage === "sleeper_10min" ? "Auto \u2014 no movement for 10 minutes (swapped to Sleeper Berth)" : "Auto \u2014 no movement for 2 minutes (swapped to Off Duty)",
+      remarkSource: "default"
+    };
+  }
+  if (input.offline) {
+    return { remark: "other", remarkNote: "Captured offline \u2014 no remark recorded", remarkSource: "default" };
+  }
+  return { remark: "other", remarkNote: null, remarkSource: "default" };
 }
 
 // src/credentialAlerts.ts
@@ -24095,6 +24208,13 @@ function dutyAutoSwapPairingOk(state, autoStage) {
   return autoStage === "off_duty_2min" && state === "off_duty" || autoStage === "sleeper_10min" && state === "sleeper";
 }
 async function sealDutyChange(ctx, me, args) {
+  const remark = resolveDutyRemark({
+    remark: args.remark,
+    remarkNote: args.remarkNote,
+    source: args.source,
+    autoStage: args.autoStage,
+    offline: args.offline !== null
+  });
   return appendChain(ctx, {
     refKind: "driver",
     refId: null,
@@ -24104,10 +24224,15 @@ async function sealDutyChange(ctx, me, args) {
       state: args.state,
       at: args.at.toISOString(),
       location: args.location,
+      city: args.city?.trim() || null,
+      usState: args.usState?.trim() || null,
       username: me,
       source: args.source,
       autoStage: args.autoStage,
       stillSince: args.stillSince,
+      remark: remark.remark,
+      remarkNote: remark.remarkNote,
+      remarkSource: remark.remarkSource,
       ...args.offline ? { offlineCapture: true, captureId: args.offline.captureId, capturedAt: args.offline.capturedAt } : {}
     }
   });
@@ -26586,6 +26711,11 @@ async function effectiveDutyTimeline(ctx) {
             state: p.state,
             at: p.at,
             location: p.location ?? null,
+            city: p.city ?? null,
+            usState: p.usState ?? null,
+            remark: p.remark ?? null,
+            remarkNote: p.remarkNote ?? null,
+            remarkSource: p.remarkSource ?? null,
             source: p.source ?? "manual",
             username: p.username ?? null,
             edited: false,
@@ -37460,6 +37590,70 @@ function toVaultShape(r) {
     removedAt: r.removedAt ? r.removedAt.toISOString() : null,
     removedBy: r.removedBy,
     createdAt: r.createdAt.toISOString()
+  };
+}
+async function inspectionPromptFacts(ctx) {
+  const db = ctx.db();
+  const me = await myUsername(ctx);
+  const { events } = await effectiveDutyTimeline(ctx);
+  const dvirRows = await db.select().from(dvirReports3);
+  const chain = await db.select().from(chainLog3).orderBy(asc(chainLog3.id));
+  const loadRows = await db.select().from(loads3);
+  const ownLoadIds = new Set(loadRows.map((l) => l.id));
+  const deliveryByLoad = new Map;
+  const newLoadStarts = [];
+  const dismissedKeys = [];
+  for (const r of chain) {
+    if (r.event === "delivery_confirmed" || r.event === "pod_seal") {
+      let loadId = r.refId ?? null;
+      let atMs = r.createdAt.getTime();
+      try {
+        const p = JSON.parse(r.payload);
+        if (typeof p.loadId === "number")
+          loadId = p.loadId;
+        if (typeof p.at === "string") {
+          const parsed = Date.parse(p.at);
+          if (Number.isFinite(parsed))
+            atMs = parsed;
+        }
+      } catch {}
+      if (loadId !== null && ownLoadIds.has(loadId)) {
+        const prev = deliveryByLoad.get(loadId);
+        if (prev === undefined || atMs < prev)
+          deliveryByLoad.set(loadId, atMs);
+      }
+    } else if (r.event === "pickup_sealed") {
+      let loadId = r.refId ?? null;
+      let atMs = r.createdAt.getTime();
+      try {
+        const p = JSON.parse(r.payload);
+        if (typeof p.loadId === "number")
+          loadId = p.loadId;
+        if (typeof p.at === "string") {
+          const parsed = Date.parse(p.at);
+          if (Number.isFinite(parsed))
+            atMs = parsed;
+        }
+      } catch {}
+      if (loadId !== null && ownLoadIds.has(loadId))
+        newLoadStarts.push({ loadId, atMs });
+    } else if (r.event === "dvir_prompt_dismissed") {
+      try {
+        const p = JSON.parse(r.payload);
+        if (p.username === me && typeof p.key === "string")
+          dismissedKeys.push(p.key);
+      } catch {}
+    }
+  }
+  for (const l of loadRows)
+    newLoadStarts.push({ loadId: l.id, atMs: l.createdAt.getTime() });
+  return {
+    dutyEvents: events.filter((e) => e.username === me).map((e) => ({ state: e.state, at: e.at })),
+    nowMs: Date.now(),
+    dvirs: dvirRows.map((d) => ({ kind: d.kind, inspectedAtMs: d.inspectedAt.getTime() })),
+    deliveries: [...deliveryByLoad.entries()].map(([loadId, atMs]) => ({ loadId, atMs })),
+    newLoadStarts,
+    dismissedKeys
   };
 }
 var Actions = {
@@ -48945,7 +49139,11 @@ ${args.question}`, { schema: answerSchema });
       locationLabel: string2().max(120).nullable().optional(),
       source: _enum(["manual", "auto_no_movement"]).optional(),
       autoStage: _enum(["off_duty_2min", "sleeper_10min"]).nullable().optional(),
-      stillSince: string2().max(40).nullable().optional()
+      stillSince: string2().max(40).nullable().optional(),
+      remark: string2().max(40).nullable().optional(),
+      remarkNote: string2().max(200).nullable().optional(),
+      city: string2().max(80).nullable().optional(),
+      usState: string2().max(80).nullable().optional()
     }),
     response: object({ hash: string2() }),
     async handler(ctx, args) {
@@ -48974,7 +49172,11 @@ ${args.question}`, { schema: answerSchema });
         source,
         autoStage: source === "auto_no_movement" ? args.autoStage ?? null : null,
         stillSince: source === "auto_no_movement" ? args.stillSince ?? null : null,
-        offline: null
+        offline: null,
+        remark: args.remark ?? null,
+        remarkNote: args.remarkNote ?? null,
+        city: args.city ?? null,
+        usState: args.usState ?? null
       });
       ctx.invalidateQueries();
       return { hash };
@@ -48989,6 +49191,10 @@ ${args.question}`, { schema: answerSchema });
       source: _enum(["manual", "auto_no_movement"]).optional(),
       autoStage: _enum(["off_duty_2min", "sleeper_10min"]).nullable().optional(),
       stillSince: string2().max(40).nullable().optional(),
+      remark: string2().max(40).nullable().optional(),
+      remarkNote: string2().max(200).nullable().optional(),
+      city: string2().max(80).nullable().optional(),
+      usState: string2().max(80).nullable().optional(),
       capturedAt: string2().max(40)
     }),
     response: object({
@@ -49039,7 +49245,11 @@ ${args.question}`, { schema: answerSchema });
         source,
         autoStage: source === "auto_no_movement" ? args.autoStage ?? null : null,
         stillSince: source === "auto_no_movement" ? args.stillSince ?? null : null,
-        offline: { captureId: args.captureId, capturedAt: new Date(capturedMs).toISOString() }
+        offline: { captureId: args.captureId, capturedAt: new Date(capturedMs).toISOString() },
+        remark: args.remark ?? null,
+        remarkNote: args.remarkNote ?? null,
+        city: args.city ?? null,
+        usState: args.usState ?? null
       });
       await db.insert(offlineCaptures3).values({
         username: me,
@@ -49063,6 +49273,11 @@ ${args.question}`, { schema: answerSchema });
         state: string2(),
         at: string2(),
         location: string2().nullable(),
+        city: string2().nullable(),
+        usState: string2().nullable(),
+        remark: string2().nullable(),
+        remarkNote: string2().nullable(),
+        remarkSource: string2().nullable(),
         source: string2(),
         edited: boolean2(),
         editedBy: string2().nullable(),
@@ -49103,6 +49318,11 @@ ${args.question}`, { schema: answerSchema });
           state: e.state,
           at: e.at,
           location: e.location,
+          city: e.city,
+          usState: e.usState,
+          remark: e.remark,
+          remarkNote: e.remarkNote,
+          remarkSource: e.remarkSource,
           source: e.source,
           edited: e.edited,
           editedBy: e.editedBy,
@@ -66363,7 +66583,9 @@ ${args.question}`, { schema: answerSchema });
     description: "Begin dvir checklist.",
     request: object({
       kind: _enum(["pretrip", "posttrip"]),
-      locationLabel: string2().max(120).nullable().optional()
+      locationLabel: string2().max(120).nullable().optional(),
+      city: string2().max(80).nullable().optional(),
+      usState: string2().max(80).nullable().optional()
     }),
     response: object({
       ok: literal(true),
@@ -66380,20 +66602,17 @@ ${args.question}`, { schema: answerSchema });
         const duty = await dutyPicture(ctx);
         dutyState = duty.state;
         if (duty.state === null || duty.state === "off_duty" || duty.state === "sleeper") {
-          await appendChain(ctx, {
-            refKind: "driver",
-            refId: null,
-            sessionId: null,
-            event: "duty_change",
-            payload: {
-              state: "on_duty",
-              at: now.toISOString(),
-              location: args.locationLabel?.trim() || null,
-              username: me,
-              source: "pretrip_checklist",
-              autoStage: null,
-              stillSince: null
-            }
+          await sealDutyChange(ctx, me, {
+            state: "on_duty",
+            at: now,
+            location: args.locationLabel?.trim() || null,
+            source: "pretrip_checklist",
+            autoStage: null,
+            stillSince: null,
+            offline: null,
+            remark: "pretrip",
+            city: args.city ?? null,
+            usState: args.usState ?? null
           });
           dutyStamped = true;
           dutyState = "on_duty";
@@ -66647,6 +66866,49 @@ ${args.question}`, { schema: answerSchema });
           return { id: r.id, inspectedAt: r.inspectedAt.toISOString(), kind: r.kind, items, defects, signedName: r.signedName, status: r.status, odometer: r.odometer, truckLabel: r.truckLabel ?? null, trailerLabel: r.trailerLabel ?? null, safeToOperate: r.safeToOperate ?? null, hasLocation: r.lat != null && r.lon != null };
         })
       };
+    }
+  }),
+  getInspectionPrompts: defineAction({
+    description: "The inspection prompt currently due for the driver (pre-trip on the first drive of the duty day, post-trip between loads), reckoned from sealed records only.",
+    request: object({}),
+    response: object({
+      prompt: object({
+        kind: _enum(["pretrip", "posttrip"]),
+        key: string2(),
+        deliveryLoadId: number2().nullable()
+      }).nullable(),
+      windowStart: string2().nullable(),
+      currentDuty: string2().nullable()
+    }),
+    async handler(ctx) {
+      const facts = await inspectionPromptFacts(ctx);
+      const prompt = evaluateInspectionPrompt(facts);
+      const sorted = [...facts.dutyEvents].sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+      return {
+        prompt: prompt ? { kind: prompt.kind, key: prompt.key, deliveryLoadId: prompt.deliveryLoadId } : null,
+        windowStart: prompt ? new Date(prompt.windowStartMs).toISOString() : null,
+        currentDuty: sorted.length > 0 ? sorted[sorted.length - 1].state ?? null : null
+      };
+    }
+  }),
+  dismissInspectionPrompt: defineAction({
+    description: "Dismiss an auto inspection prompt for the rest of its duty day / delivery transition (sealed).",
+    request: object({
+      kind: _enum(["pretrip", "posttrip"]),
+      key: string2().min(1).max(120)
+    }),
+    response: object({ ok: literal(true) }),
+    async handler(ctx, args) {
+      const me = await myUsername(ctx);
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "dvir_prompt_dismissed",
+        payload: { username: me, kind: args.kind, key: args.key, at: new Date().toISOString() }
+      });
+      ctx.invalidateQueries();
+      return { ok: true };
     }
   }),
   getCopilotBriefing: defineAction({

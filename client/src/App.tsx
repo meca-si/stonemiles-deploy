@@ -2663,6 +2663,10 @@ export function App() {
                 source: c.source,
                 autoStage: c.autoStage,
                 stillSince: c.stillSince,
+                remark: c.remark ?? null,
+                remarkNote: c.remarkNote ?? null,
+                city: c.city ?? null,
+                usState: c.usState ?? null,
                 capturedAt: c.capturedAt,
               });
               removeCapture(c.captureId);
@@ -2699,6 +2703,7 @@ export function App() {
       if (sealed > 0) {
         queryClient.invalidateQueries({ queryKey: ["duty"] });
         queryClient.invalidateQueries({ queryKey: ["dvirs"] });
+        queryClient.invalidateQueries({ queryKey: ["inspection-prompts"] });
         queryClient.invalidateQueries({ queryKey: ["dvir-open-defects"] });
         queryClient.invalidateQueries({ queryKey: ["maintenance-log"] });
         queryClient.invalidateQueries({ queryKey: ["points"] });
@@ -2728,22 +2733,51 @@ export function App() {
   const dutyEvents = mergePendingDutyEvents(dutyQuery.data?.events ?? [], pendingDutyCaptures(pendingCaptures));
   const hos = computeHos(dutyEvents, hosNow);
   const currentDutyState = dutyEvents.length > 0 ? (dutyEvents[dutyEvents.length - 1]?.state ?? null) : null;
+  // The 49 CFR 395.8(c) place stamp for a duty change: the town +
+  // state where the change happens, derived the way the rest of the
+  // app derives place (fetchCityState — the same Nominatim reverse
+  // lookup the fuel-station flow uses), raced at 2.5 s so a change
+  // NEVER waits on the sky. No town named → the GPS state the app
+  // already tracks is the fallback; no fix at all → nulls, and the
+  // sealed record honestly shows no place rather than a guess.
+  const resolveDutyPlace = async (): Promise<{ city: string | null; usState: string | null; locationLabel: string | null }> => {
+    let city: string | null = null;
+    let usState: string | null = null;
+    try {
+      const r = await Promise.race([
+        fetchCityState(pos),
+        new Promise<{ city: null; state: null }>((resolve) => setTimeout(() => resolve({ city: null, state: null }), 2500)),
+      ]);
+      city = r.city;
+      usState = r.state;
+    } catch { /* lookup failed — the state fallback below still applies */ }
+    if (!usState) {
+      try { usState = localStorage.getItem("tgps-current-state"); } catch { /* no fix recorded */ }
+    }
+    const locationLabel = city && usState ? `${city}, ${usState}` : usState ? `${usState} (GPS state at the change)` : null;
+    return { city, usState, locationLabel };
+  };
   // Duty change from the buttons mounted on the clocks (Today rings, Drive
   // clocks) — the exact write the Driver panel makes: the driver's own tap,
-  // timestamped into the sealed log with the GPS state at the change.
-  const setDutyFromClocks = (state: "off_duty" | "sleeper" | "on_duty" | "driving") => {
-    let locationLabel: string | null = null;
-    try {
-      const st = localStorage.getItem("tgps-current-state");
-      if (st) locationLabel = `${st} (GPS state at the change)`;
-    } catch { /* no fix recorded — the change simply has no location */ }
-    void api
-      .setDuty({ state, locationLabel })
-      .then(() => {
+  // timestamped into the sealed log with the city + state at the change and
+  // the remark quick-pick the driver tapped in the buttons (Fuel, Pre-trip,
+  // Break…) — carrier policy (2026-11-15): every switch says why.
+  const setDutyFromClocks = (state: "off_duty" | "sleeper" | "on_duty" | "driving", pick?: DutyRemarkPick) => {
+    void (async () => {
+      const place = await resolveDutyPlace();
+      try {
+        await api.setDuty({
+          state,
+          locationLabel: place.locationLabel,
+          city: place.city,
+          usState: place.usState,
+          remark: pick?.remark ?? null,
+          remarkNote: pick?.note ?? null,
+        });
         queryClient.invalidateQueries({ queryKey: ["duty"] });
+        queryClient.invalidateQueries({ queryKey: ["inspection-prompts"] });
         setBanner(`Duty status: ${dutyLabel(state)} — set by you, stamped into the sealed log.`);
-      })
-      .catch(() => {
+      } catch {
         // Offline (queue item 7): the tap is captured on this device
         // with the moment it happened and seals on reconnect — the
         // clocks already run on it through the pending merge, and
@@ -2754,13 +2788,18 @@ export function App() {
           kind: "duty",
           capturedAt: new Date().toISOString(),
           state,
-          locationLabel,
+          locationLabel: place.locationLabel,
           source: "manual",
           autoStage: null,
           stillSince: null,
+          remark: pick?.remark ?? null,
+          remarkNote: pick?.note ?? null,
+          city: place.city,
+          usState: place.usState,
         });
         setBanner(`📴 No connection — duty status ${dutyLabel(state)} captured on this device. ${OFFLINE_CAPTURED_LINE}`);
-      });
+      }
+    })();
   };
   // ---- HOS auto-swap (x's rule, 2026-10-24) -------------------------------
   // The ONE automatic duty change, and the standing exception to the
@@ -2800,14 +2839,14 @@ export function App() {
     const fireSwap = (state: "off_duty" | "sleeper", stage: "off_duty_2min" | "sleeper_10min", stageNo: number) => {
       hosAutoBusyRef.current = true;
       hosStillRef.current = { since: hosStillRef.current!.since, stage: stageNo };
-      let locationLabel: string | null = null;
-      try {
-        const st = localStorage.getItem("tgps-current-state");
-        if (st) locationLabel = `${st} (GPS state at the change)`;
-      } catch { /* no fix recorded */ }
-      void api
-        .setDuty({ state, locationLabel, source: "auto_no_movement", autoStage: stage, stillSince: stillSinceIso })
-        .then(() => {
+      void (async () => {
+        // Same 395.8(c) place stamp as a manual tap — the swap seals
+        // with the city + state where it happened (best effort; the
+        // remark stays the server's explicit auto default: nobody
+        // pretends the driver picked a reason for an automatic swap).
+        const place = await resolveDutyPlace();
+        try {
+          await api.setDuty({ state, locationLabel: place.locationLabel, city: place.city, usState: place.usState, source: "auto_no_movement", autoStage: stage, stillSince: stillSinceIso });
           queryClient.invalidateQueries({ queryKey: ["duty"] });
           const msg =
             state === "off_duty"
@@ -2816,8 +2855,7 @@ export function App() {
           setBanner(msg);
           if (settingsRef.current.voiceAlerts && settingsRef.current.notifyHos) speak(msg);
           aiLog("HOS auto-swap", msg);
-        })
-        .catch(() => {
+        } catch {
           if (!navigator.onLine) {
             // Offline (queue item 7): capture the swap on-device with
             // its stage + stillness stamp — it seals on reconnect,
@@ -2829,20 +2867,22 @@ export function App() {
               kind: "duty",
               capturedAt: new Date().toISOString(),
               state,
-              locationLabel,
+              locationLabel: place.locationLabel,
               source: "auto_no_movement",
               autoStage: stage,
               stillSince: stillSinceIso,
+              city: place.city,
+              usState: place.usState,
             });
             aiLog("HOS auto-swap (offline capture)", `Auto-swap to ${state} captured on-device at the ${stage} stage — will seal on reconnect.`);
           } else {
             // The swap didn't seal — allow a later check to retry the stage.
             if (hosStillRef.current) hosStillRef.current = { since: hosStillRef.current.since, stage: stageNo - 1 };
           }
-        })
-        .finally(() => {
+        } finally {
           hosAutoBusyRef.current = false;
-        });
+        }
+      })();
     };
     if (stillMs >= 10 * 60000 && hosStillRef.current.stage < 2) {
       fireSwap("sleeper", "sleeper_10min", 2);
@@ -3041,6 +3081,47 @@ export function App() {
     setTimeout(() => {
       document.getElementById("dvir-checklists")?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 120);
+  };
+  // Inspection auto-prompts (x's order 2026-11-15): the server reckons
+  // from the sealed record when a pre-trip (first drive of the duty
+  // day) or a between-loads post-trip is due. The first time a due
+  // prompt appears in this session, the checklist opens on its own —
+  // once per prompt, never a loop. Skipping seals a dismissal (the
+  // strip beside the Drive clocks, or leaving the checklist unsigned
+  // and skipping there), so a skipped prompt never fires again that
+  // day / for that delivery. Nothing here blocks anything: duty
+  // changes and loads move exactly as before, prompt or no prompt.
+  const inspectionPromptQuery = useQuery({
+    queryKey: ["inspection-prompts"],
+    queryFn: () => api.getInspectionPrompts({}),
+  });
+  const inspectionPrompt = inspectionPromptQuery.data?.prompt ?? null;
+  const autoOpenedPromptsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!inspectionPrompt) return;
+    if (autoOpenedPromptsRef.current.has(inspectionPrompt.key)) return;
+    autoOpenedPromptsRef.current.add(inspectionPrompt.key);
+    openDvirChecklist(inspectionPrompt.kind);
+    // openDvirChecklist is re-created every render; the prompt key is
+    // the real trigger — a new key means a new prompt instance.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inspectionPrompt?.key]);
+  const skipInspectionPrompt = () => {
+    if (!inspectionPrompt) return;
+    const { kind, key } = inspectionPrompt;
+    void api
+      .dismissInspectionPrompt({ kind, key })
+      .then(() => {
+        queryClient.invalidateQueries({ queryKey: ["inspection-prompts"] });
+        setBanner(
+          kind === "pretrip"
+            ? "Pre-trip prompt skipped for today — the checklist stays beside the HOS clocks whenever you're ready."
+            : "Post-trip prompt skipped for that delivery — the checklist stays beside the HOS clocks whenever you're ready.",
+        );
+      })
+      .catch(() => {
+        setBanner("That skip didn't save — the prompt may show once more. The inspection itself is never blocked either way.");
+      });
   };
   const [plannerDest, setPlannerDest] = useState<({ label: string } & LatLon & { gateLat?: number | null; gateLon?: number | null; addressLabel?: string | null }) | null>(null);
   const [plannerOriginCustom, setPlannerOriginCustom] = useState<({ label: string } & LatLon) | null>(null);
@@ -9013,15 +9094,12 @@ export function App() {
     t.dutyPromptPending = false;
     setDutyPrompt(null);
     if (choice === "driving" || choice === "on_duty") {
-      let locLabel: string | null = null;
-      try {
-        const st = localStorage.getItem("tgps-current-state");
-        if (st) locLabel = `${st} (GPS state at the change)`;
-      } catch { /* no fix recorded — the change simply has no location */ }
-      void api
-        .setDuty({ state: choice, locationLabel: locLabel })
-        .then(() => queryClient.invalidateQueries({ queryKey: ["duty"] }))
-        .catch(() => {
+      void (async () => {
+        const place = await resolveDutyPlace();
+        try {
+          await api.setDuty({ state: choice, locationLabel: place.locationLabel, city: place.city, usState: place.usState });
+          queryClient.invalidateQueries({ queryKey: ["duty"] });
+        } catch {
           // Offline (queue item 7): the driver's prompt answer is a
           // duty change like any other — capture it on-device rather
           // than dropping it silently; it seals on reconnect.
@@ -9030,12 +9108,15 @@ export function App() {
             kind: "duty",
             capturedAt: at,
             state: choice,
-            locationLabel: locLabel,
+            locationLabel: place.locationLabel,
             source: "manual",
             autoStage: null,
             stillSince: null,
+            city: place.city,
+            usState: place.usState,
           });
-        });
+        }
+      })();
       t.dutyNote =
         choice === "driving"
           ? "Duty prompt at 1-mile auto-start: driver chose Drive — duty status set to Driving by the driver."
@@ -17232,6 +17313,53 @@ export function App() {
             )}
 
             <HosClocksPanel hos={hos} onOpenFull={() => setTab("driver")} duty={{ currentDuty: currentDutyState, onSetDuty: setDutyFromClocks }} />
+
+            {/* Inspections beside the clocks (x's order 2026-11-15):
+                pre-trip / post-trip truck & trailer inspections live
+                right here with the HOS clocks — one tap, kind already
+                picked, same sealed DVIR flow as the Driver tab panel. */}
+            <div className="grid grid-cols-2 gap-2" aria-label="Truck and trailer inspections">
+              <button
+                type="button"
+                className="btn-press rounded-2xl border border-[var(--glass-border)] bg-[var(--surface2)] py-3.5 text-base font-bold"
+                aria-label="Start pre-trip inspection"
+                onClick={() => openDvirChecklist("pretrip")}
+              >
+                🔍 {tr("Pre-trip inspection", "Inspección previa al viaje")}
+              </button>
+              <button
+                type="button"
+                className="btn-press rounded-2xl border border-[var(--glass-border)] bg-[var(--surface2)] py-3.5 text-base font-bold"
+                aria-label="Start post-trip inspection"
+                onClick={() => openDvirChecklist("posttrip")}
+              >
+                📋 {tr("Post-trip inspection", "Inspección posterior al viaje")}
+              </button>
+            </div>
+            {inspectionPrompt && (
+              <div className="glass-pill rounded-2xl px-4 py-2.5 text-sm" role="status">
+                {inspectionPrompt.kind === "pretrip"
+                  ? `🔍 ${tr("Pre-trip inspection due — first drive of the day.", "Inspección previa pendiente: primer viaje del día.")}`
+                  : `📋 ${tr("Post-trip inspection due — you delivered and started the next load.", "Inspección posterior pendiente: entregó y comenzó la siguiente carga.")}`}{" "}
+                <button
+                  type="button"
+                  className="font-bold underline"
+                  aria-label={inspectionPrompt.kind === "pretrip" ? "Start the due pre-trip inspection" : "Start the due post-trip inspection"}
+                  onClick={() => openDvirChecklist(inspectionPrompt.kind)}
+                >
+                  {tr("Start it", "Comenzar")}
+                </button>{" "}
+                ·{" "}
+                <button
+                  type="button"
+                  className="font-bold underline"
+                  aria-label={inspectionPrompt.kind === "pretrip" ? "Skip the pre-trip prompt for today" : "Skip the post-trip prompt for this delivery"}
+                  onClick={skipInspectionPrompt}
+                >
+                  {tr("Skip", "Omitir")}
+                </button>
+              </div>
+            )}
 
             <AutoLogCard hos={hos} setBanner={setBanner} />
 
@@ -27627,21 +27755,121 @@ function RingGauge({ fraction, remain, label, sub, size = 84, center, colorOverr
   );
 }
 
+/** Duty-change remarks (carrier policy, 2026-11-15 — the owner is the
+ *  carrier and requires a reason on EVERY duty switch): the quick-pick
+ *  list the driver taps when a status button opens its remark row.
+ *  Keys + labels mirror the server's dutyRemarks.ts exactly — the
+ *  placement pin test asserts the two lists agree. Fuel is an On Duty
+ *  activity and rides the same list. */
+const DUTY_REMARKS = [
+  { key: "pretrip", label: "Pre-trip inspection", icon: "🔍" },
+  { key: "fuel", label: "Fuel", icon: "⛽" },
+  { key: "loading", label: "Loading", icon: "📦" },
+  { key: "unloading", label: "Unloading", icon: "🏭" },
+  { key: "posttrip", label: "Post-trip inspection", icon: "📋" },
+  { key: "break", label: "Break / Rest", icon: "☕" },
+  { key: "personal", label: "Personal", icon: "🙂" },
+  { key: "other", label: "Other", icon: "✏️" },
+] as const;
+type DutyRemarkKey = (typeof DUTY_REMARKS)[number]["key"];
+type DutyRemarkPick = { remark: DutyRemarkKey; note: string | null };
+/** The label for a sealed remark key, for the log view. */
+function dutyRemarkLabel(key: string | null | undefined): string | null {
+  if (!key) return null;
+  return DUTY_REMARKS.find((r) => r.key === key)?.label ?? null;
+}
+/** Quick-picks ordered by the status being entered: the likeliest
+ *  reason first, all eight always one tap away. Going On Duty leads
+ *  with the flow the carrier runs — pre-trip, then fuel and dock
+ *  work; Drive leads with dock work done and rolling. */
+const DUTY_REMARK_ORDER: Record<string, DutyRemarkKey[]> = {
+  on_duty: ["pretrip", "fuel", "loading", "unloading", "posttrip", "break", "personal", "other"],
+  driving: ["loading", "unloading", "pretrip", "fuel", "posttrip", "break", "personal", "other"],
+  off_duty: ["break", "posttrip", "personal", "fuel", "unloading", "loading", "pretrip", "other"],
+  sleeper: ["break", "personal", "posttrip", "fuel", "unloading", "loading", "pretrip", "other"],
+};
+
+/** The remark row a duty-status tap opens (carrier policy, 2026-11-15):
+ *  quick-pick reasons front and center, one optional note field, never
+ *  a form. Tapping a reason fires the change with that pick; Cancel
+ *  closes it and nothing seals. Shared by the clocks' DutyButtons and
+ *  the Driver panel's own status grid so every manual switch asks the
+ *  same way. Render with key={target} so the note resets per open. */
+function DutyRemarkRow({
+  target,
+  pending,
+  onPick,
+  onCancel,
+}: {
+  target: "off_duty" | "sleeper" | "on_duty" | "driving";
+  pending?: boolean;
+  onPick: (pick: DutyRemarkPick) => void;
+  onCancel: () => void;
+}) {
+  const [note, setNote] = useState("");
+  const picks = (DUTY_REMARK_ORDER[target] ?? DUTY_REMARKS.map((r) => r.key)).map(
+    (k) => DUTY_REMARKS.find((r) => r.key === k)!,
+  );
+  return (
+    <div className="mt-2 rounded-xl border border-[var(--glass-border)] bg-[var(--surface2)] p-2" role="group" aria-label={`Why are you switching to ${dutyLabel(target)}?`}>
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-xs font-bold">
+          Switching to {dutyLabel(target)} — tap the reason:
+        </span>
+        <button
+          type="button"
+          aria-label="Cancel the duty change"
+          onClick={onCancel}
+          className="btn-press text-xs font-bold text-[var(--dim)]"
+        >
+          Cancel ✕
+        </button>
+      </div>
+      <input
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        maxLength={200}
+        placeholder="Optional note (e.g. dock door, station, load #)"
+        aria-label="Optional remark note"
+        className="mt-1.5 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-sm"
+      />
+      <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+        {picks.map((r) => (
+          <button
+            key={r.key}
+            type="button"
+            aria-label={`Reason: ${r.label}`}
+            disabled={pending}
+            onClick={() => onPick({ remark: r.key, note: note.trim() || null })}
+            className="btn-press min-h-[44px] rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-left text-sm font-bold"
+          >
+            <span aria-hidden>{r.icon}</span> {r.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /** The four duty-status buttons, mounted directly on the HOS clocks so the
  *  driver changes status on the same screen that shows the time left — no
  *  trip through the Driver panel's Today category. Same sealed-log write as
  *  everywhere else: the tap IS the driver's own change, timestamped into
- *  the log. The one automatic change is the stopped auto-swap noted under
- *  the buttons (2 min → Off Duty, 10 min → Sleeper), sealed as "auto". */
+ *  the log with the city + state at the change. Tapping a status opens
+ *  its remark row (one more tap — a quick-pick reason, optional note);
+ *  tapping a reason fires the change. The one automatic change is the
+ *  stopped auto-swap noted under the buttons (2 min → Off Duty, 10 min →
+ *  Sleeper), sealed as "auto" with the system's own default remark. */
 function DutyButtons({
   currentDuty,
   onSetDuty,
   pending,
 }: {
   currentDuty: string | null;
-  onSetDuty: (state: "off_duty" | "sleeper" | "on_duty" | "driving") => void;
+  onSetDuty: (state: "off_duty" | "sleeper" | "on_duty" | "driving", pick?: DutyRemarkPick) => void;
   pending?: boolean;
 }) {
+  const [pendingState, setPendingState] = useState<"off_duty" | "sleeper" | "on_duty" | "driving" | null>(null);
   return (
     <div className="mt-3 border-t border-[var(--glass-border)] pt-3">
       <div className="flex items-baseline justify-between gap-2">
@@ -27658,9 +27886,9 @@ function DutyButtons({
             aria-label={`Set duty status ${d.label}`}
             aria-pressed={currentDuty === d.key}
             disabled={pending}
-            onClick={() => onSetDuty(d.key)}
+            onClick={() => setPendingState((cur) => (cur === d.key ? null : d.key))}
             className={`btn-press min-h-[56px] rounded-xl border-2 px-1 py-2 text-center ${
-              currentDuty === d.key
+              currentDuty === d.key || pendingState === d.key
                 ? "border-[var(--accent)] bg-[var(--surface2)]"
                 : "border-[var(--border)] bg-[var(--surface2)] opacity-70"
             }`}
@@ -27670,6 +27898,18 @@ function DutyButtons({
           </button>
         ))}
       </div>
+      {pendingState && (
+        <DutyRemarkRow
+          key={pendingState}
+          target={pendingState}
+          pending={pending}
+          onPick={(pick) => {
+            onSetDuty(pendingState, pick);
+            setPendingState(null);
+          }}
+          onCancel={() => setPendingState(null)}
+        />
+      )}
       <p className="mt-2 text-[11px] leading-relaxed text-[var(--dim)]">
         ⏱️ Auto-swap is on: stopped with no movement for <strong className="text-[var(--text)]">2 min → Off Duty</strong>,{" "}
         <strong className="text-[var(--text)]">10 min → Sleeper Berth</strong> — stamped “auto” in the sealed log.
@@ -27681,7 +27921,7 @@ function DutyButtons({
 
 type DutyControl = {
   currentDuty: string | null;
-  onSetDuty: (state: "off_duty" | "sleeper" | "on_duty" | "driving") => void;
+  onSetDuty: (state: "off_duty" | "sleeper" | "on_duty" | "driving", pick?: DutyRemarkPick) => void;
   pending?: boolean;
 };
 
@@ -32710,7 +32950,11 @@ function HosLogPanel({ setBanner }: { setBanner: (s: string | null) => void }) {
                         <strong>{dutyLabel(ev.state)}</strong>{" "}
                         <span className="text-[var(--dim)]">
                           {new Date(ev.at).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
-                          {ev.location ? ` · ${ev.location}` : ""}
+                          {ev.city || ev.usState
+                            ? ` · ${[ev.city, ev.usState].filter(Boolean).join(", ")}`
+                            : ev.location
+                              ? ` · ${ev.location}`
+                              : ""}
                         </span>
                       </span>
                       <span className="flex shrink-0 items-center gap-1.5">
@@ -32735,6 +32979,13 @@ function HosLogPanel({ setBanner }: { setBanner: (s: string | null) => void }) {
                         )}
                       </span>
                     </div>
+                    {(dutyRemarkLabel(ev.remark) || ev.remarkNote) && (
+                      <p className="mt-1 text-xs leading-relaxed text-[var(--dim)]">
+                        Remark: <strong className="text-[var(--text)]">{dutyRemarkLabel(ev.remark) ?? "Other"}</strong>
+                        {ev.remarkNote ? ` — ${ev.remarkNote}` : ""}
+                        {ev.remarkSource === "default" ? " · system default" : ""}
+                      </p>
+                    )}
                     {ev.edited && (
                       <p className="mt-1 text-xs leading-relaxed text-[var(--dim)]">
                         Fixed by @{ev.editedBy ?? "—"}
@@ -34371,18 +34622,37 @@ function DriverPanel({
   const [convStepUpMsg, setConvStepUpMsg] = useState<string | null>(null);
   const [drvCat, setDrvCat] = useState<DrvCat>("today");
   const lastDutyLocRef = useRef<string | null>(null);
+  const lastDutyStateRef = useRef<string | null>(null);
   const setDutyMut = useMutation({
-    mutationFn: (state: "off_duty" | "sleeper" | "on_duty" | "driving") => {
+    mutationFn: (vars: { state: "off_duty" | "sleeper" | "on_duty" | "driving"; pick?: DutyRemarkPick }) => {
       let locationLabel: string | null = null;
+      let usState: string | null = null;
       try {
         const st = localStorage.getItem("tgps-current-state");
-        if (st) locationLabel = `${st} (GPS state at the change)`;
+        if (st) {
+          locationLabel = `${st} (GPS state at the change)`;
+          usState = st;
+        }
       } catch { /* no fix recorded — the change simply has no location */ }
       lastDutyLocRef.current = locationLabel;
-      return api.setDuty({ state, locationLabel });
+      lastDutyStateRef.current = usState;
+      // This panel has no live GPS fix of its own — the place stamp is
+      // the GPS state the app already tracks (city stays to the
+      // clocks' full resolver on Today/Drive). The remark quick-pick
+      // rides along exactly like the clocks' buttons.
+      return api.setDuty({
+        state: vars.state,
+        locationLabel,
+        usState,
+        remark: vars.pick?.remark ?? null,
+        remarkNote: vars.pick?.note ?? null,
+      });
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["duty"] }),
-    onError: (_e, state) => {
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["duty"] });
+      queryClient.invalidateQueries({ queryKey: ["inspection-prompts"] });
+    },
+    onError: (_e, vars) => {
       // Offline (queue item 7): capture the tap on-device instead of
       // losing it — the panel's clocks and totals below already run
       // on the pending merge, and the capture seals on reconnect.
@@ -34390,15 +34660,19 @@ function DriverPanel({
         captureId: newCaptureId(),
         kind: "duty",
         capturedAt: new Date().toISOString(),
-        state,
+        state: vars.state,
         locationLabel: lastDutyLocRef.current,
         source: "manual",
         autoStage: null,
         stillSince: null,
+        remark: vars.pick?.remark ?? null,
+        remarkNote: vars.pick?.note ?? null,
+        usState: lastDutyStateRef.current,
       });
-      setBanner(`📴 No connection — duty status ${dutyLabel(state)} captured on this device. ${OFFLINE_CAPTURED_LINE}`);
+      setBanner(`📴 No connection — duty status ${dutyLabel(vars.state)} captured on this device. ${OFFLINE_CAPTURED_LINE}`);
     },
   });
+  const [panelPendingState, setPanelPendingState] = useState<"off_duty" | "sleeper" | "on_duty" | "driving" | null>(null);
   const iftaMut = useMutation({ mutationFn: () => api.exportIfta({}) });
 
   // Pending offline duty captures (queue item 7) merge into this
@@ -34547,9 +34821,9 @@ function DriverPanel({
               type="button"
               aria-label={`Set duty status ${d.label}`}
               aria-pressed={currentDuty === d.key}
-              onClick={() => setDutyMut.mutate(d.key)}
+              onClick={() => setPanelPendingState((cur) => (cur === d.key ? null : d.key))}
               className={`rounded-xl border-2 px-1 py-3 text-center ${
-                currentDuty === d.key
+                currentDuty === d.key || panelPendingState === d.key
                   ? "border-[var(--accent)] bg-[var(--surface2)]"
                   : "border-[var(--border)] bg-[var(--surface2)] opacity-70"
               }`}
@@ -34562,6 +34836,18 @@ function DriverPanel({
             </button>
           ))}
         </div>
+        {panelPendingState && (
+          <DutyRemarkRow
+            key={panelPendingState}
+            target={panelPendingState}
+            pending={setDutyMut.isPending}
+            onPick={(pick) => {
+              setDutyMut.mutate({ state: panelPendingState, pick });
+              setPanelPendingState(null);
+            }}
+            onCancel={() => setPanelPendingState(null)}
+          />
+        )}
         <p className="mt-2 text-xs text-[var(--dim)]">
           {currentDuty
             ? `Currently: ${dutyLabel(currentDuty)}. Hours above are today's totals from your sealed duty log.`
@@ -34665,7 +34951,7 @@ function DriverPanel({
 
       {drvCat === "hours" && (
         <>
-          <HosClocksPanel hos={computeHos(events, Date.now())} duty={{ currentDuty: currentDuty ?? null, onSetDuty: (s) => setDutyMut.mutate(s), pending: setDutyMut.isPending }} />
+          <HosClocksPanel hos={computeHos(events, Date.now())} duty={{ currentDuty: currentDuty ?? null, onSetDuty: (s, pick) => setDutyMut.mutate({ state: s, pick }), pending: setDutyMut.isPending }} />
 
           <HosLogPanel setBanner={setBanner} />
 

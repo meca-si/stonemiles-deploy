@@ -113,6 +113,44 @@ describe("hosViolationsInWindow", () => {
     const nextWeek: [number, number] = [MON + 7 * 86400000, MON + 14 * 86400000];
     expect(hosViolationsInWindow(events, nextWeek[0], nextWeek[1])).toEqual([]);
   });
+  test("break rule (395.3(a)(3)(ii)): 30 min ON DUTY after 8h driving satisfies the break", () => {
+    // 8h driving, then 30 minutes fueling/inspecting on duty, then
+    // driving on: since 2020 the interruption may be on-duty-not-
+    // driving. The clocks have always read it this way; the replay
+    // once zeroed the non-driving run on an on-duty segment and
+    // invented a break violation here. Fixed 2026-11-15.
+    const events = [
+      ev("on_duty", 0, 6), ev("driving", 0, 6, 5), ev("on_duty", 0, 14, 5),
+      ev("driving", 0, 14, 35), ev("off_duty", 0, 15, 35),
+    ];
+    expect(hosViolationsInWindow(events, week[0], week[1])).toEqual([]);
+  });
+  test("break rule: a mixed 15m off-duty + 15m on-duty interruption also satisfies it", () => {
+    const events = [
+      ev("on_duty", 0, 6), ev("driving", 0, 6, 5), ev("off_duty", 0, 14, 5),
+      ev("on_duty", 0, 14, 20), ev("driving", 0, 14, 35), ev("off_duty", 0, 15, 35),
+    ];
+    const kinds = hosViolationsInWindow(events, week[0], week[1]).map((v) => v.kind);
+    expect(kinds).not.toContain("break");
+  });
+  test("break rule: 29 minutes on duty does NOT satisfy it — driving on is a break violation", () => {
+    const events = [
+      ev("on_duty", 0, 6), ev("driving", 0, 6, 5), ev("on_duty", 0, 14, 5),
+      ev("driving", 0, 14, 34), ev("off_duty", 0, 15, 34),
+    ];
+    const kinds = hosViolationsInWindow(events, week[0], week[1]).map((v) => v.kind);
+    expect(kinds).toContain("break");
+  });
+  test("break rule: the trigger is DRIVING time — 8h of on-duty time alone never trips it", () => {
+    // 4h driving, 8h on-duty at a dock, 1h driving: 5h of driving
+    // total, so no break is due — an on-duty-based rule would flag
+    // this day, the driving-based rule (the actual rule) does not.
+    const events = [
+      ev("on_duty", 0, 6), ev("driving", 0, 6, 5), ev("on_duty", 0, 10, 5),
+      ev("driving", 0, 18, 5), ev("off_duty", 0, 19, 5),
+    ];
+    expect(hosViolationsInWindow(events, week[0], week[1])).toEqual([]);
+  });
   test("70h cycle: nine 10-hour duty days in a row trips the cycle clock (only the cycle)", () => {
     // 10h on duty/day (5h55m of it driving): under the 11h, 14h, and
     // break limits every day, with a 14h reset each night — but the

@@ -297,7 +297,22 @@ export function hosViolationsInWindow(
     // Any duty segment ends the off-duty run (the server's own HOS
     // replay does the same: `else offRun = 0`).
     offRun = 0;
-    nonDriveRun = 0;
+    if (state === "driving") {
+      nonDriveRun = 0;
+    } else {
+      // On-duty-not-driving counts toward the 30-minute break
+      // interruption — 49 CFR 395.3(a)(3)(ii): after 8 cumulative
+      // hours of DRIVING, the interruption can be off-duty, sleeper,
+      // or on-duty-not-driving, in any mix, so long as 30 consecutive
+      // minutes pass with no driving. The clocks (computeHos /
+      // hosClocksFor) have always accumulated every non-driving
+      // segment this way; zeroing the run on an on-duty segment (the
+      // old line here) invented break violations the clocks never
+      // showed — e.g. 8h driving, 30 min fueling on duty, then
+      // driving on was judged a break violation. Fixed 2026-11-15.
+      nonDriveRun += segEnd - segStart;
+      if (nonDriveRun >= 0.5 * H) drivingSinceBreak = 0;
+    }
     const effStart = Math.max(segStart, resetAt);
     if (state === "on_duty" || state === "driving") {
       if (windowStart === null && segEnd > resetAt) windowStart = effStart;

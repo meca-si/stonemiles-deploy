@@ -200,6 +200,11 @@ dvirDraftDescription,
 dvirDraftNotes,
 } from "./dvir";
 import {
+evaluateInspectionPrompt,
+type InspectionPromptFacts,
+} from "./inspectionPrompts";
+import { resolveDutyRemark } from "./dutyRemarks";
+import {
 CREDENTIAL_LABELS,
 activeCredentialAlerts,
 buildCredentialStatuses,
@@ -1044,11 +1049,21 @@ function dutyAutoSwapPairingOk(
 }
 
 /** Seal one duty change into the chain — THE path, used by the live
- * setDuty action and by syncDutyCapture for changes captured
- * offline. An offline seal carries the device's captured timestamp
- * as the event time and is flagged offlineCapture in the payload:
- * the record shows when the change actually happened AND that it
- * was captured with no signal, never pretending otherwise. */
+ * setDuty action, by syncDutyCapture for changes captured offline,
+ * and by beginDvirChecklist for the pre-trip On Duty stamp. An
+ * offline seal carries the device's captured timestamp as the event
+ * time and is flagged offlineCapture in the payload: the record
+ * shows when the change actually happened AND that it was captured
+ * with no signal, never pretending otherwise.
+ *
+ * Every seal carries the 49 CFR 395.8(c) place stamp — city + state
+ * where the change happened (the client's GPS-derived pair, best
+ * effort, never invented: both stay null when the device couldn't
+ * name the place) beside the legacy free-text location label — and
+ * a remark (the carrier requires one on every change; see
+ * dutyRemarks.ts): resolveDutyRemark guarantees the payload's
+ * remark is never empty, with remarkSource saying plainly whether
+ * the driver picked it or the system supplied the default. */
 async function sealDutyChange(
   ctx: Ctx,
   me: string,
@@ -1056,12 +1071,26 @@ async function sealDutyChange(
     state: "off_duty" | "sleeper" | "on_duty" | "driving";
     at: Date;
     location: string | null;
-    source: "manual" | "auto_no_movement";
+    source: "manual" | "auto_no_movement" | "pretrip_checklist";
     autoStage: string | null;
     stillSince: string | null;
     offline: { captureId: string; capturedAt: string } | null;
+    remark?: string | null;
+    remarkNote?: string | null;
+    city?: string | null;
+    /** The US state the change happened in. Named usState because
+     *  the payload's `state` key is — and must stay — the duty
+     *  state every existing reader parses. */
+    usState?: string | null;
   },
 ): Promise<string> {
+  const remark = resolveDutyRemark({
+    remark: args.remark,
+    remarkNote: args.remarkNote,
+    source: args.source,
+    autoStage: args.autoStage,
+    offline: args.offline !== null,
+  });
   return appendChain(ctx, {
     refKind: "driver",
     refId: null,
@@ -1071,10 +1100,15 @@ async function sealDutyChange(
       state: args.state,
       at: args.at.toISOString(),
       location: args.location,
+      city: args.city?.trim() || null,
+      usState: args.usState?.trim() || null,
       username: me,
       source: args.source,
       autoStage: args.autoStage,
       stillSince: args.stillSince,
+      remark: remark.remark,
+      remarkNote: remark.remarkNote,
+      remarkSource: remark.remarkSource,
       ...(args.offline
         ? { offlineCapture: true, captureId: args.offline.captureId, capturedAt: args.offline.capturedAt }
         : {}),
@@ -4769,6 +4803,17 @@ type DutyEventEffective = {
   state: string;
   at: string;
   location: string | null;
+  /** 395.8(c) place stamp + the carrier-required remark (2026-11-15).
+   *  Null on entries sealed before they existed — the log shows what
+   *  the record holds and never back-fills a guess. A correction
+   *  keeps the original entry's place + remark: they are facts of
+   *  the change itself; a fix corrects the state/time, not where
+   *  the driver was or why they switched. */
+  city: string | null;
+  usState: string | null;
+  remark: string | null;
+  remarkNote: string | null;
+  remarkSource: string | null;
   source: string; // manual | auto_no_movement | pretrip_checklist
   username: string | null;
   edited: boolean;
@@ -4812,6 +4857,11 @@ async function effectiveDutyTimeline(
           state?: string;
           at?: string;
           location?: string | null;
+          city?: string | null;
+          usState?: string | null;
+          remark?: string | null;
+          remarkNote?: string | null;
+          remarkSource?: string | null;
           source?: string;
           username?: string | null;
         };
@@ -4821,6 +4871,11 @@ async function effectiveDutyTimeline(
             state: p.state,
             at: p.at,
             location: p.location ?? null,
+            city: p.city ?? null,
+            usState: p.usState ?? null,
+            remark: p.remark ?? null,
+            remarkNote: p.remarkNote ?? null,
+            remarkSource: p.remarkSource ?? null,
             source: p.source ?? "manual",
             username: p.username ?? null,
             edited: false,
@@ -20968,6 +21023,77 @@ function toVaultShape(r: VaultEntryRow): z.infer<typeof vaultEntryShape> {
   };
 }
 
+/** Gather the sealed facts the inspection-prompt evaluator decides
+ *  from (inspectionPrompts.ts): the effective duty timeline, the
+ *  driver's signed DVIRs, sealed deliveries (first confirmation per
+ *  load — the same standing-confirmation rule deliveryConfirmationFor
+ *  applies), load-start moments (pickup seals + the driver's own load
+ *  rows being created), and this driver's sealed prompt dismissals.
+ *  Facts only — no rates or money ever ride along. */
+async function inspectionPromptFacts(ctx: Ctx): Promise<InspectionPromptFacts> {
+  const db = ctx.db<typeof schema>();
+  const me = await myUsername(ctx);
+  const { events } = await effectiveDutyTimeline(ctx);
+  const dvirRows = await db.select().from(schema.dvirReports);
+  const chain = await db.select().from(schema.chainLog).orderBy(asc(schema.chainLog.id));
+  // The chain is one shared timeline (the app's standing design),
+  // so the facts are cut to THIS driver before the evaluator sees
+  // them: their own duty changes (every seal stamps its username),
+  // and delivery / pickup seals for their OWN loads only — another
+  // driver's delivery must never raise this driver's post-trip.
+  const loadRows = await db.select().from(schema.loads);
+  const ownLoadIds = new Set(loadRows.map((l) => l.id));
+  const deliveryByLoad = new Map<number, number>();
+  const newLoadStarts: { loadId: number; atMs: number }[] = [];
+  const dismissedKeys: string[] = [];
+  for (const r of chain) {
+    if (r.event === "delivery_confirmed" || r.event === "pod_seal") {
+      let loadId: number | null = r.refId ?? null;
+      let atMs = r.createdAt.getTime();
+      try {
+        const p = JSON.parse(r.payload) as { loadId?: unknown; at?: unknown };
+        if (typeof p.loadId === "number") loadId = p.loadId;
+        if (typeof p.at === "string") {
+          const parsed = Date.parse(p.at);
+          if (Number.isFinite(parsed)) atMs = parsed;
+        }
+      } catch { /* a bare seal still proves the delivery, at its chain time */ }
+      if (loadId !== null && ownLoadIds.has(loadId)) {
+        const prev = deliveryByLoad.get(loadId);
+        if (prev === undefined || atMs < prev) deliveryByLoad.set(loadId, atMs);
+      }
+    } else if (r.event === "pickup_sealed") {
+      let loadId: number | null = r.refId ?? null;
+      let atMs = r.createdAt.getTime();
+      try {
+        const p = JSON.parse(r.payload) as { loadId?: unknown; at?: unknown };
+        if (typeof p.loadId === "number") loadId = p.loadId;
+        if (typeof p.at === "string") {
+          const parsed = Date.parse(p.at);
+          if (Number.isFinite(parsed)) atMs = parsed;
+        }
+      } catch { /* the chain row's own time still marks the start */ }
+      if (loadId !== null && ownLoadIds.has(loadId)) newLoadStarts.push({ loadId, atMs });
+    } else if (r.event === "dvir_prompt_dismissed") {
+      try {
+        const p = JSON.parse(r.payload) as { username?: unknown; key?: unknown };
+        if (p.username === me && typeof p.key === "string") dismissedKeys.push(p.key);
+      } catch { /* an unreadable dismissal proves nothing — ignore it */ }
+    }
+  }
+  for (const l of loadRows) newLoadStarts.push({ loadId: l.id, atMs: l.createdAt.getTime() });
+  return {
+    dutyEvents: events
+      .filter((e) => e.username === me)
+      .map((e) => ({ state: e.state, at: e.at })),
+    nowMs: Date.now(),
+    dvirs: dvirRows.map((d) => ({ kind: d.kind, inspectedAtMs: d.inspectedAt.getTime() })),
+    deliveries: [...deliveryByLoad.entries()].map(([loadId, atMs]) => ({ loadId, atMs })),
+    newLoadStarts,
+    dismissedKeys,
+  };
+}
+
 export const Actions = {
   // ---- Beta gate -------------------------------------------------------------
   // First run is gated: a valid issued beta code unlocks the install. The
@@ -35491,6 +35617,17 @@ export const Actions = {
       source: z.enum(["manual", "auto_no_movement"]).optional(),
       autoStage: z.enum(["off_duty_2min", "sleeper_10min"]).nullable().optional(),
       stillSince: z.string().max(40).nullable().optional(),
+      // The carrier-required remark (2026-11-15): the quick-pick key
+      // the driver tapped in the duty buttons (dutyRemarks.ts) plus
+      // optional free text. Optional on the wire so older clients and
+      // the auto paths still seal — sealDutyChange stamps an explicit
+      // default when none arrives, so the record never lacks one.
+      remark: z.string().max(40).nullable().optional(),
+      remarkNote: z.string().max(200).nullable().optional(),
+      // 49 CFR 395.8(c): the city + state where the change happened,
+      // GPS-derived on the device (best effort — null when unnamed).
+      city: z.string().max(80).nullable().optional(),
+      usState: z.string().max(80).nullable().optional(),
     }),
     response: z.object({ hash: z.string() }),
     async handler(ctx, args) {
@@ -35523,6 +35660,10 @@ export const Actions = {
         autoStage: source === "auto_no_movement" ? (args.autoStage ?? null) : null,
         stillSince: source === "auto_no_movement" ? (args.stillSince ?? null) : null,
         offline: null,
+        remark: args.remark ?? null,
+        remarkNote: args.remarkNote ?? null,
+        city: args.city ?? null,
+        usState: args.usState ?? null,
       });
       ctx.invalidateQueries();
       return { hash };
@@ -35551,6 +35692,13 @@ export const Actions = {
       source: z.enum(["manual", "auto_no_movement"]).optional(),
       autoStage: z.enum(["off_duty_2min", "sleeper_10min"]).nullable().optional(),
       stillSince: z.string().max(40).nullable().optional(),
+      // Remark + place stamp captured on the device with the change
+      // (2026-11-15). Optional: captures queued by older builds seal
+      // with the explicit offline default instead of a remark.
+      remark: z.string().max(40).nullable().optional(),
+      remarkNote: z.string().max(200).nullable().optional(),
+      city: z.string().max(80).nullable().optional(),
+      usState: z.string().max(80).nullable().optional(),
       capturedAt: z.string().max(40),
     }),
     response: z.object({
@@ -35610,6 +35758,10 @@ export const Actions = {
         autoStage: source === "auto_no_movement" ? (args.autoStage ?? null) : null,
         stillSince: source === "auto_no_movement" ? (args.stillSince ?? null) : null,
         offline: { captureId: args.captureId, capturedAt: new Date(capturedMs).toISOString() },
+        remark: args.remark ?? null,
+        remarkNote: args.remarkNote ?? null,
+        city: args.city ?? null,
+        usState: args.usState ?? null,
       });
       await db.insert(schema.offlineCaptures).values({
         username: me,
@@ -35636,6 +35788,11 @@ export const Actions = {
           state: z.string(),
           at: z.string(),
           location: z.string().nullable(),
+          city: z.string().nullable(),
+          usState: z.string().nullable(),
+          remark: z.string().nullable(),
+          remarkNote: z.string().nullable(),
+          remarkSource: z.string().nullable(),
           source: z.string(),
           edited: z.boolean(),
           editedBy: z.string().nullable(),
@@ -35679,6 +35836,11 @@ export const Actions = {
           state: e.state,
           at: e.at,
           location: e.location,
+          city: e.city,
+          usState: e.usState,
+          remark: e.remark,
+          remarkNote: e.remarkNote,
+          remarkSource: e.remarkSource,
           source: e.source,
           edited: e.edited,
           editedBy: e.editedBy,
@@ -56861,6 +57023,10 @@ export const Actions = {
     request: z.object({
       kind: z.enum(["pretrip", "posttrip"]),
       locationLabel: z.string().max(120).nullable().optional(),
+      // 395.8(c) place stamp for the pre-trip duty stamp, when the
+      // device could name the place (best effort, as everywhere).
+      city: z.string().max(80).nullable().optional(),
+      usState: z.string().max(80).nullable().optional(),
     }),
     response: z.object({
       ok: z.literal(true),
@@ -56877,20 +57043,20 @@ export const Actions = {
         const duty = await dutyPicture(ctx);
         dutyState = duty.state;
         if (duty.state === null || duty.state === "off_duty" || duty.state === "sleeper") {
-          await appendChain(ctx, {
-            refKind: "driver",
-            refId: null,
-            sessionId: null,
-            event: "duty_change",
-            payload: {
-              state: "on_duty",
-              at: now.toISOString(),
-              location: args.locationLabel?.trim() || null,
-              username: me,
-              source: "pretrip_checklist",
-              autoStage: null,
-              stillSince: null,
-            },
+          // Through sealDutyChange like every other duty change, so
+          // the stamp carries the same remark + city/state fields —
+          // its remark is the pre-trip itself (the tap IS the reason).
+          await sealDutyChange(ctx, me, {
+            state: "on_duty",
+            at: now,
+            location: args.locationLabel?.trim() || null,
+            source: "pretrip_checklist",
+            autoStage: null,
+            stillSince: null,
+            offline: null,
+            remark: "pretrip",
+            city: args.city ?? null,
+            usState: args.usState ?? null,
           });
           dutyStamped = true;
           dutyState = "on_duty";
@@ -57183,6 +57349,67 @@ export const Actions = {
           return { id: r.id, inspectedAt: r.inspectedAt.toISOString(), kind: r.kind, items, defects, signedName: r.signedName, status: r.status, odometer: r.odometer, truckLabel: r.truckLabel ?? null, trailerLabel: r.trailerLabel ?? null, safeToOperate: r.safeToOperate ?? null, hasLocation: r.lat != null && r.lon != null };
         }),
       };
+    },
+  }),
+
+  // ---- Inspection prompts (2026-11-15) ------------------------------------------
+  // The auto-flows beside the HOS clocks: the server reckons from the
+  // sealed record whether an inspection prompt is due — the PRE-TRIP
+  // on the first On Duty of a duty day with none sealed yet, the
+  // POST-TRIP between a sealed delivery and the next load started in
+  // the same 14-hour window. The client opens the checklist when a
+  // prompt first appears; nothing here ever blocks a duty change or
+  // a load — the prompt is an offer, and skipping it seals a
+  // dismissal so it never nags twice for the same day / transition.
+  getInspectionPrompts: defineAction({
+    description: "The inspection prompt currently due for the driver (pre-trip on the first drive of the duty day, post-trip between loads), reckoned from sealed records only.",
+    request: z.object({}),
+    response: z.object({
+      prompt: z.object({
+        kind: z.enum(["pretrip", "posttrip"]),
+        key: z.string(),
+        deliveryLoadId: z.number().nullable(),
+      }).nullable(),
+      windowStart: z.string().nullable(),
+      currentDuty: z.string().nullable(),
+    }),
+    async handler(ctx) {
+      const facts = await inspectionPromptFacts(ctx);
+      const prompt = evaluateInspectionPrompt(facts);
+      const sorted = [...facts.dutyEvents].sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+      return {
+        prompt: prompt
+          ? { kind: prompt.kind, key: prompt.key, deliveryLoadId: prompt.deliveryLoadId }
+          : null,
+        windowStart: prompt ? new Date(prompt.windowStartMs).toISOString() : null,
+        currentDuty: sorted.length > 0 ? (sorted[sorted.length - 1]!.state ?? null) : null,
+      };
+    },
+  }),
+
+  // Skipping an auto inspection prompt: sealed, so the same prompt
+  // (this duty day's pre-trip / this delivery's post-trip) never
+  // fires again on any device. The inspection itself stays one tap
+  // away beside the HOS clocks — a dismissal silences the prompt,
+  // never the checklist.
+  dismissInspectionPrompt: defineAction({
+    description: "Dismiss an auto inspection prompt for the rest of its duty day / delivery transition (sealed).",
+    request: z.object({
+      kind: z.enum(["pretrip", "posttrip"]),
+      key: z.string().min(1).max(120),
+    }),
+    response: z.object({ ok: z.literal(true) }),
+    async handler(ctx, args) {
+      const me = await myUsername(ctx);
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "dvir_prompt_dismissed",
+        payload: { username: me, kind: args.kind, key: args.key, at: new Date().toISOString() },
+      });
+      ctx.invalidateQueries();
+      return { ok: true as const };
     },
   }),
 

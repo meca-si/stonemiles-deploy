@@ -36,6 +36,14 @@ export interface DutyCapture {
   source: "manual" | "auto_no_movement";
   autoStage: "off_duty_2min" | "sleeper_10min" | null;
   stillSince: string | null;
+  /** Remark + 395.8(c) place stamp captured with the change
+   *  (2026-11-15). Optional: captures queued by older builds carry
+   *  none, and the server seals those with its explicit offline
+   *  default remark instead of inventing one. */
+  remark?: string | null;
+  remarkNote?: string | null;
+  city?: string | null;
+  usState?: string | null;
 }
 
 export interface DvirDefectCapture {
