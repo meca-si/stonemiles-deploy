@@ -827,6 +827,13 @@
       "when": 1794800000000,
       "tag": "0118_my_truck_and_maintenance_log",
       "breakpoints": true
+    },
+    {
+      "idx": 118,
+      "version": "6",
+      "when": 1794900000000,
+      "tag": "0119_show_truck_on_profile",
+      "breakpoints": true
     }
   ]
 }

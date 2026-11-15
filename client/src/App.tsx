@@ -9152,6 +9152,7 @@ export function App() {
     groupPolicy: "everyone" | "following" | "nobody";
     showReputation: boolean;
     showMilesPanel: boolean;
+    showTruck: boolean;
     featuredBadge: FeaturedBadgeKey | null;
   } | null>(null);
   const [avatarFile, setAvatarFile] = useState<{ base64: string; mime: string } | null>(null);
@@ -9191,6 +9192,7 @@ export function App() {
         groupPolicy: (p.groupPolicy as "everyone" | "following" | "nobody") ?? "everyone",
         showReputation: p.showReputation,
         showMilesPanel: p.showMilesPanel,
+        showTruck: p.showTruck ?? true,
         featuredBadge: p.featuredBadge ?? null,
       });
     }
@@ -22262,6 +22264,22 @@ export function App() {
                       <span className={`block h-6 w-6 rounded-full bg-white transition-transform ${socialForm.showMilesPanel ? "translate-x-6" : ""}`} />
                     </button>
                   </div>
+                  <div className="flex items-center justify-between rounded-xl bg-[var(--surface2)] px-3 py-3">
+                    <span>
+                      <span className="block font-semibold">Show my truck on my profile</span>
+                      <span className="block text-xs text-[var(--dim)]">Year, make, and model from Settings → Truck, plus your trailer type. Your VIN, plate, and unit number never show here — those stay private.</span>
+                    </span>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={socialForm.showTruck}
+                      aria-label="Show my truck on profile"
+                      onClick={() => setSocialForm({ ...socialForm, showTruck: !socialForm.showTruck })}
+                      className={`h-8 w-14 shrink-0 rounded-full p-1 ${socialForm.showTruck ? "bg-[var(--ok)]" : "bg-[#3a3f42]"}`}
+                    >
+                      <span className={`block h-6 w-6 rounded-full bg-white transition-transform ${socialForm.showTruck ? "translate-x-6" : ""}`} />
+                    </button>
+                  </div>
                   <div>
                     <label className={labelCls} htmlFor="sp-featured">Feature a badge</label>
                     <select
@@ -22329,6 +22347,7 @@ export function App() {
                           groupPolicy: socialForm.groupPolicy,
                           showReputation: socialForm.showReputation,
                           showMilesPanel: socialForm.showMilesPanel,
+                          showTruck: socialForm.showTruck,
                           featuredBadge: socialForm.featuredBadge,
                           avatarDataBase64: avatarFile?.base64 ?? null,
                           avatarMime: avatarFile?.mime ?? null,
@@ -23092,6 +23111,7 @@ export function App() {
                       <div className="text-sm text-[var(--dim)]">@{p.username}</div>
                       {p.company && <div className="text-sm">🏢 {p.company}</div>}
                       {p.truckInfo && <div className="text-sm">🚛 {p.truckInfo}</div>}
+                      {p.truckLine && <div className="text-sm">🚚 {p.truckLine}</div>}
                       {(p.homeCity || p.homeState) && (
                         <div className="text-sm">🏠 {[p.homeCity, p.homeState].filter(Boolean).join(", ")}</div>
                       )}

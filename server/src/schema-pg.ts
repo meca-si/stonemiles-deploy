@@ -899,6 +899,15 @@ export const socialUsers = pgTable("social_users", {
   showMilesPanel: boolean("show_miles_panel")
     .notNull()
     .default(true),
+  // My Truck on profile: the driver chooses whether the truck
+  // summary line built from their Settings -> Truck identity (year,
+  // make, model + trailer type ONLY) shows on their public profile.
+  // Default ON. VIN, plate, and unit number are NEVER part of the
+  // public line — they stay owner-only in Settings and in the
+  // truck-record download (see getUserProfile / exportTruckRecord).
+  showTruck: boolean("show_truck")
+    .notNull()
+    .default(true),
   // Featured badge (migration 0061): the ONE earned badge the driver
   // chose to feature — "referral" | "all_time_best" | "season_rank".
   // Null = no choice (the default display order rules). The choice is

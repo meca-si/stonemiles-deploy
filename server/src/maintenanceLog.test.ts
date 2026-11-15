@@ -11,6 +11,9 @@
 //       or attach to entries it does not own
 //   (f) the truck record export: CSV headed by the truck identity
 //       with every log field + total; text version names the truck
+//   (g) the public truck line on the social profile: year/make/
+//       model + trailer type only — never VIN, plate, or unit
+//   (h) the Show-my-truck toggle stores and reads back
 //
 // Hermetic: STONEMILES_DB / STONEMILES_BLOBS point into a temp dir
 // before host/ctx is imported (both bind at module load).
@@ -288,5 +291,57 @@ describe("maintenance log CRUD + totals", () => {
     const rb = (await Actions.exportTruckRecord.handler(bobCtx, {} as never)) as { csv: string; entryCount: number };
     expect(rb.entryCount).toBe(0);
     expect(rb.csv).not.toContain("Kenworth");
+  });
+});
+
+describe("public truck line on the social profile", () => {
+  const socialArgs = (showTruck: boolean) => ({
+    displayName: "Alice A",
+    bio: null,
+    company: null,
+    truckInfo: null,
+    homeCity: null,
+    homeState: null,
+    contactPhone: null,
+    contactEmail: null,
+    mcNumber: null,
+    dotNumber: null,
+    twicHas: false,
+    twicExpires: null,
+    endorsements: [],
+    dmPolicy: "everyone" as const,
+    groupPolicy: "everyone" as const,
+    showReputation: false,
+    showMilesPanel: true,
+    showTruck,
+    featuredBadge: null,
+    avatarDataBase64: null,
+    avatarMime: null,
+  });
+
+  test("(g) year/make/model + trailer type show; VIN, plate, unit never do", async () => {
+    await Actions.updateMyProfile.handler(aliceCtx, socialArgs(true) as never);
+    const mine = (await Actions.getUserProfile.handler(aliceCtx, { username: "maintalice" } as never)) as { showTruck: boolean; truckLine: string | null };
+    expect(mine.showTruck).toBe(true);
+    expect(mine.truckLine).toBe("2021 Kenworth W900 · Step Deck");
+    expect(mine.truckLine).not.toContain("1XKWD");
+    expect(mine.truckLine).not.toContain("AL-8842");
+    expect(mine.truckLine).not.toContain("Unit");
+    // Another driver's view: identity lives on their own device in
+    // this staging build (same rule as the tier chip) — null, and
+    // the toggle itself is visible.
+    const bobs = (await Actions.getUserProfile.handler(bobCtx, { username: "maintalice" } as never)) as { showTruck: boolean; truckLine: string | null };
+    expect(bobs.showTruck).toBe(true);
+    expect(bobs.truckLine).toBeNull();
+  });
+
+  test("(h) toggle off: flag stored; the owner still sees their own line", async () => {
+    await Actions.updateMyProfile.handler(aliceCtx, socialArgs(false) as never);
+    const mine = (await Actions.getUserProfile.handler(aliceCtx, { username: "maintalice" } as never)) as { showTruck: boolean; truckLine: string | null };
+    expect(mine.showTruck).toBe(false);
+    expect(mine.truckLine).toBe("2021 Kenworth W900 · Step Deck");
+    const bobs = (await Actions.getUserProfile.handler(bobCtx, { username: "maintalice" } as never)) as { showTruck: boolean; truckLine: string | null };
+    expect(bobs.showTruck).toBe(false);
+    expect(bobs.truckLine).toBeNull();
   });
 });

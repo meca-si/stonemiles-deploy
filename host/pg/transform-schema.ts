@@ -97,7 +97,7 @@ replaceAll(
   'integer mode "boolean" -> boolean',
   /integer\(("[a-z0-9_]+"), \{ mode: "boolean" \}\)/g,
   "boolean($1)",
-  107,
+  108,
 );
 replaceAll(
   'integer mode "timestamp_ms" -> timestamp(tz, date)',

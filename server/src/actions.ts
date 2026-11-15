@@ -11297,6 +11297,39 @@ async function toBoardPost(
  *  this month, this year. Miles keep their per-trip source labels
  *  (GPS / ELD odometer — <provider>) — the distinct sources across the
  *  counted trips are returned, never blended into a fake label. */
+// Public truck line for the social profile (My Truck identity,
+// migration 0118): built ONLY from year, make, model, and the
+// trailer type label — "2021 Kenworth W900 · Step Deck". VIN, plate,
+// and unit number are NEVER part of this line; they stay owner-only
+// in Settings -> Truck and in the truck-record download.
+const PUBLIC_TRAILER_LABELS: Record<string, string> = {
+  dry_van: "Dry Van",
+  reefer: "Reefer",
+  flatbed: "Flatbed",
+  step_deck: "Step Deck",
+  lowboy: "Lowboy",
+  tanker: "Tanker",
+  conestoga: "Conestoga",
+  box_truck: "Box Truck",
+  car_hauler: "Car Hauler",
+  other: "Other Trailer",
+};
+function publicTruckLineFor(prof: {
+  truckYear: number | null;
+  truckMake: string | null;
+  truckModel: string | null;
+  trailerType: string;
+} | null | undefined): string | null {
+  if (!prof) return null;
+  const head = [prof.truckYear != null ? String(prof.truckYear) : "", prof.truckMake ?? "", prof.truckModel ?? ""]
+    .map((x) => x.trim())
+    .filter(Boolean)
+    .join(" ");
+  const trailer = PUBLIC_TRAILER_LABELS[prof.trailerType] ?? "";
+  const line = [head, trailer].filter(Boolean).join(" · ");
+  return line || null;
+}
+
 async function milesPanelFor(
   ctx: Ctx,
   _username: string,
@@ -31311,6 +31344,16 @@ export const Actions = {
       groupPolicy: z.string(),
       showReputation: z.boolean(),
       showMilesPanel: z.boolean(),
+      // My Truck on profile: showTruck is the driver's toggle
+      // (default ON); truckLine is the public summary built from
+      // year/make/model + trailer type ONLY (never VIN, plate, or
+      // unit number). Real only for the local user in this staging
+      // build — another driver's identity lives on their own
+      // device — null otherwise, never invented (same rule as the
+      // tier chip below). Hidden when the toggle is off and the
+      // viewer is not the driver themselves.
+      showTruck: z.boolean(),
+      truckLine: z.string().nullable(),
       // Season rank + all-time-best (Pass 4 profile header). Real values
       // only for the local user (their records live on this device);
       // null for other drivers in this staging build — never invented.
@@ -31367,6 +31410,9 @@ export const Actions = {
       const allFollows = await db.select().from(schema.follows);
       const blocks = await db.select().from(schema.chatBlocks);
       const showMilesPanel = row?.showMilesPanel ?? true;
+      const showTruck = row?.showTruck ?? true;
+      const truckLine =
+        showTruck || isMe ? publicTruckLineFor(isMe ? prof[0] : null) : null;
       // Privacy first: a hidden miles panel is never overridden — for
       // another driver the numbers are not even computed into the
       // response. The driver themselves always sees their own panel.
@@ -31404,6 +31450,8 @@ export const Actions = {
         groupPolicy: row?.groupPolicy ?? "everyone",
         showReputation: row?.showReputation ?? false,
         showMilesPanel,
+        showTruck,
+        truckLine,
         overallRank: rank.overallRank,
         seasonNumber: rank.seasonNumber,
         allTimeBest: rank.allTimeBest,
@@ -31466,6 +31514,7 @@ export const Actions = {
       groupPolicy: z.enum(["everyone", "following", "nobody"]),
       showReputation: z.boolean(),
       showMilesPanel: z.boolean().default(true),
+      showTruck: z.boolean().default(true),
       // Featured badge choice: validated server-side against the
       // driver's earned set before it is stored — an unearned choice
       // stores null (default order), never the unearned badge.
@@ -31531,6 +31580,7 @@ export const Actions = {
         groupPolicy: args.groupPolicy,
         showReputation: args.showReputation,
         showMilesPanel: args.showMilesPanel,
+        showTruck: args.showTruck,
         featuredBadge,
       };
       const existing = await db
