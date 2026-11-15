@@ -8,7 +8,7 @@
 //   stores the per-state breakdown as JSON (full state names), total miles,
 //   and pay at the job's $0.55/mile rate.
 
-import { integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { integer, primaryKey, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 export const profile = sqliteTable("profile", {
   // Auth Phase 2b: the accounts.id this profile belongs to (null until
@@ -770,6 +770,24 @@ export const chatReads = sqliteTable("chat_reads", {
   groupId: integer("group_id").primaryKey(),
   lastReadId: integer("last_read_id").notNull().default(0),
 });
+
+// Per-member chat read + email-alert state (migration 0117). chat_reads
+// above is ONE marker per group (staging shape); the email-alert rule
+// needs each member's own position: lastReadId mirrors what that member
+// has actually opened (markChatRead / their own sends), and
+// lastAlertedId is the newest message id they were already emailed
+// about — together they make a burst of messages produce ONE alert per
+// member instead of one per message.
+export const chatMemberReads = sqliteTable(
+  "chat_member_reads",
+  {
+    groupId: integer("group_id").notNull(),
+    username: text("username").notNull(),
+    lastReadId: integer("last_read_id").notNull().default(0),
+    lastAlertedId: integer("last_alerted_id").notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.groupId, t.username] })],
+);
 
 export const chatBlocks = sqliteTable("chat_blocks", {
   username: text("username").primaryKey(),

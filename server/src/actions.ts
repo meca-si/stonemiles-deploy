@@ -3800,6 +3800,147 @@ async function notifyTeamChange(
   });
 }
 
+/** One alert email through the doc-copy mail transport — the same
+ *  honest status ladder as notifyTeamChange (sent only with a provider
+ *  id, queued while no provider is connected, no_address when the
+ *  account has no email on file, failed when the provider refuses).
+ *  NEVER throws: an alert must never fail the action that caused it,
+ *  so every failure mode folds into the returned status. */
+async function sendAlertEmail(
+  ctx: Ctx,
+  args: { username: string; subject: string; lines: string[] },
+): Promise<"sent" | "queued" | "no_address" | "failed"> {
+  try {
+    const email = await accountEmailFor(ctx, args.username);
+    if (!email) return "no_address";
+    if (!(await docEmailProviderConfigured(ctx))) return "queued";
+    const res = await ctx.executePrivileged(privileged.sendDocEmail, {
+      to: email,
+      replyTo: null,
+      subject: args.subject,
+      text: args.lines.join("\n"),
+      attachmentBase64: null,
+      attachmentFilename: null,
+    });
+    if (res.ok && res.providerId) return "sent";
+    if (res.notConfigured) return "queued";
+    return "failed";
+  } catch {
+    return "failed";
+  }
+}
+
+/** A member's chat-notification switch (Settings → "Company chat"):
+ *  their app-settings row decides; no profile or no saved row = the
+ *  default, ON. */
+async function chatNotifyOnFor(ctx: Ctx, username: string): Promise<boolean> {
+  const db = ctx.db<typeof schema>();
+  const prof = (
+    await db
+      .select({ id: schema.profile.id })
+      .from(schema.profile)
+      .where(eq(schema.profile.socialUsername, username))
+      .limit(1)
+  )[0];
+  if (!prof) return true;
+  const row = (
+    await db
+      .select({ notifyChat: schema.appSettings.notifyChat })
+      .from(schema.appSettings)
+      .where(eq(schema.appSettings.id, prof.id))
+      .limit(1)
+  )[0];
+  return row?.notifyChat ?? true;
+}
+
+/** Email the OTHER members of a chat conversation about a new message
+ *  (migration 0117). One alert per burst, per member: a member is
+ *  emailed only when they were caught up before this message — their
+ *  own lastReadId in chat_member_reads had reached the previous latest
+ *  message (a member with no row yet counts as caught up). Once
+ *  alerted, their lastReadId stays behind the burst, so follow-on
+ *  messages don't re-alert until the member actually catches up;
+ *  lastAlertedId records what they were last emailed about. The
+ *  message body is NEVER included — the email names the sender and
+ *  the conversation and links to the app. The public Open Chat room
+ *  is excluded by design: every driver is a member, so per-message
+ *  email there would be a blast to the whole driver base. Never
+ *  throws. */
+async function alertChatMembers(
+  ctx: Ctx,
+  args: {
+    groupId: number;
+    groupKind: string;
+    groupName: string;
+    senderUsername: string;
+    senderName: string;
+    prevLatestId: number;
+    newMessageId: number;
+  },
+): Promise<void> {
+  try {
+    if (args.groupKind === "open") return;
+    const db = ctx.db<typeof schema>();
+    const members = await db
+      .select()
+      .from(schema.chatMembers)
+      .where(eq(schema.chatMembers.groupId, args.groupId));
+    const states = await db
+      .select()
+      .from(schema.chatMemberReads)
+      .where(eq(schema.chatMemberReads.groupId, args.groupId));
+    const stateByUser = new Map(states.map((s) => [s.username.toLowerCase(), s]));
+    const seen = new Set<string>();
+    for (const m of members) {
+      const key = m.username.toLowerCase();
+      if (key === args.senderUsername.toLowerCase() || seen.has(key)) continue;
+      seen.add(key);
+      const st = stateByUser.get(key);
+      // Caught up = nothing unread before this message. After an
+      // alert, the member's lastReadId stays behind the burst, so
+      // this one check is what makes the burst produce a single
+      // alert; it re-arms only when the member actually catches up
+      // (markChatRead / their own send moves their lastReadId).
+      const caughtUp = !st || st.lastReadId >= args.prevLatestId;
+      if (!caughtUp) continue;
+      if (!(await chatNotifyOnFor(ctx, m.username))) continue;
+      const conversation =
+        args.groupKind === "dm" ? "a direct message" : `the chat "${args.groupName}"`;
+      await sendAlertEmail(ctx, {
+        username: m.username,
+        subject: `STONEMILES — new message from ${args.senderName}`,
+        lines: [
+          `You have a new message in STONEMILES.`,
+          ``,
+          `From: ${args.senderName}`,
+          `Conversation: ${conversation}`,
+          ``,
+          `Open the app to read it and reply: https://app.stonervision.io`,
+          ``,
+          `You're getting this email because chat notifications are on in your STONEMILES settings (the "Company chat" switch). Turn it off there and these emails stop.`,
+        ],
+      });
+      // Record the alert whether or not the mail went out (sent /
+      // queued / no address): the burst rule counts ALERTED, so a
+      // provider outage can't turn one burst into a retry storm.
+      await db
+        .insert(schema.chatMemberReads)
+        .values({
+          groupId: args.groupId,
+          username: m.username,
+          lastReadId: args.prevLatestId,
+          lastAlertedId: args.newMessageId,
+        })
+        .onConflictDoUpdate({
+          target: [schema.chatMemberReads.groupId, schema.chatMemberReads.username],
+          set: { lastAlertedId: args.newMessageId },
+        });
+    }
+  } catch {
+    // Alerts are best-effort — the message send already succeeded.
+  }
+}
+
 // ---- Consent-gated sensitive help (x, 2026-10-30) ---------------------------
 // The wall stands by default. A team REQUEST names an item in words
 // only and opens nothing; the USER approves in-app, binds the window
@@ -22873,6 +23014,7 @@ export const Actions = {
       docMime: z.string().max(100).nullable().default(null),
     }),
     response: z.object({ ok: z.boolean(), error: z.string().nullable(), submissionId: z.number().nullable(), extracted: z.boolean() }),
+    privileged: [privileged.docEmailConfig, privileged.sendDocEmail],
     async handler(ctx, args) {
       const db = ctx.db<typeof schema>();
       const rows = await db.select().from(schema.brokerLinks).where(eq(schema.brokerLinks.token, args.token.trim())).limit(1);
@@ -22990,6 +23132,31 @@ export const Actions = {
           payload: { sha256: docSha, mime: docMime, source: "broker_upload", submissionId: id, linkId: link.id },
         });
       }
+      // Desk-inbox email alert (2026-11-14): a load just landed in the
+      // fleet's desk inbox — email the fleet owner account, once per
+      // submitted load. NO rate in the email (the rate lives in the
+      // desk, never in mail). Best-effort: the honest status is sealed
+      // to the chain and a mail failure never fails the submission.
+      const alertStatus = await sendAlertEmail(ctx, {
+        username: link.ownerUsername,
+        subject: "STONEMILES — new load offer in your desk inbox",
+        lines: [
+          `A new load offer just landed in your STONEMILES desk inbox.`,
+          ``,
+          `From: ${args.brokerName?.trim() || link.brokerName || "A broker / shipper"}${(args.brokerCompany?.trim() || link.brokerCompany) ? ` (${args.brokerCompany?.trim() || link.brokerCompany})` : ""}`,
+          `Pickup: ${fields.pickupCity ? `${fields.pickupCity}${fields.pickupState ? `, ${fields.pickupState}` : ""}` : "—"}`,
+          `Delivery: ${fields.deliveryCity ? `${fields.deliveryCity}${fields.deliveryState ? `, ${fields.deliveryState}` : ""}` : "—"}`,
+          ``,
+          `Open the app to review it: https://app.stonervision.io`,
+        ],
+      });
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: null,
+        sessionId: null,
+        event: "broker_submission_email_alert",
+        payload: { submissionId: id, viaDoor, emailStatus: alertStatus, at: new Date().toISOString() },
+      });
       ctx.invalidateQueries();
       return { ok: true, error: null, submissionId: id, extracted };
     },
@@ -30850,6 +31017,7 @@ export const Actions = {
       payload: z.string().max(4000).nullable(),
     }),
     response: z.object({ id: z.number() }),
+    privileged: [privileged.docEmailConfig, privileged.sendDocEmail],
     async handler(ctx, args) {
       const db = ctx.db<typeof schema>();
       // DM PRIVACY: only a DM's two members can write in it.
@@ -30862,6 +31030,23 @@ export const Actions = {
         .where(eq(schema.profile.id, myProfileId(ctx)))
         .limit(1);
       const sender = prof[0]?.chatName ?? "Driver";
+      // Email-alert state (migration 0117): the conversation and its
+      // latest message BEFORE this one lands — the alert rule keys off
+      // where each member stood relative to that previous latest.
+      const group = (
+        await db
+          .select()
+          .from(schema.chatGroups)
+          .where(eq(schema.chatGroups.id, args.groupId))
+          .limit(1)
+      )[0];
+      const prev = await db
+        .select({ id: schema.chatMessages.id })
+        .from(schema.chatMessages)
+        .where(eq(schema.chatMessages.groupId, args.groupId))
+        .orderBy(desc(schema.chatMessages.id))
+        .limit(1);
+      const prevLatestId = prev[0]?.id ?? 0;
       const r = await db
         .insert(schema.chatMessages)
         .values({
@@ -30882,6 +31067,31 @@ export const Actions = {
           target: schema.chatReads.groupId,
           set: { lastReadId: inserted.id },
         });
+      // The sender's own per-member read marker moves too (0117).
+      await db
+        .insert(schema.chatMemberReads)
+        .values({
+          groupId: args.groupId,
+          username: dm.me,
+          lastReadId: inserted.id,
+          lastAlertedId: 0,
+        })
+        .onConflictDoUpdate({
+          target: [schema.chatMemberReads.groupId, schema.chatMemberReads.username],
+          set: { lastReadId: inserted.id },
+        });
+      // Email the other members (best-effort; never fails the send).
+      if (group) {
+        await alertChatMembers(ctx, {
+          groupId: args.groupId,
+          groupKind: group.kind,
+          groupName: group.name,
+          senderUsername: dm.me,
+          senderName: sender,
+          prevLatestId,
+          newMessageId: inserted.id,
+        });
+      }
       ctx.invalidateQueries();
       return { id: inserted.id };
     },
@@ -30903,6 +31113,35 @@ export const Actions = {
         .onConflictDoUpdate({
           target: schema.chatReads.groupId,
           set: { lastReadId: args.messageId },
+        });
+      // Per-member read marker (migration 0117): this member has
+      // caught up — the next new message may email them again. Only
+      // ever moves forward.
+      const me = await myUsername(ctx);
+      const mine = (
+        await db
+          .select()
+          .from(schema.chatMemberReads)
+          .where(
+            and(
+              eq(schema.chatMemberReads.groupId, args.groupId),
+              eq(schema.chatMemberReads.username, me),
+            ),
+          )
+          .limit(1)
+      )[0];
+      const readId = Math.max(mine?.lastReadId ?? 0, args.messageId);
+      await db
+        .insert(schema.chatMemberReads)
+        .values({
+          groupId: args.groupId,
+          username: me,
+          lastReadId: readId,
+          lastAlertedId: 0,
+        })
+        .onConflictDoUpdate({
+          target: [schema.chatMemberReads.groupId, schema.chatMemberReads.username],
+          set: { lastReadId: readId },
         });
       ctx.invalidateQueries();
       return { ok: true as const };

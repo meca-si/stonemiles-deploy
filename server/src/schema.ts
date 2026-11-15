@@ -50,6 +50,7 @@ export const chatGroups = impl.chatGroups;
 export const chatMembers = impl.chatMembers;
 export const chatMessages = impl.chatMessages;
 export const chatReads = impl.chatReads;
+export const chatMemberReads = impl.chatMemberReads;
 export const chatBlocks = impl.chatBlocks;
 export const chatReports = impl.chatReports;
 export const socialUsers = impl.socialUsers;

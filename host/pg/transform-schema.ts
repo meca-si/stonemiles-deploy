@@ -30,6 +30,9 @@
 // (receive_links created/revoked). Migration 0113
 // (social identities + passkeys) adds +2 tables, +2 autoincrement PKs,
 // +3 timestamp_ms (identities linked_at; passkeys created/last_used).
+// Migration 0117 (chat email alerts) adds +1 table (chat_member_reads)
+// with a composite (group_id, username) primaryKey — the primaryKey
+// builder name is identical in both dialects and rides through.
 //
 //   bun run host/pg/transform-schema.ts
 
@@ -77,8 +80,8 @@ src = src.replace(
 // Import line.
 replaceAll(
   "import line",
-  /import \{ integer, real, sqliteTable, text \} from "drizzle-orm\/sqlite-core";/,
-  'import {\n  boolean,\n  doublePrecision,\n  integer,\n  pgTable,\n  serial,\n  text,\n  timestamp,\n} from "drizzle-orm/pg-core";',
+  /import \{ integer, primaryKey, real, sqliteTable, text \} from "drizzle-orm\/sqlite-core";/,
+  'import {\n  boolean,\n  doublePrecision,\n  integer,\n  pgTable,\n  primaryKey,\n  serial,\n  text,\n  timestamp,\n} from "drizzle-orm/pg-core";',
   1,
 );
 
@@ -88,22 +91,22 @@ replaceAll(
   'integer mode "boolean" -> boolean',
   /integer\(("[a-z0-9_]+"), \{ mode: "boolean" \}\)/g,
   "boolean($1)",
-  106,
+  107,
 );
 replaceAll(
   'integer mode "timestamp_ms" -> timestamp(tz, date)',
   /integer\(("[a-z0-9_]+"), \{ mode: "timestamp_ms" \}\)/g,
   'timestamp($1, { withTimezone: true, mode: "date" })',
-  299,
+  301,
 );
 replaceAll(
   "autoincrement PK -> serial",
   /integer\(("[a-z0-9_]+")\)\.primaryKey\(\{ autoIncrement: true \}\)/g,
   "serial($1).primaryKey()",
-  133,
+  134,
 );
-replaceAll("sqliteTable -> pgTable", /\bsqliteTable\(/g, "pgTable(", 163);
-replaceAll("real -> doublePrecision", /\breal\(/g, "doublePrecision(", 172);
+replaceAll("sqliteTable -> pgTable", /\bsqliteTable\(/g, "pgTable(", 165);
+replaceAll("real -> doublePrecision", /\breal\(/g, "doublePrecision(", 174);
 
 // Leftovers: any of these means the source schema grew a shape this
 // transform does not know. Fail, don't guess.

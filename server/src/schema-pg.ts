@@ -19,6 +19,7 @@ import {
   doublePrecision,
   integer,
   pgTable,
+  primaryKey,
   serial,
   text,
   timestamp,
@@ -89,11 +90,14 @@ export const profile = pgTable("profile", {
   // with no load rate on file the app says so instead of inventing one.
   payBasis: text("pay_basis").notNull().default("cpm"),
   driverPayPct: doublePrecision("driver_pay_pct"),
-  // The driver's OWN per-load fee percentages (migration 0115, PG twin
-  // 0008): what THEIR factoring company and THEIR dispatcher take out
-  // of a load's gross pay, in percent (0–100, 0 = they don't pay that
-  // fee). The driver's own costs only — never platform fees. See the
-  // SQLite schema comment for the full note.
+  // The driver's OWN per-load fee percentages (migration 0115): what
+  // THEIR factoring company and THEIR dispatcher take out of a load's
+  // gross pay, in percent (0–100, 0 = they don't pay that fee). These
+  // are the driver's own costs, entered by the driver — they are NOT
+  // platform fees (the platform dispatch/platform fees live elsewhere
+  // and are never stored here). The Worth-It Advisor deducts them from
+  // a load's gross before scoring it, and True Rate shows them per
+  // load. Default 0 = no deduction, exactly the pre-0115 behaviour.
   factoringPct: doublePrecision("factoring_pct").notNull().default(0),
   dispatcherPct: doublePrecision("dispatcher_pct").notNull().default(0),
   // The driver's social handle (usernames are how people follow/DM/add).
@@ -782,6 +786,24 @@ export const chatReads = pgTable("chat_reads", {
   lastReadId: integer("last_read_id").notNull().default(0),
 });
 
+// Per-member chat read + email-alert state (migration 0117). chat_reads
+// above is ONE marker per group (staging shape); the email-alert rule
+// needs each member's own position: lastReadId mirrors what that member
+// has actually opened (markChatRead / their own sends), and
+// lastAlertedId is the newest message id they were already emailed
+// about — together they make a burst of messages produce ONE alert per
+// member instead of one per message.
+export const chatMemberReads = pgTable(
+  "chat_member_reads",
+  {
+    groupId: integer("group_id").notNull(),
+    username: text("username").notNull(),
+    lastReadId: integer("last_read_id").notNull().default(0),
+    lastAlertedId: integer("last_alerted_id").notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.groupId, t.username] })],
+);
+
 export const chatBlocks = pgTable("chat_blocks", {
   username: text("username").primaryKey(),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
@@ -1277,8 +1299,12 @@ export const appSettings = pgTable("app_settings", {
   // Weather Service data). A core safety feature on every tier;
   // default ON.
   winterWeatherAlerts: boolean("winter_weather_alerts").notNull().default(true),
-  // Auto-add stops to route (migration 0009): PG twin of the SQLite
-  // column — see schema-sqlite.ts. Default ON.
+  // Auto-add stops to route (migration 0116): the Settings → Driving
+  // switch (default ON) — when a route is planned, the Fuel + Stop
+  // Planner's picks (best fuel stop when the tank calls for it, the
+  // 30-min break stop, the 10-hr rest stop) are added to the route as
+  // waypoints, announced on a banner, each removable with one tap.
+  // Preference only; permit-locked routes are never auto-added to.
   autoAddStops: boolean("auto_add_stops").notNull().default(true),
   // Traffic lights layer (migration 0106): the Layers & display /
   // Settings → Driving switch for the OpenStreetMap traffic-signal
