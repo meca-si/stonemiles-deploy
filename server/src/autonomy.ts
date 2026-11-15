@@ -58,7 +58,8 @@ export type ExceptionKind =
   | "conflicting_records"
   | "detention_overdue"
   | "missing_evidence"
-  | "low_confidence";
+  | "low_confidence"
+  | "paperwork_no_recipient";
 
 /** An auto-status is only published at or above this confidence. */
 export const CONFIDENCE_THRESHOLD = 0.8;
@@ -327,6 +328,17 @@ export interface ExceptionInputs {
   appointmentCheckable: boolean;
   /** The still-open detention visit, if one is running. */
   openDetention: DetentionVisit | null;
+  /** Paperwork-to-pay state (Wave 2 item 2), when the evaluating
+   * context could observe the load's paperwork row. Null = not
+   * observable from here (the row lives with the load's driver) —
+   * the exception is then neither raised nor cleared on a guess,
+   * the same unverifiable-is-not-cleared rule the row-based kinds
+   * follow. */
+  paperwork: {
+    podConfirmed: boolean;
+    recipientOnFile: boolean;
+    sendSettled: boolean;
+  } | null;
   now: Date;
 }
 
@@ -478,6 +490,22 @@ export function deriveExceptions(input: ExceptionInputs): ExceptionCandidate[] {
     });
   }
 
+  // Paperwork held: the POD is confirmed, but no broker/factor
+  // address is on file — the copy cannot go out on its own.
+  // Raised only when the paperwork row was observable in this
+  // context (input.paperwork non-null); the fix is a fact the
+  // driver supplies (the address), never a fabricated send.
+  if (input.paperwork && input.paperwork.podConfirmed && !input.paperwork.recipientOnFile && !input.paperwork.sendSettled) {
+    out.push({
+      kind: "paperwork_no_recipient",
+      severity: 2,
+      detail:
+        "The proof of delivery is confirmed, but there is no broker or factor email on file for this load, so the copy can't go out on its own. Add the address in the load's paperwork section and it sends itself.",
+      evidence: [{ kind: "load", ref: String(input.loadId), at: null, note: "POD paperwork confirmed; no recipient address on file" }],
+      fingerprint: "pod-confirmed",
+    });
+  }
+
   return out;
 }
 
@@ -510,6 +538,7 @@ export const EXCEPTION_LABELS: Record<ExceptionKind, string> = {
   detention_overdue: "Detention running over",
   missing_evidence: "No sealed record behind the share",
   low_confidence: "Status waiting on its seal",
+  paperwork_no_recipient: "No paperwork address on file",
 };
 
 /** Notification-center copy for a newly opened exception. Lane and

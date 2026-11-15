@@ -81,6 +81,10 @@
 // auto_exceptions), +2 autoincrement PKs, +4 timestamp_ms (outbox
 // created; exceptions resolved/created/updated), and +1 REAL
 // (outbox confidence); the remaining columns are plain integer/text.
+// Migration 0130 (paperwork-to-pay) adds +1 table (load_paperwork),
+// +1 autoincrement PK, +6 timestamp_ms (extraction/confirmed/send/
+// invoice-auto/created/updated); NO rate or money column exists on
+// it by design, and the remaining columns are plain integer/text.
 //
 //   bun run host/pg/transform-schema.ts
 
@@ -145,15 +149,15 @@ replaceAll(
   'integer mode "timestamp_ms" -> timestamp(tz, date)',
   /integer\(("[a-z0-9_]+"), \{ mode: "timestamp_ms" \}\)/g,
   'timestamp($1, { withTimezone: true, mode: "date" })',
-  339,
+  345,
 );
 replaceAll(
   "autoincrement PK -> serial",
   /integer\(("[a-z0-9_]+")\)\.primaryKey\(\{ autoIncrement: true \}\)/g,
   "serial($1).primaryKey()",
-  146,
+  147,
 );
-replaceAll("sqliteTable -> pgTable", /\bsqliteTable\(/g, "pgTable(", 181);
+replaceAll("sqliteTable -> pgTable", /\bsqliteTable\(/g, "pgTable(", 182);
 replaceAll("real -> doublePrecision", /\breal\(/g, "doublePrecision(", 187);
 
 // Leftovers: any of these means the source schema grew a shape this

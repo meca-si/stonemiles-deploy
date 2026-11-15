@@ -17,6 +17,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type ApiResponse } from "./api";
 import { buildSmsHandoff, isPlausibleMobile, maskPhone } from "./receiverCopy";
 import { LoadAutonomyBlock } from "./AutonomyPanel";
+import { LoadPaperworkBlock } from "./PaperworkPanel";
 
 type LinkState = ApiResponse<typeof api, "getLoadReceiveLink">;
 
@@ -498,6 +499,7 @@ export function DeliveryCloseout({ loadId, setBanner }: { loadId: number; setBan
           </div>
         </div>
       )}
+      <LoadPaperworkBlock loadId={loadId} setBanner={setBanner} />
     </div>
   );
 }

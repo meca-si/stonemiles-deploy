@@ -192,6 +192,7 @@ export const notifications = impl.notifications;
 export const pushDevices = impl.pushDevices;
 export const statusOutbox = impl.statusOutbox;
 export const autoExceptions = impl.autoExceptions;
+export const loadPaperwork = impl.loadPaperwork;
 
 // Auth (Phase 2b, added at the Phase 2 merge): account + session tables.
 export const accounts = impl.accounts;

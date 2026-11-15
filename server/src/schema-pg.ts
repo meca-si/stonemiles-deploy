@@ -5101,3 +5101,57 @@ export const autoExceptions = pgTable("auto_exceptions", {
     .notNull()
     .$defaultFn(() => new Date()),
 });
+// ---- Paperwork-to-pay (migration 0130, Research Wave 2 item 2) ----------
+// One row per (load, document kind) — the scanned BOL or POD a
+// driver attaches to a load, and the state of its trip through the
+// pipeline: filed → read (extraction attempted) → confirmed by the
+// driver → POD copy sent to the broker/factor → invoice cut. The
+// document bytes live in the vault blob store (blob_key); this row
+// is the pipeline ledger. NO rate or money column exists here by
+// design — the invoice carries the money, this table carries the
+// paperwork state. Shared table (no profile_id): the load's driver
+// writes it; the fleet desk and the outward track page read the
+// status through the same row, gated in actions.ts. Uniqueness of
+// (load_id, doc_kind) is kept by the intake upsert, the same way
+// the doc-copies ledger dedupes on its key.
+export const loadPaperwork = pgTable("load_paperwork", {
+  id: serial("id").primaryKey(),
+  loadId: integer("load_id").notNull(),
+  docKind: text("doc_kind").notNull(), // bol | pod
+  driverUsername: text("driver_username").notNull(),
+  blobKey: text("blob_key").notNull(),
+  mime: text("mime").notNull(),
+  sha256: text("sha256").notNull(),
+  filedBy: text("filed_by").notNull(),
+  // pending | read | not_configured | no_details | failed
+  extractionStatus: text("extraction_status").notNull().default("pending"),
+  // Candidate fields the reader proposed (JSON) — PROVISIONAL
+  // until the driver confirms; never written to the load record.
+  candidateFieldsJson: text("candidate_fields_json"),
+  extractionAt: timestamp("extraction_at", { withTimezone: true, mode: "date" }),
+  // unconfirmed | confirmed
+  confirmStatus: text("confirm_status").notNull().default("unconfirmed"),
+  // The fields as the driver confirmed/corrected them (JSON).
+  confirmedFieldsJson: text("confirmed_fields_json"),
+  confirmedBy: text("confirmed_by"),
+  confirmedAt: timestamp("confirmed_at", { withTimezone: true, mode: "date" }),
+  // Where the POD copy goes: the broker/factor address on file for
+  // this load (prefilled from the broker account, driver-corrected
+  // at confirm time).
+  recipientEmail: text("recipient_email"),
+  recipientLabel: text("recipient_label"),
+  // not_ready | sent | queued | no_recipient | failed
+  sendStatus: text("send_status").notNull().default("not_ready"),
+  sendAt: timestamp("send_at", { withTimezone: true, mode: "date" }),
+  sendProviderId: text("send_provider_id"),
+  // The invoice the auto-cut produced for this load (POD rows).
+  invoiceId: integer("invoice_id"),
+  invoiceAutoAt: timestamp("invoice_auto_at", { withTimezone: true, mode: "date" }),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+

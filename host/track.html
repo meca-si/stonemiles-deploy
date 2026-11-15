@@ -81,6 +81,14 @@ function timelineHtml(info) {
   return `<h2>Status updates</h2><ol class="stops">${rows}</ol><p class="dim">Posted automatically from the carrier's sealed records — no update appears here without one behind it.</p>`;
 }
 
+// Paperwork-to-pay stage (Wave 2 item 2): where the load's
+// paperwork stands, shown as a stage label the carrier's system
+// posts from its sealed records.
+function paperworkHtml(info) {
+  if (!info.paperwork) return "";
+  return `<h2>Paperwork</h2><div class="kv"><span>Status</span><span>${esc(info.paperwork.stageLabel)}</span></div><p class="dim">The carrier's paperwork pipeline posts this from its sealed records.</p>`;
+}
+
 function render(info) {
   if (info.state === "delivered") {
     if (timer) clearInterval(timer);
@@ -93,7 +101,8 @@ function render(info) {
       ${kv("Commodity", info.commodity)}
       ${kv("Carrier", info.fleetName)}
       ${kv("Driver", info.driverFirstName)}
-      ${timelineHtml(info)}`;
+      ${timelineHtml(info)}
+      ${paperworkHtml(info)}`;
     return;
   }
   const stops = (info.stops || []).length
@@ -122,6 +131,7 @@ function render(info) {
     ${stops}
     ${position}
     ${timelineHtml(info)}
+    ${paperworkHtml(info)}
     <button id="refreshBtn" type="button">Refresh</button>
     <p class="dim">This page updates itself every minute while the load is on the road.</p>`;
   document.getElementById("refreshBtn").addEventListener("click", () => void load());

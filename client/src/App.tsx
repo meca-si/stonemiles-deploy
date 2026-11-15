@@ -26881,7 +26881,7 @@ function EldConnectionsHub({ onOpenPlans }: { onOpenPlans?: () => void }) {
                     </div>
                   )}
 
-                  {hub.canManage && (c.status === "connected" || c.status === "error") && (
+                  {hub.canManage && c.status !== "revoked" && (
                     <div className="mt-2.5">
                       <div className="mb-2 rounded-xl border border-[var(--border)] bg-[var(--surface2)] p-2.5">
                         <p className="text-xs leading-relaxed">

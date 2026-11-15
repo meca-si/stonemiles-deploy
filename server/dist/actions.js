@@ -104,6 +104,7 @@ __export(exports_schema_sqlite, {
   loadDocExtractions: () => loadDocExtractions,
   loadDocVerifications: () => loadDocVerifications,
   loadInvoices: () => loadInvoices,
+  loadPaperwork: () => loadPaperwork,
   loadPayments: () => loadPayments,
   loads: () => loads,
   lockerLedger: () => lockerLedger,
@@ -290,6 +291,7 @@ __export(exports_schema_pg, {
   loadDocExtractions: () => loadDocExtractions2,
   loadDocVerifications: () => loadDocVerifications2,
   loadInvoices: () => loadInvoices2,
+  loadPaperwork: () => loadPaperwork2,
   loadPayments: () => loadPayments2,
   loads: () => loads2,
   lockerLedger: () => lockerLedger2,
@@ -10211,6 +10213,32 @@ var autoExceptions = sqliteTable("auto_exceptions", {
   createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
   updatedAt: integer3("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
 });
+var loadPaperwork = sqliteTable("load_paperwork", {
+  id: integer3("id").primaryKey({ autoIncrement: true }),
+  loadId: integer3("load_id").notNull(),
+  docKind: text2("doc_kind").notNull(),
+  driverUsername: text2("driver_username").notNull(),
+  blobKey: text2("blob_key").notNull(),
+  mime: text2("mime").notNull(),
+  sha256: text2("sha256").notNull(),
+  filedBy: text2("filed_by").notNull(),
+  extractionStatus: text2("extraction_status").notNull().default("pending"),
+  candidateFieldsJson: text2("candidate_fields_json"),
+  extractionAt: integer3("extraction_at", { mode: "timestamp_ms" }),
+  confirmStatus: text2("confirm_status").notNull().default("unconfirmed"),
+  confirmedFieldsJson: text2("confirmed_fields_json"),
+  confirmedBy: text2("confirmed_by"),
+  confirmedAt: integer3("confirmed_at", { mode: "timestamp_ms" }),
+  recipientEmail: text2("recipient_email"),
+  recipientLabel: text2("recipient_label"),
+  sendStatus: text2("send_status").notNull().default("not_ready"),
+  sendAt: integer3("send_at", { mode: "timestamp_ms" }),
+  sendProviderId: text2("send_provider_id"),
+  invoiceId: integer3("invoice_id"),
+  invoiceAutoAt: integer3("invoice_auto_at", { mode: "timestamp_ms" }),
+  createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
+  updatedAt: integer3("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
+});
 
 // src/schema-pg.ts
 var profile2 = pgTable("profile", {
@@ -12576,6 +12604,32 @@ var autoExceptions2 = pgTable("auto_exceptions", {
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date),
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
 });
+var loadPaperwork2 = pgTable("load_paperwork", {
+  id: serial("id").primaryKey(),
+  loadId: integer2("load_id").notNull(),
+  docKind: text("doc_kind").notNull(),
+  driverUsername: text("driver_username").notNull(),
+  blobKey: text("blob_key").notNull(),
+  mime: text("mime").notNull(),
+  sha256: text("sha256").notNull(),
+  filedBy: text("filed_by").notNull(),
+  extractionStatus: text("extraction_status").notNull().default("pending"),
+  candidateFieldsJson: text("candidate_fields_json"),
+  extractionAt: timestamp("extraction_at", { withTimezone: true, mode: "date" }),
+  confirmStatus: text("confirm_status").notNull().default("unconfirmed"),
+  confirmedFieldsJson: text("confirmed_fields_json"),
+  confirmedBy: text("confirmed_by"),
+  confirmedAt: timestamp("confirmed_at", { withTimezone: true, mode: "date" }),
+  recipientEmail: text("recipient_email"),
+  recipientLabel: text("recipient_label"),
+  sendStatus: text("send_status").notNull().default("not_ready"),
+  sendAt: timestamp("send_at", { withTimezone: true, mode: "date" }),
+  sendProviderId: text("send_provider_id"),
+  invoiceId: integer2("invoice_id"),
+  invoiceAutoAt: timestamp("invoice_auto_at", { withTimezone: true, mode: "date" }),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
+});
 
 // src/schema.ts
 var impl = process.env.STONEMILES_DIALECT === "postgres" ? exports_schema_pg : exports_schema_sqlite;
@@ -12750,6 +12804,7 @@ var notifications3 = impl.notifications;
 var pushDevices3 = impl.pushDevices;
 var statusOutbox3 = impl.statusOutbox;
 var autoExceptions3 = impl.autoExceptions;
+var loadPaperwork3 = impl.loadPaperwork;
 var accounts3 = impl.accounts;
 var authSessions3 = impl.authSessions;
 var passwordResetTokens3 = impl.passwordResetTokens;
@@ -16475,6 +16530,15 @@ function deriveExceptions(input) {
       fingerprint: "none"
     });
   }
+  if (input.paperwork && input.paperwork.podConfirmed && !input.paperwork.recipientOnFile && !input.paperwork.sendSettled) {
+    out.push({
+      kind: "paperwork_no_recipient",
+      severity: 2,
+      detail: "The proof of delivery is confirmed, but there is no broker or factor email on file for this load, so the copy can't go out on its own. Add the address in the load's paperwork section and it sends itself.",
+      evidence: [{ kind: "load", ref: String(input.loadId), at: null, note: "POD paperwork confirmed; no recipient address on file" }],
+      fingerprint: "pod-confirmed"
+    });
+  }
   return out;
 }
 function rankExceptions(rows) {
@@ -16496,7 +16560,8 @@ var EXCEPTION_LABELS = {
   conflicting_records: "Records disagree",
   detention_overdue: "Detention running over",
   missing_evidence: "No sealed record behind the share",
-  low_confidence: "Status waiting on its seal"
+  low_confidence: "Status waiting on its seal",
+  paperwork_no_recipient: "No paperwork address on file"
 };
 function exceptionNotification(args) {
   const label = EXCEPTION_LABELS[args.kind];
@@ -16507,6 +16572,120 @@ function exceptionNotification(args) {
 }
 function outwardTimeline(rows) {
   return rows.filter((r) => r.supersededById == null).map((r) => ({ id: r.id, kind: r.kind, label: r.label, at: r.createdAt, corrected: r.kind === "correction" })).sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime() || a.id - b.id);
+}
+
+// src/paperwork.ts
+var EMPTY_PAPERWORK_CANDIDATES = {
+  lane: null,
+  reference: null,
+  weightLbs: null,
+  pieces: null,
+  deliveryText: null
+};
+function candidatesFromDocFields(fields) {
+  const place = (city, state) => [city, state].filter((p) => p != null && p.trim() !== "").join(", ");
+  const pickup = place(fields.pickupCity, fields.pickupState);
+  const delivery = place(fields.deliveryCity, fields.deliveryState);
+  return {
+    lane: pickup && delivery ? `${pickup} \u2192 ${delivery}` : null,
+    reference: fields.loadNumber ?? fields.poNumber ?? fields.proNumber ?? null,
+    weightLbs: fields.weightLbs ?? null,
+    pieces: fields.pieces ?? null,
+    deliveryText: fields.deliveryWindow ?? null
+  };
+}
+function paperworkExtractorFromEnv(env, read) {
+  if (!env.INFERENCE_API_KEY)
+    return null;
+  return {
+    async extract(args) {
+      if (args.mimeType !== "image/jpeg" && args.mimeType !== "image/png")
+        return null;
+      const res = await read({ dataBase64: args.dataBase64, mimeType: args.mimeType });
+      if (!res)
+        return null;
+      if (!res.found)
+        return { found: false, fields: { ...EMPTY_PAPERWORK_CANDIDATES } };
+      return { found: true, fields: candidatesFromDocFields(res.fields) };
+    }
+  };
+}
+function normText(s) {
+  return s.trim().toLowerCase().replace(/\s+/g, " ");
+}
+function flagCandidateFields(candidates, load) {
+  return {
+    lane: candidates.lane != null && load.lane != null && normText(candidates.lane) !== normText(load.lane),
+    reference: candidates.reference != null && load.referenceNumber != null && normText(candidates.reference) !== normText(load.referenceNumber),
+    weightLbs: candidates.weightLbs != null && load.weightLbs != null && candidates.weightLbs !== load.weightLbs,
+    pieces: false,
+    deliveryText: false
+  };
+}
+var PAPERWORK_STAGE_LABELS = {
+  none: "No paperwork filed yet",
+  received: "Document received \u2014 waiting on the driver's check",
+  confirmed: "Paperwork confirmed",
+  sent: "POD copy sent",
+  invoiced: "Invoice cut",
+  paid: "Invoice marked paid"
+};
+function paperworkStage(input) {
+  if (input.invoiceStatus === "paid")
+    return "paid";
+  if (input.invoiceStatus === "issued")
+    return "invoiced";
+  if (input.sendStatus === "sent")
+    return "sent";
+  if (input.confirmed)
+    return "confirmed";
+  if (input.filed)
+    return "received";
+  return "none";
+}
+function paperworkNotification(kind, args) {
+  const lane = args.lane ?? `Load #${args.loadId}`;
+  switch (kind) {
+    case "pod_sent":
+      return {
+        title: `Load #${args.loadId} \u2014 POD copy sent`,
+        body: `${lane} \u2014 the confirmed proof of delivery went out to the broker/factor address on file. The send is on the load's sealed record.`
+      };
+    case "pod_queued":
+      return {
+        title: `Load #${args.loadId} \u2014 POD copy queued`,
+        body: `${lane} \u2014 the confirmed proof of delivery is ready to go out, and the copy is queued until mail is set up. Nothing else is needed from you.`
+      };
+    case "no_recipient":
+      return {
+        title: `Load #${args.loadId} needs a look \u2014 no paperwork address on file`,
+        body: `${lane} \u2014 the proof of delivery is confirmed, but no broker or factor email is on file for this load, so the copy can't go out on its own. Add the address in the load's paperwork section and it sends itself.`
+      };
+    case "invoice_cut":
+      return {
+        title: `Load #${args.loadId} \u2014 invoice cut`,
+        body: `${lane} \u2014 the invoice for this sealed load was cut automatically once the paperwork was confirmed. It is in Money \u2192 Invoices.`
+      };
+  }
+}
+function podCopyOutboundText(args) {
+  return [
+    `Proof of delivery \u2014 Load #${args.loadId}`,
+    "",
+    ...args.lane ? [`Lane: ${args.lane}`] : [],
+    ...args.reference ? [`Reference: ${args.reference}`] : [],
+    `Document fingerprint (SHA-256): ${args.sha256}`,
+    args.hasAttachment ? "The confirmed proof of delivery document is attached to this email." : "The confirmed proof of delivery is filed in the carrier's STONEMILES record for this load.",
+    "",
+    "This copy was sent automatically by STONEMILES once the delivery was sealed and the document was confirmed by the driver. The send is recorded on the load's sealed record.",
+    "",
+    "\u2014 STONEMILES by Stonervision"
+  ].join(`
+`);
+}
+function paperworkAttachmentFilename(docKind, loadId, mime) {
+  const ext = mime === "application/pdf" ? "pdf" : mime === "image/png" ? "png" : mime === "image/jpeg" ? "jpg" : "bin";
+  return `${docKind}-load-${loadId}.${ext}`;
 }
 
 // src/notifications.ts
@@ -21111,6 +21290,8 @@ async function evaluateLoadAutonomy(ctx, loadId) {
       suppliedApptAt = f.payload.appointmentAt;
     }
   }
+  const paperworkRows = await db.select().from(loadPaperwork3).where(and(eq(loadPaperwork3.loadId, loadId), eq(loadPaperwork3.docKind, "pod"))).limit(1);
+  const paperworkRow = paperworkRows[0] ?? null;
   const candidates = deriveExceptions({
     loadId,
     rowStatus: load?.status ?? null,
@@ -21123,6 +21304,11 @@ async function evaluateLoadAutonomy(ctx, loadId) {
     detentionApptAt: visits.find((v) => v.apptAt != null)?.apptAt ?? null,
     appointmentCheckable: load != null,
     openDetention,
+    paperwork: {
+      podConfirmed: paperworkRow?.confirmStatus === "confirmed",
+      recipientOnFile: !!(paperworkRow?.recipientEmail && paperworkRow.recipientEmail.trim() !== ""),
+      sendSettled: paperworkRow?.sendStatus === "sent" || paperworkRow?.sendStatus === "queued"
+    },
     now
   });
   const rows = await db.select().from(autoExceptions3).where(eq(autoExceptions3.loadId, loadId));
@@ -21205,6 +21391,436 @@ async function evaluateAutonomySafe(ctx, loadId) {
   try {
     await evaluateLoadAutonomy(ctx, loadId);
   } catch {}
+}
+async function paperworkRowFor(ctx, loadId, docKind) {
+  const db = ctx.db();
+  const rows = await db.select().from(loadPaperwork3).where(and(eq(loadPaperwork3.loadId, loadId), eq(loadPaperwork3.docKind, docKind))).limit(1);
+  return rows[0] ?? null;
+}
+async function paperworkRowsFor(ctx, loadId) {
+  const db = ctx.db();
+  return db.select().from(loadPaperwork3).where(eq(loadPaperwork3.loadId, loadId));
+}
+function parsePaperworkCandidates(json) {
+  if (!json)
+    return { ...EMPTY_PAPERWORK_CANDIDATES };
+  try {
+    const parsed = JSON.parse(json);
+    return {
+      lane: typeof parsed.lane === "string" ? parsed.lane : null,
+      reference: typeof parsed.reference === "string" ? parsed.reference : null,
+      weightLbs: typeof parsed.weightLbs === "number" ? parsed.weightLbs : null,
+      pieces: typeof parsed.pieces === "number" ? parsed.pieces : null,
+      deliveryText: typeof parsed.deliveryText === "string" ? parsed.deliveryText : null
+    };
+  } catch {
+    return { ...EMPTY_PAPERWORK_CANDIDATES };
+  }
+}
+function paperworkExtractorFor(ctx) {
+  return paperworkExtractorFromEnv(process.env, (a) => extractDocFieldsExtended(ctx, a.dataBase64, a.mimeType));
+}
+async function runPaperworkExtraction(ctx, row) {
+  const db = ctx.db();
+  const now = new Date;
+  const extractor = paperworkExtractorFor(ctx);
+  let status;
+  let candidates = null;
+  if (!extractor) {
+    status = "not_configured";
+  } else {
+    const blob = await readBlobBytes(ctx, row.blobKey);
+    if (!blob) {
+      status = "failed";
+    } else {
+      try {
+        const res = await extractor.extract({
+          dataBase64: Buffer.from(blob.bytes).toString("base64"),
+          mimeType: row.mime,
+          docKind: row.docKind
+        });
+        if (!res)
+          status = "failed";
+        else if (!res.found)
+          status = "no_details";
+        else {
+          status = "read";
+          candidates = res.fields;
+        }
+      } catch {
+        status = "failed";
+      }
+    }
+  }
+  await db.update(loadPaperwork3).set({
+    extractionStatus: status,
+    candidateFieldsJson: candidates ? JSON.stringify(candidates) : row.candidateFieldsJson,
+    extractionAt: now,
+    updatedAt: now
+  }).where(eq(loadPaperwork3.id, row.id));
+  await appendChain(ctx, {
+    refKind: "load",
+    refId: row.loadId,
+    sessionId: null,
+    event: "paperwork_extraction",
+    payload: {
+      loadId: row.loadId,
+      paperworkId: row.id,
+      docKind: row.docKind,
+      status,
+      configured: extractor != null,
+      found: status === "read" ? true : status === "no_details" ? false : null,
+      at: now.toISOString()
+    }
+  });
+  return status;
+}
+async function paperworkRecipientPrefill(ctx, loadId) {
+  const db = ctx.db();
+  const boardRows = await db.select().from(boardLoads3).where(eq(boardLoads3.loadId, loadId)).orderBy(desc(boardLoads3.id));
+  const board = boardRows.find((b) => b.status === "taken") ?? boardRows[0] ?? null;
+  if (!board)
+    return null;
+  const posters = await db.select().from(brokerPosterLoads3).where(eq(brokerPosterLoads3.boardLoadId, board.id)).orderBy(desc(brokerPosterLoads3.id));
+  const brokerId = posters[0]?.brokerId ?? null;
+  if (brokerId == null)
+    return null;
+  const accts = await db.select().from(brokerAccounts3).where(eq(brokerAccounts3.id, brokerId));
+  const acct = accts[0];
+  if (!acct?.email)
+    return null;
+  return { email: acct.email, label: acct.name ?? acct.contactName ?? "Broker" };
+}
+async function evaluateLoadPaperwork(ctx, loadId, opts) {
+  const db = ctx.db();
+  const pod = await paperworkRowFor(ctx, loadId, "pod");
+  if (!pod || pod.confirmStatus !== "confirmed")
+    return;
+  const pods = await podStatusByLoad(ctx);
+  if (!pods.get(loadId)?.sealed)
+    return;
+  if (!opts.sideEffects)
+    return;
+  const me = await myUsername(ctx);
+  if (me !== pod.driverUsername)
+    return;
+  const loadRows = await db.select().from(loads3).where(eq(loads3.id, loadId)).limit(1);
+  const load = loadRows[0];
+  if (!load)
+    return;
+  const audiences = await autonomyAudiences(ctx, loadId, load);
+  const now = new Date;
+  if (pod.invoiceId == null) {
+    try {
+      const existing = await db.select().from(loadInvoices3).where(eq(loadInvoices3.loadId, loadId)).limit(1);
+      if (existing[0]) {
+        await db.update(loadPaperwork3).set({ invoiceId: existing[0].id, updatedAt: now }).where(eq(loadPaperwork3.id, pod.id));
+      } else if (load.rate != null) {
+        const cut = await cutInvoiceDraft(ctx, load, { dueDays: DEFAULT_DUE_DAYS, notes: null, automatic: true });
+        const invRows = await db.select().from(loadInvoices3).where(eq(loadInvoices3.id, cut.id)).limit(1);
+        if (invRows[0])
+          await issueInvoiceRow(ctx, invRows[0], { automatic: true });
+        await db.update(loadPaperwork3).set({ invoiceId: cut.id, invoiceAutoAt: now, updatedAt: now }).where(eq(loadPaperwork3.id, pod.id));
+        const note = paperworkNotification("invoice_cut", { loadId, lane: audiences.lane });
+        await recordNotificationSafe(ctx, {
+          username: pod.driverUsername,
+          kind: "system",
+          title: note.title,
+          body: note.body,
+          dedupeKey: `paperwork-invoice:${loadId}`,
+          refKind: "load",
+          refId: loadId
+        });
+      }
+    } catch {}
+  }
+  if (pod.sendStatus !== "sent" && pod.sendStatus !== "queued") {
+    const to = pod.recipientEmail?.trim() || null;
+    if (!to) {
+      if (pod.sendStatus !== "no_recipient") {
+        await db.update(loadPaperwork3).set({ sendStatus: "no_recipient", updatedAt: now }).where(eq(loadPaperwork3.id, pod.id));
+        const note = paperworkNotification("no_recipient", { loadId, lane: audiences.lane });
+        await recordNotificationSafe(ctx, {
+          username: pod.driverUsername,
+          kind: "system",
+          title: note.title,
+          body: note.body,
+          dedupeKey: `paperwork-norecip:${loadId}:${pod.sha256}`,
+          refKind: "load",
+          refId: loadId
+        });
+      }
+      return;
+    }
+    try {
+      let attachmentBase64 = null;
+      let attachmentFilename = null;
+      const blob = await readBlobBytes(ctx, pod.blobKey);
+      if (blob) {
+        attachmentBase64 = Buffer.from(blob.bytes).toString("base64");
+        attachmentFilename = paperworkAttachmentFilename("pod", loadId, pod.mime);
+      } else {
+        const conf = await deliveryConfirmationFor(ctx, loadId);
+        if (conf) {
+          const pdf = await buildSignedPodPdf(ctx, load, conf);
+          attachmentBase64 = Buffer.from(pdf.bytes).toString("base64");
+          attachmentFilename = `signed-pod-load-${loadId}.pdf`;
+        }
+      }
+      const confirmed = parsePaperworkCandidates(pod.confirmedFieldsJson);
+      const subject = `Proof of delivery \u2014 Load #${loadId}`;
+      let status = "failed";
+      let providerId = null;
+      let detail = null;
+      try {
+        const res = await ctx.executePrivileged(privileged.sendDocEmail, {
+          to,
+          replyTo: null,
+          subject,
+          text: podCopyOutboundText({
+            loadId,
+            lane: audiences.lane,
+            reference: confirmed.reference,
+            sha256: pod.sha256,
+            hasAttachment: attachmentBase64 != null
+          }),
+          attachmentBase64,
+          attachmentFilename
+        });
+        if (res.ok) {
+          status = "sent";
+          providerId = res.providerId ?? null;
+        } else if (res.notConfigured) {
+          status = "queued";
+          detail = "Mail transport not configured yet \u2014 the send is queued.";
+        } else {
+          status = "failed";
+          detail = res.errorMessage ?? null;
+        }
+      } catch {
+        status = "failed";
+        detail = "The mail send didn't complete.";
+      }
+      await db.insert(documentSends3).values({
+        profileId: load.profileId ?? null,
+        username: pod.driverUsername,
+        docRef: `paperwork-pod:${loadId}`,
+        docKind: "paperwork_pod",
+        docTitle: `POD copy \u2014 Load #${loadId}`,
+        toEmail: to,
+        replyTo: null,
+        subject,
+        status,
+        providerId,
+        detail,
+        sentAt: status === "sent" ? now : null
+      });
+      await db.update(loadPaperwork3).set({
+        sendStatus: status,
+        sendAt: status === "sent" ? now : pod.sendAt,
+        sendProviderId: providerId ?? pod.sendProviderId,
+        updatedAt: now
+      }).where(eq(loadPaperwork3.id, pod.id));
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: loadId,
+        sessionId: null,
+        event: "paperwork_sent",
+        payload: {
+          loadId,
+          paperworkId: pod.id,
+          status,
+          providerId,
+          toMasked: maskEmailForLog(to),
+          sha256: pod.sha256,
+          at: now.toISOString()
+        }
+      });
+      if (status === "sent" || status === "queued") {
+        const note = paperworkNotification(status === "sent" ? "pod_sent" : "pod_queued", {
+          loadId,
+          lane: audiences.lane
+        });
+        await recordNotificationSafe(ctx, {
+          username: pod.driverUsername,
+          kind: "system",
+          title: note.title,
+          body: note.body,
+          dedupeKey: `paperwork-sent:${loadId}:${pod.sha256}`,
+          refKind: "load",
+          refId: loadId
+        });
+      }
+    } catch {}
+  }
+}
+async function evaluatePaperworkSafe(ctx, loadId, opts) {
+  try {
+    await evaluateLoadPaperwork(ctx, loadId, opts);
+  } catch {}
+}
+function paperworkExtractionNote(status) {
+  switch (status) {
+    case "read":
+      return "The reader pulled these fields off the document. Anything that disagrees with the load record is marked \u2014 give it a look before you confirm. Nothing is saved to the load until you confirm.";
+    case "no_details":
+      return "The reader looked at this document and found no load details on it \u2014 fill the fields in by hand.";
+    case "not_configured":
+      return "Automatic reading isn't set up yet, so nothing was read from this document \u2014 check the fields by hand. What you confirm is what counts.";
+    case "failed":
+      return "The automatic read couldn't read this file \u2014 fill the fields in by hand. What you confirm is what counts.";
+    default:
+      return "This document hasn't been read yet \u2014 check the fields by hand.";
+  }
+}
+var paperworkFieldsShape = {
+  lane: null,
+  reference: null,
+  weightLbs: null,
+  pieces: null,
+  deliveryText: null
+};
+function paperworkDocState(row, load) {
+  if (!row) {
+    return {
+      filed: false,
+      mime: null,
+      sha256: null,
+      filedAt: null,
+      extractionStatus: null,
+      extractionNote: null,
+      candidates: { ...paperworkFieldsShape },
+      flags: { lane: false, reference: false, weightLbs: false, pieces: false, deliveryText: false },
+      confirmed: false,
+      confirmedFields: { ...paperworkFieldsShape },
+      confirmedAt: null
+    };
+  }
+  const candidates = parsePaperworkCandidates(row.candidateFieldsJson);
+  const flags = load ? flagCandidateFields(candidates, {
+    lane: laneLabel(load.pickupCity, load.pickupState, load.deliveryCity, load.deliveryState),
+    referenceNumber: load.referenceNumber ?? null,
+    weightLbs: load.weightLbs ?? null
+  }) : { lane: false, reference: false, weightLbs: false, pieces: false, deliveryText: false };
+  return {
+    filed: true,
+    mime: row.mime,
+    sha256: row.sha256,
+    filedAt: row.createdAt.toISOString(),
+    extractionStatus: row.extractionStatus,
+    extractionNote: paperworkExtractionNote(row.extractionStatus),
+    candidates,
+    flags,
+    confirmed: row.confirmStatus === "confirmed",
+    confirmedFields: parsePaperworkCandidates(row.confirmedFieldsJson),
+    confirmedAt: row.confirmedAt?.toISOString() ?? null
+  };
+}
+async function buildPaperworkState(ctx, loadId, scope) {
+  const rows = await paperworkRowsFor(ctx, loadId);
+  const bol = rows.find((r) => r.docKind === "bol") ?? null;
+  const pod = rows.find((r) => r.docKind === "pod") ?? null;
+  const load = scope.load;
+  let invoice = null;
+  let invoiceStatus = null;
+  if (scope.via === "mine") {
+    const invRows = await ctx.db().select().from(loadInvoices3).where(eq(loadInvoices3.loadId, loadId)).limit(1);
+    const inv = invRows[0];
+    if (inv) {
+      invoiceStatus = inv.status;
+      invoice = {
+        id: inv.id,
+        number: inv.number,
+        status: inv.status,
+        displayStatus: invoiceDisplayStatus({ status: inv.status, dueAtMs: inv.dueAt?.getTime() ?? null }, Date.now())
+      };
+    }
+  } else {
+    const events = await ctx.db().select().from(chainLog3).where(and(eq(chainLog3.refKind, "load"), eq(chainLog3.refId, loadId)));
+    if (events.some((e) => e.event === "invoice_paid"))
+      invoiceStatus = "paid";
+    else if (events.some((e) => e.event === "invoice_issued"))
+      invoiceStatus = "issued";
+    else if (events.some((e) => e.event === "invoice_created"))
+      invoiceStatus = "draft";
+  }
+  const stage = paperworkStage({
+    filed: rows.length > 0,
+    confirmed: pod?.confirmStatus === "confirmed",
+    sendStatus: pod?.sendStatus ?? null,
+    invoiceStatus
+  });
+  const pods = await podStatusByLoad(ctx);
+  return {
+    ok: true,
+    error: null,
+    sealed: pods.get(loadId)?.sealed ?? false,
+    stage,
+    stageLabel: PAPERWORK_STAGE_LABELS[stage],
+    bol: paperworkDocState(bol, load),
+    pod: paperworkDocState(pod, load),
+    recipientEmail: pod?.recipientEmail ?? null,
+    recipientLabel: pod?.recipientLabel ?? null,
+    sendStatus: pod?.sendStatus ?? null,
+    sendAt: pod?.sendAt?.toISOString() ?? null,
+    invoice
+  };
+}
+var paperworkFieldsSchema = object({
+  lane: string2().nullable(),
+  reference: string2().nullable(),
+  weightLbs: number2().nullable(),
+  pieces: number2().nullable(),
+  deliveryText: string2().nullable()
+});
+var paperworkDocStateSchema = object({
+  filed: boolean2(),
+  mime: string2().nullable(),
+  sha256: string2().nullable(),
+  filedAt: string2().nullable(),
+  extractionStatus: string2().nullable(),
+  extractionNote: string2().nullable(),
+  candidates: paperworkFieldsSchema,
+  flags: object({
+    lane: boolean2(),
+    reference: boolean2(),
+    weightLbs: boolean2(),
+    pieces: boolean2(),
+    deliveryText: boolean2()
+  }),
+  confirmed: boolean2(),
+  confirmedFields: paperworkFieldsSchema,
+  confirmedAt: string2().nullable()
+});
+var paperworkStateResponse = object({
+  ok: boolean2(),
+  error: string2().nullable(),
+  sealed: boolean2(),
+  stage: string2(),
+  stageLabel: string2(),
+  bol: paperworkDocStateSchema,
+  pod: paperworkDocStateSchema,
+  recipientEmail: string2().nullable(),
+  recipientLabel: string2().nullable(),
+  sendStatus: string2().nullable(),
+  sendAt: string2().nullable(),
+  invoice: object({ id: number2(), number: string2(), status: string2(), displayStatus: string2() }).nullable()
+});
+function paperworkStateFail(error) {
+  return {
+    ok: false,
+    error,
+    sealed: false,
+    stage: "none",
+    stageLabel: PAPERWORK_STAGE_LABELS.none,
+    bol: paperworkDocState(null, null),
+    pod: paperworkDocState(null, null),
+    recipientEmail: null,
+    recipientLabel: null,
+    sendStatus: null,
+    sendAt: null,
+    invoice: null
+  };
 }
 async function exceptionRoleFor(ctx, me, row) {
   if (row.driverUsername === me)
@@ -29292,6 +29908,105 @@ async function iftaPdfSections(ctx, year, quarter) {
     }
   ];
 }
+async function cutInvoiceDraft(ctx, load, opts) {
+  const db = ctx.db();
+  const pods = await podStatusByLoad(ctx);
+  const pod = pods.get(load.id);
+  if (!pod?.sealed || !pod.sealedAt) {
+    throw new Error("That load hasn't been delivered and sealed yet \u2014 an invoice is cut from a sealed load, so the bill always matches the sealed record.");
+  }
+  if (load.rate == null) {
+    throw new Error("This load has no rate on file \u2014 add the rate on the load first. An invoice never invents an amount.");
+  }
+  const existing = await db.select().from(loadInvoices3).where(eq(loadInvoices3.loadId, load.id)).limit(1);
+  if (existing[0]) {
+    throw new Error(`Load #${load.id} already has invoice ${existing[0].number} \u2014 one invoice per load. Delete the draft if you need to cut it again.`);
+  }
+  const claims = (await db.select().from(claimEvents3).where(eq(claimEvents3.loadId, load.id))).map((c) => ({ kind: c.kind, amount: c.amount }));
+  const built = invoiceLinesFor({ rate: load.rate, extraCharges: load.extraCharges ?? 0, extraChargesNote: load.extraChargesNote ?? null }, claims);
+  if (built.amount == null)
+    throw new Error("createInvoice: amount could not be figured from the load's rate");
+  const year = new Date().getUTCFullYear();
+  const myLoads = await db.select({ id: loads3.id }).from(loads3);
+  const myLoadIds = new Set(myLoads.map((l) => l.id));
+  const createdEvents = await db.select().from(chainLog3).where(eq(chainLog3.event, "invoice_created"));
+  let maxSeq = 0;
+  for (const r of createdEvents) {
+    if (r.refId == null || !myLoadIds.has(r.refId))
+      continue;
+    try {
+      const p = JSON.parse(r.payload);
+      const m = p.number ? new RegExp(`^INV-${year}-(\\d+)$`).exec(p.number) : null;
+      if (m)
+        maxSeq = Math.max(maxSeq, Number(m[1]));
+    } catch {}
+  }
+  const number = formatInvoiceNumber(year, maxSeq + 1);
+  const billToName = load.brokerCompany ?? load.brokerName ?? load.shipper ?? "Payer not named on the load";
+  const ins = await db.insert(loadInvoices3).values({
+    loadId: load.id,
+    number,
+    status: "draft",
+    billToName,
+    billToCompany: load.brokerCompany ?? null,
+    shipper: load.shipper ?? null,
+    pickupCity: load.pickupCity ?? null,
+    pickupState: load.pickupState ?? null,
+    deliveryCity: load.deliveryCity ?? null,
+    deliveryState: load.deliveryState ?? null,
+    referenceNumber: load.referenceNumber ?? null,
+    commodity: load.commodity ?? null,
+    deliveredAt: new Date(pod.sealedAt),
+    linesJson: JSON.stringify(built.lines),
+    amount: built.amount,
+    dueDays: opts.dueDays,
+    notes: opts.notes?.trim() || null
+  }).returning({ id: loadInvoices3.id });
+  const row = ins[0];
+  if (!row)
+    throw new Error("createInvoice: insert returned no rows");
+  const hash = await appendChain(ctx, {
+    refKind: "load",
+    refId: load.id,
+    sessionId: null,
+    event: "invoice_created",
+    payload: {
+      invoiceId: row.id,
+      number,
+      loadId: load.id,
+      amount: built.amount,
+      billToName,
+      ...opts.automatic ? { automatic: true } : {},
+      at: new Date().toISOString()
+    }
+  });
+  await db.update(loadInvoices3).set({ chainHash: hash }).where(eq(loadInvoices3.id, row.id));
+  return { id: row.id, number };
+}
+async function issueInvoiceRow(ctx, r, opts) {
+  const db = ctx.db();
+  if (r.status !== "draft")
+    throw new Error(`Invoice ${r.number} is already ${r.status} \u2014 only a draft can be issued.`);
+  const issuedAt = new Date;
+  const dueAt = new Date(issuedAt.getTime() + r.dueDays * 86400000);
+  await db.update(loadInvoices3).set({ status: "issued", issuedAt, dueAt, updatedAt: new Date }).where(eq(loadInvoices3.id, r.id));
+  await appendChain(ctx, {
+    refKind: "load",
+    refId: r.loadId,
+    sessionId: null,
+    event: "invoice_issued",
+    payload: {
+      invoiceId: r.id,
+      number: r.number,
+      loadId: r.loadId,
+      amount: r.amount,
+      issuedAt: issuedAt.toISOString(),
+      dueAt: dueAt.toISOString(),
+      ...opts.automatic ? { automatic: true } : {}
+    }
+  });
+  return { dueAt: dueAt.toISOString() };
+}
 async function businessIdentityFor(ctx) {
   const db = ctx.db();
   const rows = await db.select().from(profile3).where(eq(profile3.id, myProfileId(ctx))).limit(1);
@@ -36179,6 +36894,178 @@ var Actions = {
       return { ok: true, error: null };
     }
   }),
+  fileLoadPaperwork: defineAction({
+    description: "Paperwork-to-pay intake: file a scanned BOL/POD against a load (vault blob + sealed filing), then run the extraction read. Candidates stay provisional until the driver confirms.",
+    request: object({
+      loadId: number2().int().positive(),
+      docKind: _enum(["bol", "pod"]),
+      dataBase64: string2().min(100).max(12000000),
+      mime: string2().max(60)
+    }),
+    response: paperworkStateResponse,
+    async handler(ctx, args) {
+      const scope = await libraryLoadScope(ctx, args.loadId);
+      if (!scope || scope.via !== "mine")
+        return paperworkStateFail("That load isn't in your scope.");
+      const mime = args.mime.trim().toLowerCase();
+      if (mime !== "image/jpeg" && mime !== "image/png" && mime !== "application/pdf") {
+        return paperworkStateFail("That file type can't be filed as paperwork \u2014 use a JPG, PNG, or PDF scan.");
+      }
+      const load = scope.load;
+      const me = await myUsername(ctx);
+      const driverUsername = await driverUsernameForLoad(ctx, load) ?? me;
+      const db = ctx.db();
+      const bytes = base64ToBytes(args.dataBase64);
+      const sha256 = await sha256Bytes(new Uint8Array(bytes));
+      const blobKey = `paperwork-${args.loadId}-${args.docKind}-${sha256.slice(0, 16)}`;
+      await ctx.blobs.put(blobKey, bytes, { contentType: mime });
+      const now = new Date;
+      const existing = await paperworkRowFor(ctx, args.loadId, args.docKind);
+      let row;
+      if (existing) {
+        await db.update(loadPaperwork3).set({
+          blobKey,
+          mime,
+          sha256,
+          filedBy: me,
+          extractionStatus: "pending",
+          candidateFieldsJson: null,
+          extractionAt: null,
+          confirmStatus: "unconfirmed",
+          confirmedFieldsJson: null,
+          confirmedBy: null,
+          confirmedAt: null,
+          sendStatus: "not_ready",
+          sendAt: null,
+          sendProviderId: null,
+          updatedAt: now
+        }).where(eq(loadPaperwork3.id, existing.id));
+        row = { ...existing, blobKey, mime, sha256, filedBy: me };
+      } else {
+        const prefill = args.docKind === "pod" ? await paperworkRecipientPrefill(ctx, args.loadId) : null;
+        const ins = await db.insert(loadPaperwork3).values({
+          loadId: args.loadId,
+          docKind: args.docKind,
+          driverUsername,
+          blobKey,
+          mime,
+          sha256,
+          filedBy: me,
+          extractionStatus: "pending",
+          recipientEmail: prefill?.email ?? null,
+          recipientLabel: prefill?.label ?? null
+        }).returning({ id: loadPaperwork3.id });
+        const id = ins[0]?.id;
+        if (id == null)
+          return paperworkStateFail("The document couldn't be filed \u2014 try again.");
+        const rows = await db.select().from(loadPaperwork3).where(eq(loadPaperwork3.id, id)).limit(1);
+        row = rows[0];
+      }
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: args.loadId,
+        sessionId: null,
+        event: "paperwork_filed",
+        payload: {
+          loadId: args.loadId,
+          paperworkId: row.id,
+          docKind: args.docKind,
+          sha256,
+          mime,
+          filedBy: me,
+          replaced: existing != null,
+          at: now.toISOString()
+        }
+      });
+      await runPaperworkExtraction(ctx, row);
+      ctx.invalidateQueries();
+      return buildPaperworkState(ctx, args.loadId, scope);
+    }
+  }),
+  getLoadPaperwork: defineAction({
+    description: "One load's paperwork-to-pay state: filed documents, extraction outcome + candidates with needs-a-look flags, confirmation, recipient, send state, invoice (number + status only \u2014 never an amount), and the pipeline stage. The driver's own read runs the send/invoice trigger.",
+    request: object({ loadId: number2().int().positive() }),
+    response: paperworkStateResponse,
+    privileged: [privileged.sendDocEmail],
+    async handler(ctx, args) {
+      const scope = await libraryLoadScope(ctx, args.loadId);
+      if (!scope)
+        return paperworkStateFail("That load isn't in your scope.");
+      if (scope.via === "mine") {
+        await evaluatePaperworkSafe(ctx, args.loadId, { sideEffects: true });
+        await evaluateAutonomySafe(ctx, args.loadId);
+      }
+      return buildPaperworkState(ctx, args.loadId, scope);
+    }
+  }),
+  confirmPaperwork: defineAction({
+    description: "Confirm (or correct) one filed document's fields + the broker/factor recipient. Confirmation is the only write of read values anywhere, and it is what the auto-send / auto-invoice trigger stands on.",
+    request: object({
+      loadId: number2().int().positive(),
+      docKind: _enum(["bol", "pod"]),
+      fields: object({
+        lane: string2().max(200).nullable(),
+        reference: string2().max(120).nullable(),
+        weightLbs: number2().min(0).max(500000).nullable(),
+        pieces: number2().int().min(0).max(1e5).nullable(),
+        deliveryText: string2().max(200).nullable()
+      }),
+      recipientEmail: string2().email().max(200).nullable(),
+      recipientLabel: string2().max(120).nullable()
+    }),
+    response: paperworkStateResponse,
+    privileged: [privileged.sendDocEmail],
+    async handler(ctx, args) {
+      const scope = await libraryLoadScope(ctx, args.loadId);
+      if (!scope || scope.via !== "mine")
+        return paperworkStateFail("That load isn't in your scope.");
+      const row = await paperworkRowFor(ctx, args.loadId, args.docKind);
+      if (!row)
+        return paperworkStateFail("File the document first \u2014 there's nothing to confirm yet.");
+      const me = await myUsername(ctx);
+      const db = ctx.db();
+      const now = new Date;
+      const fields = {
+        lane: args.fields.lane?.trim() || null,
+        reference: args.fields.reference?.trim() || null,
+        weightLbs: args.fields.weightLbs,
+        pieces: args.fields.pieces,
+        deliveryText: args.fields.deliveryText?.trim() || null
+      };
+      const recipientEmail = args.recipientEmail?.trim() || null;
+      await db.update(loadPaperwork3).set({
+        confirmStatus: "confirmed",
+        confirmedFieldsJson: JSON.stringify(fields),
+        confirmedBy: me,
+        confirmedAt: now,
+        ...args.docKind === "pod" ? {
+          recipientEmail,
+          recipientLabel: args.recipientLabel?.trim() || row.recipientLabel,
+          ...row.sendStatus === "no_recipient" && recipientEmail ? { sendStatus: "not_ready" } : {}
+        } : {},
+        updatedAt: now
+      }).where(eq(loadPaperwork3.id, row.id));
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: args.loadId,
+        sessionId: null,
+        event: "paperwork_confirmed",
+        payload: {
+          loadId: args.loadId,
+          paperworkId: row.id,
+          docKind: args.docKind,
+          fields,
+          recipientMasked: recipientEmail ? maskEmailForLog(recipientEmail) : null,
+          confirmedBy: me,
+          at: now.toISOString()
+        }
+      });
+      await evaluatePaperworkSafe(ctx, args.loadId, { sideEffects: true });
+      await evaluateAutonomySafe(ctx, args.loadId);
+      ctx.invalidateQueries();
+      return buildPaperworkState(ctx, args.loadId, scope);
+    }
+  }),
   getTrackInfo: defineAction({
     description: "PUBLIC: tracking view for a shared load \u2014 route, stops, ETA, location + freshness. Never any rate or money field. Expires at delivery.",
     request: object({ token: string2().min(8).max(80) }),
@@ -36202,7 +37089,8 @@ var Actions = {
       lon: number2().nullable(),
       positionAt: string2().nullable(),
       positionFreshness: string2().nullable(),
-      timeline: array(object({ id: number2(), kind: string2(), label: string2(), at: string2(), corrected: boolean2() }))
+      timeline: array(object({ id: number2(), kind: string2(), label: string2(), at: string2(), corrected: boolean2() })),
+      paperwork: object({ stage: string2(), stageLabel: string2() }).nullable()
     }),
     async handler(ctx, args) {
       const invalid = {
@@ -36225,7 +37113,8 @@ var Actions = {
         lon: null,
         positionAt: null,
         positionFreshness: null,
-        timeline: []
+        timeline: [],
+        paperwork: null
       };
       if (receiveThrottleBlocked(args.token))
         return invalid;
@@ -36250,6 +37139,17 @@ var Actions = {
       })));
       const confirmation = await deliveryConfirmationFor(ctx, load.id);
       const state = trackShareStateFor({ linkStatus: resolved.link.status, delivered: confirmation != null });
+      const pwRows = await db.select().from(loadPaperwork3).where(eq(loadPaperwork3.loadId, load.id));
+      const podPw = pwRows.find((r) => r.docKind === "pod") ?? null;
+      const invEvents = await db.select().from(chainLog3).where(and(eq(chainLog3.refKind, "load"), eq(chainLog3.refId, load.id)));
+      const trackInvoiceStatus = invEvents.some((e) => e.event === "invoice_paid") ? "paid" : invEvents.some((e) => e.event === "invoice_issued") ? "issued" : null;
+      const pwStage = paperworkStage({
+        filed: pwRows.length > 0,
+        confirmed: podPw?.confirmStatus === "confirmed",
+        sendStatus: podPw?.sendStatus ?? null,
+        invoiceStatus: trackInvoiceStatus
+      });
+      const paperwork = pwRows.length > 0 || trackInvoiceStatus != null ? { stage: pwStage, stageLabel: PAPERWORK_STAGE_LABELS[pwStage] } : null;
       const driverUsername = await driverUsernameForLoad(ctx, load);
       const driver = driverUsername ? (await db.select().from(socialUsers3).where(eq(socialUsers3.username, driverUsername)).limit(1))[0] : undefined;
       const driverName = driver?.displayName?.trim() || driverUsername || "";
@@ -36304,7 +37204,8 @@ var Actions = {
         lon,
         positionAt,
         positionFreshness,
-        timeline
+        timeline,
+        paperwork
       };
     }
   }),
@@ -53205,71 +54106,9 @@ ${args.question}`, { schema: answerSchema });
       const load = loads[0];
       if (!load)
         throw new Error("createInvoice: no such load");
-      const pods = await podStatusByLoad(ctx);
-      const pod = pods.get(load.id);
-      if (!pod?.sealed || !pod.sealedAt) {
-        throw new Error("That load hasn't been delivered and sealed yet \u2014 an invoice is cut from a sealed load, so the bill always matches the sealed record.");
-      }
-      if (load.rate == null) {
-        throw new Error("This load has no rate on file \u2014 add the rate on the load first. An invoice never invents an amount.");
-      }
-      const existing = await db.select().from(loadInvoices3).where(eq(loadInvoices3.loadId, load.id)).limit(1);
-      if (existing[0]) {
-        throw new Error(`Load #${load.id} already has invoice ${existing[0].number} \u2014 one invoice per load. Delete the draft if you need to cut it again.`);
-      }
-      const claims = (await db.select().from(claimEvents3).where(eq(claimEvents3.loadId, load.id))).map((c) => ({ kind: c.kind, amount: c.amount }));
-      const built = invoiceLinesFor({ rate: load.rate, extraCharges: load.extraCharges ?? 0, extraChargesNote: load.extraChargesNote ?? null }, claims);
-      if (built.amount == null)
-        throw new Error("createInvoice: amount could not be figured from the load's rate");
-      const year = new Date().getUTCFullYear();
-      const myLoads = await db.select({ id: loads3.id }).from(loads3);
-      const myLoadIds = new Set(myLoads.map((l) => l.id));
-      const createdEvents = await db.select().from(chainLog3).where(eq(chainLog3.event, "invoice_created"));
-      let maxSeq = 0;
-      for (const r of createdEvents) {
-        if (r.refId == null || !myLoadIds.has(r.refId))
-          continue;
-        try {
-          const p = JSON.parse(r.payload);
-          const m = p.number ? new RegExp(`^INV-${year}-(\\d+)$`).exec(p.number) : null;
-          if (m)
-            maxSeq = Math.max(maxSeq, Number(m[1]));
-        } catch {}
-      }
-      const number = formatInvoiceNumber(year, maxSeq + 1);
-      const billToName = load.brokerCompany ?? load.brokerName ?? load.shipper ?? "Payer not named on the load";
-      const ins = await db.insert(loadInvoices3).values({
-        loadId: load.id,
-        number,
-        status: "draft",
-        billToName,
-        billToCompany: load.brokerCompany ?? null,
-        shipper: load.shipper ?? null,
-        pickupCity: load.pickupCity ?? null,
-        pickupState: load.pickupState ?? null,
-        deliveryCity: load.deliveryCity ?? null,
-        deliveryState: load.deliveryState ?? null,
-        referenceNumber: load.referenceNumber ?? null,
-        commodity: load.commodity ?? null,
-        deliveredAt: new Date(pod.sealedAt),
-        linesJson: JSON.stringify(built.lines),
-        amount: built.amount,
-        dueDays: args.dueDays,
-        notes: args.notes?.trim() || null
-      }).returning({ id: loadInvoices3.id });
-      const row = ins[0];
-      if (!row)
-        throw new Error("createInvoice: insert returned no rows");
-      const hash = await appendChain(ctx, {
-        refKind: "load",
-        refId: load.id,
-        sessionId: null,
-        event: "invoice_created",
-        payload: { invoiceId: row.id, number, loadId: load.id, amount: built.amount, billToName, at: new Date().toISOString() }
-      });
-      await db.update(loadInvoices3).set({ chainHash: hash }).where(eq(loadInvoices3.id, row.id));
+      const cut = await cutInvoiceDraft(ctx, load, { dueDays: args.dueDays, notes: args.notes, automatic: false });
       ctx.invalidateQueries();
-      return { id: row.id, number };
+      return cut;
     }
   }),
   listInvoices: defineAction({
@@ -53393,20 +54232,9 @@ ${args.question}`, { schema: answerSchema });
       const r = rows[0];
       if (!r)
         throw new Error("issueInvoice: no such invoice");
-      if (r.status !== "draft")
-        throw new Error(`Invoice ${r.number} is already ${r.status} \u2014 only a draft can be issued.`);
-      const issuedAt = new Date;
-      const dueAt = new Date(issuedAt.getTime() + r.dueDays * 86400000);
-      await db.update(loadInvoices3).set({ status: "issued", issuedAt, dueAt, updatedAt: new Date }).where(eq(loadInvoices3.id, r.id));
-      await appendChain(ctx, {
-        refKind: "load",
-        refId: r.loadId,
-        sessionId: null,
-        event: "invoice_issued",
-        payload: { invoiceId: r.id, number: r.number, loadId: r.loadId, amount: r.amount, issuedAt: issuedAt.toISOString(), dueAt: dueAt.toISOString() }
-      });
+      const out = await issueInvoiceRow(ctx, r, { automatic: false });
       ctx.invalidateQueries();
-      return { ok: true, dueAt: dueAt.toISOString() };
+      return { ok: true, dueAt: out.dueAt };
     }
   }),
   markInvoicePaid: defineAction({

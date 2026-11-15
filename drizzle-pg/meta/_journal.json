@@ -162,6 +162,13 @@
       "when": 1795900000000,
       "tag": "0022_autonomy_core",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1796000000000,
+      "tag": "0023_paperwork_to_pay",
+      "breakpoints": true
     }
   ]
 }

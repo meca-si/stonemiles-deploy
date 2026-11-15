@@ -45,6 +45,7 @@ function exceptionInputs(over: Partial<ExceptionInputs> = {}): ExceptionInputs {
     detentionApptAt: null,
     appointmentCheckable: true,
     openDetention: null,
+    paperwork: null,
     now: NOW,
     ...over,
   };
