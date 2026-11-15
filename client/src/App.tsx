@@ -986,7 +986,7 @@ const MECA_DEST_INFO: Record<MecaDestId, { label: string; blurb: string }> = {
   broker_desk: { label: "Broker Desk", blurb: "The Broker Desk is the poster's home — your posted loads with their review status, your poster fee, your totals. It is one section of the Desk now: ask Meca about 'the Desk' for the full rules, stated once there. Dispatcher posters live on My Desk — one desk for the same work, never two." },
   owner_desk: { label: "Owner Desk", blurb: "The Owner Desk is the fleet owner's command screen — review queue, company pipeline, roster, plan, totals — the mobile home of the Owner Console, which keeps the deep work. It is one section of the Desk now: ask Meca about 'the Desk' for the full rules, stated once there." },
   sign_out: { label: "Sign out", blurb: "Sign out lives in Settings → Security & privacy — the 'Account session — this device' card right under the App lock PIN — and in Chat → My company → My social profile. It ends THIS device's session and returns you to the sign-in screen; a signed-out device shows no account data, and your other devices stay signed in. Signing back in always takes a real credential: your app PIN if you've set one, Face ID / fingerprint if it's enrolled on the device, or the full account sign-in — email + password, Google, or a passkey. There is no one-tap way back in, and the full sign-in screen is also where you switch to a different account. For every device at once, the Security Center (same Settings section) carries Sign Out Everywhere." },
-  doc_expiry: { label: "Driver → Document expiry wallet", blurb: "The Document Expiry Wallet is on the Driver tab — it tracks the five dates that can park the truck (CDL, medical card, vehicle registration, insurance, and the annual DOT inspection) from the expiry dates YOU entered, with in-app alerts at 30, 14, and 7 days out plus an expired state, and a warning strip at the top of the Driver tab whenever one is due. The document files themselves live in the Document Vault right below it. Alerts are in-app only — the app sends no push notifications." },
+  doc_expiry: { label: "Driver → Document expiry wallet", blurb: "The Document Expiry Wallet is on the Driver tab — it tracks the dates that can park the truck from the expiry dates YOU entered. Your three credentials — CDL, medical card, and TWIC (the TWIC date lives on your social profile) — get credential alerts at 60, 30, and 7 days out plus an expired state, shown at the top of the Driver tab and in the wallet; each alert can be dismissed for that round only (the next mark reminds you again, and a renewed card restarts the watch). The wallet's other dates (vehicle registration, insurance, the annual DOT inspection) alert at 30, 14, and 7 days out. The document files themselves live in the Document Vault right below it. Alerts are in-app only — the app sends no push notifications." },
   owed_board: { label: "Driver → Who owes me", blurb: "The 'Who owes me' board is on the Driver tab — every delivered (POD-sealed) load whose pay hasn't been recorded yet, oldest first, with days outstanding and aging: freight plus any sealed claim events (TONU / layover / driver assist), minus the payments you've recorded against it. Recording a payment is a record only — the board tracks what's owed; it sends no invoices and moves no money. A load leaves the board when its recorded payments cover what's owed." },
   true_rate: { label: "Driver → True rate", blurb: "The True Rate panel is on the Driver tab — for every load with pay and miles on file it divides TOTAL pay by ALL miles (loaded + deadhead, the empty run to the pickup included), and shows a net-after-fuel figure: from fuel logged against that load where it exists, otherwise an estimate from your logged fuel purchases' average price and your truck's MPG, labelled an estimate plainly. With no logged fuel price anywhere, no net figure is shown — a fuel cost is never fabricated. If you've saved YOUR factoring % and/or dispatcher % (Settings → My pay — your own costs, never platform fees), each load also shows those two deductions and a net-after-fees rate figured from them. Deadhead miles are recorded per load right in the panel (or scored before booking in the Worth-It Advisor)." },
   claims_log: { label: "Driver → TONU + layover logger", blurb: "The TONU + Layover Logger is on the Driver tab — one-tap claim events (TONU — truck ordered, not used; layover; driver assist) with the amount YOU enter, timestamped and sealed into the load's record, riding its exports and counting on the Who-owes-me board until the load is paid. It sits BESIDE Detention Pay, which keeps its own arrival/departure tracker on each load — the two never double up." },
@@ -2130,6 +2130,14 @@ export function App() {
   const personalDocsQuery = useQuery({
     queryKey: ["personal-docs"],
     queryFn: () => api.listPersonalDocs({}),
+  });
+  // Credential expiry alerts (TMS queue item 1): CDL / medical /
+  // TWIC at 60 / 30 / 7 days + expired, stateful per threshold. The
+  // Driver-tab strip and the profile's TWIC row read this one query;
+  // the expiry wallet (Money tab) renders the full status.
+  const credentialAlertsQuery = useQuery({
+    queryKey: ["credential-alerts"],
+    queryFn: () => api.getCredentialAlerts({}),
   });
   const owedBoardQuery = useQuery({
     queryKey: ["owed-board"],
@@ -18374,11 +18382,61 @@ export function App() {
           />
           <div className="animate-rise space-y-3 px-3 pb-3">
             <OnboardingCard onOpen={() => setShowOnboarding(true)} />
+            {(credentialAlertsQuery.data?.alerts ?? []).map((a) => (
+              // Credential expiry alerts (TMS queue item 1): one strip
+              // per nagging credential — CDL / medical / TWIC at the
+              // 60 / 30 / 7-day marks and expired — each dismissible
+              // for its threshold only (the server records the
+              // dismissal against the card's current expiry date, so
+              // the same mark never nags twice and a renewal re-arms).
+              <div
+                key={a.key}
+                className={`flex items-stretch gap-2 rounded-2xl font-bold ${a.threshold === 0 || a.threshold === 7 ? "bg-red-900/60 text-red-100" : "bg-amber-900/50 text-amber-100"}`}
+              >
+                <button
+                  type="button"
+                  className="btn-press flex-1 px-4 py-3 text-left"
+                  aria-label={`Credential expiry alert: ${a.label} ${a.threshold === 0 ? "expired" : `expires in ${a.daysLeft} days`}. Open the expiry wallet.`}
+                  onClick={() => document.getElementById("doc-expiry")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                >
+                  {a.threshold === 0
+                    ? `⛔ ${a.label} EXPIRED ${Math.abs(a.daysLeft ?? 0)} days ago`
+                    : a.daysLeft === 0
+                      ? `⏰ ${a.label} expires TODAY`
+                      : `⏰ ${a.label} expires in ${a.daysLeft} days`}
+                  {" — tap to open the expiry wallet"}
+                </button>
+                <button
+                  type="button"
+                  className="btn-press shrink-0 px-3"
+                  aria-label={`Dismiss the ${a.label} expiry alert for this round`}
+                  onClick={() =>
+                    void api
+                      .dismissCredentialAlert({ credentialKey: a.key as "cdl" | "medical" | "twic", threshold: a.threshold })
+                      .then((r) => {
+                        if (r.error) {
+                          setBanner(r.error);
+                          return;
+                        }
+                        setBanner(`${a.label} alert dismissed for this round — the next mark will remind you again.`);
+                        void queryClient.invalidateQueries({ queryKey: ["credential-alerts"] });
+                      })
+                      .catch(() => setBanner("Couldn't dismiss that alert — try again."))
+                  }
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
             {(() => {
               // Money & Flow: the expiry wallet's alert strip — visible
               // at the top of the Driver tab whenever any tracked
-              // document is expired or inside its 30-day window.
-              const docs = personalDocsQuery.data?.docs ?? [];
+              // document is expired or inside its 30-day window. CDL +
+              // medical are NOT counted here anymore: the credential
+              // alerts above own them (60-day window, TWIC alongside,
+              // per-threshold dismissal) — this strip keeps the
+              // wallet's other kinds.
+              const docs = (personalDocsQuery.data?.docs ?? []).filter((d) => d.kind !== "cdl" && d.kind !== "medical");
               const urgent = mostUrgentDoc(docs);
               const count = docAlertCount(docs);
               if (!urgent || count === 0) return null;
@@ -22259,6 +22317,48 @@ export function App() {
                       <div className="mt-3">
                         <label className={labelCls} htmlFor="sp-twic-exp">TWIC expires</label>
                         <input id="sp-twic-exp" className={inputCls} type="date" value={socialForm.twicExpires} onChange={(e) => setSocialForm({ ...socialForm, twicExpires: e.target.value })} aria-label="TWIC card expiration date" />
+                        {(() => {
+                          // Credential alerts (TMS queue item 1): the
+                          // TWIC's live alert state on its own screen —
+                          // the saved date drives it (save the profile
+                          // after changing the date).
+                          const twic = credentialAlertsQuery.data?.credentials.find((c) => c.key === "twic");
+                          if (!twic || twic.threshold == null) return null;
+                          return (
+                            <p className={`mt-2 flex items-center justify-between gap-2 rounded-xl px-3 py-2 text-sm font-semibold ${twic.threshold === 0 || twic.threshold === 7 ? "bg-red-900/40 text-red-100" : "bg-amber-900/40 text-amber-100"}`} role="alert">
+                              <span>
+                                {twic.threshold === 0
+                                  ? `⛔ TWIC EXPIRED ${Math.abs(twic.daysLeft ?? 0)} days ago — renew before port work.`
+                                  : twic.daysLeft === 0
+                                    ? "⏰ TWIC expires TODAY."
+                                    : `⏰ TWIC expires in ${twic.daysLeft} days — alerts fire at 60 / 30 / 7 days out.`}
+                                {twic.dismissed ? " (Dismissed for this round.)" : ""}
+                              </span>
+                              {!twic.dismissed && (
+                                <button
+                                  type="button"
+                                  className="btn-press shrink-0 rounded-lg bg-black/25 px-2.5 py-1 text-xs font-bold"
+                                  aria-label="Dismiss the TWIC expiry alert for this round"
+                                  onClick={() =>
+                                    void api
+                                      .dismissCredentialAlert({ credentialKey: "twic", threshold: twic.threshold ?? 0 })
+                                      .then((r) => {
+                                        if (r.error) {
+                                          setBanner(r.error);
+                                          return;
+                                        }
+                                        setBanner("TWIC alert dismissed for this round — the next mark will remind you again.");
+                                        void queryClient.invalidateQueries({ queryKey: ["credential-alerts"] });
+                                      })
+                                      .catch(() => setBanner("Couldn't dismiss that alert — try again."))
+                                  }
+                                >
+                                  Dismiss
+                                </button>
+                              )}
+                            </p>
+                          );
+                        })()}
                       </div>
                     )}
                     <fieldset className="mt-3">

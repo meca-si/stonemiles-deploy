@@ -82,9 +82,32 @@ export function ExpiryWalletPanel({ setBanner, lang = "en" }: { setBanner: Banne
   }, [docs]);
 
   const alerts = docs.filter((d) => {
+    // CDL + medical nag through the credential alerts below (60-day
+    // window, per-threshold dismissal, TWIC alongside) — this banner
+    // list keeps the wallet's other kinds on their 30 / 14 / 7 tiers.
+    if (d.kind === "cdl" || d.kind === "medical") return false;
     const t = docAlertTier(d.daysLeft);
     return t === "expired" || t === "due7" || t === "due14" || t === "due30";
   });
+
+  // Credential expiry alerts (TMS queue item 1): the server's
+  // credentialAlerts rules over the dates already on file — this
+  // panel is the credentials' own screen, and the Driver-tab strip
+  // nags from the same query.
+  const credQ = useQuery({ queryKey: ["credential-alerts"], queryFn: () => api.getCredentialAlerts({}) });
+  const dismissCred = (key: string, threshold: number) => {
+    void api
+      .dismissCredentialAlert({ credentialKey: key as "cdl" | "medical" | "twic", threshold })
+      .then((r) => {
+        if (r.error) {
+          setBanner(r.error);
+          return;
+        }
+        setBanner("Alert dismissed for this round — the next mark will remind you again, and a renewed card restarts the watch.");
+        void queryClient.invalidateQueries({ queryKey: ["credential-alerts"] });
+      })
+      .catch(() => setBanner("Couldn't dismiss that alert — try again."));
+  };
 
   const tierCls = (tier: string) =>
     tier === "expired"
@@ -100,8 +123,55 @@ export function ExpiryWalletPanel({ setBanner, lang = "en" }: { setBanner: Banne
   return (
     <Section title={tt(lang, "money.expiryWallet")} ariaLabel="Document expiry wallet">
       <p className="text-sm text-[var(--dim)]">
-        The five dates that can park your truck. Enter each expiry once and this wallet watches it for you — alerts at <strong className="text-[var(--text)]">30, 14, and 7 days out</strong>, and an expired state the day it lapses. Alerts are <strong className="text-[var(--text)]">in-app only</strong>: they show here, on the Driver tab, and in the Morning Briefing — the app doesn't send push notifications. The document files themselves live in the Document Vault just below; this wallet tracks the dates.
+        The five dates that can park your truck. Enter each expiry once and this wallet watches it for you — the credential alerts below watch CDL, medical card, and TWIC at <strong className="text-[var(--text)]">60, 30, and 7 days out</strong>; the rest alert at <strong className="text-[var(--text)]">30, 14, and 7 days out</strong>, and an expired state the day it lapses. Alerts are <strong className="text-[var(--text)]">in-app only</strong>: they show here, on the Driver tab, and in the Morning Briefing — the app doesn't send push notifications. The document files themselves live in the Document Vault just below; this wallet tracks the dates.
       </p>
+      <div className="mt-3 rounded-xl border border-[var(--border)] px-3 py-2.5">
+        <p className="text-sm font-bold">{tt(lang, "money.credentialAlerts")}</p>
+        <p className="mt-0.5 text-xs text-[var(--dim)]">
+          The three credentials that can park you. Dismiss an alert and that round goes quiet — the next mark still reminds you, and a renewed card starts the watch over. CDL + medical dates come from the vault below; the TWIC date lives on your profile (Settings → My social profile).
+        </p>
+        {(credQ.data?.alerts ?? []).map((a) => (
+          <div key={a.key} className={`mt-2 flex items-center justify-between gap-2 rounded-xl px-3 py-2 text-sm font-semibold ${a.threshold === 0 || a.threshold === 7 ? "bg-red-900/40 text-red-100" : "bg-amber-900/40 text-amber-100"}`} role="alert">
+            <span>
+              {a.threshold === 0
+                ? `⛔ ${a.label} EXPIRED ${Math.abs(a.daysLeft ?? 0)} days ago — renew before you roll.`
+                : a.daysLeft === 0
+                  ? `⏰ ${a.label} expires TODAY.`
+                  : `⏰ ${a.label} expires in ${a.daysLeft} days.`}
+            </span>
+            <button
+              type="button"
+              className="btn-press shrink-0 rounded-lg bg-black/25 px-2.5 py-1 text-xs font-bold"
+              aria-label={`Dismiss the ${a.label} expiry alert for this round`}
+              onClick={() => dismissCred(a.key, a.threshold)}
+            >
+              Dismiss
+            </button>
+          </div>
+        ))}
+        <div className="mt-2 space-y-1.5">
+          {(credQ.data?.credentials ?? []).map((c) => (
+            <div key={c.key} className="flex items-center justify-between gap-2 rounded-xl bg-[var(--surface2)] px-3 py-2 text-sm">
+              <span className="min-w-0">
+                <strong>{c.label}</strong>
+                <span className="block truncate text-xs text-[var(--dim)]">
+                  {c.expiresOn ? `Expires ${new Date(`${c.expiresOn}T12:00:00`).toLocaleDateString()}` : "No expiry date on file"}
+                </span>
+              </span>
+              <span className="shrink-0 text-xs font-bold text-[var(--dim)]">
+                {c.threshold == null
+                  ? c.expiresOn
+                    ? "Current"
+                    : "Not added"
+                  : c.threshold === 0
+                    ? "EXPIRED"
+                    : `Due within ${c.threshold} days${c.daysLeft != null ? ` · ${c.daysLeft}d left` : ""}`}
+                {c.dismissed ? " · dismissed this round" : ""}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
       {alerts.map((d) => (
         <p key={d.id} className={`mt-2 rounded-xl px-3 py-2 text-sm font-semibold ${tierCls(docAlertTier(d.daysLeft))}`} role="alert">
           {docAlertTier(d.daysLeft) === "expired"

@@ -4549,6 +4549,25 @@ export const pointsSafetyHolds = pgTable("points_safety_holds", {
     .$defaultFn(() => new Date()),
 });
 
+// Credential expiry alert dismissals (migration 0125, TMS queue
+// item 1): one row per (driver, credential, threshold, expiry date)
+// the driver has dismissed. The alert engine (credentialAlerts.ts)
+// reads these to silence a threshold's nag for the CURRENT card only
+// — the row keys on the expiry date (expires_on, YYYY-MM-DD), so a
+// renewed credential re-arms every threshold without any cleanup.
+// The expiry dates themselves are never duplicated here: CDL +
+// medical live in personal_docs, TWIC on social_users.
+export const credentialAlertDismissals = pgTable("credential_alert_dismissals", {
+  id: serial("id").primaryKey(),
+  username: text("username").notNull(),
+  credentialKey: text("credential_key").notNull(), // cdl | medical | twic
+  threshold: integer("threshold").notNull(), // 60 | 30 | 7 | 0 (expired)
+  expiresOn: text("expires_on").notNull(), // YYYY-MM-DD the dismissal applies to
+  dismissedAt: timestamp("dismissed_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
 export const breakdownLogs = pgTable("breakdown_logs", {
   // Auth Phase 2b: owning profile (host-stamped on insert, host-filtered
   // on read/update/delete — see host/ctx.ts scopedDb). Null only on

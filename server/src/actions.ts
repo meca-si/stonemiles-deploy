@@ -200,6 +200,14 @@ dvirDraftDescription,
 dvirDraftNotes,
 } from "./dvir";
 import {
+CREDENTIAL_LABELS,
+activeCredentialAlerts,
+buildCredentialStatuses,
+type CredentialKey,
+type CredentialLike,
+type CredentialStatus,
+} from "./credentialAlerts";
+import {
 SEASON_EPOCH,
 SEASON_MS,
 pointsBalanceFromLedger,
@@ -8548,6 +8556,57 @@ async function podStatusByLoad(ctx: Ctx): Promise<Map<number, PodInfo>> {
     }
   }
   return map;
+}
+
+/**
+ * The caller's three watched credentials with their live alert state
+ * (TMS queue item 1, credentialAlerts.ts). Sources are the stores the
+ * app already keeps — NO parallel credential store:
+ *  - CDL + medical card: the caller's personal_docs rows of that kind
+ *    (host-scoped read), soonest expiry winning — the expiry wallet's
+ *    standing rule, so a renewed card filed beside the old one never
+ *    hides the old one's lapse;
+ *  - TWIC: the caller's social profile holding flag + expiry date
+ *    (the card number is never stored anywhere).
+ * Dismissals are the caller's own rows in credential_alert_dismissals.
+ */
+async function credentialStatusesFor(ctx: Ctx, me: string): Promise<CredentialStatus[]> {
+  const db = ctx.db<typeof schema>();
+  const docs = await db.select().from(schema.personalDocs);
+  const soonestDoc = (kind: string) =>
+    docs
+      .filter((d) => d.kind === kind && d.expiresAt != null)
+      .sort((a, b) => a.expiresAt!.getTime() - b.expiresAt!.getTime())[0] ?? null;
+  const cdlDoc = soonestDoc("cdl");
+  const medDoc = soonestDoc("medical");
+  const socialRows = await db
+    .select()
+    .from(schema.socialUsers)
+    .where(eq(schema.socialUsers.username, me))
+    .limit(1);
+  const social = socialRows[0];
+  const credentials: CredentialLike[] = [
+    {
+      key: "cdl",
+      label: cdlDoc?.label ?? CREDENTIAL_LABELS.cdl,
+      expiresOn: cdlDoc?.expiresAt ? cdlDoc.expiresAt.toISOString().slice(0, 10) : null,
+    },
+    {
+      key: "medical",
+      label: medDoc?.label ?? CREDENTIAL_LABELS.medical,
+      expiresOn: medDoc?.expiresAt ? medDoc.expiresAt.toISOString().slice(0, 10) : null,
+    },
+    {
+      key: "twic",
+      label: CREDENTIAL_LABELS.twic,
+      expiresOn: social?.twicHas && social?.twicExpires ? social.twicExpires : null,
+    },
+  ];
+  const dismissals = await db
+    .select()
+    .from(schema.credentialAlertDismissals)
+    .where(eq(schema.credentialAlertDismissals.username, me));
+  return buildCredentialStatuses(credentials, dismissals, Date.now());
 }
 
 // ---- Instant Pay Phase 0 — Payment Packet assembly (records only) ---------
@@ -42078,6 +42137,107 @@ export const Actions = {
       });
       ctx.invalidateQueries();
       return { ok: true as const };
+    },
+  }),
+
+  // ---- Credential expiry alerts (TMS queue item 1, migration 0125) -----------
+  // CDL / medical card / TWIC alerts at 60 / 30 / 7 days before lapse
+  // plus the expired state, computed from the expiry dates already on
+  // file (document vault + profile TWIC) — credentialAlerts.ts holds
+  // the rules. In-app only (push plumbing is a later queue item).
+  // Dismissal is per threshold per expiry date: silencing the 60-day
+  // nag never silences the 30-day one, and a renewed card re-arms all
+  // of them. Dismissing never edits the credential itself.
+
+  getCredentialAlerts: defineAction({
+    description: "The caller's CDL / medical / TWIC expiry status and the credential alerts actively nagging right now (60/30/7 days + expired, per-threshold dismissals honored).",
+    request: z.object({}),
+    response: z.object({
+      credentials: z.array(
+        z.object({
+          key: z.string(),
+          label: z.string(),
+          expiresOn: z.string().nullable(),
+          daysLeft: z.number().nullable(),
+          threshold: z.number().nullable(), // 60 | 30 | 7 | 0 (expired) | null
+          dismissed: z.boolean(),
+        }),
+      ),
+      alerts: z.array(
+        z.object({
+          key: z.string(),
+          label: z.string(),
+          expiresOn: z.string().nullable(),
+          daysLeft: z.number().nullable(),
+          threshold: z.number(),
+        }),
+      ),
+    }),
+    async handler(ctx) {
+      const me = await myUsername(ctx);
+      const statuses = await credentialStatusesFor(ctx, me);
+      const shape = (s: CredentialStatus) => ({
+        key: s.key,
+        label: s.label,
+        expiresOn: s.expiresOn,
+        daysLeft: s.daysLeft,
+        threshold: s.threshold,
+        dismissed: s.dismissed,
+      });
+      return {
+        credentials: statuses.map(shape),
+        alerts: activeCredentialAlerts(statuses).map((s) => ({
+          key: s.key,
+          label: s.label,
+          expiresOn: s.expiresOn,
+          daysLeft: s.daysLeft,
+          threshold: s.threshold ?? 0,
+        })),
+      };
+    },
+  }),
+
+  dismissCredentialAlert: defineAction({
+    description: "Dismiss the current credential expiry alert for one threshold (recorded against the card's current expiry date; the next threshold still fires, and a renewal re-arms).",
+    request: z.object({
+      credentialKey: z.enum(["cdl", "medical", "twic"]),
+      threshold: z.number().int(),
+    }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable() }),
+    async handler(ctx, args) {
+      const me = await myUsername(ctx);
+      const statuses = await credentialStatusesFor(ctx, me);
+      const status = statuses.find((s) => s.key === (args.credentialKey as CredentialKey));
+      if (!status || status.expiresOn == null)
+        return { ok: false, error: "No expiry date is on file for that credential — there's no alert to dismiss." };
+      if (status.threshold == null)
+        return { ok: false, error: "That credential isn't in an alert window right now." };
+      if (args.threshold !== status.threshold)
+        return { ok: false, error: "That alert has moved on — refresh and dismiss the one showing now." };
+      if (!status.dismissed) {
+        const db = ctx.db<typeof schema>();
+        await db.insert(schema.credentialAlertDismissals).values({
+          username: me,
+          credentialKey: status.key,
+          threshold: status.threshold,
+          expiresOn: status.expiresOn,
+        });
+        await appendChain(ctx, {
+          refKind: "driver",
+          refId: null,
+          sessionId: null,
+          event: "credential_alert_dismissed",
+          payload: {
+            username: me,
+            credentialKey: status.key,
+            threshold: status.threshold,
+            expiresOn: status.expiresOn,
+            at: new Date().toISOString(),
+          },
+        });
+      }
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
     },
   }),
 

@@ -127,6 +127,13 @@
       "when": 1795400000000,
       "tag": "0017_points_layer2",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1795500000000,
+      "tag": "0018_credential_alerts",
+      "breakpoints": true
     }
   ]
 }
