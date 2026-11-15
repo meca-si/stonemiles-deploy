@@ -1,17 +1,22 @@
-// chatAlerts.test.ts — INTEGRATION tests for the new-message email
-// alerts (2026-11-14), run against the REAL action handlers over a
-// throwaway migrated SQLite database:
+// chatAlerts.test.ts — INTEGRATION tests for chat-message email
+// behavior and the send-door load-offer email, run against the REAL
+// action handlers over a throwaway migrated SQLite database:
 //
-//   (a) a DM message emails the OTHER member once — sender named,
-//       conversation named, app linked, message body NEVER included
-//   (b) a burst of follow-on messages does NOT re-alert
-//   (c) after the member catches up (markChatRead), the next message
-//       alerts again
-//   (d) the "Company chat" notification switch OFF silences the alert
-//   (e) a group message alerts every other caught-up member
+//   (a) a DM message sends fine but emails NOBODY — owner decision
+//       2026-11-14: the in-app unread badge is the DM notification;
+//       an email would duplicate the member's in-app inbox. The
+//       sender's per-member read marker (migration 0117) still moves
+//       and no alert state is recorded for the other member.
+//   (b) a burst of follow-on messages also sends no email
+//   (c) markChatRead still advances the member's per-member read
+//       marker, and the next message still sends no email
+//   (d) the "Company chat" notification switch OFF changes nothing
+//       for email (there is none to change) — sends still work
+//   (e) a group message emails no member either
 //   (f) a send-door load submission emails the fleet owner once —
 //       subject names it a new load offer, NO rate in the email — and
-//       the honest alert status lands on the sealed chain
+//       the honest alert status lands on the sealed chain (a separate
+//       path, NOT affected by the chat decision)
 //
 // Hermetic: STONEMILES_DB / STONEMILES_BLOBS point into a temp dir
 // before host/ctx is imported (both bind at module load). The mail
@@ -138,45 +143,53 @@ async function send(ctx: CtxT, groupId: number, body: string): Promise<number> {
 
 const mailTo = (email: string) => sentMail.filter((m) => m.to === email);
 
-describe("chat email alerts", () => {
-  test("(a) first DM message emails the other member once, no body text", async () => {
+describe("chat messages send no email", () => {
+  test("(a) first DM message sends but emails nobody; read tracking intact", async () => {
     const id = await send(aliceCtx, dmId, "secret load details 12345");
     expect(id).toBeGreaterThan(0);
-    const mail = mailTo("bob@test.local");
-    expect(mail.length).toBe(1);
-    expect(mail[0]!.subject).toBe("STONEMILES — new message from Alice A");
-    expect(mail[0]!.text).toContain("https://app.stonervision.io");
-    expect(mail[0]!.text).not.toContain("secret load details");
-    // The sender is never emailed about their own message.
-    expect(mailTo("alice@test.local").length).toBe(0);
-    // Alert state recorded for bob: alerted at this message, read still 0.
+    // Owner decision 2026-11-14: NO email for chat messages — not to
+    // the other member, not to the sender, not to anyone.
+    expect(mailTo(bob.email).length).toBe(0);
+    expect(mailTo(alice.email).length).toBe(0);
+    expect(sentMail.length).toBe(0);
+    // Reads tracking (migration 0117) is untouched: the sender's own
+    // per-member marker moved to the new message…
     const rows = await db
       .select()
       .from(schema.chatMemberReads)
       .where(eq(schema.chatMemberReads.groupId, dmId));
+    const aliceRow = rows.find((r) => r.username === "alice");
+    expect(aliceRow?.lastReadId).toBe(id);
+    // …and NO alert state was recorded for the other member.
     const bobRow = rows.find((r) => r.username === "bob");
-    expect(bobRow?.lastAlertedId).toBe(id);
-    expect(bobRow?.lastReadId).toBe(0);
+    expect(bobRow).toBeUndefined();
   });
 
-  test("(b) a burst does not re-alert", async () => {
+  test("(b) a burst also sends no email", async () => {
     await send(aliceCtx, dmId, "second");
     await send(aliceCtx, dmId, "third");
-    expect(mailTo("bob@test.local").length).toBe(1);
+    expect(sentMail.length).toBe(0);
   });
 
-  test("(c) after bob catches up, the next message alerts again", async () => {
+  test("(c) markChatRead still advances the read marker; next message still no email", async () => {
     const msgs = await db
       .select()
       .from(schema.chatMessages)
       .where(eq(schema.chatMessages.groupId, dmId));
     const latest = Math.max(...msgs.map((m) => m.id));
     await Actions.markChatRead.handler(bobCtx, { groupId: dmId, messageId: latest } as never);
+    const rows = await db
+      .select()
+      .from(schema.chatMemberReads)
+      .where(eq(schema.chatMemberReads.groupId, dmId));
+    const bobRow = rows.find((r) => r.username === "bob");
+    expect(bobRow?.lastReadId).toBe(latest);
+    expect(bobRow?.lastAlertedId).toBe(0);
     await send(aliceCtx, dmId, "fourth — fresh run");
-    expect(mailTo("bob@test.local").length).toBe(2);
+    expect(sentMail.length).toBe(0);
   });
 
-  test("(d) notifyChat OFF silences the alert", async () => {
+  test("(d) notifyChat OFF changes nothing for email — sends still work", async () => {
     await db.insert(schema.appSettings).values({ id: bob.profileId, notifyChat: false });
     const msgs = await db
       .select()
@@ -184,11 +197,12 @@ describe("chat email alerts", () => {
       .where(eq(schema.chatMessages.groupId, dmId));
     const latest = Math.max(...msgs.map((m) => m.id));
     await Actions.markChatRead.handler(bobCtx, { groupId: dmId, messageId: latest } as never);
-    await send(aliceCtx, dmId, "fifth — should not email");
-    expect(mailTo("bob@test.local").length).toBe(2);
+    const id = await send(aliceCtx, dmId, "fifth — should not email");
+    expect(id).toBeGreaterThan(0);
+    expect(sentMail.length).toBe(0);
   });
 
-  test("(e) a group message alerts every other caught-up member", async () => {
+  test("(e) a group message emails no member either", async () => {
     const g = await db
       .insert(schema.chatGroups)
       .values({ name: "Crew", kind: "group", createdBy: "alice" })
@@ -198,10 +212,9 @@ describe("chat email alerts", () => {
       await db.insert(schema.chatMembers).values({ groupId: gid, username: u });
     }
     await send(aliceCtx, gid, "group hello");
-    // Carol (no prior state) is alerted; bob's switch is OFF (d).
-    expect(mailTo("carol@test.local").length).toBe(1);
-    expect(mailTo("carol@test.local")[0]!.text).toContain('"Crew"');
-    expect(mailTo("bob@test.local").length).toBe(2);
+    expect(mailTo(carol.email).length).toBe(0);
+    expect(mailTo(bob.email).length).toBe(0);
+    expect(sentMail.length).toBe(0);
   });
 });
 
