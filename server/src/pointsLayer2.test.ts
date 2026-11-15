@@ -316,7 +316,7 @@ describe("maintenance discipline — due window, receipt, odometer, duplicates",
     );
     expect(r.awards.map((a) => a.entryId)).toEqual([1, 3]);
     expect(r.awards[0]!.award.points).toBe(50);
-    expect(r.awards[0]!.award.refKey).toBe("layer2-maint-1");
+    expect(r.awards[0]!.award.refKey).toBe("layer2-maint-oil-m105000");
   });
 
   test("duplicate same-week maintenance earns zero: near-identical entries count once", () => {

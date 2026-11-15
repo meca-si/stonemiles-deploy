@@ -153,6 +153,40 @@ onTimeBlockAwards,
 type SealedLoadTiming,
 } from "./pointsLanes";
 import {
+LAYER2_HOLD_DUPLICATE_THRESHOLD,
+LAYER2_HOLD_ODOMETER_THRESHOLD,
+LAYER2_REFERRAL_ACTIVE_MIN_ACTIVITY_DAYS,
+LAYER2_REFERRAL_LADDER_SOURCE,
+LAYER2_RENEWAL_SOURCE,
+LAYER2_RIG_RECORD_POINTS,
+LAYER2_RIG_RECORD_SOURCE,
+anniversaryAwardFor,
+appreciationWeek,
+birthdayAwardFor,
+calendarWeekAward,
+calendarWeekOf,
+christmasWeek,
+comebackAwards,
+coveredMonthKeys,
+evaluateMaintenance,
+howToEarnLayer2,
+isLayer2Source,
+layer2DayKey,
+longestMonthRun,
+monthKeyOf,
+noIncidentQuarterAwards,
+perfectWeekAward,
+referralLadderAwards,
+renewalStreakAwards,
+rigRecordComplete,
+seasonRankPrize,
+thanksgivingWeek,
+validBirthMonthDay,
+windowOverallScore,
+type Layer2Award,
+type MaintEntryLike,
+} from "./pointsLayer2";
+import {
 DETENTION_DEFAULT_GRACE_MINUTES,
 DETENTION_GRACE_MAX_MINUTES,
 DETENTION_GRACE_MIN_MINUTES,
@@ -2900,6 +2934,432 @@ async function evaluatePointsLanes(ctx: Ctx, me: string): Promise<void> {
         }
       }
     }
+  }
+}
+
+// ---- Rewards Layer 2 + the anti-cheat safety net (locked by x, 2026-11-15) ---
+// Layer 2 (pointsLayer2.ts holds every value + the pure decisions)
+// rides the SAME ledger and the SAME paying-seat gate as the lanes:
+// an award is an awardPoints row whose source starts "layer2_",
+// evaluated lazily inside getPoints right after the lanes. The
+// safety net lives here too: maintenance awards are computed from
+// the real schedule state by the pure evaluator, and a farming
+// pattern opens a points_safety_holds row — the implicated awards
+// withhold, the pattern surfaces to the owner, nothing auto-bans,
+// and nothing auto-forfeits (proven multi-accounting forfeits stay
+// a manual owner action, House Rule 3).
+
+/** Open a safety hold for a (driver, kind) pattern — once. A kind
+ *  surfaces to the owner a single time: if it was already opened
+ *  (and the owner cleared it after review), the same historical
+ *  entries don't re-open it on every read and block the driver
+ *  forever; the cleared row stays in the table and on the chain as
+ *  the audit record. A different kind still fires fresh. */
+async function openPointsSafetyHold(
+  ctx: Ctx,
+  username: string,
+  kind: string,
+  detail: string,
+): Promise<void> {
+  const db = ctx.db<typeof schema>();
+  const rows = await db
+    .select()
+    .from(schema.pointsSafetyHolds)
+    .where(
+      and(
+        eq(schema.pointsSafetyHolds.username, username),
+        eq(schema.pointsSafetyHolds.kind, kind),
+      ),
+    );
+  if (rows.length > 0) return;
+  await db.insert(schema.pointsSafetyHolds).values({ username, kind, detail, status: "open" });
+  await appendChain(ctx, {
+    refKind: "driver",
+    refId: null,
+    sessionId: null,
+    event: "points_safety_hold_opened",
+    payload: { username, kind, detail, at: new Date().toISOString() },
+  });
+}
+
+/** The lazy Layer 2 evaluator — run inside getPoints for the caller,
+ *  idempotent everywhere (awardPoints refKeys). Renewal-streak and
+ *  referral-ladder awards reconcile like Lane 1 on-time blocks: one
+ *  whose justification disappeared (a refund reversed the payment
+ *  holding it up) is reversed through the clawback path. */
+async function evaluatePointsLayer2(ctx: Ctx, me: string): Promise<void> {
+  const db = ctx.db<typeof schema>();
+  if (!(await laneEligibleFor(ctx, me))) return;
+  const now = Date.now();
+  const dayMs = 86400000;
+  const pay = async (a: Layer2Award): Promise<void> => {
+    await awardPoints(ctx, {
+      username: me,
+      amount: a.points,
+      reason: a.reason,
+      source: a.source,
+      refKey: a.refKey,
+    });
+  };
+
+  const profileRows = await db
+    .select()
+    .from(schema.profile)
+    .where(eq(schema.profile.id, myProfileId(ctx)))
+    .limit(1);
+  const prof = profileRows[0];
+  const viewer = viewerOf(ctx);
+
+  // -- Calendar: birthday (month + day only — no year exists) and
+  // the road anniversary (the account's creation month/day).
+  if (prof && prof.birthMonth != null && prof.birthDay != null) {
+    const b = birthdayAwardFor({ month: prof.birthMonth, day: prof.birthDay }, now);
+    if (b) await pay(b);
+  }
+  if (viewer) {
+    const acctRows = await db
+      .select()
+      .from(schema.accounts)
+      .where(eq(schema.accounts.id, viewer.accountId))
+      .limit(1);
+    const created = acctRows[0]?.createdAt;
+    if (created) {
+      const a = anniversaryAwardFor(created.getTime(), now);
+      if (a) await pay(a);
+    }
+  }
+
+  // Shared record pulls: my trips (host-scoped), my loads, and the
+  // chain (pod seals + overspeed events — the sealed record the
+  // scores are built from, read exactly like the rank evaluator).
+  const trips = await db.select().from(schema.trips);
+  const loads = await db.select().from(schema.loads);
+  const loadById = new Map(loads.map((l) => [l.id, l]));
+  const chain = await db
+    .select()
+    .from(schema.chainLog)
+    .orderBy(asc(schema.chainLog.id));
+  const sealMs = new Map<number, number>();
+  const overspeedTimes: number[] = [];
+  for (const r of chain) {
+    if (r.event === "overspeed") overspeedTimes.push(r.createdAt.getTime());
+    if (r.refId == null) continue;
+    if (r.event === "pod_seal") {
+      try {
+        const p = JSON.parse(r.payload) as { at?: string };
+        if (p.at) sealMs.set(r.refId, Date.parse(p.at));
+      } catch {
+        // ignore
+      }
+    }
+    if (r.event === "pod_seal_void") sealMs.delete(r.refId);
+  }
+  const mySeals = [...sealMs.entries()].filter(([id]) => loadById.has(id));
+
+  // The season-score inputs for a window — the rank evaluator's own
+  // read (appointments from deliveryText, +60 minutes of grace).
+  const scoreInputs = (s: number, e: number) => {
+    const wTrips = trips.filter((t) => t.startedAt.getTime() >= s && t.startedAt.getTime() < e);
+    const wSeals = mySeals.filter(([, ms]) => ms >= s && ms < e);
+    let counted = 0;
+    let onTime = 0;
+    for (const [loadId, ms] of wSeals) {
+      const load = loadById.get(loadId);
+      if (!load?.deliveryText) continue;
+      const appt = Date.parse(load.deliveryText);
+      if (!Number.isFinite(appt)) continue;
+      counted++;
+      if (ms <= appt + 60 * 60000) onTime++;
+    }
+    return {
+      trips: wTrips.length,
+      seals: wSeals.length,
+      onTimeCounted: counted,
+      onTime,
+      overspeedFinal7d: overspeedTimes.filter((t) => t >= e - 7 * dayMs && t < e).length,
+      overspeedAny: overspeedTimes.filter((t) => t >= s && t < e).length,
+    };
+  };
+
+  // -- Calendar weeks: Driver Appreciation Week + holiday drops,
+  // for drivers active that week (a sealed trip/seal in the week,
+  // or an app activity day stamped in it). Current + previous year,
+  // so a January read still settles Christmas week.
+  const activityMs: number[] = [
+    ...trips.map((t) => t.startedAt.getTime()),
+    ...mySeals.map(([, ms]) => ms),
+  ];
+  let activityDayKeys = new Set<string>();
+  if (viewer) {
+    const days = await db
+      .select()
+      .from(schema.authActivityDays)
+      .where(eq(schema.authActivityDays.accountId, viewer.accountId));
+    activityDayKeys = new Set(days.map((d) => d.day));
+  }
+  const yearNow = Number(layer2DayKey(now).slice(0, 4));
+  for (const y of [yearNow - 1, yearNow]) {
+    const weeks = [
+      { kind: "appreciation" as const, week: appreciationWeek(y) },
+      { kind: "christmas" as const, week: christmasWeek(y) },
+      { kind: "thanksgiving" as const, week: thanksgivingWeek(y) },
+    ];
+    for (const c of weeks) {
+      const a = calendarWeekAward({
+        kind: c.kind,
+        week: c.week,
+        weekYear: y,
+        activityMs,
+        activityDayKeys,
+        nowMs: now,
+      });
+      if (a) await pay(a);
+    }
+  }
+
+  // -- Score: finished seasons — top-finisher prizes + comebacks.
+  // Seasons are the standing 31-day seasons (pointsRetention.ts).
+  const seasonIdx = Math.max(0, Math.floor((now - SEASON_EPOCH) / SEASON_MS));
+  const seasonScores: { seasonNumber: number; overall: number | null }[] = [];
+  for (let idx = 0; idx < seasonIdx; idx++) {
+    const s = SEASON_EPOCH + idx * SEASON_MS;
+    const overall = windowOverallScore(scoreInputs(s, s + SEASON_MS));
+    seasonScores.push({ seasonNumber: idx + 1, overall });
+    const prize = seasonRankPrize(idx + 1, overall);
+    if (prize) await pay(prize);
+  }
+  for (const a of comebackAwards(seasonScores)) await pay(a);
+
+  // -- Score: perfect-score weeks — the last 52 completed Mon–Sun
+  // weeks holding the top band with real activity in them.
+  const thisWeek = calendarWeekOf(now);
+  for (let w = 1; w <= 52; w++) {
+    const start = thisWeek.startMs - w * 7 * dayMs;
+    const overall = windowOverallScore(scoreInputs(start, start + 7 * dayMs));
+    const a = perfectWeekAward(layer2DayKey(start + 12 * 3600000), overall);
+    if (a) await pay(a);
+  }
+
+  // -- Score: no-incident quarters — completed calendar months with
+  // at least one sealed trip and zero overspeed events, from the
+  // first month with any sealed activity through last month.
+  const firstActivity = Math.min(
+    ...activityMs,
+    ...overspeedTimes,
+    Number.POSITIVE_INFINITY,
+  );
+  if (Number.isFinite(firstActivity)) {
+    const months: { key: string; clean: boolean }[] = [];
+    let cursor = monthKeyOf(firstActivity);
+    const currentMonth = monthKeyOf(now); // the current month is never complete
+    for (let guard = 0; guard < 120 && cursor < currentMonth; guard++) {
+      const [y = 1970, m = 1] = cursor.split("-").map(Number);
+      const mStart = localDayStartMs(new Date(Date.UTC(y, m - 1, 1, 12, 0, 0)));
+      const mEnd = localDayStartMs(
+        new Date(Date.UTC(m === 12 ? y + 1 : y, m === 12 ? 0 : m, 1, 12, 0, 0)),
+      );
+      const tripsIn = trips.some(
+        (t) => t.startedAt.getTime() >= mStart && t.startedAt.getTime() < mEnd,
+      );
+      const overIn = overspeedTimes.some((t) => t >= mStart && t < mEnd);
+      months.push({ key: cursor, clean: tripsIn && !overIn });
+      cursor = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, "0")}`;
+    }
+    for (const a of noIncidentQuarterAwards(months)) await pay(a);
+  }
+
+  // -- Loyalty: renewal streaks from SETTLED subscription events
+  // (reversed events — refunds/chargebacks — cover nothing).
+  const subEvents = await db
+    .select()
+    .from(schema.subscriptionEvents)
+    .where(eq(schema.subscriptionEvents.username, me));
+  const covered = coveredMonthKeys(
+    subEvents
+      .filter((e) => !e.reversed)
+      .map((e) => ({
+        createdMs: e.createdAt.getTime(),
+        period: e.period === "yearly" ? ("yearly" as const) : ("monthly" as const),
+      })),
+  );
+  const renewalJustified = new Set<string>();
+  for (const a of renewalStreakAwards(longestMonthRun(covered))) {
+    renewalJustified.add(a.refKey);
+    await pay(a);
+  }
+
+  // -- Loyalty: the referral ladder over ACTIVE referrals — settled
+  // (a referral reward exists, never clawed back) AND real usage
+  // (the referred account's own activity days). Raw signups and
+  // referral links alone never count.
+  const rewards = await db
+    .select()
+    .from(schema.referralRewards)
+    .where(eq(schema.referralRewards.referrerUsername, me));
+  const myLedger = await db
+    .select()
+    .from(schema.pointsLog)
+    .where(eq(schema.pointsLog.username, me));
+  const clawedReferred = new Set<string>();
+  for (const r of myLedger) {
+    if (r.refKey?.startsWith("clawback-referral-points:")) {
+      clawedReferred.add(r.refKey.slice("clawback-referral-points:".length).toLowerCase());
+    }
+  }
+  let activeRefs = 0;
+  for (const rw of rewards) {
+    if (clawedReferred.has(rw.referredUsername.toLowerCase())) continue;
+    const profRows = await db
+      .select()
+      .from(schema.profile)
+      .where(eq(schema.profile.socialUsername, rw.referredUsername))
+      .limit(1);
+    const acctId = profRows[0]?.accountId;
+    if (acctId == null) continue;
+    const days = await db
+      .select()
+      .from(schema.authActivityDays)
+      .where(eq(schema.authActivityDays.accountId, acctId));
+    if (new Set(days.map((d) => d.day)).size >= LAYER2_REFERRAL_ACTIVE_MIN_ACTIVITY_DAYS) {
+      activeRefs++;
+    }
+  }
+  const ladderJustified = new Set<string>();
+  for (const a of referralLadderAwards(activeRefs)) {
+    ladderJustified.add(a.refKey);
+    await pay(a);
+  }
+
+  // Reconciliation (House Rule 1): a streak/ladder award whose
+  // justification disappeared reverses through the clawback path.
+  for (const r of myLedger) {
+    if (!r.refKey || r.amount <= 0) continue;
+    if (r.source === LAYER2_RENEWAL_SOURCE && !renewalJustified.has(r.refKey)) {
+      await reverseLaneAward(
+        ctx,
+        me,
+        r.refKey,
+        "the subscription streak behind it no longer holds",
+      );
+    }
+    if (r.source === LAYER2_REFERRAL_LADDER_SOURCE && !ladderJustified.has(r.refKey)) {
+      await reverseLaneAward(
+        ctx,
+        me,
+        r.refKey,
+        "the active referral count dropped below the ladder rung",
+      );
+    }
+  }
+
+  // -- Set-up-right: the complete rig record (one time).
+  if (prof) {
+    const photos = await db.select().from(schema.vehiclePhotos);
+    const docs = await db.select().from(schema.personalDocs);
+    const docCurrent = (kind: string) =>
+      docs.some((d) => d.kind === kind && (d.expiresAt == null || d.expiresAt.getTime() > now));
+    if (
+      rigRecordComplete({
+        truckYear: prof.truckYear,
+        truckMake: prof.truckMake,
+        truckModel: prof.truckModel,
+        trailerYear: prof.trailerYear,
+        trailerMake: prof.trailerMake,
+        trailerModel: prof.trailerModel,
+        truckPhotos: photos.filter((p) => p.kind === "truck").length,
+        trailerPhotos: photos.filter((p) => p.kind === "trailer").length,
+        cdlCurrent: docCurrent("cdl"),
+        medicalCurrent: docCurrent("medical"),
+      })
+    ) {
+      await pay({
+        refKey: "layer2-rigrecord",
+        source: LAYER2_RIG_RECORD_SOURCE,
+        points: LAYER2_RIG_RECORD_POINTS,
+        reason: `Complete rig record — truck and trailer filled in, photos up, CDL and medical card current: +${LAYER2_RIG_RECORD_POINTS} SM Points`,
+      });
+    }
+  }
+
+  // -- Set-up-right: maintenance discipline, judged by the pure
+  // safety-net evaluator over the real schedule state. Patterns
+  // open owner holds; while a maintenance hold is open, maintenance
+  // awards withhold (the rest of Layer 2 is untouched).
+  const holds = await db
+    .select()
+    .from(schema.pointsSafetyHolds)
+    .where(
+      and(
+        eq(schema.pointsSafetyHolds.username, me),
+        eq(schema.pointsSafetyHolds.status, "open"),
+      ),
+    );
+  const maintHeld = holds.some((h) => h.kind.startsWith("maintenance"));
+  const services = await db.select().from(schema.maintenanceServices);
+  const entries = await db.select().from(schema.maintenanceLogEntries);
+  const attachments = await db.select().from(schema.maintenanceLogAttachments);
+  const attachCount = new Map<number, number>();
+  for (const a of attachments) attachCount.set(a.entryId, (attachCount.get(a.entryId) ?? 0) + 1);
+  // The sealed record's odometer truth — the same sources the
+  // maintenance countdown reads (fuel log, DVIRs, daily logs).
+  const fuel = await db.select().from(schema.fuelPurchases);
+  const dvirs = await db.select().from(schema.dvirReports);
+  const dailyLogs = await db
+    .select()
+    .from(schema.dailyLogs)
+    .where(eq(schema.dailyLogs.username, me));
+  let sealedOdo: number | null = null;
+  const considerOdo = (v: number | null | undefined) => {
+    if (v != null && Number.isFinite(v) && v > 0 && (sealedOdo == null || v > sealedOdo)) {
+      sealedOdo = v;
+    }
+  };
+  for (const f of fuel) considerOdo(f.odometer);
+  for (const d of dvirs) considerOdo(d.odometer);
+  for (const l of dailyLogs) {
+    considerOdo(l.finishMiles);
+    considerOdo(l.startMiles);
+  }
+  const evaluation = evaluateMaintenance(
+    entries.map(
+      (e): MaintEntryLike => ({
+        id: e.id,
+        category: e.category,
+        performedMs: e.performedAt.getTime(),
+        odometer: e.odometer,
+        cost: e.cost,
+        nextDueMiles: e.nextDueMiles,
+        nextDueAtMs: e.nextDueAt ? e.nextDueAt.getTime() : null,
+        hasReceipt: (attachCount.get(e.id) ?? 0) > 0,
+        status: e.status,
+      }),
+    ),
+    services.map((s) => ({
+      item: s.item,
+      intervalMiles: s.intervalMiles,
+      lastDoneOdometer: s.lastDoneOdometer,
+      lastDoneAtMs: s.lastDoneAt ? s.lastDoneAt.getTime() : null,
+    })),
+    sealedOdo,
+  );
+  if (evaluation.duplicateCopies >= LAYER2_HOLD_DUPLICATE_THRESHOLD) {
+    await openPointsSafetyHold(
+      ctx,
+      me,
+      "maintenance_duplicates",
+      `${evaluation.duplicateCopies} near-duplicate maintenance entries (the same service, day, odometer, and cost logged more than once) — maintenance points withheld pending owner review`,
+    );
+  }
+  if (evaluation.odometerContradictionIds.length >= LAYER2_HOLD_ODOMETER_THRESHOLD) {
+    await openPointsSafetyHold(
+      ctx,
+      me,
+      "maintenance_odometer",
+      `${evaluation.odometerContradictionIds.length} maintenance entries whose odometer contradicts the sealed record — maintenance points withheld pending owner review`,
+    );
+  }
+  if (!maintHeld) {
+    for (const { award } of evaluation.awards) await pay(award);
   }
 }
 
@@ -7304,6 +7764,13 @@ const profileShape = z.object({
   trailerModel: z.string().max(60).nullable().default(null),
   trailerVin: z.string().max(40).nullable().default(null),
   trailerPlate: z.string().max(30).nullable().default(null),
+  // Birthday (migration 0124, Rewards Layer 2): MONTH + DAY only.
+  // There is deliberately no birth-year field anywhere in this
+  // shape — a year is never collected, so it can never be stored.
+  // Both default null (unset); saveProfile validates the pair
+  // together (a day the month doesn't have is refused).
+  birthMonth: z.number().int().min(1).max(12).nullable().default(null),
+  birthDay: z.number().int().min(1).max(31).nullable().default(null),
 });
 
 const profileResponse = z.object({
@@ -18901,6 +19368,8 @@ export const Actions = {
           trailerModel: row.trailerModel ?? null,
           trailerVin: row.trailerVin ?? null,
           trailerPlate: row.trailerPlate ?? null,
+          birthMonth: row.birthMonth ?? null,
+          birthDay: row.birthDay ?? null,
           pinSet: row.pinHash != null,
         },
       };
@@ -18914,6 +19383,17 @@ export const Actions = {
     response: z.object({ ok: z.literal(true) }),
     async handler(ctx, args) {
       const db = ctx.db<typeof schema>();
+      // Birthday pair validation (Rewards Layer 2): month and day
+      // are set together or not at all, and the day must exist in
+      // the month. Month + day only — no year exists to validate.
+      const birthMonth = args.birthMonth ?? null;
+      const birthDay = args.birthDay ?? null;
+      if ((birthMonth == null) !== (birthDay == null)) {
+        throw new Error("Birthday needs both a month and a day — or neither. (We never ask for a birth year.)");
+      }
+      if (birthMonth != null && !validBirthMonthDay(birthMonth, birthDay)) {
+        throw new Error("That birthday doesn't exist — check the month and day. (We never ask for a birth year.)");
+      }
       const offs = new Set(args.brandOffs);
       if (args.lovesOff) offs.add("loves");
       if (args.pilotOff) offs.add("pilot");
@@ -18960,6 +19440,8 @@ export const Actions = {
         trailerModel: args.trailerModel?.trim() || null,
         trailerVin: args.trailerVin?.trim() || null,
         trailerPlate: args.trailerPlate?.trim() || null,
+        birthMonth,
+        birthDay,
         updatedAt: new Date(),
       };
       await db
@@ -19009,6 +19491,8 @@ export const Actions = {
             trailerModel: values.trailerModel,
             trailerVin: values.trailerVin,
             trailerPlate: values.trailerPlate,
+            birthMonth: values.birthMonth,
+            birthDay: values.birthDay,
             updatedAt: values.updatedAt,
           },
         });
@@ -37008,7 +37492,7 @@ export const Actions = {
           source: z.string(),
           // Which earning lane the row belongs to (null for the
           // pre-lane sources) — the client groups history by it.
-          lane: z.enum(["lane1", "lane2", "lane3"]).nullable(),
+          lane: z.enum(["lane1", "lane2", "lane3", "layer2"]).nullable(),
           createdAt: z.string(),
         }),
       ),
@@ -37027,6 +37511,21 @@ export const Actions = {
           z.object({
             lane: z.enum(["lane1", "lane2", "lane3"]),
             title: z.string(),
+            lines: z.array(z.string()),
+          }),
+        ),
+      }),
+      // Rewards Layer 2 (2026-11-15): the caller's Layer 2 total,
+      // the "How to earn — Layer 2" list (values from
+      // pointsLayer2.ts), and how many safety-net holds are open on
+      // the caller's account (their maintenance points withhold
+      // while one is open — surfaced, never an auto-ban).
+      layer2: z.object({
+        total: z.number(),
+        openHolds: z.number(),
+        howToEarn: z.array(
+          z.object({
+            section: z.string(),
             lines: z.array(z.string()),
           }),
         ),
@@ -37086,6 +37585,13 @@ export const Actions = {
         await evaluatePointsLanes(ctx, me);
       } catch {
         /* lane awards land on a later read if this one hiccups */
+      }
+      // Rewards Layer 2 + the safety net evaluate the same way,
+      // right after the lanes — and likewise never break the read.
+      try {
+        await evaluatePointsLayer2(ctx, me);
+      } catch {
+        /* Layer 2 awards land on a later read if this one hiccups */
       }
       // Lazy verified awards (idempotent via refKey):
       // 1) Clean driving DAYS (daily table, +75): a completed
@@ -37255,10 +37761,21 @@ export const Actions = {
         .from(schema.pointsConversions)
         .where(eq(schema.pointsConversions.username, me));
       const laneTotals = { lane1: 0, lane2: 0, lane3: 0 };
+      let layer2Total = 0;
       for (const r of allMine) {
         const lane = laneForSource(r.source);
         if (lane && r.amount > 0) laneTotals[lane] += r.amount;
+        if (isLayer2Source(r.source) && r.amount > 0) layer2Total += r.amount;
       }
+      const myOpenHolds = await db
+        .select()
+        .from(schema.pointsSafetyHolds)
+        .where(
+          and(
+            eq(schema.pointsSafetyHolds.username, me),
+            eq(schema.pointsSafetyHolds.status, "open"),
+          ),
+        );
       return {
         balance: pointsBalanceFromLedger(allMine),
         history: rows.map((r) => ({
@@ -37266,13 +37783,18 @@ export const Actions = {
           amount: r.amount,
           reason: r.reason,
           source: r.source,
-          lane: laneForSource(r.source),
+          lane: laneForSource(r.source) ?? (isLayer2Source(r.source) ? ("layer2" as const) : null),
           createdAt: r.createdAt.toISOString(),
         })),
         lanes: {
           eligible: await laneEligibleFor(ctx, me),
           totals: laneTotals,
           howToEarn: howToEarnLanes(),
+        },
+        layer2: {
+          total: layer2Total,
+          openHolds: myOpenHolds.length,
+          howToEarn: howToEarnLayer2(),
         },
         today,
         conversion: {
@@ -37295,6 +37817,84 @@ export const Actions = {
           milesMonthlyCeiling: earning.milesMonthlyCeiling,
         },
       };
+    },
+  }),
+
+  // Safety net — the OWNER's view of suspected-farming holds
+  // (Rewards Layer 2). Holds open automatically when the maintenance
+  // evaluator sees a farming pattern; the implicated awards withhold
+  // while a hold is open. Clearing is the owner's manual call —
+  // nothing here bans an account or forfeits points (proven
+  // multi-accounting forfeits stay a manual owner action under
+  // House Rule 3, through the standing clawback paths).
+  getPointsSafetyHolds: defineAction({
+    description: "Owner-only: list open points safety-net holds (suspected farming patterns).",
+    request: z.object({}),
+    response: z.object({
+      holds: z.array(
+        z.object({
+          id: z.number(),
+          username: z.string(),
+          kind: z.string(),
+          detail: z.string(),
+          createdAt: z.string(),
+        }),
+      ),
+    }),
+    async handler(ctx) {
+      if (!(await isBetaOwner(ctx))) return { holds: [] };
+      const db = ctx.db<typeof schema>();
+      const rows = await db
+        .select()
+        .from(schema.pointsSafetyHolds)
+        .where(eq(schema.pointsSafetyHolds.status, "open"))
+        .orderBy(desc(schema.pointsSafetyHolds.id));
+      return {
+        holds: rows.map((h) => ({
+          id: h.id,
+          username: h.username,
+          kind: h.kind,
+          detail: h.detail,
+          createdAt: h.createdAt.toISOString(),
+        })),
+      };
+    },
+  }),
+
+  clearPointsSafetyHold: defineAction({
+    description: "Owner-only: clear a points safety-net hold after review (awards resume).",
+    request: z.object({ holdId: z.number().int().positive() }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable() }),
+    async handler(ctx, args) {
+      if (!(await isBetaOwner(ctx)))
+        return { ok: false, error: "Only the owner can clear a safety hold." };
+      const db = ctx.db<typeof schema>();
+      const rows = await db
+        .select()
+        .from(schema.pointsSafetyHolds)
+        .where(eq(schema.pointsSafetyHolds.id, args.holdId))
+        .limit(1);
+      const hold = rows[0];
+      if (!hold || hold.status !== "open")
+        return { ok: false, error: "That hold isn't open." };
+      await db
+        .update(schema.pointsSafetyHolds)
+        .set({ status: "cleared", updatedAt: new Date() })
+        .where(eq(schema.pointsSafetyHolds.id, hold.id));
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "points_safety_hold_cleared",
+        payload: {
+          username: hold.username,
+          kind: hold.kind,
+          holdId: hold.id,
+          at: new Date().toISOString(),
+        },
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
     },
   }),
 

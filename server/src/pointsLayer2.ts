@@ -737,16 +737,27 @@ function addMonthsMs(ms: number, months: number): number {
  * from the schedule row (last done + interval; the DOT annual also
  * runs date-based on the 12-month rule) through each entry's own
  * nextDue values. An entry is the cycle's service when it reaches
- * the due point (within the early tolerances). The FIRST due entry
- * closes the cycle — whether or not it earns — so a second service
- * in the same cycle can never earn, and a no-receipt service can't
- * be re-logged with a receipt for a second bite. The cycle's entry
+ * the due point (within the early tolerances). The first CREDIBLE
+ * due entry (its odometer agrees with the sealed record) closes
+ * the cycle — whether or not it earns — so a second service in
+ * the same cycle can never earn, and a no-receipt service can't
+ * be re-logged with a receipt for a second bite (attaching the
+ * receipt to the SAME entry later still pays it). An entry whose
+ * odometer is missing or contradicts the sealed record is not a
+ * credible service: it earns nothing and does not move the
+ * schedule at all. The cycle's entry
  * EARNS only when it has a receipt attached AND its odometer agrees
  * with the sealed record (not past the highest odometer the sealed
- * record ever reached, not backwards against earlier entries, and
- * present at all — an unverifiable odometer earns nothing).
- * Categories the schedule doesn't track have no due state and earn
- * nothing. Awards are capped per calendar year as a backstop.
+ * record ever reached, not backwards against earlier TRUSTED
+ * entries, and present at all — an unverifiable odometer earns
+ * nothing; entries that contradict the sealed record don't raise
+ * the trusted line, so a fake high reading can't poison a later
+ * honest entry). The award's refKey names the CYCLE (category +
+ * due point), never the entry — so one cycle can only ever pay
+ * once, even if a backdated copy is inserted into its window
+ * later. Categories the schedule doesn't track have no due state
+ * and earn nothing. Awards are capped per calendar year as a
+ * backstop.
  */
 export function evaluateMaintenance(
   entries: readonly MaintEntryLike[],
@@ -772,7 +783,6 @@ export function evaluateMaintenance(
     }
   }
 
-  const serviceByItem = new Map(services.map((s) => [s.item, s]));
   interface Chain {
     intervalMiles: number;
     nextDueOdo: number | null;
@@ -797,20 +807,29 @@ export function evaluateMaintenance(
   const odometerContradictionIds: number[] = [];
   const dueButUnpaid: { entryId: number; why: "no_receipt" | "odometer" }[] = [];
   const awardsByYear = new Map<number, number>();
-  let prevMaxOdo: number | null = null;
+  // The trusted odometer line: the highest reading among entries
+  // that agree with the sealed record. Entries past the sealed
+  // record are liars for this purpose — they never raise the line.
+  let trustedMaxOdo: number | null = null;
 
   for (const e of canonical) {
     // Odometer agreement with the sealed record, judged for EVERY
     // entry (the hold pattern reads the whole log): past every
     // odometer the sealed record ever reached, or backwards against
-    // the driver's own earlier entries, is a contradiction.
-    const contradicts =
+    // the driver's own earlier trusted entries, is a contradiction.
+    const contradictsSealed =
       e.odometer != null &&
-      ((sealedOdometerMax != null &&
-        e.odometer > sealedOdometerMax + LAYER2_MAINTENANCE_ODOMETER_TOLERANCE_MI) ||
-        (prevMaxOdo != null &&
-          e.odometer < prevMaxOdo - LAYER2_MAINTENANCE_ODOMETER_TOLERANCE_MI));
+      sealedOdometerMax != null &&
+      e.odometer > sealedOdometerMax + LAYER2_MAINTENANCE_ODOMETER_TOLERANCE_MI;
+    const contradictsBackward =
+      e.odometer != null &&
+      trustedMaxOdo != null &&
+      e.odometer < trustedMaxOdo - LAYER2_MAINTENANCE_ODOMETER_TOLERANCE_MI;
+    const contradicts = contradictsSealed || contradictsBackward;
     if (contradicts) odometerContradictionIds.push(e.id);
+    if (e.odometer != null && !contradictsSealed) {
+      trustedMaxOdo = trustedMaxOdo == null ? e.odometer : Math.max(trustedMaxOdo, e.odometer);
+    }
 
     const chain = chains.get(e.category);
     if (chain) {
@@ -822,9 +841,22 @@ export function evaluateMaintenance(
         chain.nextDueAt != null &&
         e.performedMs >= chain.nextDueAt - LAYER2_MAINTENANCE_DUE_EARLY_TOLERANCE_DAYS * DAY_MS;
       if (dueByOdo || dueByDate) {
+        // The cycle this entry closes — the award is keyed by it,
+        // so the cycle can only ever pay once.
+        const cycleKey =
+          chain.nextDueOdo != null
+            ? `m${Math.round(chain.nextDueOdo)}`
+            : chain.nextDueAt != null
+              ? `d${chain.nextDueAt}`
+              : "open";
         const odoBad = e.odometer == null || contradicts;
         if (odoBad) {
           dueButUnpaid.push({ entryId: e.id, why: "odometer" });
+          // An entry whose odometer is missing or contradicts the
+          // sealed record is not a credible service at all — it
+          // does NOT close the cycle or move the schedule (the
+          // chain advance below is skipped). The cycle stays open
+          // for a credible entry.
         } else if (!e.hasReceipt) {
           dueButUnpaid.push({ entryId: e.id, why: "no_receipt" });
         } else {
@@ -835,7 +867,7 @@ export function evaluateMaintenance(
             awards.push({
               entryId: e.id,
               award: {
-                refKey: `layer2-maint-${e.id}`,
+                refKey: `layer2-maint-${e.category}-${cycleKey}`,
                 source: LAYER2_MAINTENANCE_SOURCE,
                 points: LAYER2_MAINTENANCE_POINTS,
                 reason: `Maintenance discipline — ${e.category.replace(/_/g, " ")} logged when it was due, receipt on file: +${LAYER2_MAINTENANCE_POINTS} SM Points`,
@@ -843,22 +875,22 @@ export function evaluateMaintenance(
             });
           }
         }
-        // The cycle closes on this entry either way; the chain
-        // advances from the entry's own next-due values (the spec's
-        // "entry's own nextDue chain"), falling back to the
+        // A credible due entry (odometer agrees with the sealed
+        // record) closes the cycle whether or not it earned; the
+        // chain advances from the entry's own next-due values (the
+        // spec's "entry's own nextDue chain"), falling back to the
         // schedule's interval.
-        chain.nextDueOdo =
-          e.nextDueMiles ??
-          (chain.intervalMiles > 0 && e.odometer != null
-            ? e.odometer + chain.intervalMiles
-            : chain.nextDueOdo);
-        chain.nextDueAt =
-          e.nextDueAtMs ??
-          (e.category === "dot_inspection" ? addMonthsMs(e.performedMs, 12) : null);
+        if (!odoBad) {
+          chain.nextDueOdo =
+            e.nextDueMiles ??
+            (chain.intervalMiles > 0 && e.odometer != null
+              ? e.odometer + chain.intervalMiles
+              : chain.nextDueOdo);
+          chain.nextDueAt =
+            e.nextDueAtMs ??
+            (e.category === "dot_inspection" ? addMonthsMs(e.performedMs, 12) : null);
+        }
       }
-    }
-    if (e.odometer != null && (prevMaxOdo == null || e.odometer > prevMaxOdo)) {
-      prevMaxOdo = e.odometer;
     }
   }
 

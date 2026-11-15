@@ -300,6 +300,10 @@ type ProfileT = {
   trailerModel: string | null;
   trailerVin: string | null;
   trailerPlate: string | null;
+  // Birthday (migration 0124, Rewards Layer 2): month + day only.
+  // There is no birth-year field — a year is never asked for.
+  birthMonth: number | null;
+  birthDay: number | null;
 };
 
 type AppSettingsT = ApiResponse<typeof api, "getAppSettings">["settings"];
@@ -1328,6 +1332,8 @@ const DEFAULT_PROFILE: ProfileT = {
   trailerModel: null,
   trailerVin: null,
   trailerPlate: null,
+  birthMonth: null,
+  birthDay: null,
 };
 
 // ---------- Small helpers ---------------------------------------------------
@@ -21486,6 +21492,63 @@ export function App() {
               <p className="mt-1.5 text-xs text-[var(--dim)]">Your trailer, in your words — every field optional. Its type and length are the routing specs right below (Trailer type + Trailer length) — one place, not two. VIN and plate stay private, just like the truck&apos;s. Saves with SAVE SETTINGS at the bottom.</p>
               <VehiclePhotosSection kind="trailer" queryClient={queryClient} setBanner={setBanner} />
             </div>
+            {/* Birthday (migration 0124, Rewards Layer 2): month + day
+                ONLY — the app never asks for a birth year, so one can
+                never be stored. Pays the birthday drop in SM Points
+                (Layer 2) once a year, inside a week of the day. */}
+            <div className="mt-4 rounded-2xl border border-[var(--glass-border)] bg-[var(--surface2)] p-3">
+              <span className={labelCls}>Birthday — month and day only</span>
+              <div className="mt-2 grid grid-cols-2 gap-3">
+                <div>
+                  <label className={labelCls} htmlFor="set-birth-month">Month</label>
+                  <select
+                    id="set-birth-month"
+                    className={inputCls}
+                    aria-label="Birth month"
+                    value={profile.birthMonth ?? ""}
+                    onChange={(e) => {
+                      const m = e.target.value ? parseInt(e.target.value, 10) : null;
+                      if (m == null) {
+                        setProfile({ ...profile, birthMonth: null, birthDay: null });
+                        return;
+                      }
+                      const maxDay = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1] ?? 31;
+                      const d = profile.birthDay == null ? 1 : Math.min(profile.birthDay, maxDay);
+                      setProfile({ ...profile, birthMonth: m, birthDay: d });
+                    }}
+                  >
+                    <option value="">—</option>
+                    {["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"].map((name, i) => (
+                      <option key={name} value={i + 1}>{name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className={labelCls} htmlFor="set-birth-day">Day</label>
+                  <select
+                    id="set-birth-day"
+                    className={inputCls}
+                    aria-label="Birth day"
+                    value={profile.birthDay ?? ""}
+                    disabled={profile.birthMonth == null}
+                    onChange={(e) => {
+                      const d = e.target.value ? parseInt(e.target.value, 10) : null;
+                      if (d == null) {
+                        setProfile({ ...profile, birthMonth: null, birthDay: null });
+                        return;
+                      }
+                      setProfile({ ...profile, birthDay: d });
+                    }}
+                  >
+                    <option value="">—</option>
+                    {Array.from({ length: profile.birthMonth == null ? 31 : ([31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][profile.birthMonth - 1] ?? 31) }, (_, i) => i + 1).map((d) => (
+                      <option key={d} value={d}>{d}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <p className="mt-1.5 text-xs text-[var(--dim)]">Optional — set it and your birthday pays SM Points once a year (Layer 2, in the points panel). Month and day only: the app never asks for a birth year. Saves with SAVE SETTINGS at the bottom.</p>
+            </div>
             <ConnectTruckSection className="mt-3 rounded-2xl border border-[var(--glass-border)] bg-[var(--surface2)] p-3" onOpenPlans={() => setShowPlans(true)} />
             <CurrentTrailerCard queryClient={queryClient} setBanner={setBanner} />
             <div className="mt-4">
@@ -34185,6 +34248,40 @@ function DriverPanel({
             </p>
           </div>
         )}
+        {pointsQuery.data?.layer2 && (
+          <div className="mt-3 rounded-xl bg-[var(--surface2)] p-3" aria-label="How to earn — Layer 2">
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="text-xs font-bold uppercase tracking-wide text-[var(--dim)]">How to earn — Layer 2</span>
+              <span className="font-condensed text-sm font-bold">
+                {pointsQuery.data.layer2.total} pts earned
+              </span>
+            </div>
+            {pointsQuery.data.layer2.openHolds > 0 && (
+              <p className="mt-2 text-sm leading-relaxed">
+                Heads up: a safety check is reviewing some maintenance entries on this account, so maintenance
+                points are on hold for now. Nothing is banned and nothing is taken — the hold clears once the
+                review is done.
+              </p>
+            )}
+            <div className="mt-2 space-y-3">
+              {pointsQuery.data.layer2.howToEarn.map((section) => (
+                <div key={section.section}>
+                  <div className="text-sm font-semibold">{section.section}</div>
+                  <ul className="mt-1 space-y-0.5 text-sm text-[var(--dim)]">
+                    {section.lines.map((line) => (
+                      <li key={line}>• {line}</li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+            <p className="mt-2 text-xs leading-relaxed text-[var(--dim)]">
+              Layer 2 pays on paying plans too — Gold, Diamond, and Owner seats; seats included free with a fleet
+              don't earn it. Every award is computed from records you can't fake, and each one lands in the history
+              below with its reason.
+            </p>
+          </div>
+        )}
         <div className="mt-3 text-xs font-bold uppercase tracking-wide text-[var(--dim)]">Earn / spend history</div>
         <ul className="mt-1.5 space-y-1.5">
           {(pointsQuery.data?.history ?? []).map((h) => (
@@ -34193,7 +34290,7 @@ function DriverPanel({
                 <span className="block">{h.reason}</span>
                 <span className="block text-xs text-[var(--dim)]">
                   {new Date(h.createdAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
-                  {h.lane ? ` · ${h.lane === "lane1" ? "Drive well" : h.lane === "lane2" ? "Feed the map" : "Grow it"}` : ""}
+                  {h.lane ? ` · ${h.lane === "lane1" ? "Drive well" : h.lane === "lane2" ? "Feed the map" : h.lane === "lane3" ? "Grow it" : "Layer 2"}` : ""}
                 </span>
               </span>
               <span className={`shrink-0 font-condensed text-lg font-bold ${h.amount >= 0 ? "text-[var(--ok)]" : "text-[var(--danger)]"}`}>
