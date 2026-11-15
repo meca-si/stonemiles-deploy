@@ -381,6 +381,14 @@ describe("broker inbound doors", () => {
       email: "ops@brokerco.test",
       contactName: null,
       brokerMc: "MC-123",
+      // A complete identity record (Wave 2 item 3): tenders are
+      // re-screened against it, and an incomplete record would hold
+      // this broker's sends — this broker is fully on file.
+      legalName: "BrokerCo Logistics LLC",
+      bondCarrier: "Surety One",
+      bondAmount: 100000,
+      bondExpiresOn: "2027-06-01",
+      authorityStatus: "active",
       dispatcherFeePct: null,
       linkedUsername: "brokeruser",
       isDemo: false,

@@ -43,6 +43,7 @@ __export(exports_schema_sqlite, {
   boardPosts: () => boardPosts,
   breakdownLogs: () => breakdownLogs,
   brokerAccounts: () => brokerAccounts,
+  brokerBondAlertDismissals: () => brokerBondAlertDismissals,
   brokerLinks: () => brokerLinks,
   brokerOptins: () => brokerOptins,
   brokerPosterLoads: () => brokerPosterLoads,
@@ -230,6 +231,7 @@ __export(exports_schema_pg, {
   boardPosts: () => boardPosts2,
   breakdownLogs: () => breakdownLogs2,
   brokerAccounts: () => brokerAccounts2,
+  brokerBondAlertDismissals: () => brokerBondAlertDismissals2,
   brokerLinks: () => brokerLinks2,
   brokerOptins: () => brokerOptins2,
   brokerPosterLoads: () => brokerPosterLoads2,
@@ -8689,6 +8691,7 @@ var boardLoads = sqliteTable("board_loads", {
   claimMethod: text2("claim_method"),
   claimedBy: text2("claimed_by"),
   claimedAt: integer3("claimed_at", { mode: "timestamp_ms" }),
+  carrierOfRecord: text2("carrier_of_record"),
   loadId: integer3("load_id"),
   tripQueueId: integer3("trip_queue_id"),
   docSha256: text2("doc_sha256"),
@@ -9621,6 +9624,14 @@ var brokerAccounts = sqliteTable("broker_accounts", {
   contactName: text2("contact_name"),
   logoInitials: text2("logo_initials"),
   brokerMc: text2("broker_mc"),
+  legalName: text2("legal_name"),
+  bondCarrier: text2("bond_carrier"),
+  bondAmount: real2("bond_amount"),
+  bondExpiresOn: text2("bond_expires_on"),
+  authorityStatus: text2("authority_status").notNull().default("not_recorded"),
+  identityVerifiedAt: integer3("identity_verified_at", { mode: "timestamp_ms" }),
+  identitySource: text2("identity_source"),
+  identityFactsJson: text2("identity_facts_json"),
   dispatcherFeePct: real2("dispatcher_fee_pct"),
   linkedUsername: text2("linked_username"),
   companyId: integer3("company_id"),
@@ -9672,6 +9683,8 @@ var brokerPosterLoads = sqliteTable("broker_poster_loads", {
   notes: text2("notes"),
   status: text2("status").notNull().default("draft"),
   boardLoadId: integer3("board_load_id"),
+  identityScreenedAt: integer3("identity_screened_at", { mode: "timestamp_ms" }),
+  identityScreenJson: text2("identity_screen_json"),
   trackToken: text2("track_token"),
   reviewNote: text2("review_note"),
   reviewedBy: text2("reviewed_by"),
@@ -9965,6 +9978,13 @@ var credentialAlertDismissals = sqliteTable("credential_alert_dismissals", {
   id: integer3("id").primaryKey({ autoIncrement: true }),
   username: text2("username").notNull(),
   credentialKey: text2("credential_key").notNull(),
+  threshold: integer3("threshold").notNull(),
+  expiresOn: text2("expires_on").notNull(),
+  dismissedAt: integer3("dismissed_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
+});
+var brokerBondAlertDismissals = sqliteTable("broker_bond_alert_dismissals", {
+  id: integer3("id").primaryKey({ autoIncrement: true }),
+  brokerAccountId: integer3("broker_account_id").notNull(),
   threshold: integer3("threshold").notNull(),
   expiresOn: text2("expires_on").notNull(),
   dismissedAt: integer3("dismissed_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
@@ -11080,6 +11100,7 @@ var boardLoads2 = pgTable("board_loads", {
   claimMethod: text("claim_method"),
   claimedBy: text("claimed_by"),
   claimedAt: timestamp("claimed_at", { withTimezone: true, mode: "date" }),
+  carrierOfRecord: text("carrier_of_record"),
   loadId: integer2("load_id"),
   tripQueueId: integer2("trip_queue_id"),
   docSha256: text("doc_sha256"),
@@ -12012,6 +12033,14 @@ var brokerAccounts2 = pgTable("broker_accounts", {
   contactName: text("contact_name"),
   logoInitials: text("logo_initials"),
   brokerMc: text("broker_mc"),
+  legalName: text("legal_name"),
+  bondCarrier: text("bond_carrier"),
+  bondAmount: doublePrecision("bond_amount"),
+  bondExpiresOn: text("bond_expires_on"),
+  authorityStatus: text("authority_status").notNull().default("not_recorded"),
+  identityVerifiedAt: timestamp("identity_verified_at", { withTimezone: true, mode: "date" }),
+  identitySource: text("identity_source"),
+  identityFactsJson: text("identity_facts_json"),
   dispatcherFeePct: doublePrecision("dispatcher_fee_pct"),
   linkedUsername: text("linked_username"),
   companyId: integer2("company_id"),
@@ -12063,6 +12092,8 @@ var brokerPosterLoads2 = pgTable("broker_poster_loads", {
   notes: text("notes"),
   status: text("status").notNull().default("draft"),
   boardLoadId: integer2("board_load_id"),
+  identityScreenedAt: timestamp("identity_screened_at", { withTimezone: true, mode: "date" }),
+  identityScreenJson: text("identity_screen_json"),
   trackToken: text("track_token"),
   reviewNote: text("review_note"),
   reviewedBy: text("reviewed_by"),
@@ -12356,6 +12387,13 @@ var credentialAlertDismissals2 = pgTable("credential_alert_dismissals", {
   id: serial("id").primaryKey(),
   username: text("username").notNull(),
   credentialKey: text("credential_key").notNull(),
+  threshold: integer2("threshold").notNull(),
+  expiresOn: text("expires_on").notNull(),
+  dismissedAt: timestamp("dismissed_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
+});
+var brokerBondAlertDismissals2 = pgTable("broker_bond_alert_dismissals", {
+  id: serial("id").primaryKey(),
+  brokerAccountId: integer2("broker_account_id").notNull(),
   threshold: integer2("threshold").notNull(),
   expiresOn: text("expires_on").notNull(),
   dismissedAt: timestamp("dismissed_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
@@ -12805,6 +12843,7 @@ var pushDevices3 = impl.pushDevices;
 var statusOutbox3 = impl.statusOutbox;
 var autoExceptions3 = impl.autoExceptions;
 var loadPaperwork3 = impl.loadPaperwork;
+var brokerBondAlertDismissals3 = impl.brokerBondAlertDismissals;
 var accounts3 = impl.accounts;
 var authSessions3 = impl.authSessions;
 var passwordResetTokens3 = impl.passwordResetTokens;
@@ -16561,7 +16600,8 @@ var EXCEPTION_LABELS = {
   detention_overdue: "Detention running over",
   missing_evidence: "No sealed record behind the share",
   low_confidence: "Status waiting on its seal",
-  paperwork_no_recipient: "No paperwork address on file"
+  paperwork_no_recipient: "No paperwork address on file",
+  tender_blocked: "Tender held \u2014 broker identity check"
 };
 function exceptionNotification(args) {
   const label = EXCEPTION_LABELS[args.kind];
@@ -16686,6 +16726,232 @@ function podCopyOutboundText(args) {
 function paperworkAttachmentFilename(docKind, loadId, mime) {
   const ext = mime === "application/pdf" ? "pdf" : mime === "image/png" ? "png" : mime === "image/jpeg" ? "jpg" : "bin";
   return `${docKind}-load-${loadId}.${ext}`;
+}
+
+// src/brokerIdentity.ts
+var BOND_MINIMUM_USD = 75000;
+var IDENTITY_FRESH_DAYS = 30;
+var BOND_EXPIRING_SOON_DAYS = 60;
+var clean = (s) => s != null && s.trim() !== "" ? s.trim() : null;
+function shortDate(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime()))
+    return iso;
+  return d.toISOString().slice(0, 10);
+}
+function brokerIdentityStatus(identity, opts) {
+  const verifiedAt = identity.identityVerifiedAt;
+  if (!verifiedAt) {
+    return {
+      state: "on_file",
+      label: opts.seamConfigured ? "Identity on file \u2014 not checked against the verification source yet" : "Identity on file \u2014 verification source not connected",
+      verifiedAt: null,
+      source: identity.identitySource ?? null
+    };
+  }
+  const ageMs = opts.nowMs - new Date(verifiedAt).getTime();
+  const fresh = Number.isFinite(ageMs) && ageMs <= IDENTITY_FRESH_DAYS * 86400000;
+  return {
+    state: fresh ? "verified" : "stale",
+    label: fresh ? `Identity checked against ${identity.identitySource ?? "the verification source"} on ${shortDate(verifiedAt)}` : `Identity last checked ${shortDate(verifiedAt)} \u2014 older than ${IDENTITY_FRESH_DAYS} days, so it counts as stale`,
+    verifiedAt,
+    source: identity.identitySource ?? null
+  };
+}
+function screenBrokerIdentity(identity, opts) {
+  const reasons = [];
+  const missing = [];
+  if (!clean(identity.legalName))
+    missing.push("legal business name");
+  if (!clean(identity.mcNumber))
+    missing.push("MC number");
+  if (!clean(identity.bondCarrier))
+    missing.push("BMC-84 bond carrier");
+  if (identity.bondAmount == null)
+    missing.push("BMC-84 bond amount");
+  if (!clean(identity.bondExpiresOn))
+    missing.push("BMC-84 bond expiry date");
+  if (!identity.authorityStatus || identity.authorityStatus === "not_recorded")
+    missing.push("authority status");
+  if (missing.length > 0) {
+    reasons.push({
+      code: "missing_fields",
+      detail: `The broker identity record is incomplete \u2014 missing: ${missing.join(", ")}.`
+    });
+  }
+  if (identity.bondExpiresOn) {
+    const daysLeft = credentialDaysLeft(identity.bondExpiresOn, opts.now.getTime());
+    if (daysLeft < 0) {
+      reasons.push({
+        code: "bond_expired",
+        detail: `The BMC-84 bond on file expired on ${identity.bondExpiresOn}.`
+      });
+    }
+  }
+  if (identity.bondAmount != null && identity.bondAmount < BOND_MINIMUM_USD) {
+    reasons.push({
+      code: "bond_below_minimum",
+      detail: `The BMC-84 bond on file is $${identity.bondAmount.toLocaleString("en-US")} \u2014 below the $${BOND_MINIMUM_USD.toLocaleString("en-US")} federal minimum for broker authority.`
+    });
+  }
+  if (identity.authorityStatus === "revoked") {
+    reasons.push({
+      code: "authority_revoked",
+      detail: "Broker authority is recorded as REVOKED on the identity record."
+    });
+  } else if (identity.authorityStatus === "inactive") {
+    reasons.push({
+      code: "authority_inactive",
+      detail: "Broker authority is recorded as INACTIVE on the identity record."
+    });
+  }
+  const status = brokerIdentityStatus(identity, { seamConfigured: opts.seamConfigured, nowMs: opts.now.getTime() });
+  return {
+    ok: reasons.length === 0,
+    reasons,
+    fingerprint: reasons.map((r) => r.code).join("+") || "clean",
+    facts: {
+      screenedAt: opts.now.toISOString(),
+      legalName: clean(identity.legalName),
+      mcNumber: clean(identity.mcNumber),
+      bondCarrier: clean(identity.bondCarrier),
+      bondAmount: identity.bondAmount ?? null,
+      bondExpiresOn: clean(identity.bondExpiresOn),
+      authorityStatus: identity.authorityStatus || "not_recorded",
+      identityState: status.state
+    }
+  };
+}
+function tenderBlockSummary(screen) {
+  return screen.reasons.map((r) => r.detail).join(" ");
+}
+function bondAlertStatus(identity, dismissals, nowMs) {
+  const expiresOn = clean(identity.bondExpiresOn);
+  if (!expiresOn)
+    return { expiresOn: null, daysLeft: null, threshold: null, dismissed: false };
+  const daysLeft = credentialDaysLeft(expiresOn, nowMs);
+  const threshold = credentialThresholdFor(daysLeft);
+  return {
+    expiresOn,
+    daysLeft,
+    threshold,
+    dismissed: threshold != null && dismissals.some((d) => d.threshold === threshold && d.expiresOn === expiresOn)
+  };
+}
+function bondNotification(args) {
+  if (args.threshold === 0) {
+    return {
+      title: "BMC-84 bond expired",
+      body: `Your BMC-84 broker bond expired${args.expiresOn ? ` on ${args.expiresOn}` : ""} \u2014 tenders are held until a current bond is on file. Update the bond on your broker identity and send again.`
+    };
+  }
+  const days = args.daysLeft ?? args.threshold;
+  return {
+    title: `BMC-84 bond expires in ${days} day${days === 1 ? "" : "s"}`,
+    body: `Your BMC-84 broker bond expires${args.expiresOn ? ` on ${args.expiresOn}` : ""} \u2014 ${days} day${days === 1 ? "" : "s"} left. Renew it and update the expiry date on your broker identity before tenders are held.`
+  };
+}
+var MONTHS3 = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function monthYearOf(yyyyMmDd) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(yyyyMmDd.trim());
+  if (!m)
+    return null;
+  const month = MONTHS3[Number(m[2]) - 1];
+  if (!month)
+    return null;
+  return `${month} ${m[1]}`;
+}
+function brokerTrustSummary(identity, opts) {
+  const status = brokerIdentityStatus(identity, opts);
+  const expiresOn = clean(identity.bondExpiresOn);
+  const month = expiresOn ? monthYearOf(expiresOn) : null;
+  let bondStatus = "not_on_file";
+  let bondStatusLabel = "No bond on file";
+  if (expiresOn) {
+    const daysLeft = credentialDaysLeft(expiresOn, opts.nowMs);
+    if (daysLeft < 0) {
+      bondStatus = "expired";
+      bondStatusLabel = month ? `Bond expired ${month}` : "Bond expired";
+    } else if (daysLeft <= BOND_EXPIRING_SOON_DAYS) {
+      bondStatus = "expiring_soon";
+      bondStatusLabel = month ? `Bond on file \u2014 expires ${month}` : "Bond on file \u2014 expiring soon";
+    } else {
+      bondStatus = "active";
+      bondStatusLabel = month ? `Bond on file \u2014 expires ${month}` : "Bond on file";
+    }
+  }
+  return {
+    legalName: clean(identity.legalName),
+    mc: clean(identity.mcNumber),
+    bondStatus,
+    bondStatusLabel,
+    bondExpiresMonth: month,
+    verificationStatus: status.state,
+    verificationLabel: status.label
+  };
+}
+function brokerIdentityVerifierFromEnv(env, transport) {
+  if (!env.BROKER_IDENTITY_API_KEY || !transport)
+    return null;
+  return {
+    source: "fmcsa-provider",
+    check: (args) => transport(args)
+  };
+}
+function identityCheckDifferences(identity, check) {
+  const out = [];
+  if (identity.authorityStatus && identity.authorityStatus !== "not_recorded" && check.authorityStatus !== identity.authorityStatus) {
+    out.push(`Authority: the record says ${identity.authorityStatus}, the source reports ${check.authorityStatus}.`);
+  }
+  if (clean(identity.bondCarrier) && clean(check.bondCarrier) && clean(identity.bondCarrier).toLowerCase() !== clean(check.bondCarrier).toLowerCase()) {
+    out.push(`Bond carrier: the record says ${identity.bondCarrier}, the source reports ${check.bondCarrier}.`);
+  }
+  if (identity.bondAmount != null && check.bondAmount != null && identity.bondAmount !== check.bondAmount) {
+    out.push(`Bond amount: the record says $${identity.bondAmount.toLocaleString("en-US")}, the source reports $${check.bondAmount.toLocaleString("en-US")}.`);
+  }
+  if (clean(identity.bondExpiresOn) && clean(check.bondExpiresOn) && identity.bondExpiresOn !== check.bondExpiresOn) {
+    out.push(`Bond expiry: the record says ${identity.bondExpiresOn}, the source reports ${check.bondExpiresOn}.`);
+  }
+  return out;
+}
+function normPlace(city, state) {
+  const c = (city ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+  const s = (state ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+  if (!c && !s)
+    return null;
+  return `${c},${s}`;
+}
+function normReference(ref) {
+  const r = (ref ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return r === "" ? null : r;
+}
+function laneOf(l) {
+  const p = normPlace(l.pickupCity, l.pickupState);
+  const d = normPlace(l.deliveryCity, l.deliveryState);
+  if (!p || !d)
+    return null;
+  return `${p}->${d}`;
+}
+function findDoubleBrokerMatch(candidate, accepted) {
+  const candRef = normReference(candidate.referenceNumber);
+  if (candRef) {
+    for (const a of accepted) {
+      if (normReference(a.referenceNumber) === candRef)
+        return { boardLoadId: a.boardLoadId, basis: "reference" };
+    }
+  }
+  const candLane = laneOf(candidate);
+  if (candLane && candidate.rate != null) {
+    for (const a of accepted) {
+      if (a.rate != null && Math.round(a.rate * 100) === Math.round(candidate.rate * 100) && laneOf(a) === candLane) {
+        return { boardLoadId: a.boardLoadId, basis: "lane_and_rate" };
+      }
+    }
+  }
+  return null;
+}
+function carrierOfRecordConflict(carrierOfRecord, actor) {
+  return carrierOfRecord != null && carrierOfRecord.trim() !== "" && carrierOfRecord !== actor;
 }
 
 // src/notifications.ts
@@ -19299,7 +19565,7 @@ var EIA_SEED = {
   source: "EIA weekly on-highway diesel averages via the Oct 22, 2026 research snapshot (seed \u2014 awaiting the first live weekly refresh)",
   fetchedAt: new Date("2026-10-22T12:00:00Z")
 };
-var MONTHS3 = [
+var MONTHS4 = [
   "Jan",
   "Feb",
   "Mar",
@@ -19315,7 +19581,7 @@ var MONTHS3 = [
 ];
 function eiaWeekLabel(weekOfIso) {
   const [y = 1970, m = 1, d = 1] = weekOfIso.split("-").map(Number);
-  return `week of ${MONTHS3[(m - 1 + 12) % 12]} ${d}, ${y}`;
+  return `week of ${MONTHS4[(m - 1 + 12) % 12]} ${d}, ${y}`;
 }
 function parseEiaDieselPage(html, seriesId) {
   if (!html || !seriesId)
@@ -19473,7 +19739,7 @@ function orderedEquipment(rec) {
     ...rec[key]
   }));
 }
-var MONTHS4 = [
+var MONTHS5 = [
   "Jan",
   "Feb",
   "Mar",
@@ -19489,7 +19755,7 @@ var MONTHS4 = [
 ];
 function marketPulseEndingShort(weekEndingIso) {
   const [, m = 1, d = 1] = weekEndingIso.split("-").map(Number);
-  return `${MONTHS4[(m - 1 + 12) % 12]} ${d}`;
+  return `${MONTHS5[(m - 1 + 12) % 12]} ${d}`;
 }
 function marketPulseWeekLabel(weekEndingIso, weekNumber) {
   const [y = 1970] = weekEndingIso.split("-").map(Number);
@@ -21311,7 +21577,7 @@ async function evaluateLoadAutonomy(ctx, loadId) {
     },
     now
   });
-  const rows = await db.select().from(autoExceptions3).where(eq(autoExceptions3.loadId, loadId));
+  const rows = (await db.select().from(autoExceptions3).where(eq(autoExceptions3.loadId, loadId))).filter((r) => r.kind !== "tender_blocked");
   let opened = 0;
   let cleared = 0;
   for (const cand of candidates) {
@@ -21823,6 +22089,13 @@ function paperworkStateFail(error) {
   };
 }
 async function exceptionRoleFor(ctx, me, row) {
+  if (row.kind === "tender_blocked" && row.brokerAccountId != null) {
+    const db0 = ctx.db();
+    const accts = await db0.select().from(brokerAccounts3).where(eq(brokerAccounts3.id, row.brokerAccountId));
+    const acct = accts[0];
+    if (acct && (acct.ownerUsername === me || acct.linkedUsername === me))
+      return "broker";
+  }
   if (row.driverUsername === me)
     return "driver";
   if (row.companyId != null) {
@@ -27300,6 +27573,15 @@ async function reevaluateSealGradeForLoad(ctx, load, basis) {
     }
   });
 }
+var brokerTrustShape = object({
+  legalName: string2().nullable(),
+  mc: string2().nullable(),
+  bondStatus: _enum(["active", "expiring_soon", "expired", "not_on_file"]),
+  bondStatusLabel: string2(),
+  bondExpiresMonth: string2().nullable(),
+  verificationStatus: _enum(["verified", "stale", "on_file"]),
+  verificationLabel: string2()
+});
 var boardLoadShape = object({
   id: number2(),
   companyId: number2(),
@@ -27350,6 +27632,7 @@ var boardLoadShape = object({
   brokerCompany: string2().nullable(),
   brokerMc: string2().nullable(),
   brokerSource: string2().nullable(),
+  brokerTrust: brokerTrustShape.nullable(),
   boardScope: string2(),
   originKind: string2().nullable(),
   originLabel: string2().nullable(),
@@ -27360,7 +27643,7 @@ var boardLoadShape = object({
   createdAt: string2(),
   updatedAt: string2()
 });
-function toBoardLoad(row, linked) {
+function toBoardLoad(row, linked, trust = null) {
   let canUnassign = false;
   let blocked = null;
   if (row.status === "assigned") {
@@ -27430,6 +27713,7 @@ function toBoardLoad(row, linked) {
     brokerCompany: row.brokerCompany ?? null,
     brokerMc: row.brokerMc ?? null,
     brokerSource: row.brokerSource ?? null,
+    brokerTrust: trust,
     boardScope: row.boardScope ?? "fleet",
     originKind: row.originKind ?? null,
     originLabel: row.originLabel ?? null,
@@ -27593,7 +27877,22 @@ async function createLoadFromBoard(ctx, board, driverUsername) {
 async function takeBoardLoad(ctx, board, driverUsername, method, actor) {
   const db = ctx.db();
   const now = new Date;
-  const flipped = await db.update(boardLoads3).set({ status: "taken", claimMethod: method, claimedBy: driverUsername, claimedAt: now, updatedAt: now }).where(and(eq(boardLoads3.id, board.id), eq(boardLoads3.status, "open"))).returning({ id: boardLoads3.id });
+  if (carrierOfRecordConflict(board.carrierOfRecord, driverUsername)) {
+    await appendChain(ctx, {
+      refKind: "load",
+      refId: board.loadId ?? null,
+      sessionId: null,
+      event: "carrier_of_record_conflict",
+      payload: { boardLoadId: board.id, carrierOfRecord: board.carrierOfRecord, attemptedBy: driverUsername, method, at: now.toISOString() }
+    });
+    return {
+      ok: false,
+      error: `This load is bound to @${board.carrierOfRecord} as its carrier of record \u2014 it can't be taken by a different account. If that's wrong, the desk has to clear it.`,
+      loadId: null,
+      tripQueueId: null
+    };
+  }
+  const flipped = await db.update(boardLoads3).set({ status: "taken", claimMethod: method, claimedBy: driverUsername, claimedAt: now, carrierOfRecord: driverUsername, updatedAt: now }).where(and(eq(boardLoads3.id, board.id), eq(boardLoads3.status, "open"))).returning({ id: boardLoads3.id });
   if (!flipped[0]) {
     const fresh = await db.select().from(boardLoads3).where(eq(boardLoads3.id, board.id)).limit(1);
     const by = fresh[0]?.claimedBy;
@@ -27605,7 +27904,7 @@ async function takeBoardLoad(ctx, board, driverUsername, method, actor) {
     };
   }
   try {
-    const takenRow = { ...board, status: "taken", claimMethod: method, claimedBy: driverUsername, claimedAt: now };
+    const takenRow = { ...board, status: "taken", claimMethod: method, claimedBy: driverUsername, claimedAt: now, carrierOfRecord: driverUsername };
     const { loadId, tripQueueId } = await createLoadFromBoard(ctx, takenRow, driverUsername);
     await db.update(boardLoads3).set({ loadId, tripQueueId, updatedAt: new Date }).where(eq(boardLoads3.id, board.id));
     await appendChain(ctx, {
@@ -27627,7 +27926,7 @@ async function takeBoardLoad(ctx, board, driverUsername, method, actor) {
     });
     return { ok: true, error: null, loadId, tripQueueId };
   } catch {
-    await db.update(boardLoads3).set({ status: "open", claimMethod: null, claimedBy: null, claimedAt: null, loadId: null, tripQueueId: null, updatedAt: new Date }).where(eq(boardLoads3.id, board.id));
+    await db.update(boardLoads3).set({ status: "open", claimMethod: null, claimedBy: null, claimedAt: null, carrierOfRecord: null, loadId: null, tripQueueId: null, updatedAt: new Date }).where(eq(boardLoads3.id, board.id));
     return { ok: false, error: "Claiming hit a snag creating the load \u2014 nothing was taken and the load is back on the board. Try again.", loadId: null, tripQueueId: null };
   }
 }
@@ -28895,6 +29194,7 @@ var openBoardLoadShape = object({
   brokerName: string2().nullable(),
   brokerCompany: string2().nullable(),
   brokerMc: string2().nullable(),
+  brokerTrust: brokerTrustShape.nullable(),
   originKind: string2().nullable(),
   originLabel: string2().nullable(),
   dispatcherFeePct: number2().nullable(),
@@ -28902,7 +29202,7 @@ var openBoardLoadShape = object({
   createdAt: string2(),
   updatedAt: string2()
 });
-function toOpenBoardLoad(row, linked) {
+function toOpenBoardLoad(row, linked, trust = null) {
   return {
     id: row.id,
     postedBy: row.postedBy,
@@ -28939,6 +29239,7 @@ function toOpenBoardLoad(row, linked) {
     brokerName: row.brokerName ?? null,
     brokerCompany: row.brokerCompany ?? null,
     brokerMc: row.brokerMc ?? null,
+    brokerTrust: trust,
     originKind: row.originKind ?? null,
     originLabel: row.originLabel ?? null,
     dispatcherFeePct: row.dispatcherFeePct ?? null,
@@ -29282,6 +29583,14 @@ var brokerAccountShape = object({
   contactName: string2().nullable(),
   logoInitials: string2().nullable(),
   brokerMc: string2().nullable(),
+  legalName: string2().nullable(),
+  bondCarrier: string2().nullable(),
+  bondAmount: number2().nullable(),
+  bondExpiresOn: string2().nullable(),
+  authorityStatus: string2(),
+  identityState: string2(),
+  identityLabel: string2(),
+  identityVerifiedAt: string2().nullable(),
   dispatcherFeePct: number2().nullable(),
   linkedUsername: string2().nullable(),
   status: string2(),
@@ -29333,6 +29642,7 @@ var brokerLoadShape = object({
   status: string2(),
   plainStatus: string2(),
   missingForSend: array(string2()),
+  identityScreenedAt: string2().nullable(),
   boardLoadId: number2().nullable(),
   trackToken: string2().nullable(),
   carrierName: string2().nullable(),
@@ -29355,12 +29665,226 @@ var brokerLoadShape = object({
   createdAt: string2(),
   updatedAt: string2()
 });
+var brokerRecordFileRowShape = object({
+  posterLoadId: number2(),
+  boardLoadId: number2().nullable(),
+  postedAt: string2(),
+  pickupDate: string2().nullable(),
+  deliveryDate: string2().nullable(),
+  lane: string2(),
+  referenceNumber: string2().nullable(),
+  brokerName: string2(),
+  brokerLegalName: string2().nullable(),
+  brokerMc: string2().nullable(),
+  carrierName: string2().nullable(),
+  carrierUsername: string2().nullable(),
+  agreedRate: number2().nullable(),
+  extraCharges: number2(),
+  totalAgreed: number2().nullable(),
+  rateConSha256: string2().nullable(),
+  plainStatus: string2(),
+  podSealed: boolean2(),
+  podSealedAt: string2().nullable(),
+  invoiceNumber: string2().nullable(),
+  invoiceStatus: string2(),
+  identityScreenedAt: string2().nullable()
+});
 async function myBrokerAccount(ctx, me) {
   const db = ctx.db();
   const rows = await db.select().from(brokerAccounts3).where(eq(brokerAccounts3.linkedUsername, me));
   return rows[0] ?? null;
 }
+function identityOfAccount(row) {
+  return {
+    legalName: row.legalName ?? null,
+    mcNumber: row.brokerMc ?? null,
+    bondCarrier: row.bondCarrier ?? null,
+    bondAmount: row.bondAmount ?? null,
+    bondExpiresOn: row.bondExpiresOn ?? null,
+    authorityStatus: row.authorityStatus ?? "not_recorded",
+    identityVerifiedAt: row.identityVerifiedAt ? row.identityVerifiedAt.toISOString() : null,
+    identitySource: row.identitySource ?? null
+  };
+}
+function brokerSeamConfigured() {
+  return brokerIdentityVerifierFromEnv(process.env) != null;
+}
+function brokerAccountUsernames(account) {
+  const out = new Set;
+  if (account.ownerUsername)
+    out.add(account.ownerUsername);
+  if (account.linkedUsername)
+    out.add(account.linkedUsername);
+  return [...out];
+}
+async function bondStatusForAccount(ctx, account) {
+  const db = ctx.db();
+  const dismissals = await db.select().from(brokerBondAlertDismissals3).where(eq(brokerBondAlertDismissals3.brokerAccountId, account.id));
+  return bondAlertStatus(identityOfAccount(account), dismissals, Date.now());
+}
+async function evaluateBrokerBondAlerts(ctx, account) {
+  const status = await bondStatusForAccount(ctx, account);
+  if (status.threshold == null || status.dismissed || status.expiresOn == null)
+    return;
+  const built = bondNotification({ threshold: status.threshold, daysLeft: status.daysLeft, expiresOn: status.expiresOn });
+  for (const username of brokerAccountUsernames(account)) {
+    await recordNotificationSafe(ctx, {
+      username,
+      kind: "credential",
+      title: built.title,
+      body: built.body,
+      dedupeKey: `bond:${account.id}:${status.threshold}:${status.expiresOn}`,
+      refKind: "broker",
+      refId: account.id
+    });
+  }
+}
+async function openTenderBlockException(ctx, args) {
+  const db = ctx.db();
+  const now = new Date;
+  const dedupeKey = `broker:${args.posterLoad.id}:tender_blocked`;
+  const detail = `${tenderBlockSummary(args.screen)} Fix the broker identity record and tender again \u2014 nothing about this load went to the board.`;
+  const evidence = [
+    {
+      kind: "load",
+      ref: String(args.posterLoad.id),
+      at: now.toISOString(),
+      note: `tender screen at ${args.stage}: ${args.screen.reasons.map((r) => r.code).join(", ")}`
+    }
+  ];
+  const rows = await db.select().from(autoExceptions3).where(eq(autoExceptions3.dedupeKey, dedupeKey)).orderBy(desc(autoExceptions3.id));
+  const open = rows.find((r) => r.status === "open");
+  if (open) {
+    await db.update(autoExceptions3).set({ severity: 3, detail, evidenceJson: JSON.stringify(evidence), fingerprint: args.screen.fingerprint, updatedAt: now }).where(eq(autoExceptions3.id, open.id));
+    return;
+  }
+  const latest = rows[0];
+  if (latest && latest.fingerprint === args.screen.fingerprint)
+    return;
+  const ins = await db.insert(autoExceptions3).values({
+    loadId: args.posterLoad.id,
+    kind: "tender_blocked",
+    severity: 3,
+    detail,
+    evidenceJson: JSON.stringify(evidence),
+    driverUsername: args.account.linkedUsername ?? args.account.ownerUsername,
+    companyId: args.account.companyId ?? null,
+    brokerAccountId: args.account.id,
+    status: "open",
+    dedupeKey,
+    fingerprint: args.screen.fingerprint,
+    createdAt: now,
+    updatedAt: now
+  }).returning({ id: autoExceptions3.id });
+  const exceptionId = ins[0]?.id;
+  const lane = laneLabel(args.posterLoad.pickupCity, args.posterLoad.pickupState, args.posterLoad.deliveryCity, args.posterLoad.deliveryState);
+  const note = exceptionNotification({ kind: "tender_blocked", lane, loadId: args.posterLoad.id });
+  const targets = new Set(brokerAccountUsernames(args.account));
+  if (args.account.companyId != null) {
+    const members = await db.select().from(companyMembers3).where(eq(companyMembers3.companyId, args.account.companyId));
+    for (const m of members)
+      if (m.role === "owner" || m.role === "dispatch")
+        targets.add(m.username);
+  }
+  for (const username of targets) {
+    await recordNotificationSafe(ctx, {
+      username,
+      kind: "system",
+      title: note.title,
+      body: note.body,
+      dedupeKey: `exception:${exceptionId ?? dedupeKey}`,
+      refKind: "load",
+      refId: args.posterLoad.id
+    });
+  }
+}
+async function clearTenderBlockException(ctx, posterLoadId) {
+  const db = ctx.db();
+  const now = new Date;
+  const open = await db.select().from(autoExceptions3).where(and(eq(autoExceptions3.dedupeKey, `broker:${posterLoadId}:tender_blocked`), eq(autoExceptions3.status, "open")));
+  for (const row of open) {
+    const hash = await appendChain(ctx, {
+      refKind: "load",
+      refId: null,
+      sessionId: null,
+      event: "exception_auto_cleared",
+      payload: { exceptionId: row.id, brokerLoadId: posterLoadId, kind: "tender_blocked", at: now.toISOString() }
+    });
+    await db.update(autoExceptions3).set({ status: "resolved", resolution: "condition_cleared", resolvedBy: "system", resolvedAt: now, chainHash: hash, updatedAt: now }).where(eq(autoExceptions3.id, row.id));
+  }
+}
+async function screenBrokerTender(ctx, args) {
+  const now = new Date;
+  const screen = screenBrokerIdentity(identityOfAccount(args.account), { seamConfigured: brokerSeamConfigured(), now });
+  if (!screen.ok) {
+    await appendChain(ctx, {
+      refKind: "load",
+      refId: null,
+      sessionId: null,
+      event: "broker_tender_blocked",
+      payload: {
+        brokerId: args.account.id,
+        brokerLoadId: args.posterLoad.id,
+        stage: args.stage,
+        reasons: screen.reasons.map((r) => r.code),
+        fingerprint: screen.fingerprint,
+        by: args.by,
+        at: now.toISOString()
+      }
+    });
+    await openTenderBlockException(ctx, { account: args.account, posterLoad: args.posterLoad, stage: args.stage, screen });
+    return { ok: false, summary: tenderBlockSummary(screen) };
+  }
+  const db = ctx.db();
+  await db.update(brokerPosterLoads3).set({ identityScreenedAt: now, identityScreenJson: JSON.stringify(screen.facts), updatedAt: now }).where(eq(brokerPosterLoads3.id, args.posterLoad.id));
+  await appendChain(ctx, {
+    refKind: "load",
+    refId: null,
+    sessionId: null,
+    event: "broker_tender_screened",
+    payload: {
+      brokerId: args.account.id,
+      brokerLoadId: args.posterLoad.id,
+      stage: args.stage,
+      facts: screen.facts,
+      by: args.by,
+      at: now.toISOString()
+    }
+  });
+  await clearTenderBlockException(ctx, args.posterLoad.id);
+  return { ok: true };
+}
+async function brokerTrustForBoardRows(ctx, rows) {
+  const out = new Map;
+  const posterIds = [...new Set(rows.map((r) => r.brokerPosterLoadId).filter((v) => v != null))];
+  if (posterIds.length === 0)
+    return out;
+  const db = ctx.db();
+  const posters = await db.select().from(brokerPosterLoads3);
+  const posterById = new Map(posters.filter((p) => posterIds.includes(p.id)).map((p) => [p.id, p]));
+  const brokerIds = [...new Set([...posterById.values()].map((p) => p.brokerId))];
+  if (brokerIds.length === 0)
+    return out;
+  const accounts = await db.select().from(brokerAccounts3);
+  const accountById = new Map(accounts.filter((a) => brokerIds.includes(a.id)).map((a) => [a.id, a]));
+  const seamConfigured = brokerSeamConfigured();
+  const nowMs = Date.now();
+  for (const row of rows) {
+    if (row.brokerPosterLoadId == null)
+      continue;
+    const poster = posterById.get(row.brokerPosterLoadId);
+    const account = poster ? accountById.get(poster.brokerId) : null;
+    if (!account)
+      continue;
+    out.set(row.id, brokerTrustSummary(identityOfAccount(account), { seamConfigured, nowMs }));
+  }
+  return out;
+}
 function toBrokerAccount(row, loadCount) {
+  const identityStatus = brokerIdentityStatus(identityOfAccount(row), {
+    seamConfigured: brokerSeamConfigured(),
+    nowMs: Date.now()
+  });
   return {
     id: row.id,
     name: row.name,
@@ -29368,6 +29892,14 @@ function toBrokerAccount(row, loadCount) {
     contactName: row.contactName ?? null,
     logoInitials: row.logoInitials ?? null,
     brokerMc: row.brokerMc ?? null,
+    legalName: row.legalName ?? null,
+    bondCarrier: row.bondCarrier ?? null,
+    bondAmount: row.bondAmount ?? null,
+    bondExpiresOn: row.bondExpiresOn ?? null,
+    authorityStatus: row.authorityStatus ?? "not_recorded",
+    identityState: identityStatus.state,
+    identityLabel: identityStatus.label,
+    identityVerifiedAt: row.identityVerifiedAt ? row.identityVerifiedAt.toISOString() : null,
     dispatcherFeePct: row.dispatcherFeePct ?? null,
     linkedUsername: row.linkedUsername ?? null,
     status: row.status,
@@ -29498,6 +30030,7 @@ async function toBrokerLoad(ctx, row, account, pods) {
     status: row.status,
     plainStatus,
     missingForSend: brokerMissingForSend(row),
+    identityScreenedAt: row.identityScreenedAt ? row.identityScreenedAt.toISOString() : null,
     boardLoadId: row.boardLoadId ?? null,
     trackToken: row.trackToken ?? null,
     carrierName,
@@ -36690,7 +37223,7 @@ var Actions = {
         supersededById: r.supersededById,
         supersedesId: r.supersedesId
       })));
-      const exRows = await db.select().from(autoExceptions3).where(and(eq(autoExceptions3.loadId, args.loadId), eq(autoExceptions3.status, "open")));
+      const exRows = (await db.select().from(autoExceptions3).where(and(eq(autoExceptions3.loadId, args.loadId), eq(autoExceptions3.status, "open")))).filter((r) => r.kind !== "tender_blocked");
       const audiences = await autonomyAudiences(ctx, args.loadId, scope.via === "mine" ? scope.load : null);
       return {
         ok: true,
@@ -36755,8 +37288,14 @@ var Actions = {
         if (!role)
           continue;
         if (!laneCache.has(row.loadId)) {
-          const aud = await autonomyAudiences(ctx, row.loadId, null);
-          laneCache.set(row.loadId, aud.lane);
+          if (row.kind === "tender_blocked") {
+            const posters = await db.select().from(brokerPosterLoads3).where(eq(brokerPosterLoads3.id, row.loadId)).limit(1);
+            const p = posters[0];
+            laneCache.set(row.loadId, p ? laneLabel(p.pickupCity, p.pickupState, p.deliveryCity, p.deliveryState) : null);
+          } else {
+            const aud = await autonomyAudiences(ctx, row.loadId, null);
+            laneCache.set(row.loadId, aud.lane);
+          }
         }
         counts[role]++;
         items.push(exceptionShape(row, laneCache.get(row.loadId) ?? null, [role]));
@@ -37768,9 +38307,10 @@ Keep it for your records.
       const rows = (await db.select().from(boardLoads3).where(eq(boardLoads3.companyId, mine.company.id)).orderBy(desc(boardLoads3.id))).filter((r) => (r.boardScope ?? "fleet") === "fleet");
       const canManage = mine.role === "owner" || mine.role === "dispatch";
       const visible = rows.filter((r) => r.status === "open" || canManage || r.claimedBy === me);
+      const trustByBoardId = await brokerTrustForBoardRows(ctx, visible);
       const board = [];
       for (const r of visible) {
-        const shaped = toBoardLoad(r, r.status === "taken" ? await boardLinkedState(ctx, r) : null);
+        const shaped = toBoardLoad(r, r.status === "taken" ? await boardLinkedState(ctx, r) : null, trustByBoardId.get(r.id) ?? null);
         if (r.status === "overflowed") {
           const copies = await db.select().from(boardLoads3).where(eq(boardLoads3.overflowFromBoardLoadId, r.id));
           shaped.overflowOpenBoardId = copies[0]?.id ?? null;
@@ -37874,6 +38414,43 @@ Keep it for your records.
       const deliveryAppt = parseBoardAppt(args.deliveryApptAt, "delivery");
       if (deliveryAppt.error)
         return { ok: false, error: deliveryAppt.error, id: null };
+      {
+        const members = await db.select().from(companyMembers3).where(eq(companyMembers3.companyId, mine.company.id));
+        const claimants = new Set([me, ...members.map((m) => m.username)]);
+        const takenRows = await db.select().from(boardLoads3).where(eq(boardLoads3.status, "taken"));
+        const accepted = takenRows.filter((r) => r.claimedBy != null && claimants.has(r.claimedBy) && (r.companyId !== mine.company.id || r.originKind === "broker_poster" || r.originKind === "fleet_overflow" && r.originCompanyId !== mine.company.id));
+        const match = findDoubleBrokerMatch({
+          referenceNumber: cleanReferenceNumber(args.referenceNumber),
+          pickupCity: fields.pickupCity,
+          pickupState: fields.pickupState,
+          deliveryCity: fields.deliveryCity,
+          deliveryState: fields.deliveryState,
+          rate: fields.rate
+        }, accepted.map((r) => ({
+          boardLoadId: r.id,
+          referenceNumber: r.referenceNumber ?? null,
+          pickupCity: r.pickupCity,
+          pickupState: r.pickupState,
+          deliveryCity: r.deliveryCity,
+          deliveryState: r.deliveryState,
+          rate: r.rate
+        })));
+        if (match) {
+          await appendChain(ctx, {
+            refKind: "load",
+            refId: null,
+            sessionId: null,
+            event: "double_broker_attempt",
+            payload: { boardLoadId: match.boardLoadId, basis: match.basis, by: me, companyId: mine.company.id, at: new Date().toISOString() }
+          });
+          ctx.invalidateQueries();
+          return {
+            ok: false,
+            error: match.basis === "reference" ? "That load can't be posted \u2014 its reference number matches a load your company already accepted from the board. A load you took from the board is yours to run, not to re-broker." : "That load can't be posted \u2014 it matches a load your company already accepted from the board (same lane, same rate). A load you took from the board is yours to run, not to re-broker.",
+            id: null
+          };
+        }
+      }
       let siCheckId = null;
       if (await siEnabled(ctx)) {
         const lr = vetLoadForBoard({
@@ -38233,12 +38810,12 @@ Keep it for your records.
         return { ok: false, error: gateRefusalMessage(standing.gate), loadId: null, tripQueueId: null };
       }
       const now = new Date;
-      const flipped = await db.update(boardLoads3).set({ status: "taken", updatedAt: now }).where(and(eq(boardLoads3.id, row.id), eq(boardLoads3.status, "assigned"), eq(boardLoads3.claimedBy, row.claimedBy ?? ""))).returning({ id: boardLoads3.id });
+      const flipped = await db.update(boardLoads3).set({ status: "taken", carrierOfRecord: me, updatedAt: now }).where(and(eq(boardLoads3.id, row.id), eq(boardLoads3.status, "assigned"), eq(boardLoads3.claimedBy, row.claimedBy ?? ""))).returning({ id: boardLoads3.id });
       if (!flipped[0]) {
         return { ok: false, error: "That assignment just changed \u2014 refresh and try again.", loadId: null, tripQueueId: null };
       }
       try {
-        const takenRow = { ...row, status: "taken", claimMethod: "assign", claimedBy: me, claimedAt: row.claimedAt ?? now };
+        const takenRow = { ...row, status: "taken", claimMethod: "assign", claimedBy: me, claimedAt: row.claimedAt ?? now, carrierOfRecord: me };
         const { loadId, tripQueueId } = await createLoadFromBoard(ctx, takenRow, me);
         await db.update(boardLoads3).set({ loadId, tripQueueId, updatedAt: new Date }).where(eq(boardLoads3.id, row.id));
         await appendChain(ctx, {
@@ -38260,7 +38837,7 @@ Keep it for your records.
         ctx.invalidateQueries();
         return { ok: true, error: null, loadId, tripQueueId };
       } catch {
-        await db.update(boardLoads3).set({ status: "assigned", loadId: null, tripQueueId: null, updatedAt: new Date }).where(eq(boardLoads3.id, row.id));
+        await db.update(boardLoads3).set({ status: "assigned", carrierOfRecord: null, loadId: null, tripQueueId: null, updatedAt: new Date }).where(eq(boardLoads3.id, row.id));
         return { ok: false, error: "Accepting hit a snag creating the load \u2014 nothing was taken and the assignment is still waiting on you. Try again.", loadId: null, tripQueueId: null };
       }
     }
@@ -38299,6 +38876,7 @@ Keep it for your records.
         claimMethod: null,
         claimedBy: null,
         claimedAt: null,
+        carrierOfRecord: null,
         declineReason: checked.reason,
         declinedBy: me,
         declinedAt: now,
@@ -38341,7 +38919,7 @@ Keep it for your records.
         return { ok: false, error: "That load isn't on your company's board." };
       if (row.status === "assigned") {
         const driverWas = row.claimedBy;
-        await db.update(boardLoads3).set({ status: "open", claimMethod: null, claimedBy: null, claimedAt: null, updatedAt: new Date }).where(and(eq(boardLoads3.id, args.id), eq(boardLoads3.status, "assigned")));
+        await db.update(boardLoads3).set({ status: "open", claimMethod: null, claimedBy: null, claimedAt: null, carrierOfRecord: null, updatedAt: new Date }).where(and(eq(boardLoads3.id, args.id), eq(boardLoads3.status, "assigned")));
         await appendChain(ctx, {
           refKind: "load",
           refId: null,
@@ -38377,7 +38955,7 @@ Keep it for your records.
           payload: { loadId: row.loadId, reason: "fleet board unassign \u2014 load handed back to the board before pickup", boardLoadId: row.id }
         });
       }
-      await db.update(boardLoads3).set({ status: "open", claimMethod: null, claimedBy: null, claimedAt: null, loadId: null, tripQueueId: null, updatedAt: new Date }).where(eq(boardLoads3.id, args.id));
+      await db.update(boardLoads3).set({ status: "open", claimMethod: null, claimedBy: null, claimedAt: null, carrierOfRecord: null, loadId: null, tripQueueId: null, updatedAt: new Date }).where(eq(boardLoads3.id, args.id));
       await appendChain(ctx, {
         refKind: "load",
         refId: loadWas,
@@ -59236,9 +59814,10 @@ ${args.question}`, { schema: answerSchema });
         };
       }
       const rows = (await db.select().from(boardLoads3).where(eq(boardLoads3.boardScope, "open")).orderBy(desc(boardLoads3.id))).filter((r) => r.status === "open" || r.claimedBy === me);
+      const trustByBoardId = await brokerTrustForBoardRows(ctx, rows);
       const board = [];
       for (const r of rows) {
-        board.push(toOpenBoardLoad(r, r.status === "taken" ? await boardLinkedState(ctx, r) : null));
+        board.push(toOpenBoardLoad(r, r.status === "taken" ? await boardLinkedState(ctx, r) : null, trustByBoardId.get(r.id) ?? null));
       }
       return {
         myUsername: me,
@@ -60019,6 +60598,8 @@ ${args.question}`, { schema: answerSchema });
       const db = ctx.db();
       const me = await myUsername(ctx);
       const mine = await myBrokerAccount(ctx, me);
+      if (mine)
+        await evaluateBrokerBondAlerts(ctx, mine);
       const desk = await shipperDeskContext(ctx);
       const pods = await podStatusByLoad(ctx);
       const mode = mine && desk?.isDesk ? "both" : mine ? "broker" : desk?.isDesk ? "desk" : "none";
@@ -60143,6 +60724,17 @@ ${args.question}`, { schema: answerSchema });
         ctx.invalidateQueries();
         return { ok: true, error: null, id: row.id, sent: false, missing };
       }
+      const screen = await screenBrokerTender(ctx, { account, posterLoad: row, stage: "send", by: me });
+      if (!screen.ok) {
+        ctx.invalidateQueries();
+        return {
+          ok: false,
+          error: `This load can't go to dispatch yet \u2014 your broker identity check failed. ${screen.summary} Fix your identity under "Your broker identity" in this portal, then send again.`,
+          id: row.id,
+          sent: false,
+          missing: []
+        };
+      }
       await db.update(brokerPosterLoads3).set({ status: "sent", reviewNote: null, updatedAt: new Date }).where(eq(brokerPosterLoads3.id, row.id));
       await appendChain(ctx, {
         refKind: "load",
@@ -60195,6 +60787,11 @@ ${args.question}`, { schema: answerSchema });
       email: string2().min(3).max(200),
       contactName: string2().max(120).nullable().default(null),
       brokerMc: string2().max(40).nullable().default(null),
+      legalName: string2().max(200).nullable().default(null),
+      bondCarrier: string2().max(160).nullable().default(null),
+      bondAmount: number2().nonnegative().max(1e7).nullable().default(null),
+      bondExpiresOn: string2().max(10).nullable().default(null),
+      authorityStatus: _enum(["active", "inactive", "revoked", "not_recorded"]).nullable().default(null),
       dispatcherFeePct: union([number2(), string2()]).nullable().default(null),
       linkedUsername: string2().max(60).nullable().default(null),
       isDemo: boolean2().default(false),
@@ -60225,6 +60822,11 @@ ${args.question}`, { schema: answerSchema });
         contactName: clean(args.contactName),
         logoInitials: initials,
         brokerMc: clean(args.brokerMc),
+        legalName: clean(args.legalName),
+        bondCarrier: clean(args.bondCarrier),
+        bondAmount: args.bondAmount ?? null,
+        bondExpiresOn: clean(args.bondExpiresOn),
+        authorityStatus: args.authorityStatus ?? "not_recorded",
         dispatcherFeePct: fee.pct,
         linkedUsername: clean(args.linkedUsername)?.replace(/^@/, "") ?? null,
         companyId: desk.membership.company.id,
@@ -60252,7 +60854,7 @@ ${args.question}`, { schema: answerSchema });
         refId: null,
         sessionId: null,
         event: "broker_account_created",
-        payload: { brokerId: id, name, email: args.email.trim(), brokerMc: clean(args.brokerMc), linkedUsername: clean(args.linkedUsername), isDemo: args.isDemo, companyId: desk.membership.company.id, by: desk.me, referredBy, at: new Date().toISOString() }
+        payload: { brokerId: id, name, email: args.email.trim(), brokerMc: clean(args.brokerMc), legalName: clean(args.legalName), bondCarrier: clean(args.bondCarrier), bondAmount: args.bondAmount ?? null, bondExpiresOn: clean(args.bondExpiresOn), authorityStatus: args.authorityStatus ?? "not_recorded", linkedUsername: clean(args.linkedUsername), isDemo: args.isDemo, companyId: desk.membership.company.id, by: desk.me, referredBy, at: new Date().toISOString() }
       });
       ctx.invalidateQueries();
       return { ok: true, error: null, id };
@@ -60266,6 +60868,11 @@ ${args.question}`, { schema: answerSchema });
       linkedUsername: string2().max(60).nullable().default(null),
       contactName: string2().max(120).nullable().default(null),
       brokerMc: string2().max(40).nullable().default(null),
+      legalName: string2().max(200).nullable().default(null),
+      bondCarrier: string2().max(160).nullable().default(null),
+      bondAmount: number2().nonnegative().max(1e7).nullable().default(null),
+      bondExpiresOn: string2().max(10).nullable().default(null),
+      authorityStatus: _enum(["active", "inactive", "revoked", "not_recorded"]).nullable().default(null),
       dispatcherFeePct: union([number2(), string2()]).nullable().default(null),
       defaultPickupAddress: string2().max(300).nullable().default(null),
       defaultPickupCity: string2().max(120).nullable().default(null),
@@ -60294,6 +60901,11 @@ ${args.question}`, { schema: answerSchema });
         linkedUsername: clean(args.linkedUsername)?.replace(/^@/, "") ?? null,
         contactName: clean(args.contactName),
         brokerMc: clean(args.brokerMc),
+        legalName: clean(args.legalName),
+        bondCarrier: clean(args.bondCarrier),
+        bondAmount: args.bondAmount ?? null,
+        bondExpiresOn: clean(args.bondExpiresOn),
+        authorityStatus: args.authorityStatus ?? row.authorityStatus ?? "not_recorded",
         dispatcherFeePct: fee.pct,
         defaultPickupAddress: clean(args.defaultPickupAddress),
         defaultPickupCity: clean(args.defaultPickupCity),
@@ -60309,7 +60921,7 @@ ${args.question}`, { schema: answerSchema });
         refId: null,
         sessionId: null,
         event: "broker_account_updated",
-        payload: { brokerId: args.id, status: args.status ?? row.status, by: desk.me, at: new Date().toISOString() }
+        payload: { brokerId: args.id, status: args.status ?? row.status, legalName: clean(args.legalName), bondCarrier: clean(args.bondCarrier), bondAmount: args.bondAmount ?? null, bondExpiresOn: clean(args.bondExpiresOn), authorityStatus: args.authorityStatus ?? row.authorityStatus ?? "not_recorded", by: desk.me, at: new Date().toISOString() }
       });
       ctx.invalidateQueries();
       return { ok: true, error: null };
@@ -60351,6 +60963,289 @@ ${args.question}`, { schema: answerSchema });
       });
       ctx.invalidateQueries();
       return { ok: true, error: null, dispatcherFeePct: v.pct };
+    }
+  }),
+  getMyBrokerIdentity: defineAction({
+    description: "My broker identity record, its status, and the live bond alert.",
+    request: object({}),
+    response: object({
+      account: brokerAccountShape.nullable(),
+      bondAlert: object({
+        expiresOn: string2().nullable(),
+        daysLeft: number2().nullable(),
+        threshold: number2().nullable(),
+        dismissed: boolean2()
+      }),
+      seamConfigured: boolean2()
+    }),
+    async handler(ctx) {
+      const me = await myUsername(ctx);
+      const account = await myBrokerAccount(ctx, me);
+      if (!account) {
+        return {
+          account: null,
+          bondAlert: { expiresOn: null, daysLeft: null, threshold: null, dismissed: false },
+          seamConfigured: brokerSeamConfigured()
+        };
+      }
+      await evaluateBrokerBondAlerts(ctx, account);
+      const bond = await bondStatusForAccount(ctx, account);
+      const db = ctx.db();
+      const countRows = await db.select().from(brokerPosterLoads3).where(eq(brokerPosterLoads3.brokerId, account.id));
+      return {
+        account: toBrokerAccount(account, countRows.length),
+        bondAlert: {
+          expiresOn: bond.expiresOn,
+          daysLeft: bond.daysLeft,
+          threshold: bond.threshold,
+          dismissed: bond.dismissed
+        },
+        seamConfigured: brokerSeamConfigured()
+      };
+    }
+  }),
+  updateMyBrokerIdentity: defineAction({
+    description: "Save my broker identity record (legal name, MC, bond, authority status).",
+    request: object({
+      legalName: string2().max(200).nullable().default(null),
+      brokerMc: string2().max(40).nullable().default(null),
+      bondCarrier: string2().max(160).nullable().default(null),
+      bondAmount: number2().nonnegative().max(1e7).nullable().default(null),
+      bondExpiresOn: string2().max(10).nullable().default(null),
+      authorityStatus: _enum(["active", "inactive", "revoked", "not_recorded"]).nullable().default(null)
+    }),
+    response: object({
+      ok: boolean2(),
+      error: string2().nullable(),
+      account: brokerAccountShape.nullable()
+    }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const account = await myBrokerAccount(ctx, me);
+      if (!account)
+        return { ok: false, error: "You don't have a broker account.", account: null };
+      if (account.status === "suspended") {
+        return { ok: false, error: "Your broker account is suspended \u2014 identity changes are closed until dispatch restores it.", account: null };
+      }
+      const clean = (v) => {
+        const t = (v ?? "").trim();
+        return t.length > 0 ? t : null;
+      };
+      const expiry = clean(args.bondExpiresOn);
+      if (expiry != null && !/^\d{4}-\d{2}-\d{2}$/.test(expiry)) {
+        return { ok: false, error: "Bond expiry must be a date (YYYY-MM-DD).", account: null };
+      }
+      const next = {
+        legalName: clean(args.legalName),
+        brokerMc: clean(args.brokerMc),
+        bondCarrier: clean(args.bondCarrier),
+        bondAmount: args.bondAmount ?? null,
+        bondExpiresOn: expiry,
+        authorityStatus: args.authorityStatus ?? account.authorityStatus ?? "not_recorded"
+      };
+      await db.update(brokerAccounts3).set({ ...next, updatedAt: new Date }).where(eq(brokerAccounts3.id, account.id));
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: null,
+        sessionId: null,
+        event: "broker_identity_updated",
+        payload: { brokerId: account.id, ...next, by: me, at: new Date().toISOString() }
+      });
+      const rows = await db.select().from(brokerAccounts3).where(eq(brokerAccounts3.id, account.id)).limit(1);
+      const countRows = await db.select().from(brokerPosterLoads3).where(eq(brokerPosterLoads3.brokerId, account.id));
+      ctx.invalidateQueries();
+      return { ok: true, error: null, account: rows[0] ? toBrokerAccount(rows[0], countRows.length) : null };
+    }
+  }),
+  verifyBrokerIdentity: defineAction({
+    description: "Check my broker identity against the verification source, if one is connected.",
+    request: object({}),
+    response: object({
+      ok: boolean2(),
+      configured: boolean2(),
+      message: string2(),
+      differences: array(string2()),
+      account: brokerAccountShape.nullable()
+    }),
+    async handler(ctx) {
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const account = await myBrokerAccount(ctx, me);
+      if (!account)
+        return { ok: false, configured: false, message: "You don't have a broker account.", differences: [], account: null };
+      const countRows = await db.select().from(brokerPosterLoads3).where(eq(brokerPosterLoads3.brokerId, account.id));
+      const verifier = brokerIdentityVerifierFromEnv(process.env);
+      if (!verifier) {
+        await appendChain(ctx, {
+          refKind: "load",
+          refId: null,
+          sessionId: null,
+          event: "broker_identity_check",
+          payload: { brokerId: account.id, outcome: "not_configured", by: me, at: new Date().toISOString() }
+        });
+        return {
+          ok: true,
+          configured: false,
+          message: "Verification source not connected \u2014 your identity stays on file as recorded. Nothing was marked verified. Tenders are screened against your recorded record.",
+          differences: [],
+          account: toBrokerAccount(account, countRows.length)
+        };
+      }
+      const check = await verifier.check(identityOfAccount(account));
+      if (!check) {
+        await appendChain(ctx, {
+          refKind: "load",
+          refId: null,
+          sessionId: null,
+          event: "broker_identity_check",
+          payload: { brokerId: account.id, outcome: "no_result", by: me, at: new Date().toISOString() }
+        });
+        return {
+          ok: true,
+          configured: true,
+          message: "The verification source returned no result for this record \u2014 nothing was marked verified.",
+          differences: [],
+          account: toBrokerAccount(account, countRows.length)
+        };
+      }
+      const differences = identityCheckDifferences(identityOfAccount(account), check);
+      const checkedAt = new Date(check.checkedAt);
+      await db.update(brokerAccounts3).set({
+        identityVerifiedAt: Number.isNaN(checkedAt.getTime()) ? new Date : checkedAt,
+        identitySource: check.source,
+        authorityStatus: check.authorityStatus,
+        updatedAt: new Date
+      }).where(eq(brokerAccounts3.id, account.id));
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: null,
+        sessionId: null,
+        event: "broker_identity_check",
+        payload: { brokerId: account.id, outcome: "checked", source: check.source, authorityStatus: check.authorityStatus, differences, by: me, at: new Date().toISOString() }
+      });
+      const rows = await db.select().from(brokerAccounts3).where(eq(brokerAccounts3.id, account.id)).limit(1);
+      ctx.invalidateQueries();
+      return {
+        ok: true,
+        configured: true,
+        message: differences.length > 0 ? `Checked against ${check.source}. ${differences.length} difference${differences.length === 1 ? "" : "s"} from your recorded record \u2014 review them below and update your record if the source is right.` : `Checked against ${check.source} \u2014 the source's facts match your recorded record.`,
+        differences,
+        account: rows[0] ? toBrokerAccount(rows[0], countRows.length) : null
+      };
+    }
+  }),
+  dismissBrokerBondAlert: defineAction({
+    description: "Dismiss the current broker bond alert threshold.",
+    request: object({}),
+    response: object({ ok: boolean2(), error: string2().nullable() }),
+    async handler(ctx) {
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const account = await myBrokerAccount(ctx, me);
+      if (!account)
+        return { ok: false, error: "You don't have a broker account." };
+      const status = await bondStatusForAccount(ctx, account);
+      if (status.threshold == null || status.expiresOn == null) {
+        return { ok: false, error: "There's no bond alert to dismiss right now." };
+      }
+      if (status.dismissed)
+        return { ok: true, error: null };
+      await db.insert(brokerBondAlertDismissals3).values({
+        brokerAccountId: account.id,
+        threshold: status.threshold,
+        expiresOn: status.expiresOn,
+        dismissedAt: new Date
+      });
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: null,
+        sessionId: null,
+        event: "broker_bond_alert_dismissed",
+        payload: { brokerId: account.id, threshold: status.threshold, expiresOn: status.expiresOn, by: me, at: new Date().toISOString() }
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
+    }
+  }),
+  getBrokerRecordFile: defineAction({
+    description: "My broker record file (49 CFR 371.3) \u2014 my own posted loads with parties, dates, agreed rate and payment facts.",
+    request: object({}),
+    response: object({
+      accountName: string2().nullable(),
+      rows: array(brokerRecordFileRowShape)
+    }),
+    async handler(ctx) {
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const account = await myBrokerAccount(ctx, me);
+      if (!account)
+        return { accountName: null, rows: [] };
+      const posters = await db.select().from(brokerPosterLoads3).where(eq(brokerPosterLoads3.brokerId, account.id)).orderBy(desc(brokerPosterLoads3.id));
+      const pods = await podStatusByLoad(ctx);
+      const out = [];
+      for (const p of posters) {
+        let board = null;
+        if (p.boardLoadId != null) {
+          const brows = await db.select().from(boardLoads3).where(eq(boardLoads3.id, p.boardLoadId)).limit(1);
+          board = brows[0] ?? null;
+        }
+        const shaped = await toBrokerLoad(ctx, p, account, pods);
+        const facts = {
+          carrierName: shaped.carrierName,
+          carrierUsername: shaped.carrierUsername,
+          plainStatus: shaped.plainStatus,
+          podSealed: shaped.podSealed,
+          podSealedAt: shaped.podSealedAt
+        };
+        let invoiceNumber = null;
+        let invoiceStatus = "Not invoiced yet";
+        const driverLoadId = board?.loadId ?? null;
+        if (driverLoadId != null) {
+          const events = await db.select().from(chainLog3).where(and(eq(chainLog3.refKind, "load"), eq(chainLog3.refId, driverLoadId))).orderBy(asc(chainLog3.id));
+          for (const e of events) {
+            if (e.event === "invoice_created") {
+              try {
+                const payload = JSON.parse(e.payload);
+                if (payload.number)
+                  invoiceNumber = payload.number;
+              } catch {}
+            }
+          }
+          if (events.some((e) => e.event === "invoice_paid"))
+            invoiceStatus = "Paid";
+          else if (events.some((e) => e.event === "invoice_issued"))
+            invoiceStatus = "Invoiced \u2014 waiting on payment";
+          else if (events.some((e) => e.event === "invoice_created"))
+            invoiceStatus = "Invoice drafted \u2014 not sent yet";
+        }
+        const extra = board?.extraCharges ?? 0;
+        out.push({
+          posterLoadId: p.id,
+          boardLoadId: p.boardLoadId ?? null,
+          postedAt: p.createdAt.toISOString(),
+          pickupDate: p.pickupDate ?? null,
+          deliveryDate: p.deliveryDate ?? null,
+          lane: laneLabel(p.pickupCity, p.pickupState, p.deliveryCity, p.deliveryState) ?? "Lane not set",
+          referenceNumber: p.referenceNumber ?? null,
+          brokerName: account.name,
+          brokerLegalName: account.legalName ?? null,
+          brokerMc: account.brokerMc ?? null,
+          carrierName: facts.carrierName,
+          carrierUsername: facts.carrierUsername,
+          agreedRate: p.rate ?? null,
+          extraCharges: extra,
+          totalAgreed: p.rate != null ? p.rate + extra : null,
+          rateConSha256: p.rateConSha256 ?? null,
+          plainStatus: facts.plainStatus,
+          podSealed: facts.podSealed,
+          podSealedAt: facts.podSealedAt,
+          invoiceNumber,
+          invoiceStatus,
+          identityScreenedAt: p.identityScreenedAt ? p.identityScreenedAt.toISOString() : null
+        });
+      }
+      return { accountName: account.name, rows: out };
     }
   }),
   updateBrokerLoadDesk: defineAction({
@@ -60444,6 +61339,15 @@ ${args.question}`, { schema: answerSchema });
       const account = acctRows[0];
       if (!account)
         return { ok: false, error: "The broker account for this load is gone.", boardLoadId: null };
+      const screen = await screenBrokerTender(ctx, { account, posterLoad: row, stage: "release", by: desk.me });
+      if (!screen.ok) {
+        ctx.invalidateQueries();
+        return {
+          ok: false,
+          error: `Release held \u2014 the broker's identity check failed. ${screen.summary} The load stays in the review queue; the broker has been notified and the hold is in their exception queue.`,
+          boardLoadId: null
+        };
+      }
       const whenText = (date, window, address) => [date, window, address].filter(Boolean).join(" \xB7 ") || null;
       const noteParts = [
         row.referenceNumber ? `Broker ref ${row.referenceNumber}` : null,
@@ -60503,7 +61407,8 @@ ${args.question}`, { schema: answerSchema });
         vettedOnly: true,
         overflowReason: null,
         overflowFromBoardLoadId: null,
-        brokerPosterLoadId: row.id
+        brokerPosterLoadId: row.id,
+        referenceNumber: row.referenceNumber ?? null
       }).returning({ id: boardLoads3.id });
       const boardLoadId = ins[0]?.id ?? null;
       if (boardLoadId == null)

@@ -260,6 +260,20 @@ import {
   type PaperworkFieldFlags,
 } from "./paperwork";
 import {
+  bondAlertStatus,
+  bondNotification,
+  brokerIdentityStatus,
+  brokerIdentityVerifierFromEnv,
+  brokerTrustSummary,
+  carrierOfRecordConflict,
+  findDoubleBrokerMatch,
+  identityCheckDifferences,
+  screenBrokerIdentity,
+  tenderBlockSummary,
+  type BrokerIdentityLike,
+  type BrokerTrustSummary,
+} from "./brokerIdentity";
+import {
   credentialNotification,
   dedupePolicyFor,
   dmNotification,
@@ -2652,7 +2666,13 @@ async function evaluateLoadAutonomy(
     now,
   });
 
-  const rows = await db.select().from(schema.autoExceptions).where(eq(schema.autoExceptions.loadId, loadId));
+  // Tender-block rows (kind tender_blocked) share this table but
+  // are managed by the broker tender flow, not by derivation —
+  // their loadId is a broker poster load id. Derivation never
+  // refreshes or auto-clears them.
+  const rows = (await db.select().from(schema.autoExceptions).where(eq(schema.autoExceptions.loadId, loadId))).filter(
+    (r) => r.kind !== "tender_blocked",
+  );
   let opened = 0;
   let cleared = 0;
   for (const cand of candidates) {
@@ -3323,6 +3343,15 @@ async function exceptionRoleFor(
   me: string,
   row: AutoExceptionRow,
 ): Promise<"driver" | "fleet" | "broker" | null> {
+  // Tender-block rows (Wave 2 item 3) belong to the broker's queue
+  // first — their driverUsername carries the broker account's own
+  // username for routing, which would otherwise read as "driver".
+  if (row.kind === "tender_blocked" && row.brokerAccountId != null) {
+    const db0 = ctx.db<typeof schema>();
+    const accts = await db0.select().from(schema.brokerAccounts).where(eq(schema.brokerAccounts.id, row.brokerAccountId));
+    const acct = accts[0];
+    if (acct && (acct.ownerUsername === me || acct.linkedUsername === me)) return "broker";
+  }
   if (row.driverUsername === me) return "driver";
   if (row.companyId != null) {
     const membership = await myMembership(ctx, me);
@@ -11828,6 +11857,21 @@ async function reevaluateSealGradeForLoad(ctx: Ctx, load: LoadRow, basis: string
 // filters on the caller's own companyId, and a caller with no company
 // gets an honest inCompany:false and no rows.
 
+// Carrier-facing broker trust summary (Wave 2 item 3): rides board
+// rows that came from a broker portal load. Legal name, MC, bond
+// STATUS (never the amount), and the verification status — the
+// facts a carrier needs to decide whether to trust the broker.
+// Null on rows with no broker identity record behind them.
+const brokerTrustShape = z.object({
+  legalName: z.string().nullable(),
+  mc: z.string().nullable(),
+  bondStatus: z.enum(["active", "expiring_soon", "expired", "not_on_file"]),
+  bondStatusLabel: z.string(),
+  bondExpiresMonth: z.string().nullable(),
+  verificationStatus: z.enum(["verified", "stale", "on_file"]),
+  verificationLabel: z.string(),
+});
+
 const boardLoadShape = z.object({
   id: z.number(),
   companyId: z.number(),
@@ -11894,6 +11938,7 @@ const boardLoadShape = z.object({
   brokerCompany: z.string().nullable(),
   brokerMc: z.string().nullable(),
   brokerSource: z.string().nullable(),
+  brokerTrust: brokerTrustShape.nullable(),
   // Open Board (migration 0073): scope + origin labelling. Fleet rows
   // read boardScope "fleet"; an overflowed fleet row carries
   // overflowOpenBoardId (its Open Board copy) while it is out.
@@ -11916,6 +11961,7 @@ type BoardLoadRow = typeof schema.boardLoads.$inferSelect;
 function toBoardLoad(
   row: BoardLoadRow,
   linked: { status: string; podSealed: boolean; hasPickupProof: boolean; confirmation: { path: string; receiverName: string | null; exceptionNotes: string | null; at: string | null } | null } | null,
+  trust: BrokerTrustSummary | null = null,
 ): z.infer<typeof boardLoadShape> {
   let canUnassign = false;
   let blocked: string | null = null;
@@ -11988,6 +12034,7 @@ function toBoardLoad(
     brokerCompany: row.brokerCompany ?? null,
     brokerMc: row.brokerMc ?? null,
     brokerSource: row.brokerSource ?? null,
+    brokerTrust: trust,
     boardScope: row.boardScope ?? "fleet",
     originKind: row.originKind ?? null,
     originLabel: row.originLabel ?? null,
@@ -12231,9 +12278,29 @@ async function takeBoardLoad(
 ): Promise<{ ok: boolean; error: string | null; loadId: number | null; tripQueueId: number | null }> {
   const db = ctx.db<typeof schema>();
   const now = new Date();
+  // CARRIER OF RECORD (Wave 2 item 3): a row still naming a carrier
+  // of record can only be taken by THAT carrier. Normally the name
+  // clears when the row returns to the board (unassign), so a row
+  // reaching here with someone else's name on it means the record
+  // and the board disagree — refuse, seal, and let a human look.
+  if (carrierOfRecordConflict(board.carrierOfRecord, driverUsername)) {
+    await appendChain(ctx, {
+      refKind: "load",
+      refId: board.loadId ?? null,
+      sessionId: null,
+      event: "carrier_of_record_conflict",
+      payload: { boardLoadId: board.id, carrierOfRecord: board.carrierOfRecord, attemptedBy: driverUsername, method, at: now.toISOString() },
+    });
+    return {
+      ok: false,
+      error: `This load is bound to @${board.carrierOfRecord} as its carrier of record — it can't be taken by a different account. If that's wrong, the desk has to clear it.`,
+      loadId: null,
+      tripQueueId: null,
+    };
+  }
   const flipped = await db
     .update(schema.boardLoads)
-    .set({ status: "taken", claimMethod: method, claimedBy: driverUsername, claimedAt: now, updatedAt: now })
+    .set({ status: "taken", claimMethod: method, claimedBy: driverUsername, claimedAt: now, carrierOfRecord: driverUsername, updatedAt: now })
     .where(and(eq(schema.boardLoads.id, board.id), eq(schema.boardLoads.status, "open")))
     .returning({ id: schema.boardLoads.id });
   if (!flipped[0]) {
@@ -12249,7 +12316,7 @@ async function takeBoardLoad(
     };
   }
   try {
-    const takenRow: BoardLoadRow = { ...board, status: "taken", claimMethod: method, claimedBy: driverUsername, claimedAt: now };
+    const takenRow: BoardLoadRow = { ...board, status: "taken", claimMethod: method, claimedBy: driverUsername, claimedAt: now, carrierOfRecord: driverUsername };
     const { loadId, tripQueueId } = await createLoadFromBoard(ctx, takenRow, driverUsername);
     await db
       .update(schema.boardLoads)
@@ -12277,7 +12344,7 @@ async function takeBoardLoad(
     // Roll the flip back — a failed creation must never eat a board load.
     await db
       .update(schema.boardLoads)
-      .set({ status: "open", claimMethod: null, claimedBy: null, claimedAt: null, loadId: null, tripQueueId: null, updatedAt: new Date() })
+      .set({ status: "open", claimMethod: null, claimedBy: null, claimedAt: null, carrierOfRecord: null, loadId: null, tripQueueId: null, updatedAt: new Date() })
       .where(eq(schema.boardLoads.id, board.id));
     return { ok: false, error: "Claiming hit a snag creating the load — nothing was taken and the load is back on the board. Try again.", loadId: null, tripQueueId: null };
   }
@@ -14230,6 +14297,7 @@ const openBoardLoadShape = z.object({
   brokerName: z.string().nullable(),
   brokerCompany: z.string().nullable(),
   brokerMc: z.string().nullable(),
+  brokerTrust: brokerTrustShape.nullable(),
   // Origin labelling — the fleet name / broker name the load keeps on
   // the board and through the claim flow.
   originKind: z.string().nullable(), // fleet_overflow | broker_poster
@@ -14246,6 +14314,7 @@ const openBoardLoadShape = z.object({
 function toOpenBoardLoad(
   row: BoardLoadRow,
   linked: { status: string; podSealed: boolean; hasPickupProof: boolean } | null,
+  trust: BrokerTrustSummary | null = null,
 ): z.infer<typeof openBoardLoadShape> {
   return {
     id: row.id,
@@ -14283,6 +14352,7 @@ function toOpenBoardLoad(
     brokerName: row.brokerName ?? null,
     brokerCompany: row.brokerCompany ?? null,
     brokerMc: row.brokerMc ?? null,
+    brokerTrust: trust,
     originKind: row.originKind ?? null,
     originLabel: row.originLabel ?? null,
     dispatcherFeePct: row.dispatcherFeePct ?? null,
@@ -14736,6 +14806,21 @@ const brokerAccountShape = z.object({
   contactName: z.string().nullable(),
   logoInitials: z.string().nullable(),
   brokerMc: z.string().nullable(),
+  // Broker-grade identity (migration 0131): the record itself plus
+  // its derived status. identityState is verified | stale |
+  // on_file — "verified" only ever follows a completed source
+  // check (the seam is unconfigured in this build, so accounts read
+  // on_file with the not-connected label). bondAmount is the
+  // broker's OWN figure on their OWN account shape (and the desk
+  // that manages them) — carrier-facing shapes never carry it.
+  legalName: z.string().nullable(),
+  bondCarrier: z.string().nullable(),
+  bondAmount: z.number().nullable(),
+  bondExpiresOn: z.string().nullable(),
+  authorityStatus: z.string(),
+  identityState: z.string(),
+  identityLabel: z.string(),
+  identityVerifiedAt: z.string().nullable(),
   // The poster's OWN dispatcher fee % override (migration 0088) —
   // see the section comment: their number, set by them or their
   // desk, capped at 20. Null = unset (inherits the dispatch
@@ -14796,6 +14881,11 @@ const brokerLoadShape = z.object({
   // Picked up | In transit | Delivered
   plainStatus: z.string(),
   missingForSend: z.array(z.string()),
+  // Continuous monitoring (migration 0131): when this load last
+  // PASSED the broker identity re-screen (send / release). Null =
+  // never screened (drafts, and loads tendered before the screen
+  // existed). A blocked tender stamps nothing.
+  identityScreenedAt: z.string().nullable(),
   boardLoadId: z.number().nullable(),
   trackToken: z.string().nullable(),
   carrierName: z.string().nullable(),
@@ -14826,6 +14916,35 @@ const brokerLoadShape = z.object({
 type BrokerAccountRow = typeof schema.brokerAccounts.$inferSelect;
 type BrokerPosterLoadRow = typeof schema.brokerPosterLoads.$inferSelect;
 
+// One row of the broker's 49 CFR 371.3 record file (Wave 2 item 3):
+// the broker's OWN posted load with the parties, dates, agreed rate
+// and charges, and delivery/payment facts. Broker-self-scoped —
+// this shape is returned by getBrokerRecordFile only.
+const brokerRecordFileRowShape = z.object({
+  posterLoadId: z.number(),
+  boardLoadId: z.number().nullable(),
+  postedAt: z.string(),
+  pickupDate: z.string().nullable(),
+  deliveryDate: z.string().nullable(),
+  lane: z.string(),
+  referenceNumber: z.string().nullable(),
+  brokerName: z.string(),
+  brokerLegalName: z.string().nullable(),
+  brokerMc: z.string().nullable(),
+  carrierName: z.string().nullable(),
+  carrierUsername: z.string().nullable(),
+  agreedRate: z.number().nullable(),
+  extraCharges: z.number(),
+  totalAgreed: z.number().nullable(),
+  rateConSha256: z.string().nullable(),
+  plainStatus: z.string(),
+  podSealed: z.boolean(),
+  podSealedAt: z.string().nullable(),
+  invoiceNumber: z.string().nullable(),
+  invoiceStatus: z.string(),
+  identityScreenedAt: z.string().nullable(),
+});
+
 /** The broker account THIS caller signs in as (linked_username), if
  *  any. Suspended accounts still resolve — reads say so plainly and
  *  writes refuse — so a suspended broker sees why, not a void. */
@@ -14838,7 +14957,281 @@ async function myBrokerAccount(ctx: Ctx, me: string): Promise<BrokerAccountRow |
   return rows[0] ?? null;
 }
 
+// ---- Broker-grade identity + continuous monitoring (migration 0131) ------
+// The database half of brokerIdentity.ts. The identity record rides
+// broker_accounts; the rules (status, screen, bond alerts, trust
+// summary, double-broker match) are pure in brokerIdentity.ts.
+// STANDING HONESTY: the verification seam is unconfigured in this
+// build (no FMCSA/provider transport is connected), so no record is
+// ever stamped verified here — statuses read "on file", screens
+// stand on the recorded record alone, and a block always names its
+// recorded reason. Notifications are in-app only — no email exists
+// anywhere in this section.
+
+type BrokerAccountRowFull = BrokerAccountRow;
+
+function identityOfAccount(row: BrokerAccountRowFull): BrokerIdentityLike {
+  return {
+    legalName: row.legalName ?? null,
+    mcNumber: row.brokerMc ?? null,
+    bondCarrier: row.bondCarrier ?? null,
+    bondAmount: row.bondAmount ?? null,
+    bondExpiresOn: row.bondExpiresOn ?? null,
+    authorityStatus: row.authorityStatus ?? "not_recorded",
+    identityVerifiedAt: row.identityVerifiedAt ? row.identityVerifiedAt.toISOString() : null,
+    identitySource: row.identitySource ?? null,
+  };
+}
+
+function brokerSeamConfigured(): boolean {
+  return brokerIdentityVerifierFromEnv(process.env) != null;
+}
+
+/** The usernames a broker account's alerts belong to: the account's
+ * owner (the desk user who created it) and its linked sign-in. */
+function brokerAccountUsernames(account: BrokerAccountRowFull): string[] {
+  const out = new Set<string>();
+  if (account.ownerUsername) out.add(account.ownerUsername);
+  if (account.linkedUsername) out.add(account.linkedUsername);
+  return [...out];
+}
+
+async function bondStatusForAccount(ctx: Ctx, account: BrokerAccountRowFull) {
+  const db = ctx.db<typeof schema>();
+  const dismissals = await db
+    .select()
+    .from(schema.brokerBondAlertDismissals)
+    .where(eq(schema.brokerBondAlertDismissals.brokerAccountId, account.id));
+  return bondAlertStatus(identityOfAccount(account), dismissals, Date.now());
+}
+
+/** Record the bond alert into the broker's notification center the
+ * first time its threshold is seen (kind "credential", dedupe
+ * "ever" per (broker, threshold, expiry date) — the credential
+ * engine's semantics). A dismissed alert never records. In-app
+ * only. Best-effort: the center never breaks the producing read. */
+async function evaluateBrokerBondAlerts(ctx: Ctx, account: BrokerAccountRowFull): Promise<void> {
+  const status = await bondStatusForAccount(ctx, account);
+  if (status.threshold == null || status.dismissed || status.expiresOn == null) return;
+  const built = bondNotification({ threshold: status.threshold, daysLeft: status.daysLeft, expiresOn: status.expiresOn });
+  for (const username of brokerAccountUsernames(account)) {
+    await recordNotificationSafe(ctx, {
+      username,
+      kind: "credential",
+      title: built.title,
+      body: built.body,
+      dedupeKey: `bond:${account.id}:${status.threshold}:${status.expiresOn}`,
+      refKind: "broker",
+      refId: account.id,
+    });
+  }
+}
+
+/** Open (or refresh) the broker's tender-block exception for one
+ * portal load, and notify the broker + their desk. Mirrors the
+ * autonomy evaluator's episode rules: one open row per load+kind;
+ * a human-closed episode with the same fingerprint stays closed. */
+async function openTenderBlockException(
+  ctx: Ctx,
+  args: {
+    account: BrokerAccountRowFull;
+    posterLoad: BrokerPosterLoadRow;
+    stage: "send" | "release";
+    screen: ReturnType<typeof screenBrokerIdentity>;
+  },
+): Promise<void> {
+  const db = ctx.db<typeof schema>();
+  const now = new Date();
+  const dedupeKey = `broker:${args.posterLoad.id}:tender_blocked`;
+  const detail = `${tenderBlockSummary(args.screen)} Fix the broker identity record and tender again — nothing about this load went to the board.`;
+  const evidence = [
+    {
+      kind: "load" as const,
+      ref: String(args.posterLoad.id),
+      at: now.toISOString(),
+      note: `tender screen at ${args.stage}: ${args.screen.reasons.map((r) => r.code).join(", ")}`,
+    },
+  ];
+  const rows = await db
+    .select()
+    .from(schema.autoExceptions)
+    .where(eq(schema.autoExceptions.dedupeKey, dedupeKey))
+    .orderBy(desc(schema.autoExceptions.id));
+  const open = rows.find((r) => r.status === "open");
+  if (open) {
+    await db
+      .update(schema.autoExceptions)
+      .set({ severity: 3, detail, evidenceJson: JSON.stringify(evidence), fingerprint: args.screen.fingerprint, updatedAt: now })
+      .where(eq(schema.autoExceptions.id, open.id));
+    return;
+  }
+  const latest = rows[0];
+  if (latest && latest.fingerprint === args.screen.fingerprint) return; // same episode, human-closed — stays closed
+  const ins = await db
+    .insert(schema.autoExceptions)
+    .values({
+      loadId: args.posterLoad.id,
+      kind: "tender_blocked",
+      severity: 3,
+      detail,
+      evidenceJson: JSON.stringify(evidence),
+      driverUsername: args.account.linkedUsername ?? args.account.ownerUsername,
+      companyId: args.account.companyId ?? null,
+      brokerAccountId: args.account.id,
+      status: "open",
+      dedupeKey,
+      fingerprint: args.screen.fingerprint,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .returning({ id: schema.autoExceptions.id });
+  const exceptionId = ins[0]?.id;
+  const lane = laneLabel(
+    args.posterLoad.pickupCity,
+    args.posterLoad.pickupState,
+    args.posterLoad.deliveryCity,
+    args.posterLoad.deliveryState,
+  );
+  const note = exceptionNotification({ kind: "tender_blocked", lane, loadId: args.posterLoad.id });
+  const targets = new Set<string>(brokerAccountUsernames(args.account));
+  if (args.account.companyId != null) {
+    const members = await db
+      .select()
+      .from(schema.companyMembers)
+      .where(eq(schema.companyMembers.companyId, args.account.companyId));
+    for (const m of members) if (m.role === "owner" || m.role === "dispatch") targets.add(m.username);
+  }
+  for (const username of targets) {
+    await recordNotificationSafe(ctx, {
+      username,
+      kind: "system",
+      title: note.title,
+      body: note.body,
+      dedupeKey: `exception:${exceptionId ?? dedupeKey}`,
+      refKind: "load",
+      refId: args.posterLoad.id,
+    });
+  }
+}
+
+/** Close this portal load's open tender-block exception because a
+ * later screen passed — sealed, like every autonomy clearing. */
+async function clearTenderBlockException(ctx: Ctx, posterLoadId: number): Promise<void> {
+  const db = ctx.db<typeof schema>();
+  const now = new Date();
+  const open = await db
+    .select()
+    .from(schema.autoExceptions)
+    .where(
+      and(
+        eq(schema.autoExceptions.dedupeKey, `broker:${posterLoadId}:tender_blocked`),
+        eq(schema.autoExceptions.status, "open"),
+      ),
+    );
+  for (const row of open) {
+    const hash = await appendChain(ctx, {
+      refKind: "load",
+      refId: null,
+      sessionId: null,
+      event: "exception_auto_cleared",
+      payload: { exceptionId: row.id, brokerLoadId: posterLoadId, kind: "tender_blocked", at: now.toISOString() },
+    });
+    await db
+      .update(schema.autoExceptions)
+      .set({ status: "resolved", resolution: "condition_cleared", resolvedBy: "system", resolvedAt: now, chainHash: hash, updatedAt: now })
+      .where(eq(schema.autoExceptions.id, row.id));
+  }
+}
+
+/** THE tender re-screen (continuous monitoring): run at every
+ * broker tender — the portal send and the desk release. Stands on
+ * the recorded identity record alone; an unconfigured verification
+ * seam never blocks (guardrail a/b). A pass stamps the load and
+ * clears any open block; a block seals, notifies, opens the
+ * broker's exception, and stamps NOTHING. */
+async function screenBrokerTender(
+  ctx: Ctx,
+  args: { account: BrokerAccountRowFull; posterLoad: BrokerPosterLoadRow; stage: "send" | "release"; by: string },
+): Promise<{ ok: true } | { ok: false; summary: string }> {
+  const now = new Date();
+  const screen = screenBrokerIdentity(identityOfAccount(args.account), { seamConfigured: brokerSeamConfigured(), now });
+  if (!screen.ok) {
+    await appendChain(ctx, {
+      refKind: "load",
+      refId: null,
+      sessionId: null,
+      event: "broker_tender_blocked",
+      payload: {
+        brokerId: args.account.id,
+        brokerLoadId: args.posterLoad.id,
+        stage: args.stage,
+        reasons: screen.reasons.map((r) => r.code),
+        fingerprint: screen.fingerprint,
+        by: args.by,
+        at: now.toISOString(),
+      },
+    });
+    await openTenderBlockException(ctx, { account: args.account, posterLoad: args.posterLoad, stage: args.stage, screen });
+    return { ok: false, summary: tenderBlockSummary(screen) };
+  }
+  const db = ctx.db<typeof schema>();
+  await db
+    .update(schema.brokerPosterLoads)
+    .set({ identityScreenedAt: now, identityScreenJson: JSON.stringify(screen.facts), updatedAt: now })
+    .where(eq(schema.brokerPosterLoads.id, args.posterLoad.id));
+  await appendChain(ctx, {
+    refKind: "load",
+    refId: null,
+    sessionId: null,
+    event: "broker_tender_screened",
+    payload: {
+      brokerId: args.account.id,
+      brokerLoadId: args.posterLoad.id,
+      stage: args.stage,
+      facts: screen.facts,
+      by: args.by,
+      at: now.toISOString(),
+    },
+  });
+  await clearTenderBlockException(ctx, args.posterLoad.id);
+  return { ok: true };
+}
+
+/** Carrier-facing trust summaries for board rows that came from a
+ * broker portal load, keyed by board load id. Rows from any other
+ * origin have no broker identity record and get no entry — their
+ * cards keep the plain broker name/MC they already show. */
+async function brokerTrustForBoardRows(
+  ctx: Ctx,
+  rows: readonly BoardLoadRow[],
+): Promise<Map<number, BrokerTrustSummary>> {
+  const out = new Map<number, BrokerTrustSummary>();
+  const posterIds = [...new Set(rows.map((r) => r.brokerPosterLoadId).filter((v): v is number => v != null))];
+  if (posterIds.length === 0) return out;
+  const db = ctx.db<typeof schema>();
+  const posters = await db.select().from(schema.brokerPosterLoads);
+  const posterById = new Map(posters.filter((p) => posterIds.includes(p.id)).map((p) => [p.id, p]));
+  const brokerIds = [...new Set([...posterById.values()].map((p) => p.brokerId))];
+  if (brokerIds.length === 0) return out;
+  const accounts = await db.select().from(schema.brokerAccounts);
+  const accountById = new Map(accounts.filter((a) => brokerIds.includes(a.id)).map((a) => [a.id, a]));
+  const seamConfigured = brokerSeamConfigured();
+  const nowMs = Date.now();
+  for (const row of rows) {
+    if (row.brokerPosterLoadId == null) continue;
+    const poster = posterById.get(row.brokerPosterLoadId);
+    const account = poster ? accountById.get(poster.brokerId) : null;
+    if (!account) continue;
+    out.set(row.id, brokerTrustSummary(identityOfAccount(account), { seamConfigured, nowMs }));
+  }
+  return out;
+}
+
 function toBrokerAccount(row: BrokerAccountRow, loadCount: number): z.infer<typeof brokerAccountShape> {
+  const identityStatus = brokerIdentityStatus(identityOfAccount(row), {
+    seamConfigured: brokerSeamConfigured(),
+    nowMs: Date.now(),
+  });
   return {
     id: row.id,
     name: row.name,
@@ -14846,6 +15239,14 @@ function toBrokerAccount(row: BrokerAccountRow, loadCount: number): z.infer<type
     contactName: row.contactName ?? null,
     logoInitials: row.logoInitials ?? null,
     brokerMc: row.brokerMc ?? null,
+    legalName: row.legalName ?? null,
+    bondCarrier: row.bondCarrier ?? null,
+    bondAmount: row.bondAmount ?? null,
+    bondExpiresOn: row.bondExpiresOn ?? null,
+    authorityStatus: row.authorityStatus ?? "not_recorded",
+    identityState: identityStatus.state,
+    identityLabel: identityStatus.label,
+    identityVerifiedAt: row.identityVerifiedAt ? row.identityVerifiedAt.toISOString() : null,
     dispatcherFeePct: row.dispatcherFeePct ?? null,
     linkedUsername: row.linkedUsername ?? null,
     status: row.status,
@@ -14998,6 +15399,7 @@ async function toBrokerLoad(
     status: row.status,
     plainStatus,
     missingForSend: brokerMissingForSend(row),
+    identityScreenedAt: row.identityScreenedAt ? row.identityScreenedAt.toISOString() : null,
     boardLoadId: row.boardLoadId ?? null,
     trackToken: row.trackToken ?? null,
     carrierName,
@@ -24180,10 +24582,12 @@ export const Actions = {
           supersedesId: r.supersedesId,
         })),
       );
-      const exRows = await db
-        .select()
-        .from(schema.autoExceptions)
-        .where(and(eq(schema.autoExceptions.loadId, args.loadId), eq(schema.autoExceptions.status, "open")));
+      const exRows = (
+        await db
+          .select()
+          .from(schema.autoExceptions)
+          .where(and(eq(schema.autoExceptions.loadId, args.loadId), eq(schema.autoExceptions.status, "open")))
+      ).filter((r) => r.kind !== "tender_blocked");
       const audiences = await autonomyAudiences(ctx, args.loadId, scope.via === "mine" ? scope.load : null);
       return {
         ok: true,
@@ -24264,8 +24668,23 @@ export const Actions = {
         const role = await exceptionRoleFor(ctx, me, row);
         if (!role) continue;
         if (!laneCache.has(row.loadId)) {
-          const aud = await autonomyAudiences(ctx, row.loadId, null);
-          laneCache.set(row.loadId, aud.lane);
+          if (row.kind === "tender_blocked") {
+            // The row's loadId is a broker poster load id — its
+            // lane comes from the portal load, not the board.
+            const posters = await db
+              .select()
+              .from(schema.brokerPosterLoads)
+              .where(eq(schema.brokerPosterLoads.id, row.loadId))
+              .limit(1);
+            const p = posters[0];
+            laneCache.set(
+              row.loadId,
+              p ? laneLabel(p.pickupCity, p.pickupState, p.deliveryCity, p.deliveryState) : null,
+            );
+          } else {
+            const aud = await autonomyAudiences(ctx, row.loadId, null);
+            laneCache.set(row.loadId, aud.lane);
+          }
         }
         counts[role]++;
         items.push(exceptionShape(row, laneCache.get(row.loadId) ?? null, [role]));
@@ -25534,9 +25953,10 @@ export const Actions = {
       // Owner/Dispatch see the whole company board, taken included
       // (overflowed rows included — the owner recalls them from here).
       const visible = rows.filter((r) => r.status === "open" || canManage || r.claimedBy === me);
+      const trustByBoardId = await brokerTrustForBoardRows(ctx, visible);
       const board: z.infer<typeof boardLoadShape>[] = [];
       for (const r of visible) {
-        const shaped = toBoardLoad(r, r.status === "taken" ? await boardLinkedState(ctx, r) : null);
+        const shaped = toBoardLoad(r, r.status === "taken" ? await boardLinkedState(ctx, r) : null, trustByBoardId.get(r.id) ?? null);
         if (r.status === "overflowed") {
           const copies = await db
             .select()
@@ -25657,6 +26077,67 @@ export const Actions = {
       if (pickupAppt.error) return { ok: false, error: pickupAppt.error, id: null };
       const deliveryAppt = parseBoardAppt(args.deliveryApptAt, "delivery");
       if (deliveryAppt.error) return { ok: false, error: deliveryAppt.error, id: null };
+      // ANTI-DOUBLE-BROKERING (Wave 2 item 3): a load this company
+      // ACCEPTED from the board — claimed by me or by any member of
+      // my company — cannot come back onto the board from this
+      // company, not as itself and not as a clone carrying the same
+      // reference number or the same lane at the same rate. Loads
+      // this company ORIGINATED (its own overflow, its own posts)
+      // are unaffected — re-posting your own freight is normal work.
+      // The attempt is chain-sealed either way it is caught.
+      {
+        const members = await db
+          .select()
+          .from(schema.companyMembers)
+          .where(eq(schema.companyMembers.companyId, mine.company.id));
+        const claimants = new Set<string>([me, ...members.map((m) => m.username)]);
+        const takenRows = await db.select().from(schema.boardLoads).where(eq(schema.boardLoads.status, "taken"));
+        const accepted = takenRows.filter(
+          (r) =>
+            r.claimedBy != null &&
+            claimants.has(r.claimedBy) &&
+            (r.companyId !== mine.company.id ||
+              r.originKind === "broker_poster" ||
+              (r.originKind === "fleet_overflow" && r.originCompanyId !== mine.company.id)),
+        );
+        const match = findDoubleBrokerMatch(
+          {
+            referenceNumber: cleanReferenceNumber(args.referenceNumber),
+            pickupCity: fields.pickupCity,
+            pickupState: fields.pickupState,
+            deliveryCity: fields.deliveryCity,
+            deliveryState: fields.deliveryState,
+            rate: fields.rate,
+          },
+          accepted.map((r) => ({
+            boardLoadId: r.id,
+            referenceNumber: r.referenceNumber ?? null,
+            pickupCity: r.pickupCity,
+            pickupState: r.pickupState,
+            deliveryCity: r.deliveryCity,
+            deliveryState: r.deliveryState,
+            rate: r.rate,
+          })),
+        );
+        if (match) {
+          await appendChain(ctx, {
+            refKind: "load",
+            refId: null,
+            sessionId: null,
+            event: "double_broker_attempt",
+            payload: { boardLoadId: match.boardLoadId, basis: match.basis, by: me, companyId: mine.company.id, at: new Date().toISOString() },
+          });
+          ctx.invalidateQueries();
+          return {
+            ok: false,
+            error:
+              match.basis === "reference"
+                ? "That load can't be posted — its reference number matches a load your company already accepted from the board. A load you took from the board is yours to run, not to re-broker."
+                : "That load can't be posted — it matches a load your company already accepted from the board (same lane, same rate). A load you took from the board is yours to run, not to re-broker.",
+            id: null,
+          };
+        }
+      }
       // SI vetting BEFORE the board (Rule 6, 2026-11-01): while SI is
       // on, every board post is checked first — the load's own
       // completeness and, when a broker is named, the broker's public
@@ -26089,14 +26570,14 @@ export const Actions = {
       const now = new Date();
       const flipped = await db
         .update(schema.boardLoads)
-        .set({ status: "taken", updatedAt: now })
+        .set({ status: "taken", carrierOfRecord: me, updatedAt: now })
         .where(and(eq(schema.boardLoads.id, row.id), eq(schema.boardLoads.status, "assigned"), eq(schema.boardLoads.claimedBy, row.claimedBy ?? "")))
         .returning({ id: schema.boardLoads.id });
       if (!flipped[0]) {
         return { ok: false, error: "That assignment just changed — refresh and try again.", loadId: null, tripQueueId: null };
       }
       try {
-        const takenRow: BoardLoadRow = { ...row, status: "taken", claimMethod: "assign", claimedBy: me, claimedAt: row.claimedAt ?? now };
+        const takenRow: BoardLoadRow = { ...row, status: "taken", claimMethod: "assign", claimedBy: me, claimedAt: row.claimedAt ?? now, carrierOfRecord: me };
         const { loadId, tripQueueId } = await createLoadFromBoard(ctx, takenRow, me);
         await db
           .update(schema.boardLoads)
@@ -26123,7 +26604,7 @@ export const Actions = {
       } catch {
         await db
           .update(schema.boardLoads)
-          .set({ status: "assigned", loadId: null, tripQueueId: null, updatedAt: new Date() })
+          .set({ status: "assigned", carrierOfRecord: null, loadId: null, tripQueueId: null, updatedAt: new Date() })
           .where(eq(schema.boardLoads.id, row.id));
         return { ok: false, error: "Accepting hit a snag creating the load — nothing was taken and the assignment is still waiting on you. Try again.", loadId: null, tripQueueId: null };
       }
@@ -26170,6 +26651,7 @@ export const Actions = {
           claimMethod: null,
           claimedBy: null,
           claimedAt: null,
+          carrierOfRecord: null,
           declineReason: checked.reason,
           declinedBy: me,
           declinedAt: now,
@@ -26220,7 +26702,7 @@ export const Actions = {
         const driverWas = row.claimedBy;
         await db
           .update(schema.boardLoads)
-          .set({ status: "open", claimMethod: null, claimedBy: null, claimedAt: null, updatedAt: new Date() })
+          .set({ status: "open", claimMethod: null, claimedBy: null, claimedAt: null, carrierOfRecord: null, updatedAt: new Date() })
           .where(and(eq(schema.boardLoads.id, args.id), eq(schema.boardLoads.status, "assigned")));
         await appendChain(ctx, {
           refKind: "load",
@@ -26262,7 +26744,7 @@ export const Actions = {
       }
       await db
         .update(schema.boardLoads)
-        .set({ status: "open", claimMethod: null, claimedBy: null, claimedAt: null, loadId: null, tripQueueId: null, updatedAt: new Date() })
+        .set({ status: "open", claimMethod: null, claimedBy: null, claimedAt: null, carrierOfRecord: null, loadId: null, tripQueueId: null, updatedAt: new Date() })
         .where(eq(schema.boardLoads.id, args.id));
       await appendChain(ctx, {
         refKind: "load",
@@ -52086,9 +52568,10 @@ export const Actions = {
         .where(eq(schema.boardLoads.boardScope, "open"))
         .orderBy(desc(schema.boardLoads.id)))
         .filter((r) => r.status === "open" || r.claimedBy === me);
+      const trustByBoardId = await brokerTrustForBoardRows(ctx, rows);
       const board: z.infer<typeof openBoardLoadShape>[] = [];
       for (const r of rows) {
-        board.push(toOpenBoardLoad(r, r.status === "taken" ? await boardLinkedState(ctx, r) : null));
+        board.push(toOpenBoardLoad(r, r.status === "taken" ? await boardLinkedState(ctx, r) : null, trustByBoardId.get(r.id) ?? null));
       }
       return {
         myUsername: me,
@@ -53013,6 +53496,9 @@ export const Actions = {
       const db = ctx.db<typeof schema>();
       const me = await myUsername(ctx);
       const mine = await myBrokerAccount(ctx, me);
+      // Bond monitoring (Wave 2 item 3): reading the portal is when
+      // a due BMC-84 alert first records into the broker's center.
+      if (mine) await evaluateBrokerBondAlerts(ctx, mine);
       const desk = await shipperDeskContext(ctx);
       const pods = await podStatusByLoad(ctx);
       const mode = mine && desk?.isDesk ? "both" : mine ? "broker" : desk?.isDesk ? "desk" : "none";
@@ -53153,6 +53639,21 @@ export const Actions = {
         ctx.invalidateQueries();
         return { ok: true, error: null, id: row.id, sent: false, missing };
       }
+      // Continuous monitoring (Wave 2 item 3): the tender re-screens
+      // the broker's identity record. A block holds the load as a
+      // draft with the plain reason — sealed, notified, and queued
+      // in the broker's exceptions by screenBrokerTender itself.
+      const screen = await screenBrokerTender(ctx, { account, posterLoad: row, stage: "send", by: me });
+      if (!screen.ok) {
+        ctx.invalidateQueries();
+        return {
+          ok: false,
+          error: `This load can't go to dispatch yet — your broker identity check failed. ${screen.summary} Fix your identity under "Your broker identity" in this portal, then send again.`,
+          id: row.id,
+          sent: false,
+          missing: [] as string[],
+        };
+      }
       await db
         .update(schema.brokerPosterLoads)
         .set({ status: "sent", reviewNote: null, updatedAt: new Date() })
@@ -53208,6 +53709,13 @@ export const Actions = {
       email: z.string().min(3).max(200),
       contactName: z.string().max(120).nullable().default(null),
       brokerMc: z.string().max(40).nullable().default(null),
+      // Broker-grade identity (migration 0131) — the desk may record
+      // it at onboarding; the broker maintains it from then on.
+      legalName: z.string().max(200).nullable().default(null),
+      bondCarrier: z.string().max(160).nullable().default(null),
+      bondAmount: z.number().nonnegative().max(10_000_000).nullable().default(null),
+      bondExpiresOn: z.string().max(10).nullable().default(null),
+      authorityStatus: z.enum(["active", "inactive", "revoked", "not_recorded"]).nullable().default(null),
       // The poster's own dispatcher fee % (migration 0088) — validated
       // against the 30 cap server-side; null = unset.
       dispatcherFeePct: z.union([z.number(), z.string()]).nullable().default(null),
@@ -53249,6 +53757,11 @@ export const Actions = {
           contactName: clean(args.contactName),
           logoInitials: initials,
           brokerMc: clean(args.brokerMc),
+          legalName: clean(args.legalName),
+          bondCarrier: clean(args.bondCarrier),
+          bondAmount: args.bondAmount ?? null,
+          bondExpiresOn: clean(args.bondExpiresOn),
+          authorityStatus: args.authorityStatus ?? "not_recorded",
           dispatcherFeePct: fee.pct,
           linkedUsername: clean(args.linkedUsername)?.replace(/^@/, "") ?? null,
           companyId: desk.membership.company.id,
@@ -53276,7 +53789,7 @@ export const Actions = {
         refId: null,
         sessionId: null,
         event: "broker_account_created",
-        payload: { brokerId: id, name, email: args.email.trim(), brokerMc: clean(args.brokerMc), linkedUsername: clean(args.linkedUsername), isDemo: args.isDemo, companyId: desk.membership.company.id, by: desk.me, referredBy, at: new Date().toISOString() },
+        payload: { brokerId: id, name, email: args.email.trim(), brokerMc: clean(args.brokerMc), legalName: clean(args.legalName), bondCarrier: clean(args.bondCarrier), bondAmount: args.bondAmount ?? null, bondExpiresOn: clean(args.bondExpiresOn), authorityStatus: args.authorityStatus ?? "not_recorded", linkedUsername: clean(args.linkedUsername), isDemo: args.isDemo, companyId: desk.membership.company.id, by: desk.me, referredBy, at: new Date().toISOString() },
       });
       ctx.invalidateQueries();
       return { ok: true, error: null, id };
@@ -53292,6 +53805,14 @@ export const Actions = {
       linkedUsername: z.string().max(60).nullable().default(null),
       contactName: z.string().max(120).nullable().default(null),
       brokerMc: z.string().max(40).nullable().default(null),
+      // Broker-grade identity (migration 0131) — recorded by the
+      // desk; the broker's own writes go through
+      // updateMyBrokerIdentity and win last, like the poster fee.
+      legalName: z.string().max(200).nullable().default(null),
+      bondCarrier: z.string().max(160).nullable().default(null),
+      bondAmount: z.number().nonnegative().max(10_000_000).nullable().default(null),
+      bondExpiresOn: z.string().max(10).nullable().default(null),
+      authorityStatus: z.enum(["active", "inactive", "revoked", "not_recorded"]).nullable().default(null),
       // The poster's own dispatcher fee % (migration 0088) — validated
       // against the 30 cap server-side; null clears it.
       dispatcherFeePct: z.union([z.number(), z.string()]).nullable().default(null),
@@ -53323,6 +53844,11 @@ export const Actions = {
           linkedUsername: clean(args.linkedUsername)?.replace(/^@/, "") ?? null,
           contactName: clean(args.contactName),
           brokerMc: clean(args.brokerMc),
+          legalName: clean(args.legalName),
+          bondCarrier: clean(args.bondCarrier),
+          bondAmount: args.bondAmount ?? null,
+          bondExpiresOn: clean(args.bondExpiresOn),
+          authorityStatus: args.authorityStatus ?? row.authorityStatus ?? "not_recorded",
           dispatcherFeePct: fee.pct,
           defaultPickupAddress: clean(args.defaultPickupAddress),
           defaultPickupCity: clean(args.defaultPickupCity),
@@ -53339,7 +53865,7 @@ export const Actions = {
         refId: null,
         sessionId: null,
         event: "broker_account_updated",
-        payload: { brokerId: args.id, status: args.status ?? row.status, by: desk.me, at: new Date().toISOString() },
+        payload: { brokerId: args.id, status: args.status ?? row.status, legalName: clean(args.legalName), bondCarrier: clean(args.bondCarrier), bondAmount: args.bondAmount ?? null, bondExpiresOn: clean(args.bondExpiresOn), authorityStatus: args.authorityStatus ?? row.authorityStatus ?? "not_recorded", by: desk.me, at: new Date().toISOString() },
       });
       ctx.invalidateQueries();
       return { ok: true, error: null };
@@ -53391,6 +53917,348 @@ export const Actions = {
       });
       ctx.invalidateQueries();
       return { ok: true, error: null, dispatcherFeePct: v.pct };
+    },
+  }),
+
+  // The broker's identity read (Wave 2 item 3): their recorded
+  // identity facts, the derived status (verified / stale / on file —
+  // never "verified" without a source check), and the live BMC-84
+  // bond alert state. Reading it is also when a due bond alert first
+  // records into the broker's notification center. A caller with no
+  // broker account gets account: null — the portal renders no card.
+  getMyBrokerIdentity: defineAction({
+    description: "My broker identity record, its status, and the live bond alert.",
+    request: z.object({}),
+    response: z.object({
+      account: brokerAccountShape.nullable(),
+      bondAlert: z.object({
+        expiresOn: z.string().nullable(),
+        daysLeft: z.number().nullable(),
+        threshold: z.number().nullable(),
+        dismissed: z.boolean(),
+      }),
+      seamConfigured: z.boolean(),
+    }),
+    async handler(ctx) {
+      const me = await myUsername(ctx);
+      const account = await myBrokerAccount(ctx, me);
+      if (!account) {
+        return {
+          account: null,
+          bondAlert: { expiresOn: null, daysLeft: null, threshold: null, dismissed: false },
+          seamConfigured: brokerSeamConfigured(),
+        };
+      }
+      await evaluateBrokerBondAlerts(ctx, account);
+      const bond = await bondStatusForAccount(ctx, account);
+      const db = ctx.db<typeof schema>();
+      const countRows = await db
+        .select()
+        .from(schema.brokerPosterLoads)
+        .where(eq(schema.brokerPosterLoads.brokerId, account.id));
+      return {
+        account: toBrokerAccount(account, countRows.length),
+        bondAlert: {
+          expiresOn: bond.expiresOn,
+          daysLeft: bond.daysLeft,
+          threshold: bond.threshold,
+          dismissed: bond.dismissed,
+        },
+        seamConfigured: brokerSeamConfigured(),
+      };
+    },
+  }),
+
+  // The broker keeps their OWN identity record current (Wave 2 item
+  // 3): legal name, MC, bond carrier/amount/expiry, and the
+  // authority status as recorded. Every save is chain-sealed with
+  // the facts. Nothing here marks anything verified — only a source
+  // check through the verification seam can do that.
+  updateMyBrokerIdentity: defineAction({
+    description: "Save my broker identity record (legal name, MC, bond, authority status).",
+    request: z.object({
+      legalName: z.string().max(200).nullable().default(null),
+      brokerMc: z.string().max(40).nullable().default(null),
+      bondCarrier: z.string().max(160).nullable().default(null),
+      bondAmount: z.number().nonnegative().max(10_000_000).nullable().default(null),
+      bondExpiresOn: z.string().max(10).nullable().default(null),
+      authorityStatus: z.enum(["active", "inactive", "revoked", "not_recorded"]).nullable().default(null),
+    }),
+    response: z.object({
+      ok: z.boolean(),
+      error: z.string().nullable(),
+      account: brokerAccountShape.nullable(),
+    }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const account = await myBrokerAccount(ctx, me);
+      if (!account) return { ok: false, error: "You don't have a broker account.", account: null };
+      if (account.status === "suspended") {
+        return { ok: false, error: "Your broker account is suspended — identity changes are closed until dispatch restores it.", account: null };
+      }
+      const clean = (v: string | null | undefined) => {
+        const t = (v ?? "").trim();
+        return t.length > 0 ? t : null;
+      };
+      const expiry = clean(args.bondExpiresOn);
+      if (expiry != null && !/^\d{4}-\d{2}-\d{2}$/.test(expiry)) {
+        return { ok: false, error: "Bond expiry must be a date (YYYY-MM-DD).", account: null };
+      }
+      const next = {
+        legalName: clean(args.legalName),
+        brokerMc: clean(args.brokerMc),
+        bondCarrier: clean(args.bondCarrier),
+        bondAmount: args.bondAmount ?? null,
+        bondExpiresOn: expiry,
+        authorityStatus: args.authorityStatus ?? account.authorityStatus ?? "not_recorded",
+      };
+      await db
+        .update(schema.brokerAccounts)
+        .set({ ...next, updatedAt: new Date() })
+        .where(eq(schema.brokerAccounts.id, account.id));
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: null,
+        sessionId: null,
+        event: "broker_identity_updated",
+        payload: { brokerId: account.id, ...next, by: me, at: new Date().toISOString() },
+      });
+      const rows = await db.select().from(schema.brokerAccounts).where(eq(schema.brokerAccounts.id, account.id)).limit(1);
+      const countRows = await db
+        .select()
+        .from(schema.brokerPosterLoads)
+        .where(eq(schema.brokerPosterLoads.brokerId, account.id));
+      ctx.invalidateQueries();
+      return { ok: true, error: null, account: rows[0] ? toBrokerAccount(rows[0], countRows.length) : null };
+    },
+  }),
+
+  // Run the verification seam NOW (Wave 2 item 3). The seam is
+  // provider-gated like the push/OCR seams: with no provider
+  // connected it returns configured: false and stamps NOTHING — the
+  // broker's status keeps reading "on file". When a provider IS
+  // connected, the check stamps the verified-at time + source and
+  // reports any differences between the source's facts and the
+  // recorded record (the record is never silently rewritten).
+  verifyBrokerIdentity: defineAction({
+    description: "Check my broker identity against the verification source, if one is connected.",
+    request: z.object({}),
+    response: z.object({
+      ok: z.boolean(),
+      configured: z.boolean(),
+      message: z.string(),
+      differences: z.array(z.string()),
+      account: brokerAccountShape.nullable(),
+    }),
+    async handler(ctx) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const account = await myBrokerAccount(ctx, me);
+      if (!account) return { ok: false, configured: false, message: "You don't have a broker account.", differences: [], account: null };
+      const countRows = await db
+        .select()
+        .from(schema.brokerPosterLoads)
+        .where(eq(schema.brokerPosterLoads.brokerId, account.id));
+      const verifier = brokerIdentityVerifierFromEnv(process.env);
+      if (!verifier) {
+        await appendChain(ctx, {
+          refKind: "load",
+          refId: null,
+          sessionId: null,
+          event: "broker_identity_check",
+          payload: { brokerId: account.id, outcome: "not_configured", by: me, at: new Date().toISOString() },
+        });
+        return {
+          ok: true,
+          configured: false,
+          message:
+            "Verification source not connected — your identity stays on file as recorded. Nothing was marked verified. Tenders are screened against your recorded record.",
+          differences: [],
+          account: toBrokerAccount(account, countRows.length),
+        };
+      }
+      const check = await verifier.check(identityOfAccount(account));
+      if (!check) {
+        await appendChain(ctx, {
+          refKind: "load",
+          refId: null,
+          sessionId: null,
+          event: "broker_identity_check",
+          payload: { brokerId: account.id, outcome: "no_result", by: me, at: new Date().toISOString() },
+        });
+        return {
+          ok: true,
+          configured: true,
+          message: "The verification source returned no result for this record — nothing was marked verified.",
+          differences: [],
+          account: toBrokerAccount(account, countRows.length),
+        };
+      }
+      const differences = identityCheckDifferences(identityOfAccount(account), check);
+      const checkedAt = new Date(check.checkedAt);
+      await db
+        .update(schema.brokerAccounts)
+        .set({
+          identityVerifiedAt: Number.isNaN(checkedAt.getTime()) ? new Date() : checkedAt,
+          identitySource: check.source,
+          authorityStatus: check.authorityStatus,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.brokerAccounts.id, account.id));
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: null,
+        sessionId: null,
+        event: "broker_identity_check",
+        payload: { brokerId: account.id, outcome: "checked", source: check.source, authorityStatus: check.authorityStatus, differences, by: me, at: new Date().toISOString() },
+      });
+      const rows = await db.select().from(schema.brokerAccounts).where(eq(schema.brokerAccounts.id, account.id)).limit(1);
+      ctx.invalidateQueries();
+      return {
+        ok: true,
+        configured: true,
+        message:
+          differences.length > 0
+            ? `Checked against ${check.source}. ${differences.length} difference${differences.length === 1 ? "" : "s"} from your recorded record — review them below and update your record if the source is right.`
+            : `Checked against ${check.source} — the source's facts match your recorded record.`,
+        differences,
+        account: rows[0] ? toBrokerAccount(rows[0], countRows.length) : null,
+      };
+    },
+  }),
+
+  // Silence the CURRENT bond threshold for the CURRENT expiry date
+  // (Wave 2 item 3) — the credential-alert dismissal pattern: the
+  // next threshold still fires, and a renewed bond (new expiry date)
+  // re-arms every threshold. Sealed.
+  dismissBrokerBondAlert: defineAction({
+    description: "Dismiss the current broker bond alert threshold.",
+    request: z.object({}),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable() }),
+    async handler(ctx) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const account = await myBrokerAccount(ctx, me);
+      if (!account) return { ok: false, error: "You don't have a broker account." };
+      const status = await bondStatusForAccount(ctx, account);
+      if (status.threshold == null || status.expiresOn == null) {
+        return { ok: false, error: "There's no bond alert to dismiss right now." };
+      }
+      if (status.dismissed) return { ok: true, error: null };
+      await db.insert(schema.brokerBondAlertDismissals).values({
+        brokerAccountId: account.id,
+        threshold: status.threshold,
+        expiresOn: status.expiresOn,
+        dismissedAt: new Date(),
+      });
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: null,
+        sessionId: null,
+        event: "broker_bond_alert_dismissed",
+        payload: { brokerId: account.id, threshold: status.threshold, expiresOn: status.expiresOn, by: me, at: new Date().toISOString() },
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
+    },
+  }),
+
+  // The broker's 49 CFR 371.3 record file (Wave 2 item 3): every
+  // load THIS broker posted, with the facts the regulation requires
+  // retained — the parties, the dates, the agreed rate and charges,
+  // and the delivery/payment facts. This is the broker's OWN contract
+  // record (the standing need-to-know exception): the rate appears
+  // HERE and nowhere else — board, track, and desk payloads for other
+  // parties never carry it (rate-law tests pin both halves). A caller
+  // with no broker account gets an empty file.
+  getBrokerRecordFile: defineAction({
+    description: "My broker record file (49 CFR 371.3) — my own posted loads with parties, dates, agreed rate and payment facts.",
+    request: z.object({}),
+    response: z.object({
+      accountName: z.string().nullable(),
+      rows: z.array(brokerRecordFileRowShape),
+    }),
+    async handler(ctx) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const account = await myBrokerAccount(ctx, me);
+      if (!account) return { accountName: null, rows: [] };
+      const posters = await db
+        .select()
+        .from(schema.brokerPosterLoads)
+        .where(eq(schema.brokerPosterLoads.brokerId, account.id))
+        .orderBy(desc(schema.brokerPosterLoads.id));
+      const pods = await podStatusByLoad(ctx);
+      const out: Array<z.infer<typeof brokerRecordFileRowShape>> = [];
+      for (const p of posters) {
+        let board: BoardLoadRow | null = null;
+        if (p.boardLoadId != null) {
+          const brows = await db.select().from(schema.boardLoads).where(eq(schema.boardLoads.id, p.boardLoadId)).limit(1);
+          board = brows[0] ?? null;
+        }
+        const shaped = await toBrokerLoad(ctx, p, account, pods);
+        const facts = {
+          carrierName: shaped.carrierName,
+          carrierUsername: shaped.carrierUsername,
+          plainStatus: shaped.plainStatus,
+          podSealed: shaped.podSealed,
+          podSealedAt: shaped.podSealedAt,
+        };
+        // Delivery + payment facts ride the sealed chain for the
+        // DRIVER's load (the invoice table is profile-scoped to the
+        // driver — the broker's file reads the chain, which is the
+        // same record the driver's own surfaces derive from).
+        let invoiceNumber: string | null = null;
+        let invoiceStatus = "Not invoiced yet";
+        const driverLoadId = board?.loadId ?? null;
+        if (driverLoadId != null) {
+          const events = await db
+            .select()
+            .from(schema.chainLog)
+            .where(and(eq(schema.chainLog.refKind, "load"), eq(schema.chainLog.refId, driverLoadId)))
+            .orderBy(asc(schema.chainLog.id));
+          for (const e of events) {
+            if (e.event === "invoice_created") {
+              try {
+                const payload = JSON.parse(e.payload) as { number?: string };
+                if (payload.number) invoiceNumber = payload.number;
+              } catch {
+                /* a malformed payload changes nothing */
+              }
+            }
+          }
+          if (events.some((e) => e.event === "invoice_paid")) invoiceStatus = "Paid";
+          else if (events.some((e) => e.event === "invoice_issued")) invoiceStatus = "Invoiced — waiting on payment";
+          else if (events.some((e) => e.event === "invoice_created")) invoiceStatus = "Invoice drafted — not sent yet";
+        }
+        const extra = board?.extraCharges ?? 0;
+        out.push({
+          posterLoadId: p.id,
+          boardLoadId: p.boardLoadId ?? null,
+          postedAt: p.createdAt.toISOString(),
+          pickupDate: p.pickupDate ?? null,
+          deliveryDate: p.deliveryDate ?? null,
+          lane: laneLabel(p.pickupCity, p.pickupState, p.deliveryCity, p.deliveryState) ?? "Lane not set",
+          referenceNumber: p.referenceNumber ?? null,
+          brokerName: account.name,
+          brokerLegalName: account.legalName ?? null,
+          brokerMc: account.brokerMc ?? null,
+          carrierName: facts.carrierName,
+          carrierUsername: facts.carrierUsername,
+          agreedRate: p.rate ?? null,
+          extraCharges: extra,
+          totalAgreed: p.rate != null ? p.rate + extra : null,
+          rateConSha256: p.rateConSha256 ?? null,
+          plainStatus: facts.plainStatus,
+          podSealed: facts.podSealed,
+          podSealedAt: facts.podSealedAt,
+          invoiceNumber,
+          invoiceStatus,
+          identityScreenedAt: p.identityScreenedAt ? p.identityScreenedAt.toISOString() : null,
+        });
+      }
+      return { accountName: account.name, rows: out };
     },
   }),
 
@@ -53498,6 +54366,20 @@ export const Actions = {
       const acctRows = await db.select().from(schema.brokerAccounts).where(eq(schema.brokerAccounts.id, row.brokerId)).limit(1);
       const account = acctRows[0];
       if (!account) return { ok: false, error: "The broker account for this load is gone.", boardLoadId: null };
+      // Continuous monitoring (Wave 2 item 3): release is a tender —
+      // the broker's identity is re-screened NOW, not on the
+      // onboarding snapshot. A block keeps the load in the review
+      // queue with the plain reason; the broker is notified and the
+      // block sits in their exception queue (screenBrokerTender).
+      const screen = await screenBrokerTender(ctx, { account, posterLoad: row, stage: "release", by: desk.me });
+      if (!screen.ok) {
+        ctx.invalidateQueries();
+        return {
+          ok: false,
+          error: `Release held — the broker's identity check failed. ${screen.summary} The load stays in the review queue; the broker has been notified and the hold is in their exception queue.`,
+          boardLoadId: null,
+        };
+      }
 
       const whenText = (date: string | null, window: string | null, address: string | null) =>
         [date, window, address].filter(Boolean).join(" · ") || null;
@@ -53583,6 +54465,11 @@ export const Actions = {
           overflowReason: null,
           overflowFromBoardLoadId: null,
           brokerPosterLoadId: row.id,
+          // The broker's reference rides the board row itself (not
+          // just the notes): the claiming driver's load inherits it
+          // from here, and the anti-double-brokering screen matches
+          // re-posts against it (Wave 2 item 3).
+          referenceNumber: row.referenceNumber ?? null,
         })
         .returning({ id: schema.boardLoads.id });
       const boardLoadId = ins[0]?.id ?? null;

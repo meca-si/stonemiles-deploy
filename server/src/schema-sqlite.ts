@@ -1987,6 +1987,12 @@ export const boardLoads = sqliteTable("board_loads", {
   claimMethod: text("claim_method"),
   claimedBy: text("claimed_by"),
   claimedAt: integer("claimed_at", { mode: "timestamp_ms" }),
+  // Carrier of record (migration 0131, anti-double-brokering): the
+  // account bound to this load when it was taken (claim or accepted
+  // assignment). A take by any other account while a carrier of
+  // record stands is refused and sealed as a conflict. Cleared when
+  // the row returns to open (unassign / hand-back).
+  carrierOfRecord: text("carrier_of_record"),
   // The driver's load + trip created by the claim/assign (null while open).
   loadId: integer("load_id"),
   tripQueueId: integer("trip_queue_id"),
@@ -3890,6 +3896,26 @@ export const brokerAccounts = sqliteTable("broker_accounts", {
   // The brokerage's MC number, when it has one — the durable broker
   // identity the released board post and the claimed load carry.
   brokerMc: text("broker_mc"),
+  // Broker-grade identity (migration 0131, Research Wave 2 item 3):
+  // the identity record a carrier's trust decision stands on — the
+  // legal business name, the BMC-84 bond (carrier, amount, expiry),
+  // and the authority status AS RECORDED by the broker / desk. The
+  // bond amount lives here and in the broker's own 371.3 file only;
+  // the carrier-facing trust summary shows bond status + expiry
+  // month, never the amount. Verification is a separate stamp: only
+  // a completed source check (brokerIdentity.ts seam — unconfigured
+  // in this build, so nothing is stamped) writes identity_verified_at
+  // / source / facts; an unchecked record reads "on file", never
+  // "verified". Bond expiry is a YYYY-MM-DD date (the credential
+  // convention) so the alert thresholds + dismissals key on it.
+  legalName: text("legal_name"),
+  bondCarrier: text("bond_carrier"),
+  bondAmount: real("bond_amount"),
+  bondExpiresOn: text("bond_expires_on"),
+  authorityStatus: text("authority_status").notNull().default("not_recorded"), // active | inactive | revoked | not_recorded
+  identityVerifiedAt: integer("identity_verified_at", { mode: "timestamp_ms" }),
+  identitySource: text("identity_source"),
+  identityFactsJson: text("identity_facts_json"),
   // Dispatcher fee % override (migration 0088): THIS poster
   // account's own dispatcher fee, set by the poster (or the desk
   // that manages the account), capped at 20 server-side. Null =
@@ -3967,6 +3993,13 @@ export const brokerPosterLoads = sqliteTable("broker_poster_loads", {
   // draft | sent | returned | released
   status: text("status").notNull().default("draft"),
   boardLoadId: integer("board_load_id"),
+  // Continuous monitoring (migration 0131): the last tender screen
+  // this load PASSED — when, and the identity facts as they stood
+  // (JSON, TenderScreenFacts in brokerIdentity.ts). A blocked
+  // tender stamps nothing: the block lives in the chain
+  // (broker_tender_blocked) + the broker's exception queue.
+  identityScreenedAt: integer("identity_screened_at", { mode: "timestamp_ms" }),
+  identityScreenJson: text("identity_screen_json"),
   trackToken: text("track_token"),
   reviewNote: text("review_note"),
   reviewedBy: text("reviewed_by"),
@@ -4591,6 +4624,22 @@ export const credentialAlertDismissals = sqliteTable("credential_alert_dismissal
   id: integer("id").primaryKey({ autoIncrement: true }),
   username: text("username").notNull(),
   credentialKey: text("credential_key").notNull(), // cdl | medical | twic
+  threshold: integer("threshold").notNull(), // 60 | 30 | 7 | 0 (expired)
+  expiresOn: text("expires_on").notNull(), // YYYY-MM-DD the dismissal applies to
+  dismissedAt: integer("dismissed_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+// BMC-84 bond alert dismissals (migration 0131, Research Wave 2
+// item 3): the credential-dismissal pattern carried to the broker's
+// bond — one row per (broker account, threshold, expiry date)
+// dismissed. Keyed on the expiry DATE, so a renewed bond (a new
+// date) re-arms every threshold without cleanup, and dismissing one
+// threshold never silences the next.
+export const brokerBondAlertDismissals = sqliteTable("broker_bond_alert_dismissals", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  brokerAccountId: integer("broker_account_id").notNull(),
   threshold: integer("threshold").notNull(), // 60 | 30 | 7 | 0 (expired)
   expiresOn: text("expires_on").notNull(), // YYYY-MM-DD the dismissal applies to
   dismissedAt: integer("dismissed_at", { mode: "timestamp_ms" })

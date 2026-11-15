@@ -1012,6 +1012,11 @@ type AccountDraft = {
   brokerName: string;
   email: string;
   brokerMc: string;
+  legalName: string;
+  bondCarrier: string;
+  bondAmount: string;
+  bondExpiresOn: string;
+  authorityStatus: string;
   dispatcherFeePct: string;
   linkedUsername: string;
   referralCode: string;
@@ -1031,6 +1036,11 @@ const EMPTY_ACCOUNT: AccountDraft = {
   brokerName: "",
   email: "",
   brokerMc: "",
+  legalName: "",
+  bondCarrier: "",
+  bondAmount: "",
+  bondExpiresOn: "",
+  authorityStatus: "not_recorded",
   dispatcherFeePct: "",
   linkedUsername: "",
   referralCode: "",
@@ -1051,6 +1061,11 @@ function accountDraftOf(a: PortalData["accounts"][number]): AccountDraft {
     brokerName: a.name,
     email: a.email,
     brokerMc: a.brokerMc ?? "",
+    legalName: a.legalName ?? "",
+    bondCarrier: a.bondCarrier ?? "",
+    bondAmount: a.bondAmount != null ? String(a.bondAmount) : "",
+    bondExpiresOn: a.bondExpiresOn ?? "",
+    authorityStatus: a.authorityStatus ?? "not_recorded",
     dispatcherFeePct: a.dispatcherFeePct != null ? String(a.dispatcherFeePct) : "",
     linkedUsername: a.linkedUsername ?? "",
     referralCode: "",
@@ -1088,6 +1103,13 @@ function AccountForm({
       const defaults = {
         contactName: clean(d.contactName),
         brokerMc: clean(d.brokerMc),
+        legalName: clean(d.legalName),
+        bondCarrier: clean(d.bondCarrier),
+        bondAmount: d.bondAmount.trim() === "" ? null : Number(d.bondAmount),
+        bondExpiresOn: clean(d.bondExpiresOn),
+        authorityStatus: (["active", "inactive", "revoked", "not_recorded"].includes(d.authorityStatus)
+          ? d.authorityStatus
+          : "not_recorded") as "active" | "inactive" | "revoked" | "not_recorded",
         dispatcherFeePct: d.dispatcherFeePct.trim() === "" ? null : Number(d.dispatcherFeePct),
         defaultPickupAddress: clean(d.defaultPickupAddress),
         defaultPickupCity: clean(d.defaultPickupCity),
@@ -1138,6 +1160,41 @@ function AccountForm({
         <div>
           <label className={LABEL} htmlFor="broker-account-mc">Broker MC number</label>
           <input id="broker-account-mc" aria-label="Broker MC number" className={INPUT} {...f("brokerMc")} placeholder="e.g. MC-123456" />
+        </div>
+        <div>
+          <label className={LABEL} htmlFor="broker-account-legal">Legal business name (as on the authority)</label>
+          <input id="broker-account-legal" aria-label="Legal business name" className={INPUT} {...f("legalName")} placeholder="The name on their FMCSA authority" />
+        </div>
+        <div>
+          <label className={LABEL} htmlFor="broker-account-bond-carrier">Bond (BMC-84) carrier</label>
+          <input id="broker-account-bond-carrier" aria-label="Bond carrier" className={INPUT} {...f("bondCarrier")} placeholder="The surety company on their bond" />
+        </div>
+        <div>
+          <label className={LABEL} htmlFor="broker-account-bond-amount">Bond amount ($)</label>
+          <input id="broker-account-bond-amount" aria-label="Bond amount" className={INPUT} {...f("bondAmount")} inputMode="decimal" placeholder="75000 — the federal minimum" />
+        </div>
+        <div>
+          <label className={LABEL} htmlFor="broker-account-bond-expiry">Bond expiry date</label>
+          <input id="broker-account-bond-expiry" aria-label="Bond expiry date" type="date" className={INPUT} {...f("bondExpiresOn")} />
+        </div>
+        <div>
+          <label className={LABEL} htmlFor="broker-account-authority">Authority status (as recorded)</label>
+          <select
+            id="broker-account-authority"
+            aria-label="Authority status"
+            className={INPUT}
+            value={d.authorityStatus}
+            onChange={(e) => setD({ ...d, authorityStatus: e.target.value })}
+          >
+            <option value="not_recorded">Not recorded</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+            <option value="revoked">Revoked</option>
+          </select>
+          <p className="mt-1 text-xs text-[var(--dim)]">
+            The broker's identity record. Every tender re-checks it: an expired bond, a revoked/inactive
+            authority, or missing identity fields holds the load before it reaches the board.
+          </p>
         </div>
         <div>
           <label className={LABEL} htmlFor="broker-account-invite">Linked username (@name in STONEMILES)</label>
@@ -1300,6 +1357,250 @@ function PosterFeeCard({
   );
 }
 
+// ---- Broker identity (Wave 2 item 3) -------------------------------------------
+// The broker's OWN identity record: legal name, MC, BMC-84 bond, and
+// authority status as recorded. Every tender re-checks this record —
+// an expired bond, a revoked/inactive authority, or missing fields
+// holds the load and opens an exception in the broker's queue. The
+// status line is honest about verification: nothing reads "verified"
+// unless a connected source actually checked it.
+
+function BrokerIdentityCard({
+  account,
+  setBanner,
+  refresh,
+}: {
+  account: PortalAccount;
+  setBanner: (s: string | null) => void;
+  refresh: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const identityQuery = useQuery({ queryKey: ["broker-identity"], queryFn: () => api.getMyBrokerIdentity({}) });
+  const live = identityQuery.data?.account ?? account;
+  const bondAlert = identityQuery.data?.bondAlert ?? null;
+  const [legalName, setLegalName] = useState(account.legalName ?? "");
+  const [brokerMc, setBrokerMc] = useState(account.brokerMc ?? "");
+  const [bondCarrier, setBondCarrier] = useState(account.bondCarrier ?? "");
+  const [bondAmount, setBondAmount] = useState(account.bondAmount != null ? String(account.bondAmount) : "");
+  const [bondExpiresOn, setBondExpiresOn] = useState(account.bondExpiresOn ?? "");
+  const [authorityStatus, setAuthorityStatus] = useState(account.authorityStatus ?? "not_recorded");
+  const [busy, setBusy] = useState<"save" | "check" | "dismiss" | null>(null);
+  const [checkNote, setCheckNote] = useState<{ message: string; differences: string[] } | null>(null);
+
+  const invalidate = () => {
+    void queryClient.invalidateQueries({ queryKey: ["broker-identity"] });
+    refresh();
+  };
+
+  const save = () => {
+    setBusy("save");
+    void api
+      .updateMyBrokerIdentity({
+        legalName: legalName.trim() === "" ? null : legalName.trim(),
+        brokerMc: brokerMc.trim() === "" ? null : brokerMc.trim(),
+        bondCarrier: bondCarrier.trim() === "" ? null : bondCarrier.trim(),
+        bondAmount: bondAmount.trim() === "" ? null : Number(bondAmount),
+        bondExpiresOn: bondExpiresOn.trim() === "" ? null : bondExpiresOn.trim(),
+        authorityStatus: (["active", "inactive", "revoked", "not_recorded"].includes(authorityStatus)
+          ? authorityStatus
+          : "not_recorded") as "active" | "inactive" | "revoked" | "not_recorded",
+      })
+      .then((r) => {
+        if (r.ok) {
+          setBanner("Broker identity saved — every tender from now on is checked against this record.");
+          invalidate();
+        } else {
+          setBanner(r.error ?? "That identity didn't save.");
+        }
+      })
+      .catch(() => setBanner("That identity didn't save — check your connection and try again."))
+      .finally(() => setBusy(null));
+  };
+
+  const check = () => {
+    setBusy("check");
+    void api
+      .verifyBrokerIdentity({})
+      .then((r) => {
+        setCheckNote({ message: r.message, differences: r.differences });
+        invalidate();
+      })
+      .catch(() => setCheckNote({ message: "The check didn't run — try again in a moment.", differences: [] }))
+      .finally(() => setBusy(null));
+  };
+
+  const dismissBond = () => {
+    setBusy("dismiss");
+    void api
+      .dismissBrokerBondAlert({})
+      .then((r) => {
+        if (r.ok) setBanner("Bond alert dismissed — the next warning mark still fires, and a renewed bond re-arms them all.");
+        else setBanner(r.error ?? "That dismissal didn't save.");
+        invalidate();
+      })
+      .catch(() => setBanner("That dismissal didn't save — check your connection and try again."))
+      .finally(() => setBusy(null));
+  };
+
+  return (
+    <section className="glass-panel p-4" aria-label="Your broker identity">
+      <h3 className="font-condensed text-lg font-semibold">🛡 Your broker identity</h3>
+      <p className="mt-1 text-sm leading-relaxed text-[var(--dim)]">
+        This is the record carriers trust you by — and the record every load you tender is re-checked against.
+        An expired bond, an authority recorded as revoked or inactive, or a missing field below{" "}
+        <strong className="text-[var(--text)]">holds the tender</strong> before it reaches the board, and the
+        hold lands in your exception queue with the reason named. Keep it current and tenders sail through.
+      </p>
+      <p className="mt-2 rounded-xl bg-[var(--surface2)] px-3 py-2.5 text-sm font-semibold leading-relaxed" role="status">
+        Status: {live.identityLabel}
+      </p>
+      {bondAlert && bondAlert.threshold != null && !bondAlert.dismissed && (
+        <div className="mt-2 flex flex-wrap items-center gap-2 rounded-xl bg-[#2c2207] px-3 py-2.5 text-sm font-semibold leading-relaxed text-amber-200" role="alert">
+          <span className="min-w-0 flex-1">
+            {bondAlert.threshold === 0
+              ? `⛔ Your BMC-84 bond expired on ${bondAlert.expiresOn} — tenders are held until a current bond is on file.`
+              : `⚠️ Your BMC-84 bond expires ${bondAlert.expiresOn} — ${bondAlert.daysLeft} day${bondAlert.daysLeft === 1 ? "" : "s"} left. Renew it and update the date here before it lapses.`}
+          </span>
+          <button
+            type="button"
+            disabled={busy != null}
+            className="btn-press shrink-0 rounded-lg border border-amber-300/40 px-3 py-1.5 text-xs font-bold disabled:opacity-50"
+            aria-label="Dismiss this bond alert"
+            onClick={dismissBond}
+          >
+            {busy === "dismiss" ? "Dismissing…" : "Dismiss"}
+          </button>
+        </div>
+      )}
+      <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+        <div>
+          <label className={LABEL} htmlFor="broker-identity-legal">Legal business name</label>
+          <input id="broker-identity-legal" aria-label="Legal business name" className={INPUT} value={legalName} onChange={(e) => setLegalName(e.target.value)} placeholder="As on your FMCSA authority" />
+        </div>
+        <div>
+          <label className={LABEL} htmlFor="broker-identity-mc">MC / docket number</label>
+          <input id="broker-identity-mc" aria-label="MC number" className={INPUT} value={brokerMc} onChange={(e) => setBrokerMc(e.target.value)} placeholder="e.g. MC-123456" />
+        </div>
+        <div>
+          <label className={LABEL} htmlFor="broker-identity-bond-carrier">Bond (BMC-84) carrier</label>
+          <input id="broker-identity-bond-carrier" aria-label="Bond carrier" className={INPUT} value={bondCarrier} onChange={(e) => setBondCarrier(e.target.value)} placeholder="The surety company on your bond" />
+        </div>
+        <div>
+          <label className={LABEL} htmlFor="broker-identity-bond-amount">Bond amount ($)</label>
+          <input id="broker-identity-bond-amount" aria-label="Bond amount" className={INPUT} inputMode="decimal" value={bondAmount} onChange={(e) => setBondAmount(e.target.value)} placeholder="75000 — the federal minimum" />
+        </div>
+        <div>
+          <label className={LABEL} htmlFor="broker-identity-bond-expiry">Bond expiry date</label>
+          <input id="broker-identity-bond-expiry" aria-label="Bond expiry date" type="date" className={INPUT} value={bondExpiresOn} onChange={(e) => setBondExpiresOn(e.target.value)} />
+        </div>
+        <div>
+          <label className={LABEL} htmlFor="broker-identity-authority">Authority status (as recorded)</label>
+          <select
+            id="broker-identity-authority"
+            aria-label="Authority status"
+            className={INPUT}
+            value={authorityStatus}
+            onChange={(e) => setAuthorityStatus(e.target.value)}
+          >
+            <option value="not_recorded">Not recorded</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+            <option value="revoked">Revoked</option>
+          </select>
+        </div>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button
+          type="button"
+          disabled={busy != null}
+          className="btn-neon btn-press rounded-xl px-4 py-2.5 text-sm font-bold disabled:opacity-50"
+          aria-label="Save your broker identity"
+          onClick={save}
+        >
+          {busy === "save" ? "Saving…" : "Save identity"}
+        </button>
+        <button
+          type="button"
+          disabled={busy != null}
+          className="btn-press rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3.5 py-2.5 text-sm font-bold disabled:opacity-50"
+          aria-label="Check identity against the verification source"
+          onClick={check}
+        >
+          {busy === "check" ? "Checking…" : "Check identity now"}
+        </button>
+      </div>
+      {checkNote && (
+        <div className="mt-2 rounded-xl bg-[var(--surface2)] px-3 py-2.5 text-sm leading-relaxed" role="status">
+          <p>{checkNote.message}</p>
+          {checkNote.differences.length > 0 && (
+            <ul className="mt-1 list-disc pl-5">
+              {checkNote.differences.map((d) => (
+                <li key={d}>{d}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+      <p className="mt-2 text-xs leading-relaxed text-[var(--dim)]">
+        Carriers see your legal name, MC, bond status (active / expiring, with the expiry month) and whether a
+        source has verified this record — never your bond amount. Every change here is written to your sealed
+        record.
+      </p>
+    </section>
+  );
+}
+
+// ---- Broker record file — 49 CFR 371.3 (Wave 2 item 3) --------------------------
+// The broker's OWN contract record for every load they posted: the
+// parties, the dates, the agreed rate and charges, and the delivery /
+// payment facts. The rate lives HERE — the broker's own books — and
+// on no other surface.
+
+function BrokerRecordFile({ setBanner }: { setBanner: (s: string | null) => void }) {
+  const fileQuery = useQuery({ queryKey: ["broker-record-file"], queryFn: () => api.getBrokerRecordFile({}) });
+  const rows = fileQuery.data?.rows ?? [];
+  const money = (v: number | null) => (v == null ? "—" : `$${v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+  return (
+    <section className="glass-panel p-4" aria-label="Your record file (49 CFR 371.3)">
+      <h3 className="font-condensed text-lg font-semibold">🗂 Your record file — 49 CFR 371.3</h3>
+      <p className="mt-1 text-sm leading-relaxed text-[var(--dim)]">
+        Federal rules (49 CFR 371.3) say a broker keeps a record of every transaction: who the parties were, the
+        dates, the rate and charges agreed, and how delivery and payment landed. This is that record for your
+        loads — yours alone; no other account ever sees it.
+      </p>
+      {fileQuery.isPending && <p className="mt-2 text-sm text-[var(--dim)]">Loading your record file…</p>}
+      {!fileQuery.isPending && rows.length === 0 && (
+        <p className="mt-2 text-sm text-[var(--dim)]">No loads on file yet — your first posted load opens the file.</p>
+      )}
+      <div className="mt-2 space-y-2">
+        {rows.map((r) => (
+          <article key={r.posterLoadId} className="rounded-xl border border-[var(--border)] bg-[var(--surface2)] px-3 py-2.5 text-sm leading-relaxed">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <strong>{r.lane}</strong>
+              <span className="text-xs font-semibold text-[var(--dim)]">{r.plainStatus}</span>
+            </div>
+            <dl className="mt-1 grid grid-cols-1 gap-x-4 gap-y-0.5 text-[13px] sm:grid-cols-2">
+              <div>Broker: {r.brokerLegalName ?? r.brokerName}{r.brokerMc ? ` · ${r.brokerMc}` : ""}</div>
+              <div>Carrier: {r.carrierName ?? (r.carrierUsername ? `@${r.carrierUsername}` : "Not assigned yet")}</div>
+              <div>Posted: {new Date(r.postedAt).toLocaleDateString("en-US")}{r.referenceNumber ? ` · Ref ${r.referenceNumber}` : ""}</div>
+              <div>Pickup: {r.pickupDate ?? "—"} · Delivery: {r.deliveryDate ?? "—"}</div>
+              <div>Agreed rate: {money(r.agreedRate)}{r.extraCharges > 0 ? ` + charges ${money(r.extraCharges)} = ${money(r.totalAgreed)}` : ""}</div>
+              <div>Delivery: {r.podSealed ? `POD sealed ${r.podSealedAt ? new Date(r.podSealedAt).toLocaleDateString("en-US") : ""}` : "Not delivered yet"}</div>
+              <div>Invoice: {r.invoiceNumber ? `${r.invoiceNumber} — ` : ""}{r.invoiceStatus}</div>
+              <div>Identity checked at tender: {r.identityScreenedAt ? new Date(r.identityScreenedAt).toLocaleString("en-US") : "Not screened"}</div>
+            </dl>
+          </article>
+        ))}
+      </div>
+      {fileQuery.isError && (
+        <button type="button" className="mt-2 text-sm font-bold text-[var(--accent)] underline" onClick={() => { setBanner("Couldn't load the record file — try again."); void fileQuery.refetch(); }}>
+          Retry the record file
+        </button>
+      )}
+    </section>
+  );
+}
+
 export function BrokerPortalPanel({
   setBanner,
   variant,
@@ -1413,6 +1714,8 @@ export function BrokerPortalPanel({
 
           <PosterFeeCard account={broker} setBanner={setBanner} refresh={refresh} />
 
+          <BrokerIdentityCard account={broker} setBanner={setBanner} refresh={refresh} />
+
           {posting && (
             <PostLoadFlow
               key={editingLoad ? `edit-${editingLoad.id}` : "new"}
@@ -1446,6 +1749,8 @@ export function BrokerPortalPanel({
               />
             ))}
           </section>
+
+          <BrokerRecordFile setBanner={setBanner} />
         </>
       )}
 

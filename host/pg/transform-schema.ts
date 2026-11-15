@@ -85,6 +85,12 @@
 // +1 autoincrement PK, +6 timestamp_ms (extraction/confirmed/send/
 // invoice-auto/created/updated); NO rate or money column exists on
 // it by design, and the remaining columns are plain integer/text.
+// Migration 0131 (broker-grade identity) adds +1 table
+// (broker_bond_alert_dismissals), +1 autoincrement PK, +3
+// timestamp_ms (broker identity verified_at, poster-load screen
+// stamp, dismissal dismissed_at), and +1 REAL (the broker's own
+// bond amount — their record only, never the trust summary); the
+// remaining new columns are plain integer/text.
 //
 //   bun run host/pg/transform-schema.ts
 
@@ -149,16 +155,16 @@ replaceAll(
   'integer mode "timestamp_ms" -> timestamp(tz, date)',
   /integer\(("[a-z0-9_]+"), \{ mode: "timestamp_ms" \}\)/g,
   'timestamp($1, { withTimezone: true, mode: "date" })',
-  345,
+  348,
 );
 replaceAll(
   "autoincrement PK -> serial",
   /integer\(("[a-z0-9_]+")\)\.primaryKey\(\{ autoIncrement: true \}\)/g,
   "serial($1).primaryKey()",
-  147,
+  148,
 );
-replaceAll("sqliteTable -> pgTable", /\bsqliteTable\(/g, "pgTable(", 182);
-replaceAll("real -> doublePrecision", /\breal\(/g, "doublePrecision(", 187);
+replaceAll("sqliteTable -> pgTable", /\bsqliteTable\(/g, "pgTable(", 183);
+replaceAll("real -> doublePrecision", /\breal\(/g, "doublePrecision(", 188);
 
 // Leftovers: any of these means the source schema grew a shape this
 // transform does not know. Fail, don't guess.

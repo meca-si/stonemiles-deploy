@@ -59,7 +59,8 @@ export type ExceptionKind =
   | "detention_overdue"
   | "missing_evidence"
   | "low_confidence"
-  | "paperwork_no_recipient";
+  | "paperwork_no_recipient"
+  | "tender_blocked";
 
 /** An auto-status is only published at or above this confidence. */
 export const CONFIDENCE_THRESHOLD = 0.8;
@@ -539,6 +540,11 @@ export const EXCEPTION_LABELS: Record<ExceptionKind, string> = {
   missing_evidence: "No sealed record behind the share",
   low_confidence: "Status waiting on its seal",
   paperwork_no_recipient: "No paperwork address on file",
+  // Broker tender held by the identity re-screen (Wave 2 item 3).
+  // NOT derived by evaluateLoadAutonomy — the tender flow in
+  // actions.ts opens/closes these rows itself (its loadId carries
+  // the BROKER POSTER load id); the evaluator leaves them alone.
+  tender_blocked: "Tender held — broker identity check",
 };
 
 /** Notification-center copy for a newly opened exception. Lane and

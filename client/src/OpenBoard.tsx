@@ -181,6 +181,15 @@ export function OpenBoardPanel({
           {(r.brokerCompany || r.brokerName) && (
             <div><dt className="inline text-[var(--dim)]">Broker: </dt><dd className="inline font-semibold">{[r.brokerCompany ?? r.brokerName, r.brokerMc].filter(Boolean).join(" · ")}</dd></div>
           )}
+          {r.brokerTrust && (
+            <div className="col-span-2">
+              <dt className="inline text-[var(--dim)]">🛡 Broker identity: </dt>
+              <dd className="inline font-semibold">
+                {[r.brokerTrust.legalName, r.brokerTrust.mc].filter(Boolean).join(" · ")}
+                {` — bond ${r.brokerTrust.bondStatusLabel.toLowerCase()}${r.brokerTrust.bondExpiresMonth ? ` (expires ${r.brokerTrust.bondExpiresMonth})` : ""} · ${r.brokerTrust.verificationLabel}`}
+              </dd>
+            </div>
+          )}
           {r.commodity && (
             <div><dt className="inline text-[var(--dim)]">Freight: </dt><dd className="inline font-semibold">{r.commodity}{r.hazmat ? " · HAZMAT" : ""}</dd></div>
           )}

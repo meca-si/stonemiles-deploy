@@ -1005,6 +1005,15 @@ export function FleetLoadBoardPanel({
           {r.shipper && (
             <div><dt className="inline text-[var(--dim)]">Shipper: </dt><dd className="inline font-semibold">{r.shipper}</dd></div>
           )}
+          {r.brokerTrust && (
+            <div className="col-span-2">
+              <dt className="inline text-[var(--dim)]">🛡 Broker identity: </dt>
+              <dd className="inline font-semibold">
+                {[r.brokerTrust.legalName, r.brokerTrust.mc].filter(Boolean).join(" · ")}
+                {` — bond ${r.brokerTrust.bondStatusLabel.toLowerCase()}${r.brokerTrust.bondExpiresMonth ? ` (expires ${r.brokerTrust.bondExpiresMonth})` : ""} · ${r.brokerTrust.verificationLabel}`}
+              </dd>
+            </div>
+          )}
           {r.commodity && (
             <div><dt className="inline text-[var(--dim)]">Freight: </dt><dd className="inline font-semibold">{r.commodity}{r.hazmat ? " · HAZMAT" : ""}</dd></div>
           )}
