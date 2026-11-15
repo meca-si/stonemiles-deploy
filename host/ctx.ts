@@ -449,6 +449,15 @@ export async function readBlob(
   return { bytes, contentType: rec?.contentType ?? "application/octet-stream" };
 }
 
+/** The stored metadata record for a blob key (null when the key has
+ *  no record). The /blobs route uses this to enforce the visibility
+ *  the storage layer recorded at put() time — a key with NO record
+ *  must be treated as private (fail closed). */
+export function blobMeta(key: string): BlobMetaRecord | null {
+  sanitizeKey(key);
+  return loadMeta().get(key) ?? null;
+}
+
 // ---------------------------------------------------------------------------
 // Query invalidation recording
 // ---------------------------------------------------------------------------

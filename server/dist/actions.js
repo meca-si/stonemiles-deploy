@@ -42748,8 +42748,13 @@ var Actions = {
       const confirmation = await deliveryConfirmationFor(ctx, load.id);
       if (!confirmation)
         return { ok: false, error: "This delivery hasn't been confirmed yet.", status: null };
-      const pdf = await buildSignedPodPdf(ctx, load, confirmation);
       const db = ctx.db();
+      const hourAgo = new Date(Date.now() - 60 * 60 * 1000);
+      const recentSends = await db.select({ id: documentSends3.id }).from(documentSends3).where(and(eq(documentSends3.docRef, `podcopy:${load.id}`), gte(documentSends3.createdAt, hourAgo)));
+      if (recentSends.length >= 5) {
+        return { ok: false, error: "Several copies of this delivery have already been emailed in the last hour \u2014 try again a little later.", status: null };
+      }
+      const pdf = await buildSignedPodPdf(ctx, load, confirmation);
       const subject = `Your signed delivery copy \u2014 Load #${load.id}`;
       const send = await ctx.executePrivileged(privileged.sendDocEmail, {
         to: args.toEmail,
@@ -42802,13 +42807,12 @@ Keep it for your records.
       if (digits.length < 7 || digits.length > 15)
         return { ok: false, masked: null };
       const masked = `***-***-${digits.slice(-2)}`;
-      const phoneHash = (await sha256Bytes(new TextEncoder().encode(digits))).slice(0, 16);
       await appendChain(ctx, {
         refKind: "load",
         refId: resolved.load.id,
         sessionId: null,
         event: "receiver_copy_text_offered",
-        payload: { loadId: resolved.load.id, channel: "driver_device_text", masked, phoneHash, at: new Date().toISOString() }
+        payload: { loadId: resolved.load.id, channel: "driver_device_text", masked, at: new Date().toISOString() }
       });
       return { ok: true, masked };
     }
@@ -44769,6 +44773,11 @@ Keep it for your records.
         return { ok: false, error: "This upload link has expired, so it no longer accepts uploads \u2014 nothing was submitted. Ask the carrier for a fresh link.", submissionId: null, extracted: false };
       if (!await brokerEnabled(ctx, link.scopeKey))
         return { ok: false, error: "Broker uploads are turned off for this carrier right now \u2014 nothing was submitted.", submissionId: null, extracted: false };
+      const hourAgo = new Date(Date.now() - 60 * 60 * 1000);
+      const recentSubs = await db.select({ id: brokerSubmissions3.id }).from(brokerSubmissions3).where(and(eq(brokerSubmissions3.linkId, link.id), gte(brokerSubmissions3.createdAt, hourAgo)));
+      if (recentSubs.length >= 30) {
+        return { ok: false, error: "This link has taken a lot of uploads in the last hour \u2014 nothing was submitted. Try again in a little while, or contact the carrier directly.", submissionId: null, extracted: false };
+      }
       const viaDoor = (link.kind ?? "broker") === "door";
       const senderName = args.brokerName?.trim() ?? "";
       const senderCompany = args.brokerCompany?.trim() ?? "";
@@ -44788,6 +44797,10 @@ Keep it for your records.
       let docSha = null;
       let extracted = false;
       if (args.docDataBase64 && args.docMime) {
+        const BROKER_DOC_MIMES = ["application/pdf", "image/jpeg", "image/png", "image/webp", "image/gif", "image/heic", "image/heif"];
+        if (!BROKER_DOC_MIMES.includes(args.docMime.trim().toLowerCase())) {
+          return { ok: false, error: "Attach the rate con or BOL as a PDF or a photo (JPG, PNG, WebP, or HEIC) \u2014 that file type can't be accepted.", submissionId: null, extracted: false };
+        }
         docBlobKey = `broker-doc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         const bytes = base64ToBytes(args.docDataBase64);
         docSha = await sha256Bytes(new Uint8Array(bytes));
@@ -51341,7 +51354,16 @@ ${args.question}`, { schema: answerSchema });
     async handler(ctx, args) {
       const db = ctx.db();
       const g = await db.select().from(chatGroups3).where(eq(chatGroups3.id, args.id)).limit(1);
-      if (g[0]?.kind === "open")
+      const group = g[0];
+      if (!group || group.kind === "open")
+        return { ok: true };
+      if (group.kind === "dm")
+        return { ok: true };
+      const me = await myUsername(ctx);
+      const mine = await myMembership(ctx, me);
+      const isCompanyOwner = group.companyId != null && mine?.company.id === group.companyId && mine.role === "owner";
+      const isCreator = group.createdBy === me || group.createdBy === "driver";
+      if (!isCompanyOwner && !isCreator)
         return { ok: true };
       await db.update(chatGroups3).set({ name: args.name }).where(eq(chatGroups3.id, args.id));
       ctx.invalidateQueries();
@@ -51358,6 +51380,18 @@ ${args.question}`, { schema: answerSchema });
     async handler(ctx, args) {
       const db = ctx.db();
       const existing = await db.select().from(chatMembers3).where(eq(chatMembers3.groupId, args.id));
+      const g = await db.select().from(chatGroups3).where(eq(chatGroups3.id, args.id)).limit(1);
+      const group = g[0];
+      if (!group || group.kind === "dm")
+        return { ok: true };
+      const me = await myUsername(ctx);
+      let allowed = group.createdBy === me || group.createdBy === "driver" || existing.some((m) => m.username.toLowerCase() === me.toLowerCase());
+      if (!allowed && group.companyId != null) {
+        const mine = await myMembership(ctx, me);
+        allowed = mine?.company.id === group.companyId && (mine.role === "owner" || mine.role === "dispatch");
+      }
+      if (!allowed)
+        return { ok: true };
       const have = new Set(existing.map((m) => m.username.toLowerCase()));
       for (const username of args.members) {
         const u = username.trim();
@@ -56605,9 +56639,13 @@ ${args.question}`, { schema: answerSchema });
     response: object({ ok: literal(true) }),
     async handler(ctx, args) {
       const db = ctx.db();
-      const rows = await db.select().from(payEntries3).where(eq(payEntries3.id, args.id)).limit(1);
-      const row = rows[0];
-      if (row?.stubBlobKey) {
+      const me = await myUsername(ctx);
+      const row = await payEntryOwnedBy(ctx, args.id, me) ?? undefined;
+      if (!row) {
+        ctx.invalidateQueries();
+        return { ok: true };
+      }
+      if (row.stubBlobKey) {
         const deliveries = await db.select().from(payStubDeliveries3);
         const shared = deliveries.some((d) => d.stubBlobKey === row.stubBlobKey);
         if (!shared) {
@@ -56641,8 +56679,8 @@ ${args.question}`, { schema: answerSchema });
     }),
     async handler(ctx, args) {
       const db = ctx.db();
-      const rows = await db.select().from(payEntries3).where(eq(payEntries3.id, args.id)).limit(1);
-      const row = rows[0];
+      const me = await myUsername(ctx);
+      const row = await payEntryOwnedBy(ctx, args.id, me);
       if (!row)
         return { ok: false, error: "That pay entry no longer exists.", otherDeductions: null };
       if (row.isForm) {

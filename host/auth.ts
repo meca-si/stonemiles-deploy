@@ -924,6 +924,15 @@ export async function handleTotp(req: Request): Promise<Response> {
   if (!resolved || !resolved.viewer.totpPending) {
     return jsonRes({ error: GENERIC_LINK_ERROR }, 401);
   }
+  // SECURITY (Wave 2 item 12): the TOTP gate previously had NO
+  // attempt limit at all — a 6-digit code inside a ±1-step window
+  // could be guessed online for the life of the pending session.
+  // Ten attempts per IP per 15 minutes (own keyed bucket, the
+  // beta-join precedent), checked BEFORE the code is verified, so a
+  // tripped window refuses even a correct code until it resets.
+  if (!ipAttempt(ip ? `totp:${ip}` : null, 10, 15 * 60 * 1000)) {
+    return jsonRes({ error: "Too many code attempts — wait a few minutes and try again.", totpRequired: true }, 401);
+  }
   const body = await readJson(req);
   const code = String(body.totpCode ?? body.code ?? "");
   const v = await verifyTotpOrRecoveryFor(db, resolved.viewer.username, code);
@@ -985,7 +994,15 @@ export async function handleMe(req: Request): Promise<Response> {
 export async function handleRequestReset(req: Request): Promise<Response> {
   const db = getDb();
   const ip = clientIp(req);
-  ipAttempt(ip, 10, 60 * 60 * 1000);
+  // SECURITY (Wave 2 item 12): the per-IP window was previously
+  // COUNTED BUT NEVER HONORED — its return value was discarded, so
+  // the 10/hour cap never refused anything (the per-account 3/hour
+  // cap below was the only working limit). Now honored, on its own
+  // keyed bucket (the beta-join precedent): when tripped, the handler
+  // answers the identical { ok: true } and issues nothing — the
+  // anti-enumeration shape is unchanged.
+  const ipOk = ipAttempt(ip ? `reset:${ip}` : null, 10, 60 * 60 * 1000);
+  if (!ipOk) return jsonRes({ ok: true });
   const body = await readJson(req);
   const email = normalizeEmail(String(body.email ?? ""));
   // Identical response whether or not the email exists (§8.2).
@@ -1820,6 +1837,13 @@ export async function handlePasswordChange(req: Request): Promise<Response> {
   const resolved = await resolveSession(db, sessionCookieFromRequest(req));
   if (!resolved || resolved.viewer.totpPending) {
     return jsonRes({ error: GENERIC_SIGNIN_ERROR }, 401);
+  }
+  // SECURITY (Wave 2 item 12): defense in depth — this endpoint
+  // verifies the CURRENT password, so it is a password-guessing
+  // oracle for anyone holding a session. Cap attempts per IP
+  // (own keyed bucket, the beta-join precedent) before verifying.
+  if (!ipAttempt(clientIp(req) ? `pwchange:${clientIp(req)}` : null, 10, 15 * 60 * 1000)) {
+    return jsonRes({ error: "Too many attempts — wait a few minutes and try again." }, 401);
   }
   const body = await readJson(req);
   const current = String(body.currentPassword ?? "");

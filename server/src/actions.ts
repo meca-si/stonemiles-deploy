@@ -28276,8 +28276,22 @@ export const Actions = {
       const { load } = resolved;
       const confirmation = await deliveryConfirmationFor(ctx, load.id);
       if (!confirmation) return { ok: false, error: "This delivery hasn't been confirmed yet.", status: null };
-      const pdf = await buildSignedPodPdf(ctx, load, confirmation);
       const db = ctx.db<typeof schema>();
+      // SECURITY (Wave 2 item 12): per-load send cap, counted from
+      // the document_sends audit rows this action itself writes (the
+      // house DB-count style). The address is caller-typed on a
+      // PUBLIC link, so without a cap one leaked link turns the
+      // platform's mail into a spam relay. Five an hour covers a
+      // receiver emailing themselves and their office many times over.
+      const hourAgo = new Date(Date.now() - 60 * 60 * 1000);
+      const recentSends = await db
+        .select({ id: schema.documentSends.id })
+        .from(schema.documentSends)
+        .where(and(eq(schema.documentSends.docRef, `podcopy:${load.id}`), gte(schema.documentSends.createdAt, hourAgo)));
+      if (recentSends.length >= 5) {
+        return { ok: false, error: "Several copies of this delivery have already been emailed in the last hour — try again a little later.", status: null };
+      }
+      const pdf = await buildSignedPodPdf(ctx, load, confirmation);
       const subject = `Your signed delivery copy — Load #${load.id}`;
       const send = await ctx.executePrivileged(privileged.sendDocEmail, {
         to: args.toEmail,
@@ -28326,13 +28340,20 @@ export const Actions = {
       const digits = args.phone.replace(/\D/g, "");
       if (digits.length < 7 || digits.length > 15) return { ok: false, masked: null };
       const masked = `***-***-${digits.slice(-2)}`;
-      const phoneHash = (await sha256Bytes(new TextEncoder().encode(digits))).slice(0, 16);
+      // SECURITY (Wave 2 item 12): no phone hash in the sealed
+      // payload. A truncated SHA-256 of a phone number is NOT a
+      // privacy protection — phone numbers are low-entropy, so the
+      // hash is a brute-forceable fingerprint of the receiver's
+      // number sitting in a permanent record. The masked form is the
+      // audit trail; nothing anywhere read the hash back. (Payloads
+      // sealed before this change keep theirs — the chain is
+      // append-only — but no new one is written.)
       await appendChain(ctx, {
         refKind: "load",
         refId: resolved.load.id,
         sessionId: null,
         event: "receiver_copy_text_offered",
-        payload: { loadId: resolved.load.id, channel: "driver_device_text", masked, phoneHash, at: new Date().toISOString() },
+        payload: { loadId: resolved.load.id, channel: "driver_device_text", masked, at: new Date().toISOString() },
       });
       return { ok: true, masked };
     },
@@ -30820,6 +30841,20 @@ export const Actions = {
       if (link.revokedAt) return { ok: false, error: "This upload link has been revoked, so it no longer accepts uploads — nothing was submitted.", submissionId: null, extracted: false };
       if (link.expiresAt.getTime() <= Date.now()) return { ok: false, error: "This upload link has expired, so it no longer accepts uploads — nothing was submitted. Ask the carrier for a fresh link.", submissionId: null, extracted: false };
       if (!(await brokerEnabled(ctx, link.scopeKey))) return { ok: false, error: "Broker uploads are turned off for this carrier right now — nothing was submitted.", submissionId: null, extracted: false };
+      // SECURITY (Wave 2 item 12): per-link submission cap, counted
+      // from the submissions table itself (the house DB-count style).
+      // A door code is shared with every broker a fleet works with,
+      // so one leaked or abused link could otherwise flood the desk
+      // inbox — and run a paid OCR read on every image — without
+      // limit. Thirty an hour is far above any real broker's pace.
+      const hourAgo = new Date(Date.now() - 60 * 60 * 1000);
+      const recentSubs = await db
+        .select({ id: schema.brokerSubmissions.id })
+        .from(schema.brokerSubmissions)
+        .where(and(eq(schema.brokerSubmissions.linkId, link.id), gte(schema.brokerSubmissions.createdAt, hourAgo)));
+      if (recentSubs.length >= 30) {
+        return { ok: false, error: "This link has taken a lot of uploads in the last hour — nothing was submitted. Try again in a little while, or contact the carrier directly.", submissionId: null, extracted: false };
+      }
       // SEND DOOR (migration 0110): the door code names the FLEET,
       // never the sender — so a door offer must carry the sender's
       // own name, company, and contact, or the desk can't tell whose
@@ -30841,6 +30876,15 @@ export const Actions = {
       let docSha: string | null = null;
       let extracted = false;
       if (args.docDataBase64 && args.docMime) {
+        // SECURITY (Wave 2 item 12): the attachment's type is
+        // caller-claimed on a PUBLIC door — hold it to what a rate
+        // con / BOL actually is (the upload forms offer PDF + camera
+        // images). Anything else, SVG and HTML included, never enters
+        // the blob store under its claimed type.
+        const BROKER_DOC_MIMES = ["application/pdf", "image/jpeg", "image/png", "image/webp", "image/gif", "image/heic", "image/heif"];
+        if (!BROKER_DOC_MIMES.includes(args.docMime.trim().toLowerCase())) {
+          return { ok: false, error: "Attach the rate con or BOL as a PDF or a photo (JPG, PNG, WebP, or HEIC) — that file type can't be accepted.", submissionId: null, extracted: false };
+        }
         docBlobKey = `broker-doc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         const bytes = base64ToBytes(args.docDataBase64);
         docSha = await sha256Bytes(new Uint8Array(bytes));
@@ -39058,7 +39102,22 @@ export const Actions = {
         .from(schema.chatGroups)
         .where(eq(schema.chatGroups.id, args.id))
         .limit(1);
-      if (g[0]?.kind === "open") return { ok: true as const };
+      const group = g[0];
+      if (!group || group.kind === "open") return { ok: true as const };
+      // SECURITY (Wave 2 item 12): renaming is an admin act — the
+      // group creator or the owning company's owner only, the exact
+      // gate deleteChatGroup already enforces. Before this check ANY
+      // signed-in account could rename ANY group or channel by raw
+      // id. A refused rename is a silent no-op (this action's shape
+      // has no error channel — the same shape as the open-room branch
+      // above). DMs are never renamed through here either.
+      if (group.kind === "dm") return { ok: true as const };
+      const me = await myUsername(ctx);
+      const mine = await myMembership(ctx, me);
+      const isCompanyOwner =
+        group.companyId != null && mine?.company.id === group.companyId && mine.role === "owner";
+      const isCreator = group.createdBy === me || group.createdBy === "driver";
+      if (!isCompanyOwner && !isCreator) return { ok: true as const };
       await db
         .update(schema.chatGroups)
         .set({ name: args.name })
@@ -39082,6 +39141,33 @@ export const Actions = {
         .select()
         .from(schema.chatMembers)
         .where(eq(schema.chatMembers.groupId, args.id));
+      // SECURITY (Wave 2 item 12): only someone already in the room
+      // (a member, or the group's creator) or the owning company's
+      // owner/dispatch may add members. Before this check ANY
+      // signed-in account could insert ANY username into ANY group by
+      // raw id — including adding itself to a company group it was
+      // never part of. A refused add is a silent no-op (this action's
+      // shape has no error channel). DM membership is fixed at
+      // creation (getOrCreateDm) and never changes through here.
+      const g = await db
+        .select()
+        .from(schema.chatGroups)
+        .where(eq(schema.chatGroups.id, args.id))
+        .limit(1);
+      const group = g[0];
+      if (!group || group.kind === "dm") return { ok: true as const };
+      const me = await myUsername(ctx);
+      let allowed =
+        group.createdBy === me ||
+        group.createdBy === "driver" ||
+        existing.some((m) => m.username.toLowerCase() === me.toLowerCase());
+      if (!allowed && group.companyId != null) {
+        const mine = await myMembership(ctx, me);
+        allowed =
+          mine?.company.id === group.companyId &&
+          (mine.role === "owner" || mine.role === "dispatch");
+      }
+      if (!allowed) return { ok: true as const };
       const have = new Set(existing.map((m) => m.username.toLowerCase()));
       for (const username of args.members) {
         const u = username.trim();
@@ -45962,9 +46048,20 @@ export const Actions = {
     response: z.object({ ok: z.literal(true) }),
     async handler(ctx, args) {
       const db = ctx.db<typeof schema>();
-      const rows = await db.select().from(schema.payEntries).where(eq(schema.payEntries.id, args.id)).limit(1);
-      const row = rows[0];
-      if (row?.stubBlobKey) {
+      // SECURITY (Wave 2 item 12): a Pay Book entry is its driver's own
+      // record — only the entry's owner (the username on the row, or
+      // the driver a company delivery addressed it to, per
+      // payEntryOwnedBy) may delete it. Before this check ANY signed-in
+      // account could delete ANY driver's pay entry by raw id. An entry
+      // that isn't the caller's reads as already gone: nothing is
+      // deleted, no chain event seals, and the answer is the same ok.
+      const me = await myUsername(ctx);
+      const row = (await payEntryOwnedBy(ctx, args.id, me)) ?? undefined;
+      if (!row) {
+        ctx.invalidateQueries();
+        return { ok: true as const };
+      }
+      if (row.stubBlobKey) {
         // A company-sent entry shares its stub blob with the delivery
         // record — deleting the entry must not pull the file out from
         // under the sealed delivery, so the blob goes only when no
@@ -46011,8 +46108,14 @@ export const Actions = {
     }),
     async handler(ctx, args): Promise<{ ok: boolean; error: string | null; otherDeductions: number | null }> {
       const db = ctx.db<typeof schema>();
-      const rows = await db.select().from(schema.payEntries).where(eq(schema.payEntries.id, args.id)).limit(1);
-      const row = rows[0];
+      // SECURITY (Wave 2 item 12): deduction lines are edited only on
+      // the caller's OWN entry (payEntryOwnedBy — the same ownership
+      // rule the stub-file read uses). Before this check ANY signed-in
+      // account could rewrite ANY driver's deductions by raw id. An
+      // entry that isn't the caller's answers exactly like a missing
+      // one — no existence leak, no mutation, no chain event.
+      const me = await myUsername(ctx);
+      const row = await payEntryOwnedBy(ctx, args.id, me);
       if (!row) return { ok: false, error: "That pay entry no longer exists.", otherDeductions: null };
       if (row.isForm) {
         return {

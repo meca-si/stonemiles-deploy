@@ -45,6 +45,7 @@ import {
 import {
   BLOBS_DIR,
   STANDALONE_ROOT,
+  blobMeta,
   createInvocation,
   describeDb,
   getDb,
@@ -173,6 +174,60 @@ function errorMessage(err: unknown): string {
   return String(err);
 }
 
+// SECURITY (Wave 2 item 12): baseline hardening headers on EVERY
+// response the host sends — app shell, static assets, public pages
+// (track / apply / receive), auth pages, action JSON, records
+// downloads, and blobs alike. Before this pass the host sent none.
+// frame-ancestors + X-Frame-Options keep the app out of foreign
+// frames while its own same-origin document frames keep working;
+// object-src / base-uri close the classic plugin and base hijacks.
+// A fuller CSP (script-src / style-src) is deliberately NOT set
+// here: the app loads MapLibre tiles and workers and inline boot
+// code, so a wrong script-src would break the product — that
+// tightening is a proposed change in the item-12 findings report,
+// not a silent ship.
+const SECURITY_HEADERS: Record<string, string> = {
+  "strict-transport-security": "max-age=31536000; includeSubDomains",
+  "x-content-type-options": "nosniff",
+  "x-frame-options": "SAMEORIGIN",
+  "referrer-policy": "same-origin",
+  "content-security-policy": "frame-ancestors 'self'; object-src 'none'; base-uri 'self'",
+};
+
+function withSecurityHeaders(res: Response): Response {
+  for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
+    if (!res.headers.has(name)) res.headers.set(name, value);
+  }
+  return res;
+}
+
+/** SECURITY (Wave 2 item 12): a thrown error's message can carry
+ *  internals — SQL text, table/column names, constraint detail,
+ *  file paths, env names, stack fragments. Designed refusals are
+ *  RETURNED as { ok: false } results, never thrown, so whatever
+ *  reaches a catch is an unexpected failure: pass through only
+ *  short, plainly human messages (a few designed guards do throw,
+ *  e.g. the owner-only factory-reset refusal), and replace anything
+ *  that smells like internals with a generic line. The full error
+ *  is always logged server-side at the catch site. */
+const INTERNAL_ERROR_PATTERNS: RegExp[] = [
+  /\bselect\b[\s\S]*\bfrom\b|\binsert into\b|\bdelete from\b/i,
+  /no such table|no such column|unique constraint|foreign key constraint|not null constraint/i,
+  /drizzle|sqlite|libsql/i,
+  /process\.env|\/home\/|node_modules/,
+  /\(.*:\d+:\d+\)/, // a "(file:line:col)" stack fragment
+];
+const GENERIC_CLIENT_ERROR = "Something went wrong on our side — the details are in the server log.";
+
+function clientSafeErrorMessage(err: unknown): string {
+  const msg = errorMessage(err);
+  if (msg.length > 200) return GENERIC_CLIENT_ERROR;
+  for (const pattern of INTERNAL_ERROR_PATTERNS) {
+    if (pattern.test(msg)) return GENERIC_CLIENT_ERROR;
+  }
+  return msg;
+}
+
 /** Readable one-line summary for zod failures (issues array) or any error. */
 function validationMessage(err: unknown): string {
   const issues = (err as { issues?: unknown[] })?.issues;
@@ -254,7 +309,9 @@ async function handleAction(req: Request): Promise<Response> {
     result = await def.handler(invocation.ctx, parsedArgs);
   } catch (err) {
     console.error(`[actions] ${actionName} threw:`, err);
-    return json({ error: errorMessage(err) }, 500);
+    // Item 12: the client sees a sanitized message (see
+    // clientSafeErrorMessage) — internals stay in this server log.
+    return json({ error: clientSafeErrorMessage(err) }, 500);
   }
 
   // Soft response validation: the real runtime's strictness here is
@@ -294,11 +351,9 @@ async function serveStatic(pathname: string): Promise<Response | null> {
 // Server
 // ---------------------------------------------------------------------------
 
-let server: ReturnType<typeof Bun.serve>;
-try {
-server = Bun.serve({
-  port: PORT,
-  async fetch(req) {
+/** Every route, factored out of Bun.serve so the fetch entry can
+ *  decorate ALL responses with the security headers (item 12). */
+async function routeRequest(req: Request): Promise<Response> {
     const url = new URL(req.url);
     const pathname = url.pathname;
 
@@ -492,16 +547,66 @@ server = Bun.serve({
       if (req.method !== "GET") return json({ error: "GET required" }, 405);
       const key = decodeURIComponent(pathname.slice("/blobs/".length));
       try {
+        // SECURITY (Wave 2 item 12): this route previously served
+        // EVERY blob to ANYONE who had or could guess the key, with
+        // the uploader-claimed content type and no disposition
+        // discipline — while the storage layer records every blob
+        // PRIVATE (nothing in the app ever puts with public: true).
+        // Pay stubs, company W-9s, vault documents, and broker docs
+        // were all world-readable by key, and an HTML/SVG upload was
+        // a stored-XSS page on the app origin. Now:
+        //   - visibility is enforced: a public blob serves openly;
+        //     a private blob (or a key with no metadata record —
+        //     fail closed) requires a signed-in session. The app's
+        //     own blob consumers are all signed-in same-origin
+        //     loads, so legitimate viewing is unchanged; an
+        //     anonymous request learns nothing, not even whether
+        //     the key exists (same 404 as a missing blob).
+        //   - content discipline: only raster images and PDF may
+        //     render inline (the app's photo/document viewing);
+        //     everything else — HTML and SVG included — downloads
+        //     as an attachment, and a sandbox CSP rides along so a
+        //     stored document can never execute as this origin.
+        const meta = blobMeta(key);
+        const isPublic = meta?.visibility === "public";
+        // ALLOW_ANONYMOUS is the local staging flag (the session
+        // gate is off entirely in that mode — same rule as /actions).
+        if (!isPublic && !ALLOW_ANONYMOUS) {
+          const resolvedBlobSession = await resolveSession(
+            getDb(),
+            sessionCookieFromRequest(req),
+          );
+          // A session paused at the TOTP gate authorizes nothing —
+          // the same rule the /actions gate enforces.
+          if (!resolvedBlobSession || resolvedBlobSession.viewer.totpPending) {
+            return json({ error: "blob not found" }, 404);
+          }
+        }
         const blob = await readBlob(key);
-        if (!blob) return json({ error: `blob not found: ${key}` }, 404);
+        if (!blob) return json({ error: "blob not found" }, 404);
+        const INLINE_TYPES = new Set([
+          "image/jpeg",
+          "image/png",
+          "image/webp",
+          "image/gif",
+          "image/avif",
+          "application/pdf",
+        ]);
+        const baseName = key.split("/").pop() ?? "file";
+        const safeName = baseName.replace(/[^A-Za-z0-9._-]+/g, "_");
+        const disposition = INLINE_TYPES.has(blob.contentType)
+          ? `inline; filename="${safeName}"`
+          : `attachment; filename="${safeName}"`;
         return new Response(blob.bytes as BodyInit, {
           headers: {
             "content-type": blob.contentType,
             "content-length": String(blob.bytes.byteLength),
+            "content-disposition": disposition,
+            "content-security-policy": "default-src 'none'; sandbox",
           },
         });
       } catch (err) {
-        return json({ error: errorMessage(err) }, 400);
+        return json({ error: clientSafeErrorMessage(err) }, 400);
       }
     }
 
@@ -517,6 +622,15 @@ server = Bun.serve({
     }
 
     return json({ error: "not found" }, 404);
+}
+
+
+let server: ReturnType<typeof Bun.serve>;
+try {
+server = Bun.serve({
+  port: PORT,
+  async fetch(req) {
+    return withSecurityHeaders(await routeRequest(req));
   },
 });
 } catch (err) {
