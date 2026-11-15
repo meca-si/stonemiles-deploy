@@ -294,9 +294,10 @@ type ProfileT = {
   // My Trailer identity (migration 0120): the trailer as its own
   // piece of equipment — year, make, VIN, plate. All optional. Type
   // and length are the routing specs (trailerType / length above),
-  // not repeated here.
+  // not repeated here. Migration 0123 adds the model beside the make.
   trailerYear: number | null;
   trailerMake: string | null;
+  trailerModel: string | null;
   trailerVin: string | null;
   trailerPlate: string | null;
 };
@@ -1324,6 +1325,7 @@ const DEFAULT_PROFILE: ProfileT = {
   truckTransmission: null,
   trailerYear: null,
   trailerMake: null,
+  trailerModel: null,
   trailerVin: null,
   trailerPlate: null,
 };
@@ -21453,9 +21455,10 @@ export function App() {
             </div>
             {/* My Trailer identity (migration 0120): the trailer as its
                 own piece of equipment, beside My Truck — year, make,
-                VIN, plate. Type and length stay in the routing specs
-                below (Trailer type + Trailer length), not duplicated
-                here. VIN and plate are owner-only, like the truck's. */}
+                VIN, plate. Migration 0123 adds the model beside the
+                make. Type and length stay in the routing specs below
+                (Trailer type + Trailer length), not duplicated here.
+                VIN and plate are owner-only, like the truck's. */}
             <div className="mt-4 rounded-2xl border border-[var(--glass-border)] bg-[var(--surface2)] p-3">
               <span className={labelCls}>My Trailer — the trailer itself</span>
               <div className="mt-2 grid grid-cols-2 gap-3">
@@ -21466,6 +21469,10 @@ export function App() {
                 <div>
                   <label className={labelCls} htmlFor="set-trailer-make">Make</label>
                   <input id="set-trailer-make" className={inputCls} value={profile.trailerMake ?? ""} placeholder="e.g. Great Dane" aria-label="Trailer make" onChange={(e) => setProfile({ ...profile, trailerMake: e.target.value || null })} />
+                </div>
+                <div>
+                  <label className={labelCls} htmlFor="set-trailer-model">Model</label>
+                  <input id="set-trailer-model" className={inputCls} value={profile.trailerModel ?? ""} placeholder="e.g. Everest" aria-label="Trailer model" onChange={(e) => setProfile({ ...profile, trailerModel: e.target.value || null })} />
                 </div>
                 <div>
                   <label className={labelCls} htmlFor="set-trailer-vin">VIN</label>
