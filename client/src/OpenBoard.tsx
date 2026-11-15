@@ -59,6 +59,13 @@ export function OpenBoardPanel({
   const data = boardQuery.data;
   const [busy, setBusy] = useState<string | null>(null);
   const [armKey, setArmKey] = useState<string | null>(null);
+  // Home-time gate (Wave 2 item 9): a claim the server stops over
+  // the driver's own home-time commitment lands here as a warning
+  // box on the card — the override re-calls the claim with a
+  // reason attached (sealed server-side). Nothing binds from the
+  // warning state itself.
+  type HtWarning = { summary: string; detail: string; deadlineAt: string; homeEtaAt: string; commitmentId: number };
+  const [htBox, setHtBox] = useState<{ rowId: number; warning: HtWarning; reason: string } | null>(null);
   // Automatic $/mi + ranking (2026-10-31): Best $/mi by default,
   // total pay printed on every card alongside the $/mi.
   const [sortKey, setSortKey] = useState<BoardSortKey>("perMile");
@@ -233,12 +240,18 @@ export function OpenBoardPanel({
                   setArmKey(null);
                   setBusy(`claim-${r.id}`);
                   void api
-                    .claimOpenBoardLoad({ id: r.id })
+                    .claimOpenBoardLoad({ id: r.id, homeTimeOverride: null })
                     .then((res) => {
                       if (!res.ok) {
-                        setBanner(res.error ?? "That claim didn't go through.");
+                        if (res.homeTimeWarning) {
+                          setHtBox({ rowId: r.id, warning: res.homeTimeWarning, reason: "" });
+                          setBanner(res.error ?? res.homeTimeWarning.summary);
+                        } else {
+                          setBanner(res.error ?? "That claim didn't go through.");
+                        }
                         return;
                       }
+                      setHtBox(null);
                       setBanner(
                         `Claimed — ${laneOf(r)} from ${r.originLabel ?? "the origin"} is in your Loads now, Load Tracker at Booked. Freight pay comes direct from ${r.originLabel ?? "the origin"}; the RUGGS LLC dispatch fee invoices once when the delivery seals.`,
                       );
@@ -264,6 +277,60 @@ export function OpenBoardPanel({
             </button>
           )}
         </div>
+        {htBox && htBox.rowId === r.id && (
+          <div className="mt-3 rounded-xl border border-amber-400/40 bg-amber-500/10 px-3 py-3">
+            <p className="text-sm font-bold text-amber-200">🏠 Home-time warning — this load is NOT claimed</p>
+            <p className="mt-1 text-sm leading-relaxed">{htBox.warning.summary}</p>
+            <p className="mt-1 text-xs leading-relaxed text-[var(--dim)]">
+              Claiming it anyway takes an override with a reason — the break, the math, and the reason are sealed on
+              the record.
+            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <input
+                className="min-w-[220px] flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm"
+                value={htBox.reason}
+                onChange={(e) => setHtBox({ ...htBox, reason: e.target.value })}
+                placeholder="Reason for the override — it goes on the sealed record"
+                aria-label={`Reason for overriding your home-time commitment on ${laneOf(r)}`}
+                maxLength={300}
+              />
+              <button
+                type="button"
+                disabled={busy != null || !htBox.reason.trim()}
+                className="btn-press rounded-xl bg-[var(--danger)] px-3.5 py-2.5 text-sm font-bold text-white disabled:opacity-50"
+                aria-label={`Override the home-time commitment and claim ${laneOf(r)}`}
+                onClick={() => {
+                  setBusy(`claim-${r.id}`);
+                  void api
+                    .claimOpenBoardLoad({ id: r.id, homeTimeOverride: { reason: htBox.reason.trim() } })
+                    .then((res) => {
+                      if (!res.ok) {
+                        setBanner(res.error ?? "That claim didn't go through.");
+                        return;
+                      }
+                      setHtBox(null);
+                      setBanner(
+                        `Claimed — ${laneOf(r)} from ${r.originLabel ?? "the origin"} is in your Loads now, Load Tracker at Booked. Freight pay comes direct from ${r.originLabel ?? "the origin"}; the RUGGS LLC dispatch fee invoices once when the delivery seals.`,
+                      );
+                      refresh();
+                    })
+                    .catch(() => setBanner("That claim didn't go through — check your connection and try again."))
+                    .finally(() => setBusy(null));
+                }}
+              >
+                Override &amp; claim it
+              </button>
+              <button
+                type="button"
+                className="btn-press rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3.5 py-2.5 text-sm font-bold"
+                aria-label="Leave the load unclaimed"
+                onClick={() => setHtBox(null)}
+              >
+                Never mind
+              </button>
+            </div>
+          </div>
+        )}
         {r.status === "taken" && (
           <p className="mt-2 text-xs text-[var(--dim)]">
             Load Tracker: {r.linkedPodSealed ? "Delivered — POD sealed" : r.linkedLoadStatus ? r.linkedLoadStatus.replace(/_/g, " ") : "booked"}

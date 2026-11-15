@@ -20,6 +20,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fileToBase64 } from "@hatch/space-sdk/client";
 import { api } from "./api";
 import { MyDqfCard } from "./DqfPanel";
+import { MyHomeTimeCard } from "./HomeTimePanel";
 import { InvoiceFactoringPanel, ReceivablesPanel } from "./FactoringPanel";
 import { t as tt, type Lang } from "./i18n";
 import { Section, XBar, downloadTextFile, money } from "./NextLevel";
@@ -1682,6 +1683,9 @@ export function MoneyFlowHub({ setBanner, mpg, onOpenBreakdownHelp, onOpenParkin
       </div>
       <div id="my-dqf" className="scroll-mt-4">
         <MyDqfCard />
+      </div>
+      <div id="my-home-time" className="scroll-mt-4">
+        <MyHomeTimeCard />
       </div>
       <div id="owed-board" className="scroll-mt-4">
         <OwedBoardPanel setBanner={setBanner} lang={lang} />

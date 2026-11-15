@@ -100,6 +100,9 @@ __export(exports_schema_sqlite, {
   giveawayLocks: () => giveawayLocks,
   giveawayVesting: () => giveawayVesting,
   hazardReports: () => hazardReports,
+  homeTimeCommitments: () => homeTimeCommitments,
+  homeTimeFactSnapshots: () => homeTimeFactSnapshots,
+  homeTimeOverrides: () => homeTimeOverrides,
   intelReports: () => intelReports,
   invoiceRegistry: () => invoiceRegistry,
   learnedExclusions: () => learnedExclusions,
@@ -145,6 +148,7 @@ __export(exports_schema_sqlite, {
   posterReferrals: () => posterReferrals,
   pretripInspections: () => pretripInspections,
   profile: () => profile,
+  pulseResponses: () => pulseResponses,
   pushDevices: () => pushDevices,
   receivableRegistry: () => receivableRegistry,
   receiveLinks: () => receiveLinks,
@@ -292,6 +296,9 @@ __export(exports_schema_pg, {
   giveawayLocks: () => giveawayLocks2,
   giveawayVesting: () => giveawayVesting2,
   hazardReports: () => hazardReports2,
+  homeTimeCommitments: () => homeTimeCommitments2,
+  homeTimeFactSnapshots: () => homeTimeFactSnapshots2,
+  homeTimeOverrides: () => homeTimeOverrides2,
   intelReports: () => intelReports2,
   invoiceRegistry: () => invoiceRegistry2,
   learnedExclusions: () => learnedExclusions2,
@@ -337,6 +344,7 @@ __export(exports_schema_pg, {
   posterReferrals: () => posterReferrals2,
   pretripInspections: () => pretripInspections2,
   profile: () => profile2,
+  pulseResponses: () => pulseResponses2,
   pushDevices: () => pushDevices2,
   receivableRegistry: () => receivableRegistry2,
   receiveLinks: () => receiveLinks2,
@@ -10331,6 +10339,61 @@ var dqfAlertDismissals = sqliteTable("dqf_alert_dismissals", {
   dismissedBy: text2("dismissed_by").notNull(),
   dismissedAt: integer3("dismissed_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
 });
+var homeTimeCommitments = sqliteTable("home_time_commitments", {
+  id: integer3("id").primaryKey({ autoIncrement: true }),
+  companyId: integer3("company_id").notNull(),
+  driverUsername: text2("driver_username").notNull(),
+  kind: text2("kind").notNull(),
+  homeByAt: integer3("home_by_at", { mode: "timestamp_ms" }),
+  everyNDays: integer3("every_n_days"),
+  anchorAt: integer3("anchor_at", { mode: "timestamp_ms" }),
+  setBy: text2("set_by").notNull(),
+  createdBy: text2("created_by").notNull(),
+  note: text2("note"),
+  effectiveFrom: integer3("effective_from", { mode: "timestamp_ms" }).notNull(),
+  effectiveTo: integer3("effective_to", { mode: "timestamp_ms" }),
+  voidedAt: integer3("voided_at", { mode: "timestamp_ms" }),
+  voidedBy: text2("voided_by"),
+  createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
+  updatedAt: integer3("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
+});
+var homeTimeOverrides = sqliteTable("home_time_overrides", {
+  id: integer3("id").primaryKey({ autoIncrement: true }),
+  companyId: integer3("company_id").notNull(),
+  driverUsername: text2("driver_username").notNull(),
+  commitmentId: integer3("commitment_id").notNull(),
+  deadlineAt: integer3("deadline_at", { mode: "timestamp_ms" }).notNull(),
+  boardLoadId: integer3("board_load_id").notNull(),
+  loadId: integer3("load_id"),
+  method: text2("method").notNull(),
+  overriddenBy: text2("overridden_by").notNull(),
+  reason: text2("reason").notNull(),
+  deliveryAt: integer3("delivery_at", { mode: "timestamp_ms" }),
+  homeEtaAt: integer3("home_eta_at", { mode: "timestamp_ms" }),
+  createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
+});
+var pulseResponses = sqliteTable("pulse_responses", {
+  id: integer3("id").primaryKey({ autoIncrement: true }),
+  companyId: integer3("company_id").notNull(),
+  driverUsername: text2("driver_username").notNull(),
+  episodeKey: text2("episode_key").notNull(),
+  status: text2("status").notNull(),
+  answersJson: text2("answers_json").notNull().default("{}"),
+  note: text2("note"),
+  createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
+  updatedAt: integer3("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
+});
+var homeTimeFactSnapshots = sqliteTable("home_time_fact_snapshots", {
+  id: integer3("id").primaryKey({ autoIncrement: true }),
+  companyId: integer3("company_id").notNull(),
+  driverUsername: text2("driver_username").notNull(),
+  detentionOverruns90: integer3("detention_overruns90").notNull().default(0),
+  milesRecent30: real2("miles_recent30").notNull().default(0),
+  milesPrior30: real2("miles_prior30").notNull().default(0),
+  computedAt: integer3("computed_at", { mode: "timestamp_ms" }).notNull(),
+  createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
+  updatedAt: integer3("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
+});
 
 // src/schema-pg.ts
 var profile2 = pgTable("profile", {
@@ -12801,6 +12864,61 @@ var dqfAlertDismissals2 = pgTable("dqf_alert_dismissals", {
   dismissedBy: text("dismissed_by").notNull(),
   dismissedAt: timestamp("dismissed_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
 });
+var homeTimeCommitments2 = pgTable("home_time_commitments", {
+  id: serial("id").primaryKey(),
+  companyId: integer2("company_id").notNull(),
+  driverUsername: text("driver_username").notNull(),
+  kind: text("kind").notNull(),
+  homeByAt: timestamp("home_by_at", { withTimezone: true, mode: "date" }),
+  everyNDays: integer2("every_n_days"),
+  anchorAt: timestamp("anchor_at", { withTimezone: true, mode: "date" }),
+  setBy: text("set_by").notNull(),
+  createdBy: text("created_by").notNull(),
+  note: text("note"),
+  effectiveFrom: timestamp("effective_from", { withTimezone: true, mode: "date" }).notNull(),
+  effectiveTo: timestamp("effective_to", { withTimezone: true, mode: "date" }),
+  voidedAt: timestamp("voided_at", { withTimezone: true, mode: "date" }),
+  voidedBy: text("voided_by"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
+});
+var homeTimeOverrides2 = pgTable("home_time_overrides", {
+  id: serial("id").primaryKey(),
+  companyId: integer2("company_id").notNull(),
+  driverUsername: text("driver_username").notNull(),
+  commitmentId: integer2("commitment_id").notNull(),
+  deadlineAt: timestamp("deadline_at", { withTimezone: true, mode: "date" }).notNull(),
+  boardLoadId: integer2("board_load_id").notNull(),
+  loadId: integer2("load_id"),
+  method: text("method").notNull(),
+  overriddenBy: text("overridden_by").notNull(),
+  reason: text("reason").notNull(),
+  deliveryAt: timestamp("delivery_at", { withTimezone: true, mode: "date" }),
+  homeEtaAt: timestamp("home_eta_at", { withTimezone: true, mode: "date" }),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
+});
+var pulseResponses2 = pgTable("pulse_responses", {
+  id: serial("id").primaryKey(),
+  companyId: integer2("company_id").notNull(),
+  driverUsername: text("driver_username").notNull(),
+  episodeKey: text("episode_key").notNull(),
+  status: text("status").notNull(),
+  answersJson: text("answers_json").notNull().default("{}"),
+  note: text("note"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
+});
+var homeTimeFactSnapshots2 = pgTable("home_time_fact_snapshots", {
+  id: serial("id").primaryKey(),
+  companyId: integer2("company_id").notNull(),
+  driverUsername: text("driver_username").notNull(),
+  detentionOverruns90: integer2("detention_overruns90").notNull().default(0),
+  milesRecent30: doublePrecision("miles_recent30").notNull().default(0),
+  milesPrior30: doublePrecision("miles_prior30").notNull().default(0),
+  computedAt: timestamp("computed_at", { withTimezone: true, mode: "date" }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
+});
 
 // src/schema.ts
 var impl = process.env.STONEMILES_DIALECT === "postgres" ? exports_schema_pg : exports_schema_sqlite;
@@ -12981,6 +13099,10 @@ var parkingReservations3 = impl.parkingReservations;
 var dqfFiles3 = impl.dqfFiles;
 var dqfEntries3 = impl.dqfEntries;
 var dqfAlertDismissals3 = impl.dqfAlertDismissals;
+var homeTimeCommitments3 = impl.homeTimeCommitments;
+var homeTimeOverrides3 = impl.homeTimeOverrides;
+var pulseResponses3 = impl.pulseResponses;
+var homeTimeFactSnapshots3 = impl.homeTimeFactSnapshots;
 var accounts3 = impl.accounts;
 var authSessions3 = impl.authSessions;
 var passwordResetTokens3 = impl.passwordResetTokens;
@@ -18357,6 +18479,305 @@ function dqfAlertNotification(args) {
   };
 }
 
+// src/homeTime.ts
+var DAY_MS5 = 86400000;
+var HOUR_MS = 3600000;
+var RETURN_ALLOWANCE_SAME_STATE_MS = 6 * HOUR_MS;
+var RETURN_ALLOWANCE_OUT_OF_STATE_MS = 24 * HOUR_MS;
+var DEADLINE_LOOKBACK_MS = 12 * HOUR_MS;
+var OUTCOME_EVIDENCE_WINDOW_MS = 72 * HOUR_MS;
+var HOME_TIME_KIND_LABELS = {
+  by_date: "Home by a date",
+  every_n_days: "Home every N days",
+  weekends: "Home every weekend"
+};
+var ms = (iso) => {
+  if (!iso)
+    return null;
+  const t = Date.parse(iso);
+  return Number.isFinite(t) ? t : null;
+};
+function commitmentLiveAt(c, atMs) {
+  const from = ms(c.effectiveFrom);
+  if (from == null || atMs < from)
+    return false;
+  const to = ms(c.effectiveTo);
+  if (to != null && atMs > to)
+    return false;
+  const voided = ms(c.voidedAt);
+  if (voided != null && atMs >= voided)
+    return false;
+  return true;
+}
+function commitmentDeadlines(c, fromMs, toMs) {
+  const out = [];
+  const push = (t) => {
+    if (t >= fromMs && t < toMs && commitmentLiveAt(c, t))
+      out.push(t);
+  };
+  if (c.kind === "by_date") {
+    const t = ms(c.homeByAt);
+    if (t != null)
+      push(t);
+  } else if (c.kind === "every_n_days") {
+    const anchor = ms(c.anchorAt);
+    const n = c.everyNDays;
+    if (anchor != null && n != null && Number.isFinite(n) && n >= 1) {
+      const step = Math.floor(n) * DAY_MS5;
+      const kMin = Math.ceil((fromMs - anchor) / step);
+      const kMax = Math.floor((toMs - 1 - anchor) / step);
+      for (let k = kMin;k <= kMax; k++)
+        push(anchor + k * step);
+    }
+  } else if (c.kind === "weekends") {
+    const d = new Date(fromMs);
+    d.setUTCHours(0, 0, 0, 0);
+    let t = d.getTime();
+    while (new Date(t).getUTCDay() !== 6)
+      t += DAY_MS5;
+    if (t < fromMs)
+      t += 7 * DAY_MS5;
+    for (;t < toMs; t += 7 * DAY_MS5)
+      push(t);
+  }
+  return out.sort((a, b) => a - b);
+}
+function allDeadlines(commitments, fromMs, toMs) {
+  const out = [];
+  for (const c of commitments) {
+    for (const t of commitmentDeadlines(c, fromMs, toMs))
+      out.push({ commitmentId: c.id, deadlineAt: t });
+  }
+  return out.sort((a, b) => a.deadlineAt - b.deadlineAt);
+}
+function nextHomeDeadline(commitments, nowMs) {
+  const all = allDeadlines(commitments, nowMs - DEADLINE_LOOKBACK_MS, nowMs + 366 * DAY_MS5);
+  return all[0] ?? null;
+}
+function describeCommitment(c) {
+  if (c.kind === "by_date") {
+    const t = ms(c.homeByAt);
+    return t != null ? `Home by ${new Date(t).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "UTC" })} UTC` : "Home by a date";
+  }
+  if (c.kind === "every_n_days") {
+    return c.everyNDays != null ? `Home every ${c.everyNDays} days` : "Home on a repeating cadence";
+  }
+  if (c.kind === "weekends")
+    return "Home every weekend (by Saturday)";
+  return "Home-time commitment";
+}
+var normState = (s) => {
+  const t = (s ?? "").trim().toUpperCase();
+  return t === "" ? null : t;
+};
+function checkHomeTimeConflict(args) {
+  if (args.deliveryApptAtMs == null || !Number.isFinite(args.deliveryApptAtMs))
+    return null;
+  const dState = normState(args.deliveryState);
+  const hState = normState(args.homeState);
+  const sameState = dState != null && hState != null && dState === hState;
+  const allowance = sameState ? RETURN_ALLOWANCE_SAME_STATE_MS : RETURN_ALLOWANCE_OUT_OF_STATE_MS;
+  const homeEtaAt = args.deliveryApptAtMs + allowance;
+  const deadlines = allDeadlines(args.commitments, args.nowMs - DEADLINE_LOOKBACK_MS, homeEtaAt + 1);
+  for (const d of deadlines) {
+    if (homeEtaAt > d.deadlineAt) {
+      const c = args.commitments.find((x) => x.id === d.commitmentId);
+      return {
+        commitmentId: d.commitmentId,
+        setBy: c?.setBy ?? "driver",
+        deadlineAt: d.deadlineAt,
+        deliveryAt: args.deliveryApptAtMs,
+        homeEtaAt,
+        allowanceHours: allowance / HOUR_MS,
+        sameState
+      };
+    }
+  }
+  return null;
+}
+var fmtWhen = (t) => new Date(t).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "UTC" });
+function homeTimeConflictWarning(conflict, lane) {
+  const summary = `This load breaks a home-time commitment \u2014 it delivers ${fmtWhen(conflict.deliveryAt)} UTC, and with the drive home (${conflict.allowanceHours}h allowed${conflict.sameState ? ", same state" : ""}) the driver is home ${fmtWhen(conflict.homeEtaAt)} UTC at the earliest, past the ${fmtWhen(conflict.deadlineAt)} UTC home-by deadline.`;
+  const detail = `${lane ? `${lane}: ` : ""}${summary} Binding it anyway takes an override with a reason, sealed on the record.`;
+  return { summary, detail };
+}
+function canOverrideHomeTime(args) {
+  if (args.actor === args.driverUsername)
+    return true;
+  if (args.setBy === "fleet" && args.actorIsDesk)
+    return true;
+  return false;
+}
+function homeTimeOverrideNotification(args) {
+  if (args.selfOverride) {
+    return {
+      title: "Home-time commitment overridden",
+      body: `@${args.driverUsername} overrode their own home-time commitment (home by ${fmtWhen(args.conflict.deadlineAt)} UTC) for a load delivering ${fmtWhen(args.conflict.deliveryAt)} UTC. The reason is on the sealed record.`
+    };
+  }
+  return {
+    title: "Your home-time commitment was overridden",
+    body: `@${args.overriddenBy} bound a load that breaks your home-by deadline of ${fmtWhen(args.conflict.deadlineAt)} UTC \u2014 it delivers ${fmtWhen(args.conflict.deliveryAt)} UTC. The reason they gave is on the sealed record.`
+  };
+}
+var normText2 = (s) => (s ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+function locationReadsHome(location, homeCity, homeState) {
+  const loc = normText2(location);
+  if (loc === "")
+    return false;
+  const city = normText2(homeCity);
+  const state = normText2(homeState);
+  const tokens = loc.split(/[^a-z0-9]+/).filter((t) => t !== "");
+  const stateOk = state === "" || (state.length <= 2 ? tokens.includes(state) : loc.includes(state));
+  const cityOk = city === "" || loc.includes(city);
+  if (city !== "" && state !== "")
+    return cityOk && stateOk;
+  if (city !== "")
+    return cityOk;
+  if (state !== "")
+    return stateOk;
+  return false;
+}
+function evaluateHomeOutcomes(args) {
+  const events = [...args.dutyEvents].sort((a, b) => a.atMs - b.atMs);
+  const overrides = new Set(args.overrideDeadlinesMs);
+  const sorted = [...args.deadlines].sort((a, b) => a.deadlineAt - b.deadlineAt);
+  return sorted.map((d, i) => {
+    const nextDeadline = i + 1 < sorted.length ? sorted[i + 1].deadlineAt : Number.POSITIVE_INFINITY;
+    if (overrides.has(d.deadlineAt)) {
+      return {
+        commitmentId: d.commitmentId,
+        deadlineAt: d.deadlineAt,
+        outcome: "overridden",
+        detail: "A load was bound over this deadline with a sealed override."
+      };
+    }
+    for (let j = 0;j < events.length; j++) {
+      const ev = events[j];
+      if (ev.state !== "off_duty" && ev.state !== "sleeper")
+        continue;
+      if (!locationReadsHome(ev.location, args.homeCity, args.homeState))
+        continue;
+      const spellEnd = j + 1 < events.length ? events[j + 1].atMs : Number.POSITIVE_INFINITY;
+      if (ev.atMs <= d.deadlineAt && d.deadlineAt < spellEnd) {
+        return {
+          commitmentId: d.commitmentId,
+          deadlineAt: d.deadlineAt,
+          outcome: "kept",
+          detail: "Sealed record shows the driver off duty at home over the deadline."
+        };
+      }
+    }
+    const windowEnd = Math.min(d.deadlineAt + OUTCOME_EVIDENCE_WINDOW_MS, nextDeadline);
+    const awayDuty = events.some((ev) => (ev.state === "driving" || ev.state === "on_duty") && ev.atMs > d.deadlineAt && ev.atMs < windowEnd);
+    const awaySeal = args.deliverySealsMs.some((t) => t > d.deadlineAt && t < windowEnd);
+    if (awayDuty || awaySeal) {
+      return {
+        commitmentId: d.commitmentId,
+        deadlineAt: d.deadlineAt,
+        outcome: "missed",
+        detail: "Sealed record shows the driver still out after the deadline, with no home spell over it."
+      };
+    }
+    return {
+      commitmentId: d.commitmentId,
+      deadlineAt: d.deadlineAt,
+      outcome: "no_home_record",
+      detail: "No sealed home record covers this deadline \u2014 the app can't prove the driver home or away."
+    };
+  });
+}
+function summarizeHomeOutcomes(outcomes) {
+  const r = { kept: 0, missed: 0, overridden: 0, noHomeRecord: 0, decided: 0, total: outcomes.length };
+  for (const o of outcomes) {
+    if (o.outcome === "kept")
+      r.kept++;
+    else if (o.outcome === "missed")
+      r.missed++;
+    else if (o.outcome === "overridden")
+      r.overridden++;
+    else
+      r.noHomeRecord++;
+  }
+  r.decided = r.kept + r.missed + r.overridden;
+  return r;
+}
+var CHURN_MISSED_MIN = 2;
+var CHURN_DETENTION_MIN = 3;
+var CHURN_MILES_PRIOR_MIN = 500;
+var CHURN_MILES_DROP_RATIO = 0.5;
+function retentionSignals(f) {
+  const out = [];
+  if (f.missed90 >= CHURN_MISSED_MIN) {
+    out.push({
+      key: "missed_home_time",
+      detail: `${f.missed90} home-time commitments missed in the last 90 days \u2014 sealed records show the driver still out past the deadline, with no override on file.`
+    });
+  }
+  if (f.detentionOverruns90 >= CHURN_DETENTION_MIN) {
+    out.push({
+      key: "detention_overruns",
+      detail: `${f.detentionOverruns90} detention waits ran past the free time in the last 90 days.`
+    });
+  }
+  if (f.milesPrior30 >= CHURN_MILES_PRIOR_MIN && f.milesRecent30 < f.milesPrior30 * CHURN_MILES_DROP_RATIO) {
+    out.push({
+      key: "miles_down",
+      detail: `Sealed trip miles fell from ${Math.round(f.milesPrior30).toLocaleString("en-US")} in the prior 30 days to ${Math.round(f.milesRecent30).toLocaleString("en-US")} in the last 30 days.`
+    });
+  }
+  return out;
+}
+var PULSE_EPISODE_MS = 14 * DAY_MS5;
+var PULSE_MIN_RESPONDENTS = 3;
+var PULSE_QUESTIONS = [
+  { key: "home_time", label: "How is home time holding up lately?", low: "Rough", high: "Great" },
+  { key: "workload", label: "How is the workload feeling?", low: "Too much", high: "About right" },
+  { key: "staying", label: "How likely are you to still be driving here in six months?", low: "Not likely", high: "Very likely" }
+];
+function pulseEpisodeKey(nowMs) {
+  return `pulse-${Math.floor(nowMs / PULSE_EPISODE_MS)}`;
+}
+function nextPulseAt(nowMs) {
+  return (Math.floor(nowMs / PULSE_EPISODE_MS) + 1) * PULSE_EPISODE_MS;
+}
+function validatePulseAnswers(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw))
+    return null;
+  const rec = raw;
+  const out = {};
+  for (const q of PULSE_QUESTIONS) {
+    const v = rec[q.key];
+    if (typeof v !== "number" || !Number.isInteger(v) || v < 1 || v > 5)
+      return null;
+    out[q.key] = v;
+  }
+  return out;
+}
+function aggregatePulse(rows, driverCount) {
+  const latest = new Map;
+  for (const r of rows)
+    latest.set(r.driverUsername, r.answers);
+  const respondentCount = latest.size;
+  if (respondentCount < PULSE_MIN_RESPONDENTS) {
+    return { respondentCount, driverCount, averages: null };
+  }
+  const sums = {};
+  for (const q of PULSE_QUESTIONS)
+    sums[q.key] = 0;
+  for (const answers of latest.values()) {
+    for (const q of PULSE_QUESTIONS) {
+      const v = answers[q.key];
+      if (typeof v === "number" && Number.isFinite(v))
+        sums[q.key] += v;
+    }
+  }
+  const averages = {};
+  for (const q of PULSE_QUESTIONS)
+    averages[q.key] = Math.round(sums[q.key] / respondentCount * 10) / 10;
+  return { respondentCount, driverCount, averages };
+}
+
 // src/detentionClaim.ts
 var DETENTION_CLAIM_NEXT = {
   none: ["generated"],
@@ -18371,7 +18792,7 @@ function canDetentionClaimMove(from, to) {
 }
 var money3 = (cents) => `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 var gps = (lat, lon) => lat != null && lon != null ? `${lat.toFixed(5)}, ${lon.toFixed(5)}` : "not captured";
-var fmtWhen = (iso) => new Date(iso).toLocaleString("en-US", {
+var fmtWhen2 = (iso) => new Date(iso).toLocaleString("en-US", {
   month: "short",
   day: "numeric",
   year: "numeric",
@@ -18400,9 +18821,9 @@ function detentionClaimPack(input) {
       ...input.load.brokerMc ? [`Broker MC: ${input.load.brokerMc}`] : []
     ] : ["Load: (not linked to a load)"],
     "",
-    `Appointment: ${input.apptAtIso ? fmtWhen(input.apptAtIso) : "not recorded"}`,
-    `Arrived: ${fmtWhen(input.arrivedAtIso)}`,
-    `Departed: ${fmtWhen(input.departedAtIso)}`,
+    `Appointment: ${input.apptAtIso ? fmtWhen2(input.apptAtIso) : "not recorded"}`,
+    `Arrived: ${fmtWhen2(input.arrivedAtIso)}`,
+    `Departed: ${fmtWhen2(input.departedAtIso)}`,
     `Total time at facility: ${formatDurationMinutes(facts.totalMinutes)}`,
     `Free time allowed: ${formatDurationMinutes(facts.graceMinutes)}`,
     `Time beyond free time: ${formatDurationMinutes(facts.billableMinutes)}`,
@@ -31499,6 +31920,374 @@ async function dqGateForBoardTake(ctx, args) {
   });
   return { blocked: true, summary: dqBlockSummary(evaluation) };
 }
+function toHomeTimeCommitmentLike(row) {
+  return {
+    id: row.id,
+    kind: row.kind,
+    homeByAt: row.homeByAt ? row.homeByAt.toISOString() : null,
+    everyNDays: row.everyNDays ?? null,
+    anchorAt: row.anchorAt ? row.anchorAt.toISOString() : null,
+    setBy: row.setBy,
+    createdBy: row.createdBy,
+    note: row.note ?? null,
+    effectiveFrom: row.effectiveFrom.toISOString(),
+    effectiveTo: row.effectiveTo ? row.effectiveTo.toISOString() : null,
+    voidedAt: row.voidedAt ? row.voidedAt.toISOString() : null
+  };
+}
+async function homeTimeCommitmentRowsFor(ctx, companyId, driverUsername) {
+  const db = ctx.db();
+  return db.select().from(homeTimeCommitments3).where(and(eq(homeTimeCommitments3.companyId, companyId), eq(homeTimeCommitments3.driverUsername, driverUsername))).orderBy(asc(homeTimeCommitments3.id));
+}
+async function homeTimeOverrideRowsFor(ctx, companyId, driverUsername) {
+  const db = ctx.db();
+  return db.select().from(homeTimeOverrides3).where(and(eq(homeTimeOverrides3.companyId, companyId), eq(homeTimeOverrides3.driverUsername, driverUsername))).orderBy(asc(homeTimeOverrides3.id));
+}
+async function homeProfileFor(ctx, driverUsername) {
+  const db = ctx.db();
+  const social = await db.select().from(socialUsers3).where(eq(socialUsers3.username, driverUsername)).limit(1);
+  const rows = await db.select().from(profile3).where(eq(profile3.socialUsername, driverUsername)).limit(1);
+  return {
+    homeCity: social[0]?.homeCity ?? null,
+    homeState: social[0]?.homeState ?? null,
+    profileId: rows[0]?.id ?? null
+  };
+}
+async function homeTimeAccessFor(ctx, me, driverUsername) {
+  const mine = await myMembership(ctx, me);
+  if (driverUsername === me) {
+    if (!mine) {
+      return {
+        ok: false,
+        error: "You're not in a company \u2014 home-time commitments live inside a fleet. Join with your owner's driver code first, and your record opens there."
+      };
+    }
+    return { ok: true, companyId: mine.company.id, companyName: mine.company.name, isSelf: true, canManage: mine.role === "owner" || mine.role === "dispatch" };
+  }
+  if (!mine || mine.role !== "owner" && mine.role !== "dispatch") {
+    return { ok: false, error: "That home-time record isn't in your scope \u2014 a driver's record is theirs and their own fleet's desk's." };
+  }
+  const db = ctx.db();
+  const members = await db.select().from(companyMembers3).where(eq(companyMembers3.companyId, mine.company.id));
+  const target = members.find((m) => m.username === driverUsername);
+  if (!target) {
+    return { ok: false, error: `@${driverUsername} isn't a member of ${mine.company.name} \u2014 their home-time record lives with their own fleet.` };
+  }
+  return { ok: true, companyId: mine.company.id, companyName: mine.company.name, isSelf: false, canManage: true };
+}
+async function driverDutyEventsFor(ctx, driverUsername) {
+  const { events } = await effectiveDutyTimeline(ctx);
+  return events.filter((e) => (e.username ?? null) === driverUsername).map((e) => ({ state: e.state, atMs: Date.parse(e.at), location: e.location ?? null })).filter((e) => Number.isFinite(e.atMs)).sort((a, b) => a.atMs - b.atMs);
+}
+async function driverDeliverySealsMs(ctx, driverUsername) {
+  const db = ctx.db();
+  const saved = await db.select().from(chainLog3).where(eq(chainLog3.event, "load_saved"));
+  const ids = new Set;
+  for (const r of saved) {
+    if (r.refId == null)
+      continue;
+    try {
+      const p = JSON.parse(r.payload);
+      if (p.driver === driverUsername)
+        ids.add(r.refId);
+    } catch {}
+  }
+  if (ids.size === 0)
+    return [];
+  const chain = await db.select().from(chainLog3).where(eq(chainLog3.event, "pod_seal"));
+  const out = [];
+  for (const r of chain) {
+    if (r.refId == null || !ids.has(r.refId))
+      continue;
+    try {
+      const p = JSON.parse(r.payload);
+      const t = p.at ? Date.parse(p.at) : NaN;
+      if (Number.isFinite(t))
+        out.push(t);
+    } catch {}
+  }
+  return out.sort((a, b) => a - b);
+}
+async function retentionFactsFor(ctx, profileId, nowMs) {
+  if (profileId == null)
+    return { detentionOverruns90: 0, milesRecent30: 0, milesPrior30: 0 };
+  const db = ctx.db();
+  const det = await db.select().from(detentionRecords3).where(eq(detentionRecords3.profileId, profileId));
+  let detentionOverruns90 = 0;
+  for (const r of det) {
+    if (!r.departedAt)
+      continue;
+    if (r.arrivedAt.getTime() < nowMs - 90 * DAY_MS5)
+      continue;
+    if (r.departedAt.getTime() - r.arrivedAt.getTime() > r.graceMinutes * 60000)
+      detentionOverruns90++;
+  }
+  const tripRows = await db.select().from(trips3).where(eq(trips3.profileId, profileId));
+  let milesRecent30 = 0;
+  let milesPrior30 = 0;
+  for (const t of tripRows) {
+    const ended = t.endedAt.getTime();
+    if (ended >= nowMs - 30 * DAY_MS5 && ended < nowMs)
+      milesRecent30 += t.totalMiles;
+    else if (ended >= nowMs - 60 * DAY_MS5 && ended < nowMs - 30 * DAY_MS5)
+      milesPrior30 += t.totalMiles;
+  }
+  return { detentionOverruns90, milesRecent30, milesPrior30 };
+}
+async function homeTimePictureFor(ctx, companyId, driverUsername, opts) {
+  const db = ctx.db();
+  const nowMs = Date.now();
+  const rows = await homeTimeCommitmentRowsFor(ctx, companyId, driverUsername);
+  const likes = rows.map(toHomeTimeCommitmentLike);
+  const active = likes.filter((c) => c.voidedAt == null);
+  const next = nextHomeDeadline(active, nowMs);
+  const home = await homeProfileFor(ctx, driverUsername);
+  const deadlines = allDeadlines(likes, nowMs - 90 * DAY_MS5, nowMs);
+  const overrideRows = await homeTimeOverrideRowsFor(ctx, companyId, driverUsername);
+  const dutyEvents = await driverDutyEventsFor(ctx, driverUsername);
+  const seals = await driverDeliverySealsMs(ctx, driverUsername);
+  const outcomes = evaluateHomeOutcomes({
+    deadlines,
+    dutyEvents,
+    homeCity: home.homeCity,
+    homeState: home.homeState,
+    overrideDeadlinesMs: overrideRows.map((o) => o.deadlineAt.getTime()),
+    deliverySealsMs: seals
+  });
+  const hitRate = summarizeHomeOutcomes(outcomes);
+  let facts;
+  let factsAsOf;
+  if (opts.liveFacts) {
+    facts = await retentionFactsFor(ctx, home.profileId, nowMs);
+    factsAsOf = new Date(nowMs).toISOString();
+    const existing = await db.select().from(homeTimeFactSnapshots3).where(and(eq(homeTimeFactSnapshots3.companyId, companyId), eq(homeTimeFactSnapshots3.driverUsername, driverUsername))).limit(1);
+    const now = new Date(nowMs);
+    if (existing[0]) {
+      await db.update(homeTimeFactSnapshots3).set({ detentionOverruns90: facts.detentionOverruns90, milesRecent30: facts.milesRecent30, milesPrior30: facts.milesPrior30, computedAt: now, updatedAt: now }).where(eq(homeTimeFactSnapshots3.id, existing[0].id));
+    } else {
+      await db.insert(homeTimeFactSnapshots3).values({
+        companyId,
+        driverUsername,
+        detentionOverruns90: facts.detentionOverruns90,
+        milesRecent30: facts.milesRecent30,
+        milesPrior30: facts.milesPrior30,
+        computedAt: now
+      });
+    }
+  } else {
+    const snap = await db.select().from(homeTimeFactSnapshots3).where(and(eq(homeTimeFactSnapshots3.companyId, companyId), eq(homeTimeFactSnapshots3.driverUsername, driverUsername))).limit(1);
+    facts = {
+      detentionOverruns90: snap[0]?.detentionOverruns90 ?? 0,
+      milesRecent30: snap[0]?.milesRecent30 ?? 0,
+      milesPrior30: snap[0]?.milesPrior30 ?? 0
+    };
+    factsAsOf = snap[0] ? snap[0].computedAt.toISOString() : null;
+  }
+  const signals = retentionSignals({
+    missed90: outcomes.filter((o) => o.outcome === "missed").length,
+    detentionOverruns90: facts.detentionOverruns90,
+    milesRecent30: facts.milesRecent30,
+    milesPrior30: facts.milesPrior30
+  });
+  return { rows, active, next, homeCity: home.homeCity, homeState: home.homeState, outcomes, hitRate, signals, overrideRows, factsAsOf };
+}
+var homeTimeWarningShape = object({
+  summary: string2(),
+  detail: string2(),
+  deadlineAt: string2(),
+  homeEtaAt: string2(),
+  commitmentId: number2()
+});
+var homeTimeCommitmentShape = object({
+  id: number2(),
+  kind: string2(),
+  kindLabel: string2(),
+  description: string2(),
+  setBy: string2(),
+  createdBy: string2(),
+  note: string2().nullable(),
+  homeByAt: string2().nullable(),
+  everyNDays: number2().nullable(),
+  anchorAt: string2().nullable(),
+  effectiveFrom: string2(),
+  effectiveTo: string2().nullable(),
+  voided: boolean2()
+});
+var homeTimeOutcomeShape = object({
+  commitmentId: number2(),
+  deadlineAt: string2(),
+  outcome: string2(),
+  detail: string2()
+});
+var homeHitRateShape = object({
+  kept: number2(),
+  missed: number2(),
+  overridden: number2(),
+  noHomeRecord: number2(),
+  decided: number2(),
+  total: number2()
+});
+var retentionSignalShape = object({ key: string2(), detail: string2() });
+var pulseQuestionShape = object({ key: string2(), label: string2(), low: string2(), high: string2() });
+function commitmentToShape(row) {
+  const like = toHomeTimeCommitmentLike(row);
+  return {
+    id: row.id,
+    kind: row.kind,
+    kindLabel: HOME_TIME_KIND_LABELS[row.kind] ?? row.kind,
+    description: describeCommitment(like),
+    setBy: row.setBy,
+    createdBy: row.createdBy,
+    note: row.note ?? null,
+    homeByAt: like.homeByAt,
+    everyNDays: row.everyNDays ?? null,
+    anchorAt: like.anchorAt,
+    effectiveFrom: like.effectiveFrom,
+    effectiveTo: like.effectiveTo,
+    voided: row.voidedAt != null
+  };
+}
+function parseInstantMs(s) {
+  if (!s)
+    return null;
+  const t = Date.parse(s);
+  return Number.isFinite(t) ? t : null;
+}
+var homeTimeOverrideArg = object({ reason: string2().min(1).max(300) }).nullable().default(null);
+async function homeTimeGateForBoardTake(ctx, args) {
+  const db = ctx.db();
+  const rows = await homeTimeCommitmentRowsFor(ctx, args.companyId, args.driverUsername);
+  const active = rows.map(toHomeTimeCommitmentLike).filter((c) => c.voidedAt == null);
+  if (active.length === 0)
+    return { state: "clear" };
+  const home = await homeProfileFor(ctx, args.driverUsername);
+  const conflict = checkHomeTimeConflict({
+    commitments: active,
+    deliveryApptAtMs: args.board.deliveryApptAt ? args.board.deliveryApptAt.getTime() : null,
+    deliveryState: args.board.deliveryState ?? null,
+    homeState: home.homeState,
+    nowMs: Date.now()
+  });
+  if (!conflict)
+    return { state: "clear" };
+  const lane = `${args.board.pickupCity ?? "?"} \u2192 ${args.board.deliveryCity ?? "?"}`;
+  const existing = await db.select().from(homeTimeOverrides3).where(and(eq(homeTimeOverrides3.boardLoadId, args.board.id), eq(homeTimeOverrides3.commitmentId, conflict.commitmentId), eq(homeTimeOverrides3.deadlineAt, new Date(conflict.deadlineAt)))).limit(1);
+  if (existing[0])
+    return { state: "overridden", conflict };
+  if (!args.override || args.override.reason.trim() === "") {
+    return { state: "warn", conflict, warning: homeTimeConflictWarning(conflict, lane) };
+  }
+  if (!canOverrideHomeTime({
+    setBy: conflict.setBy,
+    actor: args.actor,
+    driverUsername: args.driverUsername,
+    actorIsDesk: args.actorIsDesk
+  })) {
+    return {
+      state: "refused",
+      error: conflict.setBy === "driver" ? `@${args.driverUsername} set this home-time commitment themselves \u2014 only they can override it. The load stays unbound.` : "Only the driver, or their fleet's owner/dispatch, can override a home-time commitment. The load stays unbound."
+    };
+  }
+  const reason = args.override.reason.trim();
+  const now = new Date;
+  const ins = await db.insert(homeTimeOverrides3).values({
+    companyId: args.companyId,
+    driverUsername: args.driverUsername,
+    commitmentId: conflict.commitmentId,
+    deadlineAt: new Date(conflict.deadlineAt),
+    boardLoadId: args.board.id,
+    loadId: null,
+    method: args.method,
+    overriddenBy: args.actor,
+    reason,
+    deliveryAt: new Date(conflict.deliveryAt),
+    homeEtaAt: new Date(conflict.homeEtaAt)
+  }).returning({ id: homeTimeOverrides3.id });
+  const overrideId = ins[0]?.id ?? null;
+  await appendChain(ctx, {
+    refKind: "load",
+    refId: null,
+    sessionId: null,
+    event: "home_time_overridden",
+    payload: {
+      overrideId,
+      companyId: args.companyId,
+      driver: args.driverUsername,
+      boardLoadId: args.board.id,
+      commitmentId: conflict.commitmentId,
+      deadlineAt: new Date(conflict.deadlineAt).toISOString(),
+      deliveryAt: new Date(conflict.deliveryAt).toISOString(),
+      homeEtaAt: new Date(conflict.homeEtaAt).toISOString(),
+      allowanceHours: conflict.allowanceHours,
+      method: args.method,
+      reason,
+      by: args.actor,
+      at: now.toISOString()
+    }
+  });
+  const note = homeTimeOverrideNotification({
+    driverUsername: args.driverUsername,
+    overriddenBy: args.actor,
+    selfOverride: args.actor === args.driverUsername,
+    conflict
+  });
+  if (args.actor !== args.driverUsername) {
+    await recordNotificationSafe(ctx, {
+      username: args.driverUsername,
+      kind: "system",
+      title: note.title,
+      body: note.body,
+      dedupeKey: `hometime-override:${overrideId ?? args.board.id}`,
+      refKind: "load",
+      refId: args.board.id
+    });
+  } else if (conflict.setBy === "fleet") {
+    const members = await db.select().from(companyMembers3).where(eq(companyMembers3.companyId, args.companyId));
+    for (const m of members) {
+      if (m.role !== "owner" && m.role !== "dispatch")
+        continue;
+      await recordNotificationSafe(ctx, {
+        username: m.username,
+        kind: "system",
+        title: note.title,
+        body: note.body,
+        dedupeKey: `hometime-override:${overrideId ?? args.board.id}`,
+        refKind: "load",
+        refId: args.board.id
+      });
+    }
+  }
+  return { state: "overridden", conflict };
+}
+async function backfillHomeTimeOverrideLoad(ctx, boardLoadId, loadId) {
+  if (loadId == null)
+    return;
+  const db = ctx.db();
+  await db.update(homeTimeOverrides3).set({ loadId }).where(and(eq(homeTimeOverrides3.boardLoadId, boardLoadId), isNull(homeTimeOverrides3.loadId)));
+}
+async function pulseStateFor(ctx, companyId, driverUsername) {
+  const db = ctx.db();
+  const nowMs = Date.now();
+  const episodeKey = pulseEpisodeKey(nowMs);
+  const rows = await db.select().from(pulseResponses3).where(and(eq(pulseResponses3.companyId, companyId), eq(pulseResponses3.driverUsername, driverUsername), eq(pulseResponses3.episodeKey, episodeKey))).limit(1);
+  const row = rows[0];
+  let answers = null;
+  if (row && row.status === "answered") {
+    try {
+      answers = validatePulseAnswers(JSON.parse(row.answersJson));
+    } catch {
+      answers = null;
+    }
+  }
+  return {
+    episodeKey,
+    due: !row,
+    status: row ? row.status === "answered" ? "answered" : "dismissed" : null,
+    answers,
+    note: row?.note ?? null,
+    nextAt: new Date(nextPulseAt(nowMs)).toISOString()
+  };
+}
 var dqfEntryShape = object({
   id: number2(),
   kind: string2(),
@@ -40421,8 +41210,8 @@ Keep it for your records.
   }),
   claimBoardLoad: defineAction({
     description: "Claim board load.",
-    request: object({ id: number2().int().positive() }),
-    response: object({ ok: boolean2(), error: string2().nullable(), loadId: number2().nullable(), tripQueueId: number2().nullable() }),
+    request: object({ id: number2().int().positive(), homeTimeOverride: homeTimeOverrideArg }),
+    response: object({ ok: boolean2(), error: string2().nullable(), loadId: number2().nullable(), tripQueueId: number2().nullable(), homeTimeWarning: homeTimeWarningShape.nullable().optional() }),
     async handler(ctx, args) {
       const db = ctx.db();
       const me = await myUsername(ctx);
@@ -40466,18 +41255,47 @@ Keep it for your records.
           tripQueueId: null
         };
       }
+      const ht = await homeTimeGateForBoardTake(ctx, {
+        companyId: mine.company.id,
+        driverUsername: me,
+        board: row,
+        actor: me,
+        actorIsDesk: false,
+        method: "claim",
+        override: args.homeTimeOverride ?? null
+      });
+      if (ht.state === "warn") {
+        return {
+          ok: false,
+          error: `${ht.warning.detail} To bind it anyway, confirm the override with a reason.`,
+          loadId: null,
+          tripQueueId: null,
+          homeTimeWarning: {
+            summary: ht.warning.summary,
+            detail: ht.warning.detail,
+            deadlineAt: new Date(ht.conflict.deadlineAt).toISOString(),
+            homeEtaAt: new Date(ht.conflict.homeEtaAt).toISOString(),
+            commitmentId: ht.conflict.commitmentId
+          }
+        };
+      }
+      if (ht.state === "refused") {
+        return { ok: false, error: ht.error, loadId: null, tripQueueId: null, homeTimeWarning: null };
+      }
       const res = await takeBoardLoad(ctx, row, me, "claim", me);
+      await backfillHomeTimeOverrideLoad(ctx, row.id, res.loadId);
       ctx.invalidateQueries();
-      return res;
+      return { ...res, homeTimeWarning: null };
     }
   }),
   assignBoardLoad: defineAction({
     description: "Assign board load.",
     request: object({
       id: number2().int().positive(),
-      targetUsername: string2().min(1).max(60)
+      targetUsername: string2().min(1).max(60),
+      homeTimeOverride: homeTimeOverrideArg
     }),
-    response: object({ ok: boolean2(), error: string2().nullable(), loadId: number2().nullable(), tripQueueId: number2().nullable() }),
+    response: object({ ok: boolean2(), error: string2().nullable(), loadId: number2().nullable(), tripQueueId: number2().nullable(), homeTimeWarning: homeTimeWarningShape.nullable().optional() }),
     async handler(ctx, args) {
       const db = ctx.db();
       const me = await myUsername(ctx);
@@ -40522,6 +41340,33 @@ Keep it for your records.
           tripQueueId: null
         };
       }
+      const ht = await homeTimeGateForBoardTake(ctx, {
+        companyId: mine.company.id,
+        driverUsername: targetRow.username,
+        board: row,
+        actor: me,
+        actorIsDesk: true,
+        method: "assign",
+        override: args.homeTimeOverride ?? null
+      });
+      if (ht.state === "warn") {
+        return {
+          ok: false,
+          error: `${ht.warning.detail} To assign it anyway, confirm the override with a reason \u2014 @${targetRow.username} is notified.`,
+          loadId: null,
+          tripQueueId: null,
+          homeTimeWarning: {
+            summary: ht.warning.summary,
+            detail: ht.warning.detail,
+            deadlineAt: new Date(ht.conflict.deadlineAt).toISOString(),
+            homeEtaAt: new Date(ht.conflict.homeEtaAt).toISOString(),
+            commitmentId: ht.conflict.commitmentId
+          }
+        };
+      }
+      if (ht.state === "refused") {
+        return { ok: false, error: ht.error, loadId: null, tripQueueId: null, homeTimeWarning: null };
+      }
       const now = new Date;
       if (decision.kind === "reassign") {
         const moved = await db.update(boardLoads3).set({ claimedBy: targetRow.username, claimedAt: now, updatedAt: now }).where(and(eq(boardLoads3.id, row.id), eq(boardLoads3.status, "assigned"))).returning({ id: boardLoads3.id });
@@ -40544,7 +41389,7 @@ Keep it for your records.
           }
         });
         ctx.invalidateQueries();
-        return { ok: true, error: null, loadId: null, tripQueueId: null };
+        return { ok: true, error: null, loadId: null, tripQueueId: null, homeTimeWarning: null };
       }
       const flipped = await db.update(boardLoads3).set({
         status: "assigned",
@@ -40574,13 +41419,13 @@ Keep it for your records.
         }
       });
       ctx.invalidateQueries();
-      return { ok: true, error: null, loadId: null, tripQueueId: null };
+      return { ok: true, error: null, loadId: null, tripQueueId: null, homeTimeWarning: null };
     }
   }),
   acceptAssignedLoad: defineAction({
     description: "Accept assigned load.",
-    request: object({ id: number2().int().positive() }),
-    response: object({ ok: boolean2(), error: string2().nullable(), loadId: number2().nullable(), tripQueueId: number2().nullable() }),
+    request: object({ id: number2().int().positive(), homeTimeOverride: homeTimeOverrideArg }),
+    response: object({ ok: boolean2(), error: string2().nullable(), loadId: number2().nullable(), tripQueueId: number2().nullable(), homeTimeWarning: homeTimeWarningShape.nullable().optional() }),
     async handler(ctx, args) {
       const db = ctx.db();
       const me = await myUsername(ctx);
@@ -40618,6 +41463,33 @@ Keep it for your records.
           tripQueueId: null
         };
       }
+      const ht = await homeTimeGateForBoardTake(ctx, {
+        companyId: mine.company.id,
+        driverUsername: me,
+        board: row,
+        actor: me,
+        actorIsDesk: false,
+        method: "accept",
+        override: args.homeTimeOverride ?? null
+      });
+      if (ht.state === "warn") {
+        return {
+          ok: false,
+          error: `${ht.warning.detail} To accept it anyway, confirm the override with a reason.`,
+          loadId: null,
+          tripQueueId: null,
+          homeTimeWarning: {
+            summary: ht.warning.summary,
+            detail: ht.warning.detail,
+            deadlineAt: new Date(ht.conflict.deadlineAt).toISOString(),
+            homeEtaAt: new Date(ht.conflict.homeEtaAt).toISOString(),
+            commitmentId: ht.conflict.commitmentId
+          }
+        };
+      }
+      if (ht.state === "refused") {
+        return { ok: false, error: ht.error, loadId: null, tripQueueId: null, homeTimeWarning: null };
+      }
       const now = new Date;
       const flipped = await db.update(boardLoads3).set({ status: "taken", carrierOfRecord: me, updatedAt: now }).where(and(eq(boardLoads3.id, row.id), eq(boardLoads3.status, "assigned"), eq(boardLoads3.claimedBy, row.claimedBy ?? ""))).returning({ id: boardLoads3.id });
       if (!flipped[0]) {
@@ -40643,8 +41515,9 @@ Keep it for your records.
             at: new Date().toISOString()
           }
         });
+        await backfillHomeTimeOverrideLoad(ctx, row.id, loadId);
         ctx.invalidateQueries();
-        return { ok: true, error: null, loadId, tripQueueId };
+        return { ok: true, error: null, loadId, tripQueueId, homeTimeWarning: null };
       } catch {
         await db.update(boardLoads3).set({ status: "assigned", carrierOfRecord: null, loadId: null, tripQueueId: null, updatedAt: new Date }).where(eq(boardLoads3.id, row.id));
         return { ok: false, error: "Accepting hit a snag creating the load \u2014 nothing was taken and the assignment is still waiting on you. Try again.", loadId: null, tripQueueId: null };
@@ -56520,6 +57393,473 @@ ${args.question}`, { schema: answerSchema });
       return { url, mime: row.docMime };
     }
   }),
+  getHomeTime: defineAction({
+    description: "One driver's home-time record: their commitments, the next deadline on the table, the last 90 days of kept / missed / overridden outcomes derived from sealed records, their retention facts, and (in the driver's own view) their pulse state.",
+    request: object({ driverUsername: string2().min(1).max(60).nullable().default(null) }),
+    response: object({
+      ok: boolean2(),
+      error: string2().nullable(),
+      companyName: string2().nullable(),
+      driverUsername: string2().nullable(),
+      isSelf: boolean2(),
+      homeCity: string2().nullable(),
+      homeState: string2().nullable(),
+      commitments: array(homeTimeCommitmentShape),
+      nextDeadlineAt: string2().nullable(),
+      nextDescription: string2().nullable(),
+      outcomes: array(homeTimeOutcomeShape),
+      hitRate: homeHitRateShape,
+      signals: array(retentionSignalShape),
+      factsAsOf: string2().nullable(),
+      pulse: object({
+        due: boolean2(),
+        episodeKey: string2(),
+        status: string2().nullable(),
+        nextAt: string2(),
+        questions: array(pulseQuestionShape),
+        myAnswers: record(string2(), number2()).nullable(),
+        myNote: string2().nullable()
+      }).nullable()
+    }),
+    async handler(ctx, args) {
+      const fail = {
+        ok: false,
+        companyName: null,
+        driverUsername: null,
+        isSelf: false,
+        homeCity: null,
+        homeState: null,
+        commitments: [],
+        nextDeadlineAt: null,
+        nextDescription: null,
+        outcomes: [],
+        hitRate: { kept: 0, missed: 0, overridden: 0, noHomeRecord: 0, decided: 0, total: 0 },
+        signals: [],
+        factsAsOf: null,
+        pulse: null
+      };
+      const me = await myUsername(ctx);
+      const target = (args.driverUsername ?? me).trim();
+      const access = await homeTimeAccessFor(ctx, me, target);
+      if (!access.ok)
+        return { ...fail, error: access.error };
+      const pic = await homeTimePictureFor(ctx, access.companyId, target, { liveFacts: access.isSelf });
+      const nextRow = pic.next ? pic.rows.find((r) => r.id === pic.next.commitmentId) : null;
+      const pulse = access.isSelf ? await pulseStateFor(ctx, access.companyId, target) : null;
+      return {
+        ok: true,
+        error: null,
+        companyName: access.companyName,
+        driverUsername: target,
+        isSelf: access.isSelf,
+        homeCity: pic.homeCity,
+        homeState: pic.homeState,
+        commitments: pic.rows.map(commitmentToShape),
+        nextDeadlineAt: pic.next ? new Date(pic.next.deadlineAt).toISOString() : null,
+        nextDescription: nextRow ? describeCommitment(toHomeTimeCommitmentLike(nextRow)) : null,
+        outcomes: pic.outcomes.map((o) => ({
+          commitmentId: o.commitmentId,
+          deadlineAt: new Date(o.deadlineAt).toISOString(),
+          outcome: o.outcome,
+          detail: o.detail
+        })),
+        hitRate: pic.hitRate,
+        signals: pic.signals,
+        factsAsOf: pic.factsAsOf,
+        pulse: pulse ? {
+          due: pulse.due,
+          episodeKey: pulse.episodeKey,
+          status: pulse.status,
+          nextAt: pulse.nextAt,
+          questions: PULSE_QUESTIONS.map((q) => ({ key: q.key, label: q.label, low: q.low, high: q.high })),
+          myAnswers: pulse.answers,
+          myNote: pulse.note
+        } : null
+      };
+    }
+  }),
+  setHomeTimeCommitment: defineAction({
+    description: "Record a home-time commitment for a driver \u2014 stated by the driver themselves, or by their fleet's owner/dispatch for them. Sealed. The term is the stater's own words and dates; the app never invents one.",
+    request: object({
+      driverUsername: string2().min(1).max(60),
+      kind: _enum(["by_date", "every_n_days", "weekends"]),
+      homeByAt: string2().max(40).nullable().default(null),
+      everyNDays: number2().int().min(2).max(90).nullable().default(null),
+      anchorAt: string2().max(40).nullable().default(null),
+      effectiveTo: string2().max(40).nullable().default(null),
+      note: string2().max(300).nullable().default(null)
+    }),
+    response: object({ ok: boolean2(), error: string2().nullable(), commitmentId: number2().nullable() }),
+    async handler(ctx, args) {
+      const me = await myUsername(ctx);
+      const target = args.driverUsername.trim();
+      const access = await homeTimeAccessFor(ctx, me, target);
+      if (!access.ok)
+        return { ok: false, error: access.error, commitmentId: null };
+      const setBy = access.isSelf ? "driver" : "fleet";
+      let homeByAt = null;
+      let anchorAt = null;
+      if (args.kind === "by_date") {
+        const t = parseInstantMs(args.homeByAt);
+        if (t == null)
+          return { ok: false, error: "Pick the date and time to be home by.", commitmentId: null };
+        homeByAt = new Date(t);
+      }
+      if (args.kind === "every_n_days") {
+        if (args.everyNDays == null)
+          return { ok: false, error: "Say how many days between home times (2\u201390).", commitmentId: null };
+        const t = parseInstantMs(args.anchorAt);
+        if (t == null)
+          return { ok: false, error: "Pick a date the driver is home by \u2014 the every-N-days count anchors on it.", commitmentId: null };
+        anchorAt = new Date(t);
+      }
+      let effectiveTo = null;
+      if (args.effectiveTo != null) {
+        const t = parseInstantMs(args.effectiveTo);
+        if (t == null)
+          return { ok: false, error: "That end date isn't a real date \u2014 pick it again.", commitmentId: null };
+        effectiveTo = new Date(t);
+      }
+      const db = ctx.db();
+      const now = new Date;
+      const ins = await db.insert(homeTimeCommitments3).values({
+        companyId: access.companyId,
+        driverUsername: target,
+        kind: args.kind,
+        homeByAt,
+        everyNDays: args.kind === "every_n_days" ? args.everyNDays : null,
+        anchorAt,
+        setBy,
+        createdBy: me,
+        note: args.note?.trim() ? args.note.trim() : null,
+        effectiveFrom: now,
+        effectiveTo
+      }).returning({ id: homeTimeCommitments3.id });
+      const commitmentId = ins[0]?.id;
+      if (commitmentId == null)
+        throw new Error("setHomeTimeCommitment: insert returned no rows");
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "home_time_commitment_set",
+        payload: {
+          commitmentId,
+          companyId: access.companyId,
+          driver: target,
+          kind: args.kind,
+          setBy,
+          homeByAt: homeByAt ? homeByAt.toISOString() : null,
+          everyNDays: args.kind === "every_n_days" ? args.everyNDays : null,
+          anchorAt: anchorAt ? anchorAt.toISOString() : null,
+          effectiveTo: effectiveTo ? effectiveTo.toISOString() : null,
+          by: me,
+          at: now.toISOString()
+        }
+      });
+      if (!access.isSelf) {
+        const like = {
+          id: commitmentId,
+          kind: args.kind,
+          homeByAt: homeByAt ? homeByAt.toISOString() : null,
+          everyNDays: args.kind === "every_n_days" ? args.everyNDays : null,
+          anchorAt: anchorAt ? anchorAt.toISOString() : null,
+          setBy,
+          createdBy: me,
+          note: null,
+          effectiveFrom: now.toISOString(),
+          effectiveTo: effectiveTo ? effectiveTo.toISOString() : null,
+          voidedAt: null
+        };
+        await recordNotificationSafe(ctx, {
+          username: target,
+          kind: "system",
+          title: "A home-time commitment was set for you",
+          body: `@${me} set a home-time commitment for you at ${access.companyName}: ${describeCommitment(like)}. Loads that would break it stop for an override first \u2014 and a term you set yourself can only be overridden by you.`,
+          dedupeKey: `hometime-set:${commitmentId}`,
+          refKind: "driver",
+          refId: null
+        });
+      }
+      ctx.invalidateQueries();
+      return { ok: true, error: null, commitmentId };
+    }
+  }),
+  voidHomeTimeCommitment: defineAction({
+    description: "End a home-time commitment (it stays on the record, marked void, and stops producing deadlines). Void authority mirrors override authority: the driver can end any of their own; the desk can end fleet-stated ones \u2014 never a term the driver stated themselves.",
+    request: object({ commitmentId: number2().int().positive() }),
+    response: object({ ok: boolean2(), error: string2().nullable() }),
+    async handler(ctx, args) {
+      const me = await myUsername(ctx);
+      const db = ctx.db();
+      const rows = await db.select().from(homeTimeCommitments3).where(eq(homeTimeCommitments3.id, args.commitmentId)).limit(1);
+      const row = rows[0];
+      if (!row)
+        return { ok: false, error: "That commitment isn't on file." };
+      const access = await homeTimeAccessFor(ctx, me, row.driverUsername);
+      if (!access.ok || access.companyId !== row.companyId)
+        return { ok: false, error: "That commitment isn't in your scope." };
+      if (row.voidedAt != null)
+        return { ok: true, error: null };
+      const isDriver = me === row.driverUsername;
+      const canVoid = isDriver || access.canManage && row.setBy === "fleet";
+      if (!canVoid) {
+        return {
+          ok: false,
+          error: row.setBy === "driver" ? `@${row.driverUsername} stated this commitment themselves \u2014 only they can end it.` : "Only the driver, or their fleet's owner/dispatch, can end this commitment."
+        };
+      }
+      const now = new Date;
+      await db.update(homeTimeCommitments3).set({ voidedAt: now, voidedBy: me, updatedAt: now }).where(eq(homeTimeCommitments3.id, row.id));
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "home_time_commitment_voided",
+        payload: { commitmentId: row.id, companyId: row.companyId, driver: row.driverUsername, kind: row.kind, setBy: row.setBy, by: me, at: now.toISOString() }
+      });
+      const described = describeCommitment(toHomeTimeCommitmentLike(row));
+      if (!isDriver) {
+        await recordNotificationSafe(ctx, {
+          username: row.driverUsername,
+          kind: "system",
+          title: "A home-time commitment was ended",
+          body: `@${me} ended the fleet-stated home-time commitment (${described}) at ${access.companyName}. It stops producing deadlines from here; the record stays.`,
+          dedupeKey: `hometime-void:${row.id}`,
+          refKind: "driver",
+          refId: null
+        });
+      } else if (row.setBy === "fleet") {
+        const members = await db.select().from(companyMembers3).where(eq(companyMembers3.companyId, row.companyId));
+        for (const m of members) {
+          if (m.role !== "owner" && m.role !== "dispatch")
+            continue;
+          await recordNotificationSafe(ctx, {
+            username: m.username,
+            kind: "system",
+            title: "A driver ended a fleet home-time commitment",
+            body: `@${row.driverUsername} ended the fleet-stated home-time commitment (${described}). It stops producing deadlines from here; the record stays.`,
+            dedupeKey: `hometime-void:${row.id}`,
+            refKind: "driver",
+            refId: null
+          });
+        }
+      }
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
+    }
+  }),
+  getFleetHomeTime: defineAction({
+    description: "The fleet home-time board (owner/dispatch): every driver's active commitments, next deadline, last-90-days kept / missed / overridden tallies, retention signals from sealed facts, and the pulse aggregate \u2014 averages only when 3+ drivers answered in the last 28 days, counts only below that, and notes never surface at any count.",
+    request: object({}),
+    response: object({
+      ok: boolean2(),
+      error: string2().nullable(),
+      companyName: string2().nullable(),
+      drivers: array(object({
+        username: string2(),
+        role: string2(),
+        commitmentCount: number2(),
+        nextDeadlineAt: string2().nullable(),
+        nextDescription: string2().nullable(),
+        hitRate: homeHitRateShape,
+        signals: array(retentionSignalShape),
+        factsAsOf: string2().nullable()
+      })),
+      pulse: object({
+        respondentCount: number2(),
+        driverCount: number2(),
+        averages: record(string2(), number2()).nullable(),
+        windowDays: number2(),
+        minRespondents: number2()
+      })
+    }),
+    async handler(ctx) {
+      const me = await myUsername(ctx);
+      const mine = await myMembership(ctx, me);
+      const emptyPulse = { respondentCount: 0, driverCount: 0, averages: null, windowDays: 28, minRespondents: PULSE_MIN_RESPONDENTS };
+      if (!mine || mine.role !== "owner" && mine.role !== "dispatch") {
+        return {
+          ok: false,
+          error: "The fleet home-time board is for the owner and dispatch \u2014 your own home-time record is in your desk.",
+          companyName: null,
+          drivers: [],
+          pulse: emptyPulse
+        };
+      }
+      const db = ctx.db();
+      const members = await db.select().from(companyMembers3).where(eq(companyMembers3.companyId, mine.company.id));
+      const drivers = [];
+      for (const m of members) {
+        if (m.role === "dispatch")
+          continue;
+        const pic = await homeTimePictureFor(ctx, mine.company.id, m.username, { liveFacts: false });
+        const nextRow = pic.next ? pic.rows.find((r) => r.id === pic.next.commitmentId) : null;
+        drivers.push({
+          username: m.username,
+          role: m.role,
+          commitmentCount: pic.active.length,
+          nextDeadlineAt: pic.next ? new Date(pic.next.deadlineAt).toISOString() : null,
+          nextDescription: nextRow ? describeCommitment(toHomeTimeCommitmentLike(nextRow)) : null,
+          hitRate: pic.hitRate,
+          signals: pic.signals,
+          factsAsOf: pic.factsAsOf
+        });
+      }
+      drivers.sort((a, b) => a.username.localeCompare(b.username));
+      const since = new Date(Date.now() - 28 * DAY_MS5);
+      const pulseRows = await db.select({ driverUsername: pulseResponses3.driverUsername, answersJson: pulseResponses3.answersJson }).from(pulseResponses3).where(and(eq(pulseResponses3.companyId, mine.company.id), eq(pulseResponses3.status, "answered"), gte(pulseResponses3.createdAt, since)));
+      const parsed = [];
+      for (const r of pulseRows) {
+        try {
+          const a = validatePulseAnswers(JSON.parse(r.answersJson));
+          if (a)
+            parsed.push({ driverUsername: r.driverUsername, answers: a });
+        } catch {}
+      }
+      const agg = aggregatePulse(parsed, drivers.length);
+      return {
+        ok: true,
+        error: null,
+        companyName: mine.company.name,
+        drivers,
+        pulse: {
+          respondentCount: agg.respondentCount,
+          driverCount: agg.driverCount,
+          averages: agg.averages,
+          windowDays: 28,
+          minRespondents: PULSE_MIN_RESPONDENTS
+        }
+      };
+    }
+  }),
+  getPulsePrompt: defineAction({
+    description: "The caller's own pulse state for the current 14-day episode: whether a prompt is due, the fixed questions, and their own answers if they already gave them. Dismissible, never blocking.",
+    request: object({}),
+    response: object({
+      ok: boolean2(),
+      error: string2().nullable(),
+      due: boolean2(),
+      episodeKey: string2(),
+      status: string2().nullable(),
+      nextAt: string2().nullable(),
+      questions: array(pulseQuestionShape),
+      myAnswers: record(string2(), number2()).nullable(),
+      myNote: string2().nullable()
+    }),
+    async handler(ctx) {
+      const me = await myUsername(ctx);
+      const mine = await myMembership(ctx, me);
+      const questions = PULSE_QUESTIONS.map((q) => ({ key: q.key, label: q.label, low: q.low, high: q.high }));
+      if (!mine) {
+        return {
+          ok: false,
+          error: "You're not in a company \u2014 the pulse check lives inside a fleet. Join with your owner's driver code first.",
+          due: false,
+          episodeKey: pulseEpisodeKey(Date.now()),
+          status: null,
+          nextAt: null,
+          questions,
+          myAnswers: null,
+          myNote: null
+        };
+      }
+      const st = await pulseStateFor(ctx, mine.company.id, me);
+      return {
+        ok: true,
+        error: null,
+        due: st.due,
+        episodeKey: st.episodeKey,
+        status: st.status,
+        nextAt: st.nextAt,
+        questions,
+        myAnswers: st.answers,
+        myNote: st.note
+      };
+    }
+  }),
+  answerPulse: defineAction({
+    description: "Answer this episode's pulse check \u2014 three fixed questions, 1\u20135 each, plus an optional note. The answers are the driver's own record: the fleet sees aggregates only (3+ respondents), and the note never leaves the driver's own view. The chain seal records only that an answer landed, never its content.",
+    request: object({
+      answers: record(string2(), number2()),
+      note: string2().max(500).nullable().default(null)
+    }),
+    response: object({ ok: boolean2(), error: string2().nullable() }),
+    async handler(ctx, args) {
+      const me = await myUsername(ctx);
+      const mine = await myMembership(ctx, me);
+      if (!mine)
+        return { ok: false, error: "You're not in a company \u2014 the pulse check lives inside a fleet. Join with your owner's driver code first." };
+      const answers = validatePulseAnswers(args.answers);
+      if (!answers)
+        return { ok: false, error: "Answer all three questions with a whole number from 1 to 5 \u2014 nothing was saved." };
+      const db = ctx.db();
+      const nowMs = Date.now();
+      const episodeKey = pulseEpisodeKey(nowMs);
+      const note = args.note?.trim() ? args.note.trim() : null;
+      const existing = await db.select().from(pulseResponses3).where(and(eq(pulseResponses3.companyId, mine.company.id), eq(pulseResponses3.driverUsername, me), eq(pulseResponses3.episodeKey, episodeKey))).limit(1);
+      const now = new Date;
+      if (existing[0]) {
+        await db.update(pulseResponses3).set({ status: "answered", answersJson: JSON.stringify(answers), note, updatedAt: now }).where(eq(pulseResponses3.id, existing[0].id));
+      } else {
+        await db.insert(pulseResponses3).values({
+          companyId: mine.company.id,
+          driverUsername: me,
+          episodeKey,
+          status: "answered",
+          answersJson: JSON.stringify(answers),
+          note
+        });
+      }
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "pulse_answered",
+        payload: { companyId: mine.company.id, driver: me, episodeKey, at: now.toISOString() }
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
+    }
+  }),
+  dismissPulse: defineAction({
+    description: "Dismiss this episode's pulse prompt \u2014 it stays quiet until the next episode opens (14-day cadence). Dismissing never blocks anything in the app.",
+    request: object({}),
+    response: object({ ok: boolean2(), error: string2().nullable() }),
+    async handler(ctx) {
+      const me = await myUsername(ctx);
+      const mine = await myMembership(ctx, me);
+      if (!mine)
+        return { ok: false, error: "You're not in a company \u2014 the pulse check lives inside a fleet. Join with your owner's driver code first." };
+      const db = ctx.db();
+      const episodeKey = pulseEpisodeKey(Date.now());
+      const existing = await db.select().from(pulseResponses3).where(and(eq(pulseResponses3.companyId, mine.company.id), eq(pulseResponses3.driverUsername, me), eq(pulseResponses3.episodeKey, episodeKey))).limit(1);
+      if (existing[0]?.status === "answered")
+        return { ok: true, error: null };
+      const now = new Date;
+      if (existing[0]) {
+        await db.update(pulseResponses3).set({ updatedAt: now }).where(eq(pulseResponses3.id, existing[0].id));
+      } else {
+        await db.insert(pulseResponses3).values({
+          companyId: mine.company.id,
+          driverUsername: me,
+          episodeKey,
+          status: "dismissed",
+          answersJson: "{}",
+          note: null
+        });
+      }
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "pulse_dismissed",
+        payload: { companyId: mine.company.id, driver: me, episodeKey, at: now.toISOString() }
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
+    }
+  }),
   getNotifications: defineAction({
     description: "The caller's notification center: newest first, with the unread count and the honest phone-push status.",
     request: object({ limit: number2().int().positive().max(100).default(50) }),
@@ -63021,8 +64361,8 @@ ${args.question}`, { schema: answerSchema });
   }),
   claimOpenBoardLoad: defineAction({
     description: "Claim open board load.",
-    request: object({ id: number2().int().positive() }),
-    response: object({ ok: boolean2(), error: string2().nullable(), loadId: number2().nullable(), tripQueueId: number2().nullable() }),
+    request: object({ id: number2().int().positive(), homeTimeOverride: homeTimeOverrideArg }),
+    response: object({ ok: boolean2(), error: string2().nullable(), loadId: number2().nullable(), tripQueueId: number2().nullable(), homeTimeWarning: homeTimeWarningShape.nullable().optional() }),
     async handler(ctx, args) {
       const db = ctx.db();
       const me = await myUsername(ctx);
@@ -63062,10 +64402,38 @@ ${args.question}`, { schema: answerSchema });
             tripQueueId: null
           };
         }
+        const ht = await homeTimeGateForBoardTake(ctx, {
+          companyId: openMine.company.id,
+          driverUsername: me,
+          board: row,
+          actor: me,
+          actorIsDesk: false,
+          method: "claim",
+          override: args.homeTimeOverride ?? null
+        });
+        if (ht.state === "warn") {
+          return {
+            ok: false,
+            error: `${ht.warning.detail} To bind it anyway, confirm the override with a reason.`,
+            loadId: null,
+            tripQueueId: null,
+            homeTimeWarning: {
+              summary: ht.warning.summary,
+              detail: ht.warning.detail,
+              deadlineAt: new Date(ht.conflict.deadlineAt).toISOString(),
+              homeEtaAt: new Date(ht.conflict.homeEtaAt).toISOString(),
+              commitmentId: ht.conflict.commitmentId
+            }
+          };
+        }
+        if (ht.state === "refused") {
+          return { ok: false, error: ht.error, loadId: null, tripQueueId: null, homeTimeWarning: null };
+        }
       }
       const res = await takeBoardLoad(ctx, row, me, "claim", me);
+      await backfillHomeTimeOverrideLoad(ctx, row.id, res.loadId);
       ctx.invalidateQueries();
-      return res;
+      return { ...res, homeTimeWarning: null };
     }
   }),
   getOpenBoardLoadDoc: defineAction({

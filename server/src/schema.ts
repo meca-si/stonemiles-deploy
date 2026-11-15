@@ -198,6 +198,10 @@ export const parkingReservations = impl.parkingReservations;
 export const dqfFiles = impl.dqfFiles;
 export const dqfEntries = impl.dqfEntries;
 export const dqfAlertDismissals = impl.dqfAlertDismissals;
+export const homeTimeCommitments = impl.homeTimeCommitments;
+export const homeTimeOverrides = impl.homeTimeOverrides;
+export const pulseResponses = impl.pulseResponses;
+export const homeTimeFactSnapshots = impl.homeTimeFactSnapshots;
 
 // Auth (Phase 2b, added at the Phase 2 merge): account + session tables.
 export const accounts = impl.accounts;

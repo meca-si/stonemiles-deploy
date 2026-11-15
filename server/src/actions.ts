@@ -340,6 +340,30 @@ import {
   type DqfEvaluation,
 } from "./dqf";
 import {
+  DAY_MS,
+  HOME_TIME_KIND_LABELS,
+  PULSE_MIN_RESPONDENTS,
+  PULSE_QUESTIONS,
+  aggregatePulse,
+  allDeadlines,
+  canOverrideHomeTime,
+  checkHomeTimeConflict,
+  describeCommitment,
+  evaluateHomeOutcomes,
+  homeTimeConflictWarning,
+  homeTimeOverrideNotification,
+  nextHomeDeadline,
+  nextPulseAt,
+  pulseEpisodeKey,
+  retentionSignals,
+  summarizeHomeOutcomes,
+  validatePulseAnswers,
+  type DutyEventLike,
+  type HomeTimeCommitmentLike,
+  type HomeTimeConflict,
+  type PulseQuestionKey,
+} from "./homeTime";
+import {
   canDetentionClaimMove,
   detentionClaimPack,
   facilityDetentionStats,
@@ -16030,6 +16054,619 @@ async function dqGateForBoardTake(
   return { blocked: true, summary: dqBlockSummary(evaluation) };
 }
 
+// ---- Home-time guarantee + retention (Wave 2 item 9) -----------------------
+// The database half of homeTime.ts: commitment rows, the planning
+// gate at the same binding funnels the DQF gate guards, the
+// hit-rate picture derived from sealed records, and the pulse
+// episodes. Rules live in the pure module; this half reads and
+// writes rows, seals, and notifies (in-app only).
+
+type HomeTimeCommitmentRow = typeof schema.homeTimeCommitments.$inferSelect;
+type HomeTimeOverrideRow = typeof schema.homeTimeOverrides.$inferSelect;
+
+function toHomeTimeCommitmentLike(row: HomeTimeCommitmentRow): HomeTimeCommitmentLike {
+  return {
+    id: row.id,
+    kind: row.kind,
+    homeByAt: row.homeByAt ? row.homeByAt.toISOString() : null,
+    everyNDays: row.everyNDays ?? null,
+    anchorAt: row.anchorAt ? row.anchorAt.toISOString() : null,
+    setBy: row.setBy,
+    createdBy: row.createdBy,
+    note: row.note ?? null,
+    effectiveFrom: row.effectiveFrom.toISOString(),
+    effectiveTo: row.effectiveTo ? row.effectiveTo.toISOString() : null,
+    voidedAt: row.voidedAt ? row.voidedAt.toISOString() : null,
+  };
+}
+
+async function homeTimeCommitmentRowsFor(
+  ctx: Ctx,
+  companyId: number,
+  driverUsername: string,
+): Promise<HomeTimeCommitmentRow[]> {
+  const db = ctx.db<typeof schema>();
+  return db
+    .select()
+    .from(schema.homeTimeCommitments)
+    .where(
+      and(
+        eq(schema.homeTimeCommitments.companyId, companyId),
+        eq(schema.homeTimeCommitments.driverUsername, driverUsername),
+      ),
+    )
+    .orderBy(asc(schema.homeTimeCommitments.id));
+}
+
+async function homeTimeOverrideRowsFor(
+  ctx: Ctx,
+  companyId: number,
+  driverUsername: string,
+): Promise<HomeTimeOverrideRow[]> {
+  const db = ctx.db<typeof schema>();
+  return db
+    .select()
+    .from(schema.homeTimeOverrides)
+    .where(
+      and(
+        eq(schema.homeTimeOverrides.companyId, companyId),
+        eq(schema.homeTimeOverrides.driverUsername, driverUsername),
+      ),
+    )
+    .orderBy(asc(schema.homeTimeOverrides.id));
+}
+
+/** The driver's recorded home place (their own profile) + their
+ * profile id (the key the sealed trip / detention / load records
+ * hang off). No home place on file → no home evidence can exist,
+ * and the outcome derivation says so instead of guessing. */
+async function homeProfileFor(
+  ctx: Ctx,
+  driverUsername: string,
+): Promise<{ homeCity: string | null; homeState: string | null; profileId: number | null }> {
+  const db = ctx.db<typeof schema>();
+  // The home place is the driver's own social-profile fact
+  // (social_users.home_city / home_state); the profile id keys
+  // the sealed trip / detention / load records.
+  const social = await db
+    .select()
+    .from(schema.socialUsers)
+    .where(eq(schema.socialUsers.username, driverUsername))
+    .limit(1);
+  const rows = await db
+    .select()
+    .from(schema.profile)
+    .where(eq(schema.profile.socialUsername, driverUsername))
+    .limit(1);
+  return {
+    homeCity: social[0]?.homeCity ?? null,
+    homeState: social[0]?.homeState ?? null,
+    profileId: rows[0]?.id ?? null,
+  };
+}
+
+/** Who may see / write a driver's home-time record — the DQF
+ * access shape carried over: the driver themselves (their own
+ * company's record), or the owner/dispatch of the company the
+ * driver belongs to. Anyone else gets the same plain refusal. */
+async function homeTimeAccessFor(
+  ctx: Ctx,
+  me: string,
+  driverUsername: string,
+): Promise<
+  | { ok: true; companyId: number; companyName: string; isSelf: boolean; canManage: boolean }
+  | { ok: false; error: string }
+> {
+  const mine = await myMembership(ctx, me);
+  if (driverUsername === me) {
+    if (!mine) {
+      return {
+        ok: false,
+        error: "You're not in a company — home-time commitments live inside a fleet. Join with your owner's driver code first, and your record opens there.",
+      };
+    }
+    return { ok: true, companyId: mine.company.id, companyName: mine.company.name, isSelf: true, canManage: mine.role === "owner" || mine.role === "dispatch" };
+  }
+  if (!mine || (mine.role !== "owner" && mine.role !== "dispatch")) {
+    return { ok: false, error: "That home-time record isn't in your scope — a driver's record is theirs and their own fleet's desk's." };
+  }
+  const db = ctx.db<typeof schema>();
+  const members = await db
+    .select()
+    .from(schema.companyMembers)
+    .where(eq(schema.companyMembers.companyId, mine.company.id));
+  const target = members.find((m) => m.username === driverUsername);
+  if (!target) {
+    return { ok: false, error: `@${driverUsername} isn't a member of ${mine.company.name} — their home-time record lives with their own fleet.` };
+  }
+  return { ok: true, companyId: mine.company.id, companyName: mine.company.name, isSelf: false, canManage: true };
+}
+
+/** The driver's sealed duty events (effective timeline — sealed
+ * corrections applied), as the pure outcome rules consume them.
+ * Events with no username on the row predate per-driver sealing
+ * and belong to no one here — unattributable evidence is not
+ * evidence about this driver. */
+async function driverDutyEventsFor(ctx: Ctx, driverUsername: string): Promise<DutyEventLike[]> {
+  const { events } = await effectiveDutyTimeline(ctx);
+  return events
+    .filter((e) => (e.username ?? null) === driverUsername)
+    .map((e) => ({ state: e.state, atMs: Date.parse(e.at), location: e.location ?? null }))
+    .filter((e) => Number.isFinite(e.atMs))
+    .sort((a, b) => a.atMs - b.atMs);
+}
+
+/** The instants this driver's loads were delivery-sealed
+ * (pod_seal chain rows over their own loads) — sealed proof of
+ * still being out on the road. Attribution comes from the chain
+ * itself: a board-created load's load_saved seal names its
+ * driver, so the mapping reads identically in the driver's own
+ * session and at their fleet's desk (the loads table is
+ * profile-scoped and would read the CALLER's loads instead —
+ * never attribute one driver's seals to another). A load whose
+ * creation seal names no driver simply contributes no seals;
+ * its outcomes stand on duty evidence or "no home record". */
+async function driverDeliverySealsMs(ctx: Ctx, driverUsername: string): Promise<number[]> {
+  const db = ctx.db<typeof schema>();
+  const saved = await db.select().from(schema.chainLog).where(eq(schema.chainLog.event, "load_saved"));
+  const ids = new Set<number>();
+  for (const r of saved) {
+    if (r.refId == null) continue;
+    try {
+      const p = JSON.parse(r.payload) as { driver?: unknown };
+      if (p.driver === driverUsername) ids.add(r.refId);
+    } catch { /* a malformed seal attributes nothing */ }
+  }
+  if (ids.size === 0) return [];
+  const chain = await db.select().from(schema.chainLog).where(eq(schema.chainLog.event, "pod_seal"));
+  const out: number[] = [];
+  for (const r of chain) {
+    if (r.refId == null || !ids.has(r.refId)) continue;
+    try {
+      const p = JSON.parse(r.payload) as { at?: string };
+      const t = p.at ? Date.parse(p.at) : NaN;
+      if (Number.isFinite(t)) out.push(t);
+    } catch { /* a malformed seal proves nothing — skip it */ }
+  }
+  return out.sort((a, b) => a - b);
+}
+
+/** The retention facts for one driver, all from sealed records:
+ * detention waits that ran past their free time in the last 90
+ * days, and sealed trip miles in the last 30 days vs the prior
+ * 30. No facts → zeroed facts → no signals. */
+async function retentionFactsFor(
+  ctx: Ctx,
+  profileId: number | null,
+  nowMs: number,
+): Promise<{ detentionOverruns90: number; milesRecent30: number; milesPrior30: number }> {
+  if (profileId == null) return { detentionOverruns90: 0, milesRecent30: 0, milesPrior30: 0 };
+  const db = ctx.db<typeof schema>();
+  const det = await db
+    .select()
+    .from(schema.detentionRecords)
+    .where(eq(schema.detentionRecords.profileId, profileId));
+  let detentionOverruns90 = 0;
+  for (const r of det) {
+    if (!r.departedAt) continue;
+    if (r.arrivedAt.getTime() < nowMs - 90 * DAY_MS) continue;
+    if (r.departedAt.getTime() - r.arrivedAt.getTime() > r.graceMinutes * 60_000) detentionOverruns90++;
+  }
+  const tripRows = await db
+    .select()
+    .from(schema.trips)
+    .where(eq(schema.trips.profileId, profileId));
+  let milesRecent30 = 0;
+  let milesPrior30 = 0;
+  for (const t of tripRows) {
+    const ended = t.endedAt.getTime();
+    if (ended >= nowMs - 30 * DAY_MS && ended < nowMs) milesRecent30 += t.totalMiles;
+    else if (ended >= nowMs - 60 * DAY_MS && ended < nowMs - 30 * DAY_MS) milesPrior30 += t.totalMiles;
+  }
+  return { detentionOverruns90, milesRecent30, milesPrior30 };
+}
+
+/** One driver's whole home-time picture in a company's scope:
+ * their commitments, the next deadline on the table, the last
+ * 90 days of derived outcomes + hit-rate tallies, and their
+ * retention facts/signals — every number from sealed records.
+ *
+ * Facts sourcing (the profile-scope rule): commitments,
+ * overrides, the duty chain, and delivery seals are company /
+ * global records — computed live and IDENTICALLY in every
+ * session. Detention waits and trip miles live in profile-scoped
+ * tables only the driver's own session can read: with
+ * liveFacts (the driver's own view) they are computed live and
+ * stored into home_time_fact_snapshots; without it (the desk's
+ * view) they come from that snapshot, and factsAsOf says when
+ * the driver last refreshed them (null = never — the two
+ * snapshot facts then read zero and their signals stay quiet). */
+async function homeTimePictureFor(
+  ctx: Ctx,
+  companyId: number,
+  driverUsername: string,
+  opts: { liveFacts: boolean },
+): Promise<{
+  rows: HomeTimeCommitmentRow[];
+  active: HomeTimeCommitmentLike[];
+  next: { commitmentId: number; deadlineAt: number } | null;
+  homeCity: string | null;
+  homeState: string | null;
+  outcomes: ReturnType<typeof evaluateHomeOutcomes>;
+  hitRate: ReturnType<typeof summarizeHomeOutcomes>;
+  signals: ReturnType<typeof retentionSignals>;
+  overrideRows: HomeTimeOverrideRow[];
+  factsAsOf: string | null;
+}> {
+  const db = ctx.db<typeof schema>();
+  const nowMs = Date.now();
+  const rows = await homeTimeCommitmentRowsFor(ctx, companyId, driverUsername);
+  const likes = rows.map(toHomeTimeCommitmentLike);
+  const active = likes.filter((c) => c.voidedAt == null);
+  const next = nextHomeDeadline(active, nowMs);
+  const home = await homeProfileFor(ctx, driverUsername);
+  const deadlines = allDeadlines(likes, nowMs - 90 * DAY_MS, nowMs);
+  const overrideRows = await homeTimeOverrideRowsFor(ctx, companyId, driverUsername);
+  const dutyEvents = await driverDutyEventsFor(ctx, driverUsername);
+  const seals = await driverDeliverySealsMs(ctx, driverUsername);
+  const outcomes = evaluateHomeOutcomes({
+    deadlines,
+    dutyEvents,
+    homeCity: home.homeCity,
+    homeState: home.homeState,
+    overrideDeadlinesMs: overrideRows.map((o) => o.deadlineAt.getTime()),
+    deliverySealsMs: seals,
+  });
+  const hitRate = summarizeHomeOutcomes(outcomes);
+  let facts: { detentionOverruns90: number; milesRecent30: number; milesPrior30: number };
+  let factsAsOf: string | null;
+  if (opts.liveFacts) {
+    facts = await retentionFactsFor(ctx, home.profileId, nowMs);
+    factsAsOf = new Date(nowMs).toISOString();
+    // Refresh the desk's snapshot from the driver's own session.
+    const existing = await db
+      .select()
+      .from(schema.homeTimeFactSnapshots)
+      .where(
+        and(
+          eq(schema.homeTimeFactSnapshots.companyId, companyId),
+          eq(schema.homeTimeFactSnapshots.driverUsername, driverUsername),
+        ),
+      )
+      .limit(1);
+    const now = new Date(nowMs);
+    if (existing[0]) {
+      await db
+        .update(schema.homeTimeFactSnapshots)
+        .set({ detentionOverruns90: facts.detentionOverruns90, milesRecent30: facts.milesRecent30, milesPrior30: facts.milesPrior30, computedAt: now, updatedAt: now })
+        .where(eq(schema.homeTimeFactSnapshots.id, existing[0].id));
+    } else {
+      await db.insert(schema.homeTimeFactSnapshots).values({
+        companyId,
+        driverUsername,
+        detentionOverruns90: facts.detentionOverruns90,
+        milesRecent30: facts.milesRecent30,
+        milesPrior30: facts.milesPrior30,
+        computedAt: now,
+      });
+    }
+  } else {
+    const snap = await db
+      .select()
+      .from(schema.homeTimeFactSnapshots)
+      .where(
+        and(
+          eq(schema.homeTimeFactSnapshots.companyId, companyId),
+          eq(schema.homeTimeFactSnapshots.driverUsername, driverUsername),
+        ),
+      )
+      .limit(1);
+    facts = {
+      detentionOverruns90: snap[0]?.detentionOverruns90 ?? 0,
+      milesRecent30: snap[0]?.milesRecent30 ?? 0,
+      milesPrior30: snap[0]?.milesPrior30 ?? 0,
+    };
+    factsAsOf = snap[0] ? snap[0].computedAt.toISOString() : null;
+  }
+  const signals = retentionSignals({
+    missed90: outcomes.filter((o) => o.outcome === "missed").length,
+    detentionOverruns90: facts.detentionOverruns90,
+    milesRecent30: facts.milesRecent30,
+    milesPrior30: facts.milesPrior30,
+  });
+  return { rows, active, next, homeCity: home.homeCity, homeState: home.homeState, outcomes, hitRate, signals, overrideRows, factsAsOf };
+}
+
+const homeTimeWarningShape = z.object({
+  summary: z.string(),
+  detail: z.string(),
+  deadlineAt: z.string(),
+  homeEtaAt: z.string(),
+  commitmentId: z.number(),
+});
+
+const homeTimeCommitmentShape = z.object({
+  id: z.number(),
+  kind: z.string(),
+  kindLabel: z.string(),
+  description: z.string(),
+  setBy: z.string(),
+  createdBy: z.string(),
+  note: z.string().nullable(),
+  homeByAt: z.string().nullable(),
+  everyNDays: z.number().nullable(),
+  anchorAt: z.string().nullable(),
+  effectiveFrom: z.string(),
+  effectiveTo: z.string().nullable(),
+  voided: z.boolean(),
+});
+
+const homeTimeOutcomeShape = z.object({
+  commitmentId: z.number(),
+  deadlineAt: z.string(),
+  outcome: z.string(),
+  detail: z.string(),
+});
+
+const homeHitRateShape = z.object({
+  kept: z.number(),
+  missed: z.number(),
+  overridden: z.number(),
+  noHomeRecord: z.number(),
+  decided: z.number(),
+  total: z.number(),
+});
+
+const retentionSignalShape = z.object({ key: z.string(), detail: z.string() });
+
+const pulseQuestionShape = z.object({ key: z.string(), label: z.string(), low: z.string(), high: z.string() });
+
+function commitmentToShape(row: HomeTimeCommitmentRow): z.infer<typeof homeTimeCommitmentShape> {
+  const like = toHomeTimeCommitmentLike(row);
+  return {
+    id: row.id,
+    kind: row.kind,
+    kindLabel: HOME_TIME_KIND_LABELS[row.kind as keyof typeof HOME_TIME_KIND_LABELS] ?? row.kind,
+    description: describeCommitment(like),
+    setBy: row.setBy,
+    createdBy: row.createdBy,
+    note: row.note ?? null,
+    homeByAt: like.homeByAt,
+    everyNDays: row.everyNDays ?? null,
+    anchorAt: like.anchorAt,
+    effectiveFrom: like.effectiveFrom,
+    effectiveTo: like.effectiveTo,
+    voided: row.voidedAt != null,
+  };
+}
+
+/** Parse a client-supplied instant (ISO string) to epoch ms —
+ * null when it isn't a real instant. Lenient on format, strict
+ * on existence: a date the app can't read is never stored. */
+function parseInstantMs(s: string | null | undefined): number | null {
+  if (!s) return null;
+  const t = Date.parse(s);
+  return Number.isFinite(t) ? t : null;
+}
+
+const homeTimeOverrideArg = z.object({ reason: z.string().min(1).max(300) }).nullable().default(null);
+
+/** THE HOME-TIME GATE (Wave 2 item 9): run where a driver is
+ * bound to a board load — the same funnels as the DQF gate,
+ * immediately after it. A load whose delivery appointment + the
+ * drive home lands past an active commitment's deadline stops
+ * BEFORE binding: "warn" carries the plain math and binds
+ * NOTHING (and seals nothing — nothing happened). An explicit
+ * override with a reason writes the override row, seals
+ * home_time_overridden with the math, and notifies in-app.
+ * Authority follows who stated the term (canOverrideHomeTime);
+ * an unauthorized override attempt is "refused". An override
+ * already on the record for this exact binding (the desk
+ * overrode at assign; the driver's accept re-checks the same
+ * deadline) passes as already-overridden — never a double row,
+ * never a second demand. */
+async function homeTimeGateForBoardTake(
+  ctx: Ctx,
+  args: {
+    companyId: number;
+    driverUsername: string;
+    board: BoardLoadRow;
+    actor: string;
+    actorIsDesk: boolean;
+    method: "claim" | "assign" | "accept";
+    override: { reason: string } | null;
+  },
+): Promise<
+  | { state: "clear" }
+  | { state: "warn"; conflict: HomeTimeConflict; warning: { summary: string; detail: string } }
+  | { state: "refused"; error: string }
+  | { state: "overridden"; conflict: HomeTimeConflict }
+> {
+  const db = ctx.db<typeof schema>();
+  const rows = await homeTimeCommitmentRowsFor(ctx, args.companyId, args.driverUsername);
+  const active = rows.map(toHomeTimeCommitmentLike).filter((c) => c.voidedAt == null);
+  if (active.length === 0) return { state: "clear" };
+  const home = await homeProfileFor(ctx, args.driverUsername);
+  const conflict = checkHomeTimeConflict({
+    commitments: active,
+    deliveryApptAtMs: args.board.deliveryApptAt ? args.board.deliveryApptAt.getTime() : null,
+    deliveryState: args.board.deliveryState ?? null,
+    homeState: home.homeState,
+    nowMs: Date.now(),
+  });
+  if (!conflict) return { state: "clear" };
+  const lane = `${args.board.pickupCity ?? "?"} → ${args.board.deliveryCity ?? "?"}`;
+  const existing = await db
+    .select()
+    .from(schema.homeTimeOverrides)
+    .where(
+      and(
+        eq(schema.homeTimeOverrides.boardLoadId, args.board.id),
+        eq(schema.homeTimeOverrides.commitmentId, conflict.commitmentId),
+        eq(schema.homeTimeOverrides.deadlineAt, new Date(conflict.deadlineAt)),
+      ),
+    )
+    .limit(1);
+  if (existing[0]) return { state: "overridden", conflict };
+  if (!args.override || args.override.reason.trim() === "") {
+    return { state: "warn", conflict, warning: homeTimeConflictWarning(conflict, lane) };
+  }
+  if (
+    !canOverrideHomeTime({
+      setBy: conflict.setBy,
+      actor: args.actor,
+      driverUsername: args.driverUsername,
+      actorIsDesk: args.actorIsDesk,
+    })
+  ) {
+    return {
+      state: "refused",
+      error:
+        conflict.setBy === "driver"
+          ? `@${args.driverUsername} set this home-time commitment themselves — only they can override it. The load stays unbound.`
+          : "Only the driver, or their fleet's owner/dispatch, can override a home-time commitment. The load stays unbound.",
+    };
+  }
+  const reason = args.override.reason.trim();
+  const now = new Date();
+  const ins = await db
+    .insert(schema.homeTimeOverrides)
+    .values({
+      companyId: args.companyId,
+      driverUsername: args.driverUsername,
+      commitmentId: conflict.commitmentId,
+      deadlineAt: new Date(conflict.deadlineAt),
+      boardLoadId: args.board.id,
+      loadId: null,
+      method: args.method,
+      overriddenBy: args.actor,
+      reason,
+      deliveryAt: new Date(conflict.deliveryAt),
+      homeEtaAt: new Date(conflict.homeEtaAt),
+    })
+    .returning({ id: schema.homeTimeOverrides.id });
+  const overrideId = ins[0]?.id ?? null;
+  await appendChain(ctx, {
+    refKind: "load",
+    refId: null,
+    sessionId: null,
+    event: "home_time_overridden",
+    payload: {
+      overrideId,
+      companyId: args.companyId,
+      driver: args.driverUsername,
+      boardLoadId: args.board.id,
+      commitmentId: conflict.commitmentId,
+      deadlineAt: new Date(conflict.deadlineAt).toISOString(),
+      deliveryAt: new Date(conflict.deliveryAt).toISOString(),
+      homeEtaAt: new Date(conflict.homeEtaAt).toISOString(),
+      allowanceHours: conflict.allowanceHours,
+      method: args.method,
+      reason,
+      by: args.actor,
+      at: now.toISOString(),
+    },
+  });
+  // In-app only: the driver always hears when someone else
+  // overrode; a fleet-stated term the DRIVER overrode is heard
+  // at the desk. A driver overriding a term they stated
+  // themselves needs no audience.
+  const note = homeTimeOverrideNotification({
+    driverUsername: args.driverUsername,
+    overriddenBy: args.actor,
+    selfOverride: args.actor === args.driverUsername,
+    conflict,
+  });
+  if (args.actor !== args.driverUsername) {
+    await recordNotificationSafe(ctx, {
+      username: args.driverUsername,
+      kind: "system",
+      title: note.title,
+      body: note.body,
+      dedupeKey: `hometime-override:${overrideId ?? args.board.id}`,
+      refKind: "load",
+      refId: args.board.id,
+    });
+  } else if (conflict.setBy === "fleet") {
+    const members = await db
+      .select()
+      .from(schema.companyMembers)
+      .where(eq(schema.companyMembers.companyId, args.companyId));
+    for (const m of members) {
+      if (m.role !== "owner" && m.role !== "dispatch") continue;
+      await recordNotificationSafe(ctx, {
+        username: m.username,
+        kind: "system",
+        title: note.title,
+        body: note.body,
+        dedupeKey: `hometime-override:${overrideId ?? args.board.id}`,
+        refKind: "load",
+        refId: args.board.id,
+      });
+    }
+  }
+  return { state: "overridden", conflict };
+}
+
+/** After a binding creates the driver's load, stamp it onto the
+ * override rows written for that board load (claim / accept /
+ * open claim) so the record ties the break to the load it made. */
+async function backfillHomeTimeOverrideLoad(ctx: Ctx, boardLoadId: number, loadId: number | null): Promise<void> {
+  if (loadId == null) return;
+  const db = ctx.db<typeof schema>();
+  await db
+    .update(schema.homeTimeOverrides)
+    .set({ loadId })
+    .where(and(eq(schema.homeTimeOverrides.boardLoadId, boardLoadId), isNull(schema.homeTimeOverrides.loadId)));
+}
+
+/** A driver's pulse state for the current episode: whether a
+ * prompt is due (no row yet this episode), what they already
+ * did with it, and when the next episode opens. The prompt is
+ * dismissible and never blocks anything — this is a read. */
+async function pulseStateFor(
+  ctx: Ctx,
+  companyId: number,
+  driverUsername: string,
+): Promise<{
+  episodeKey: string;
+  due: boolean;
+  status: "answered" | "dismissed" | null;
+  answers: Record<PulseQuestionKey, number> | null;
+  note: string | null;
+  nextAt: string;
+}> {
+  const db = ctx.db<typeof schema>();
+  const nowMs = Date.now();
+  const episodeKey = pulseEpisodeKey(nowMs);
+  const rows = await db
+    .select()
+    .from(schema.pulseResponses)
+    .where(
+      and(
+        eq(schema.pulseResponses.companyId, companyId),
+        eq(schema.pulseResponses.driverUsername, driverUsername),
+        eq(schema.pulseResponses.episodeKey, episodeKey),
+      ),
+    )
+    .limit(1);
+  const row = rows[0];
+  let answers: Record<PulseQuestionKey, number> | null = null;
+  if (row && row.status === "answered") {
+    try {
+      answers = validatePulseAnswers(JSON.parse(row.answersJson) as unknown);
+    } catch { answers = null; }
+  }
+  return {
+    episodeKey,
+    due: !row,
+    status: row ? (row.status === "answered" ? "answered" : "dismissed") : null,
+    answers,
+    note: row?.note ?? null,
+    nextAt: new Date(nextPulseAt(nowMs)).toISOString(),
+  };
+}
+
 const dqfEntryShape = z.object({
   id: z.number(),
   kind: z.string(),
@@ -27405,8 +28042,8 @@ export const Actions = {
   claimBoardLoad: defineAction({
 
     description: "Claim board load.",
-    request: z.object({ id: z.number().int().positive() }),
-    response: z.object({ ok: z.boolean(), error: z.string().nullable(), loadId: z.number().nullable(), tripQueueId: z.number().nullable() }),
+    request: z.object({ id: z.number().int().positive(), homeTimeOverride: homeTimeOverrideArg }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable(), loadId: z.number().nullable(), tripQueueId: z.number().nullable(), homeTimeWarning: homeTimeWarningShape.nullable().optional() }),
     async handler(ctx, args) {
       const db = ctx.db<typeof schema>();
       const me = await myUsername(ctx);
@@ -27463,9 +28100,41 @@ export const Actions = {
           tripQueueId: null,
         };
       }
+      // Home-time gate (Wave 2 item 9): a load that would break
+      // the driver's own home-time commitment stops here with the
+      // plain math — binding takes an explicit override with a
+      // reason, sealed on the record.
+      const ht = await homeTimeGateForBoardTake(ctx, {
+        companyId: mine.company.id,
+        driverUsername: me,
+        board: row,
+        actor: me,
+        actorIsDesk: false,
+        method: "claim",
+        override: args.homeTimeOverride ?? null,
+      });
+      if (ht.state === "warn") {
+        return {
+          ok: false,
+          error: `${ht.warning.detail} To bind it anyway, confirm the override with a reason.`,
+          loadId: null,
+          tripQueueId: null,
+          homeTimeWarning: {
+            summary: ht.warning.summary,
+            detail: ht.warning.detail,
+            deadlineAt: new Date(ht.conflict.deadlineAt).toISOString(),
+            homeEtaAt: new Date(ht.conflict.homeEtaAt).toISOString(),
+            commitmentId: ht.conflict.commitmentId,
+          },
+        };
+      }
+      if (ht.state === "refused") {
+        return { ok: false, error: ht.error, loadId: null, tripQueueId: null, homeTimeWarning: null };
+      }
       const res = await takeBoardLoad(ctx, row, me, "claim", me);
+      await backfillHomeTimeOverrideLoad(ctx, row.id, res.loadId);
       ctx.invalidateQueries();
-      return res;
+      return { ...res, homeTimeWarning: null };
     },
   }),
 
@@ -27475,8 +28144,9 @@ export const Actions = {
     request: z.object({
       id: z.number().int().positive(),
       targetUsername: z.string().min(1).max(60),
+      homeTimeOverride: homeTimeOverrideArg,
     }),
-    response: z.object({ ok: z.boolean(), error: z.string().nullable(), loadId: z.number().nullable(), tripQueueId: z.number().nullable() }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable(), loadId: z.number().nullable(), tripQueueId: z.number().nullable(), homeTimeWarning: homeTimeWarningShape.nullable().optional() }),
     async handler(ctx, args) {
       const db = ctx.db<typeof schema>();
       const me = await myUsername(ctx);
@@ -27539,6 +28209,38 @@ export const Actions = {
           tripQueueId: null,
         };
       }
+      // Home-time gate (Wave 2 item 9): dispatch cannot hand a
+      // driver a load that breaks their home-time commitment
+      // without seeing the math and overriding on the record —
+      // and a commitment the DRIVER stated is theirs alone to
+      // override (the gate refuses the desk outright).
+      const ht = await homeTimeGateForBoardTake(ctx, {
+        companyId: mine.company.id,
+        driverUsername: targetRow.username,
+        board: row,
+        actor: me,
+        actorIsDesk: true,
+        method: "assign",
+        override: args.homeTimeOverride ?? null,
+      });
+      if (ht.state === "warn") {
+        return {
+          ok: false,
+          error: `${ht.warning.detail} To assign it anyway, confirm the override with a reason — @${targetRow.username} is notified.`,
+          loadId: null,
+          tripQueueId: null,
+          homeTimeWarning: {
+            summary: ht.warning.summary,
+            detail: ht.warning.detail,
+            deadlineAt: new Date(ht.conflict.deadlineAt).toISOString(),
+            homeEtaAt: new Date(ht.conflict.homeEtaAt).toISOString(),
+            commitmentId: ht.conflict.commitmentId,
+          },
+        };
+      }
+      if (ht.state === "refused") {
+        return { ok: false, error: ht.error, loadId: null, tripQueueId: null, homeTimeWarning: null };
+      }
       const now = new Date();
       if (decision.kind === "reassign") {
         // Move the pending offer: ONE conditional update off the
@@ -27568,7 +28270,7 @@ export const Actions = {
           },
         });
         ctx.invalidateQueries();
-        return { ok: true, error: null, loadId: null, tripQueueId: null };
+        return { ok: true, error: null, loadId: null, tripQueueId: null, homeTimeWarning: null };
       }
       // Fresh offer: flip open → assigned naming the driver. NO load
       // or trip is created — that happens only when the driver
@@ -27606,15 +28308,15 @@ export const Actions = {
         },
       });
       ctx.invalidateQueries();
-      return { ok: true, error: null, loadId: null, tripQueueId: null };
+      return { ok: true, error: null, loadId: null, tripQueueId: null, homeTimeWarning: null };
     },
   }),
 
   acceptAssignedLoad: defineAction({
 
     description: "Accept assigned load.",
-    request: z.object({ id: z.number().int().positive() }),
-    response: z.object({ ok: z.boolean(), error: z.string().nullable(), loadId: z.number().nullable(), tripQueueId: z.number().nullable() }),
+    request: z.object({ id: z.number().int().positive(), homeTimeOverride: homeTimeOverrideArg }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable(), loadId: z.number().nullable(), tripQueueId: z.number().nullable(), homeTimeWarning: homeTimeWarningShape.nullable().optional() }),
     async handler(ctx, args) {
       const db = ctx.db<typeof schema>();
       const me = await myUsername(ctx);
@@ -27664,6 +28366,38 @@ export const Actions = {
           tripQueueId: null,
         };
       }
+      // Home-time gate (Wave 2 item 9): accepting binds the
+      // driver, so the commitment check runs again here. If the
+      // desk already overrode this exact deadline at assign time,
+      // the gate finds that override on the record and passes —
+      // the driver is never asked to re-override the same break.
+      const ht = await homeTimeGateForBoardTake(ctx, {
+        companyId: mine.company.id,
+        driverUsername: me,
+        board: row,
+        actor: me,
+        actorIsDesk: false,
+        method: "accept",
+        override: args.homeTimeOverride ?? null,
+      });
+      if (ht.state === "warn") {
+        return {
+          ok: false,
+          error: `${ht.warning.detail} To accept it anyway, confirm the override with a reason.`,
+          loadId: null,
+          tripQueueId: null,
+          homeTimeWarning: {
+            summary: ht.warning.summary,
+            detail: ht.warning.detail,
+            deadlineAt: new Date(ht.conflict.deadlineAt).toISOString(),
+            homeEtaAt: new Date(ht.conflict.homeEtaAt).toISOString(),
+            commitmentId: ht.conflict.commitmentId,
+          },
+        };
+      }
+      if (ht.state === "refused") {
+        return { ok: false, error: ht.error, loadId: null, tripQueueId: null, homeTimeWarning: null };
+      }
       // Flip assigned → taken FIRST (one conditional update — of any
       // racing answers exactly one lands), then create the driver's
       // load + trip under THIS (the driver's own) session, so the
@@ -27703,8 +28437,9 @@ export const Actions = {
             at: new Date().toISOString(),
           },
         });
+        await backfillHomeTimeOverrideLoad(ctx, row.id, loadId);
         ctx.invalidateQueries();
-        return { ok: true, error: null, loadId, tripQueueId };
+        return { ok: true, error: null, loadId, tripQueueId, homeTimeWarning: null };
       } catch {
         await db
           .update(schema.boardLoads)
@@ -47572,6 +48307,539 @@ export const Actions = {
     },
   }),
 
+  // ---- Home-time guarantee + retention (Wave 2 item 9, migration 0135) ------
+  // Commitments stated by the driver (or their fleet for them),
+  // enforced at the claim / assign / accept funnels
+  // (homeTimeGateForBoardTake), with the hit-rate derived from
+  // sealed records and the pulse episodes alongside. The driver's
+  // pulse answers are their own record — the fleet aggregate
+  // (getFleetHomeTime) reads answer sets only, never notes, and
+  // shows averages only at 3+ respondents.
+
+  getHomeTime: defineAction({
+    description: "One driver's home-time record: their commitments, the next deadline on the table, the last 90 days of kept / missed / overridden outcomes derived from sealed records, their retention facts, and (in the driver's own view) their pulse state.",
+    request: z.object({ driverUsername: z.string().min(1).max(60).nullable().default(null) }),
+    response: z.object({
+      ok: z.boolean(),
+      error: z.string().nullable(),
+      companyName: z.string().nullable(),
+      driverUsername: z.string().nullable(),
+      isSelf: z.boolean(),
+      homeCity: z.string().nullable(),
+      homeState: z.string().nullable(),
+      commitments: z.array(homeTimeCommitmentShape),
+      nextDeadlineAt: z.string().nullable(),
+      nextDescription: z.string().nullable(),
+      outcomes: z.array(homeTimeOutcomeShape),
+      hitRate: homeHitRateShape,
+      signals: z.array(retentionSignalShape),
+      factsAsOf: z.string().nullable(),
+      pulse: z
+        .object({
+          due: z.boolean(),
+          episodeKey: z.string(),
+          status: z.string().nullable(),
+          nextAt: z.string(),
+          questions: z.array(pulseQuestionShape),
+          myAnswers: z.record(z.string(), z.number()).nullable(),
+          myNote: z.string().nullable(),
+        })
+        .nullable(),
+    }),
+    async handler(ctx, args) {
+      const fail = {
+        ok: false,
+        companyName: null,
+        driverUsername: null,
+        isSelf: false,
+        homeCity: null,
+        homeState: null,
+        commitments: [],
+        nextDeadlineAt: null,
+        nextDescription: null,
+        outcomes: [],
+        hitRate: { kept: 0, missed: 0, overridden: 0, noHomeRecord: 0, decided: 0, total: 0 },
+        signals: [],
+        factsAsOf: null,
+        pulse: null,
+      };
+      const me = await myUsername(ctx);
+      const target = (args.driverUsername ?? me).trim();
+      const access = await homeTimeAccessFor(ctx, me, target);
+      if (!access.ok) return { ...fail, error: access.error };
+      const pic = await homeTimePictureFor(ctx, access.companyId, target, { liveFacts: access.isSelf });
+      const nextRow = pic.next ? pic.rows.find((r) => r.id === pic.next!.commitmentId) : null;
+      const pulse = access.isSelf ? await pulseStateFor(ctx, access.companyId, target) : null;
+      return {
+        ok: true,
+        error: null,
+        companyName: access.companyName,
+        driverUsername: target,
+        isSelf: access.isSelf,
+        homeCity: pic.homeCity,
+        homeState: pic.homeState,
+        commitments: pic.rows.map(commitmentToShape),
+        nextDeadlineAt: pic.next ? new Date(pic.next.deadlineAt).toISOString() : null,
+        nextDescription: nextRow ? describeCommitment(toHomeTimeCommitmentLike(nextRow)) : null,
+        outcomes: pic.outcomes.map((o) => ({
+          commitmentId: o.commitmentId,
+          deadlineAt: new Date(o.deadlineAt).toISOString(),
+          outcome: o.outcome,
+          detail: o.detail,
+        })),
+        hitRate: pic.hitRate,
+        signals: pic.signals,
+        factsAsOf: pic.factsAsOf,
+        pulse: pulse
+          ? {
+              due: pulse.due,
+              episodeKey: pulse.episodeKey,
+              status: pulse.status,
+              nextAt: pulse.nextAt,
+              questions: PULSE_QUESTIONS.map((q) => ({ key: q.key, label: q.label, low: q.low, high: q.high })),
+              myAnswers: pulse.answers,
+              myNote: pulse.note,
+            }
+          : null,
+      };
+    },
+  }),
+
+  setHomeTimeCommitment: defineAction({
+    description: "Record a home-time commitment for a driver — stated by the driver themselves, or by their fleet's owner/dispatch for them. Sealed. The term is the stater's own words and dates; the app never invents one.",
+    request: z.object({
+      driverUsername: z.string().min(1).max(60),
+      kind: z.enum(["by_date", "every_n_days", "weekends"]),
+      homeByAt: z.string().max(40).nullable().default(null),
+      everyNDays: z.number().int().min(2).max(90).nullable().default(null),
+      anchorAt: z.string().max(40).nullable().default(null),
+      effectiveTo: z.string().max(40).nullable().default(null),
+      note: z.string().max(300).nullable().default(null),
+    }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable(), commitmentId: z.number().nullable() }),
+    async handler(ctx, args) {
+      const me = await myUsername(ctx);
+      const target = args.driverUsername.trim();
+      const access = await homeTimeAccessFor(ctx, me, target);
+      if (!access.ok) return { ok: false, error: access.error, commitmentId: null };
+      // Who stated the term follows the seat: the driver stating
+      // their own, or the desk stating one for their driver.
+      const setBy = access.isSelf ? "driver" : "fleet";
+      let homeByAt: Date | null = null;
+      let anchorAt: Date | null = null;
+      if (args.kind === "by_date") {
+        const t = parseInstantMs(args.homeByAt);
+        if (t == null) return { ok: false, error: "Pick the date and time to be home by.", commitmentId: null };
+        homeByAt = new Date(t);
+      }
+      if (args.kind === "every_n_days") {
+        if (args.everyNDays == null)
+          return { ok: false, error: "Say how many days between home times (2–90).", commitmentId: null };
+        const t = parseInstantMs(args.anchorAt);
+        if (t == null)
+          return { ok: false, error: "Pick a date the driver is home by — the every-N-days count anchors on it.", commitmentId: null };
+        anchorAt = new Date(t);
+      }
+      let effectiveTo: Date | null = null;
+      if (args.effectiveTo != null) {
+        const t = parseInstantMs(args.effectiveTo);
+        if (t == null) return { ok: false, error: "That end date isn't a real date — pick it again.", commitmentId: null };
+        effectiveTo = new Date(t);
+      }
+      const db = ctx.db<typeof schema>();
+      const now = new Date();
+      const ins = await db
+        .insert(schema.homeTimeCommitments)
+        .values({
+          companyId: access.companyId,
+          driverUsername: target,
+          kind: args.kind,
+          homeByAt,
+          everyNDays: args.kind === "every_n_days" ? args.everyNDays : null,
+          anchorAt,
+          setBy,
+          createdBy: me,
+          note: args.note?.trim() ? args.note.trim() : null,
+          effectiveFrom: now,
+          effectiveTo,
+        })
+        .returning({ id: schema.homeTimeCommitments.id });
+      const commitmentId = ins[0]?.id;
+      if (commitmentId == null) throw new Error("setHomeTimeCommitment: insert returned no rows");
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "home_time_commitment_set",
+        payload: {
+          commitmentId,
+          companyId: access.companyId,
+          driver: target,
+          kind: args.kind,
+          setBy,
+          homeByAt: homeByAt ? homeByAt.toISOString() : null,
+          everyNDays: args.kind === "every_n_days" ? args.everyNDays : null,
+          anchorAt: anchorAt ? anchorAt.toISOString() : null,
+          effectiveTo: effectiveTo ? effectiveTo.toISOString() : null,
+          by: me,
+          at: now.toISOString(),
+        },
+      });
+      if (!access.isSelf) {
+        const like: HomeTimeCommitmentLike = {
+          id: commitmentId,
+          kind: args.kind,
+          homeByAt: homeByAt ? homeByAt.toISOString() : null,
+          everyNDays: args.kind === "every_n_days" ? args.everyNDays : null,
+          anchorAt: anchorAt ? anchorAt.toISOString() : null,
+          setBy,
+          createdBy: me,
+          note: null,
+          effectiveFrom: now.toISOString(),
+          effectiveTo: effectiveTo ? effectiveTo.toISOString() : null,
+          voidedAt: null,
+        };
+        await recordNotificationSafe(ctx, {
+          username: target,
+          kind: "system",
+          title: "A home-time commitment was set for you",
+          body: `@${me} set a home-time commitment for you at ${access.companyName}: ${describeCommitment(like)}. Loads that would break it stop for an override first — and a term you set yourself can only be overridden by you.`,
+          dedupeKey: `hometime-set:${commitmentId}`,
+          refKind: "driver",
+          refId: null,
+        });
+      }
+      ctx.invalidateQueries();
+      return { ok: true, error: null, commitmentId };
+    },
+  }),
+
+  voidHomeTimeCommitment: defineAction({
+    description: "End a home-time commitment (it stays on the record, marked void, and stops producing deadlines). Void authority mirrors override authority: the driver can end any of their own; the desk can end fleet-stated ones — never a term the driver stated themselves.",
+    request: z.object({ commitmentId: z.number().int().positive() }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable() }),
+    async handler(ctx, args) {
+      const me = await myUsername(ctx);
+      const db = ctx.db<typeof schema>();
+      const rows = await db
+        .select()
+        .from(schema.homeTimeCommitments)
+        .where(eq(schema.homeTimeCommitments.id, args.commitmentId))
+        .limit(1);
+      const row = rows[0];
+      if (!row) return { ok: false, error: "That commitment isn't on file." };
+      const access = await homeTimeAccessFor(ctx, me, row.driverUsername);
+      if (!access.ok || access.companyId !== row.companyId) return { ok: false, error: "That commitment isn't in your scope." };
+      if (row.voidedAt != null) return { ok: true, error: null };
+      const isDriver = me === row.driverUsername;
+      const canVoid = isDriver || (access.canManage && row.setBy === "fleet");
+      if (!canVoid) {
+        return {
+          ok: false,
+          error:
+            row.setBy === "driver"
+              ? `@${row.driverUsername} stated this commitment themselves — only they can end it.`
+              : "Only the driver, or their fleet's owner/dispatch, can end this commitment.",
+        };
+      }
+      const now = new Date();
+      await db
+        .update(schema.homeTimeCommitments)
+        .set({ voidedAt: now, voidedBy: me, updatedAt: now })
+        .where(eq(schema.homeTimeCommitments.id, row.id));
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "home_time_commitment_voided",
+        payload: { commitmentId: row.id, companyId: row.companyId, driver: row.driverUsername, kind: row.kind, setBy: row.setBy, by: me, at: now.toISOString() },
+      });
+      const described = describeCommitment(toHomeTimeCommitmentLike(row));
+      if (!isDriver) {
+        await recordNotificationSafe(ctx, {
+          username: row.driverUsername,
+          kind: "system",
+          title: "A home-time commitment was ended",
+          body: `@${me} ended the fleet-stated home-time commitment (${described}) at ${access.companyName}. It stops producing deadlines from here; the record stays.`,
+          dedupeKey: `hometime-void:${row.id}`,
+          refKind: "driver",
+          refId: null,
+        });
+      } else if (row.setBy === "fleet") {
+        const members = await db
+          .select()
+          .from(schema.companyMembers)
+          .where(eq(schema.companyMembers.companyId, row.companyId));
+        for (const m of members) {
+          if (m.role !== "owner" && m.role !== "dispatch") continue;
+          await recordNotificationSafe(ctx, {
+            username: m.username,
+            kind: "system",
+            title: "A driver ended a fleet home-time commitment",
+            body: `@${row.driverUsername} ended the fleet-stated home-time commitment (${described}). It stops producing deadlines from here; the record stays.`,
+            dedupeKey: `hometime-void:${row.id}`,
+            refKind: "driver",
+            refId: null,
+          });
+        }
+      }
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
+    },
+  }),
+
+  getFleetHomeTime: defineAction({
+    description: "The fleet home-time board (owner/dispatch): every driver's active commitments, next deadline, last-90-days kept / missed / overridden tallies, retention signals from sealed facts, and the pulse aggregate — averages only when 3+ drivers answered in the last 28 days, counts only below that, and notes never surface at any count.",
+    request: z.object({}),
+    response: z.object({
+      ok: z.boolean(),
+      error: z.string().nullable(),
+      companyName: z.string().nullable(),
+      drivers: z.array(
+        z.object({
+          username: z.string(),
+          role: z.string(),
+          commitmentCount: z.number(),
+          nextDeadlineAt: z.string().nullable(),
+          nextDescription: z.string().nullable(),
+          hitRate: homeHitRateShape,
+          signals: z.array(retentionSignalShape),
+          factsAsOf: z.string().nullable(),
+        }),
+      ),
+      pulse: z.object({
+        respondentCount: z.number(),
+        driverCount: z.number(),
+        averages: z.record(z.string(), z.number()).nullable(),
+        windowDays: z.number(),
+        minRespondents: z.number(),
+      }),
+    }),
+    async handler(ctx) {
+      const me = await myUsername(ctx);
+      const mine = await myMembership(ctx, me);
+      const emptyPulse = { respondentCount: 0, driverCount: 0, averages: null, windowDays: 28, minRespondents: PULSE_MIN_RESPONDENTS };
+      if (!mine || (mine.role !== "owner" && mine.role !== "dispatch")) {
+        return {
+          ok: false,
+          error: "The fleet home-time board is for the owner and dispatch — your own home-time record is in your desk.",
+          companyName: null,
+          drivers: [],
+          pulse: emptyPulse,
+        };
+      }
+      const db = ctx.db<typeof schema>();
+      const members = await db
+        .select()
+        .from(schema.companyMembers)
+        .where(eq(schema.companyMembers.companyId, mine.company.id));
+      const drivers = [];
+      for (const m of members) {
+        if (m.role === "dispatch") continue; // dispatch doesn't haul — no home-time board row
+        const pic = await homeTimePictureFor(ctx, mine.company.id, m.username, { liveFacts: false });
+        const nextRow = pic.next ? pic.rows.find((r) => r.id === pic.next!.commitmentId) : null;
+        drivers.push({
+          username: m.username,
+          role: m.role,
+          commitmentCount: pic.active.length,
+          nextDeadlineAt: pic.next ? new Date(pic.next.deadlineAt).toISOString() : null,
+          nextDescription: nextRow ? describeCommitment(toHomeTimeCommitmentLike(nextRow)) : null,
+          hitRate: pic.hitRate,
+          signals: pic.signals,
+          factsAsOf: pic.factsAsOf,
+        });
+      }
+      drivers.sort((a, b) => a.username.localeCompare(b.username));
+      // Pulse aggregate over the last 28 days: answer sets only.
+      // The note column is never even selected on this path, so a
+      // driver's note cannot surface to the fleet at any count.
+      const since = new Date(Date.now() - 28 * DAY_MS);
+      const pulseRows = await db
+        .select({ driverUsername: schema.pulseResponses.driverUsername, answersJson: schema.pulseResponses.answersJson })
+        .from(schema.pulseResponses)
+        .where(
+          and(
+            eq(schema.pulseResponses.companyId, mine.company.id),
+            eq(schema.pulseResponses.status, "answered"),
+            gte(schema.pulseResponses.createdAt, since),
+          ),
+        );
+      const parsed: { driverUsername: string; answers: Record<PulseQuestionKey, number> }[] = [];
+      for (const r of pulseRows) {
+        try {
+          const a = validatePulseAnswers(JSON.parse(r.answersJson) as unknown);
+          if (a) parsed.push({ driverUsername: r.driverUsername, answers: a });
+        } catch { /* a malformed answer set counts for no one */ }
+      }
+      const agg = aggregatePulse(parsed, drivers.length);
+      return {
+        ok: true,
+        error: null,
+        companyName: mine.company.name,
+        drivers,
+        pulse: {
+          respondentCount: agg.respondentCount,
+          driverCount: agg.driverCount,
+          averages: agg.averages,
+          windowDays: 28,
+          minRespondents: PULSE_MIN_RESPONDENTS,
+        },
+      };
+    },
+  }),
+
+  getPulsePrompt: defineAction({
+    description: "The caller's own pulse state for the current 14-day episode: whether a prompt is due, the fixed questions, and their own answers if they already gave them. Dismissible, never blocking.",
+    request: z.object({}),
+    response: z.object({
+      ok: z.boolean(),
+      error: z.string().nullable(),
+      due: z.boolean(),
+      episodeKey: z.string(),
+      status: z.string().nullable(),
+      nextAt: z.string().nullable(),
+      questions: z.array(pulseQuestionShape),
+      myAnswers: z.record(z.string(), z.number()).nullable(),
+      myNote: z.string().nullable(),
+    }),
+    async handler(ctx) {
+      const me = await myUsername(ctx);
+      const mine = await myMembership(ctx, me);
+      const questions = PULSE_QUESTIONS.map((q) => ({ key: q.key, label: q.label, low: q.low, high: q.high }));
+      if (!mine) {
+        return {
+          ok: false,
+          error: "You're not in a company — the pulse check lives inside a fleet. Join with your owner's driver code first.",
+          due: false,
+          episodeKey: pulseEpisodeKey(Date.now()),
+          status: null,
+          nextAt: null,
+          questions,
+          myAnswers: null,
+          myNote: null,
+        };
+      }
+      const st = await pulseStateFor(ctx, mine.company.id, me);
+      return {
+        ok: true,
+        error: null,
+        due: st.due,
+        episodeKey: st.episodeKey,
+        status: st.status,
+        nextAt: st.nextAt,
+        questions,
+        myAnswers: st.answers,
+        myNote: st.note,
+      };
+    },
+  }),
+
+  answerPulse: defineAction({
+    description: "Answer this episode's pulse check — three fixed questions, 1–5 each, plus an optional note. The answers are the driver's own record: the fleet sees aggregates only (3+ respondents), and the note never leaves the driver's own view. The chain seal records only that an answer landed, never its content.",
+    request: z.object({
+      answers: z.record(z.string(), z.number()),
+      note: z.string().max(500).nullable().default(null),
+    }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable() }),
+    async handler(ctx, args) {
+      const me = await myUsername(ctx);
+      const mine = await myMembership(ctx, me);
+      if (!mine)
+        return { ok: false, error: "You're not in a company — the pulse check lives inside a fleet. Join with your owner's driver code first." };
+      const answers = validatePulseAnswers(args.answers);
+      if (!answers)
+        return { ok: false, error: "Answer all three questions with a whole number from 1 to 5 — nothing was saved." };
+      const db = ctx.db<typeof schema>();
+      const nowMs = Date.now();
+      const episodeKey = pulseEpisodeKey(nowMs);
+      const note = args.note?.trim() ? args.note.trim() : null;
+      const existing = await db
+        .select()
+        .from(schema.pulseResponses)
+        .where(
+          and(
+            eq(schema.pulseResponses.companyId, mine.company.id),
+            eq(schema.pulseResponses.driverUsername, me),
+            eq(schema.pulseResponses.episodeKey, episodeKey),
+          ),
+        )
+        .limit(1);
+      const now = new Date();
+      if (existing[0]) {
+        await db
+          .update(schema.pulseResponses)
+          .set({ status: "answered", answersJson: JSON.stringify(answers), note, updatedAt: now })
+          .where(eq(schema.pulseResponses.id, existing[0].id));
+      } else {
+        await db.insert(schema.pulseResponses).values({
+          companyId: mine.company.id,
+          driverUsername: me,
+          episodeKey,
+          status: "answered",
+          answersJson: JSON.stringify(answers),
+          note,
+        });
+      }
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "pulse_answered",
+        payload: { companyId: mine.company.id, driver: me, episodeKey, at: now.toISOString() },
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
+    },
+  }),
+
+  dismissPulse: defineAction({
+    description: "Dismiss this episode's pulse prompt — it stays quiet until the next episode opens (14-day cadence). Dismissing never blocks anything in the app.",
+    request: z.object({}),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable() }),
+    async handler(ctx) {
+      const me = await myUsername(ctx);
+      const mine = await myMembership(ctx, me);
+      if (!mine)
+        return { ok: false, error: "You're not in a company — the pulse check lives inside a fleet. Join with your owner's driver code first." };
+      const db = ctx.db<typeof schema>();
+      const episodeKey = pulseEpisodeKey(Date.now());
+      const existing = await db
+        .select()
+        .from(schema.pulseResponses)
+        .where(
+          and(
+            eq(schema.pulseResponses.companyId, mine.company.id),
+            eq(schema.pulseResponses.driverUsername, me),
+            eq(schema.pulseResponses.episodeKey, episodeKey),
+          ),
+        )
+        .limit(1);
+      if (existing[0]?.status === "answered") return { ok: true, error: null }; // already answered — nothing to dismiss
+      const now = new Date();
+      if (existing[0]) {
+        await db.update(schema.pulseResponses).set({ updatedAt: now }).where(eq(schema.pulseResponses.id, existing[0].id));
+      } else {
+        await db.insert(schema.pulseResponses).values({
+          companyId: mine.company.id,
+          driverUsername: me,
+          episodeKey,
+          status: "dismissed",
+          answersJson: "{}",
+          note: null,
+        });
+      }
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "pulse_dismissed",
+        payload: { companyId: mine.company.id, driver: me, episodeKey, at: now.toISOString() },
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
+    },
+  }),
+
   // ---- Notification center + push plumbing (TMS queue item 9, migration 0128) --
   // The center's rows are recorded by the producers themselves —
   // sendChatMessage (DMs/dispatch), submitBrokerUpload (load
@@ -55273,8 +56541,8 @@ export const Actions = {
   claimOpenBoardLoad: defineAction({
 
     description: "Claim open board load.",
-    request: z.object({ id: z.number().int().positive() }),
-    response: z.object({ ok: z.boolean(), error: z.string().nullable(), loadId: z.number().nullable(), tripQueueId: z.number().nullable() }),
+    request: z.object({ id: z.number().int().positive(), homeTimeOverride: homeTimeOverrideArg }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable(), loadId: z.number().nullable(), tripQueueId: z.number().nullable(), homeTimeWarning: homeTimeWarningShape.nullable().optional() }),
     async handler(ctx, args) {
       const db = ctx.db<typeof schema>();
       const me = await myUsername(ctx);
@@ -55326,10 +56594,42 @@ export const Actions = {
             tripQueueId: null,
           };
         }
+        // Home-time gate (Wave 2 item 9): same scope line as the
+        // DQF gate — a vetted account with no company has no fleet
+        // scope to hold a commitment in, so there is nothing to
+        // check against.
+        const ht = await homeTimeGateForBoardTake(ctx, {
+          companyId: openMine.company.id,
+          driverUsername: me,
+          board: row,
+          actor: me,
+          actorIsDesk: false,
+          method: "claim",
+          override: args.homeTimeOverride ?? null,
+        });
+        if (ht.state === "warn") {
+          return {
+            ok: false,
+            error: `${ht.warning.detail} To bind it anyway, confirm the override with a reason.`,
+            loadId: null,
+            tripQueueId: null,
+            homeTimeWarning: {
+              summary: ht.warning.summary,
+              detail: ht.warning.detail,
+              deadlineAt: new Date(ht.conflict.deadlineAt).toISOString(),
+              homeEtaAt: new Date(ht.conflict.homeEtaAt).toISOString(),
+              commitmentId: ht.conflict.commitmentId,
+            },
+          };
+        }
+        if (ht.state === "refused") {
+          return { ok: false, error: ht.error, loadId: null, tripQueueId: null, homeTimeWarning: null };
+        }
       }
       const res = await takeBoardLoad(ctx, row, me, "claim", me);
+      await backfillHomeTimeOverrideLoad(ctx, row.id, res.loadId);
       ctx.invalidateQueries();
-      return res;
+      return { ...res, homeTimeWarning: null };
     },
   }),
 

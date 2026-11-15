@@ -108,6 +108,16 @@
 // load_invoices (factor packaged/submitted/advanced/settled);
 // the status / partner / ref / package-manifest columns are
 // plain text.
+// Migration 0135 (home-time guarantee + retention) adds +4
+// tables (home_time_commitments, home_time_overrides,
+// pulse_responses, home_time_fact_snapshots), +4 autoincrement
+// PKs, +16 timestamp_ms (commitment home-by / anchor /
+// effective-from / effective-to / voided / created / updated;
+// override deadline / delivery / home-eta / created; pulse
+// created / updated; snapshot computed / created / updated),
+// +2 REAL (the snapshot's two miles windows); the kind /
+// set-by / method / status / answers columns are plain
+// integer/text.
 //
 //   bun run host/pg/transform-schema.ts
 
@@ -172,16 +182,16 @@ replaceAll(
   'integer mode "timestamp_ms" -> timestamp(tz, date)',
   /integer\(("[a-z0-9_]+"), \{ mode: "timestamp_ms" \}\)/g,
   'timestamp($1, { withTimezone: true, mode: "date" })',
-  363,
+  379,
 );
 replaceAll(
   "autoincrement PK -> serial",
   /integer\(("[a-z0-9_]+")\)\.primaryKey\(\{ autoIncrement: true \}\)/g,
   "serial($1).primaryKey()",
-  152,
+  156,
 );
-replaceAll("sqliteTable -> pgTable", /\bsqliteTable\(/g, "pgTable(", 187);
-replaceAll("real -> doublePrecision", /\breal\(/g, "doublePrecision(", 192);
+replaceAll("sqliteTable -> pgTable", /\bsqliteTable\(/g, "pgTable(", 191);
+replaceAll("real -> doublePrecision", /\breal\(/g, "doublePrecision(", 194);
 
 // Leftovers: any of these means the source schema grew a shape this
 // transform does not know. Fail, don't guess.

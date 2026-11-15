@@ -884,6 +884,56 @@ export function FleetLoadBoardPanel({
     }
   };
 
+  // Home-time gate (Wave 2 item 9): claim / assign / accept run
+  // through actHt. When the server stops the binding over a
+  // home-time commitment, the response carries the warning math —
+  // the override box opens on the row with a reason field, and
+  // "Override & bind it" re-calls the same binding with the
+  // override attached (sealed server-side). Nothing binds from
+  // the warning state itself.
+  type HtWarning = { summary: string; detail: string; deadlineAt: string; homeEtaAt: string; commitmentId: number };
+  const [htBox, setHtBox] = useState<{
+    rowId: number;
+    warning: HtWarning;
+    reason: string;
+    retry: (reason: string) => void;
+  } | null>(null);
+
+  const actHt = async (
+    key: string,
+    rowId: number,
+    call: (override: { reason: string } | null) => Promise<{ ok: boolean; error: string | null; homeTimeWarning?: HtWarning | null }>,
+    success: string,
+    override: { reason: string } | null = null,
+  ) => {
+    setBusy(key);
+    try {
+      const res = await call(override);
+      if (!res.ok) {
+        if (res.homeTimeWarning) {
+          setHtBox({
+            rowId,
+            warning: res.homeTimeWarning,
+            reason: "",
+            retry: (reason: string) => void actHt(key, rowId, call, success, { reason }),
+          });
+          setBanner(res.error ?? res.homeTimeWarning.summary);
+        } else {
+          setBanner(res.error ?? "That didn't go through.");
+        }
+        return;
+      }
+      setHtBox(null);
+      setBanner(success);
+      setArmKey(null);
+      refresh();
+    } catch {
+      setBanner("That didn't go through — check your connection and try again.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   if (boardQuery.isPending) {
     return (
       <section className="glass-panel p-3.5" aria-label="Fleet load board">
@@ -1071,7 +1121,7 @@ export function FleetLoadBoardPanel({
               onClick={() => {
                 if (armKey === `claim-${r.id}`) {
                   setArmKey(null);
-                  void act(`claim-${r.id}`, () => api.claimBoardLoad({ id: r.id }), `Load claimed — it's in your Loads now, Load Tracker at Booked. ${laneOf(r)}.`);
+                  void actHt(`claim-${r.id}`, r.id, (ov) => api.claimBoardLoad({ id: r.id, homeTimeOverride: ov }), `Load claimed — it's in your Loads now, Load Tracker at Booked. ${laneOf(r)}.`);
                 } else setArmKey(`claim-${r.id}`);
               }}
               className={`btn-press rounded-xl px-4 py-2.5 text-sm font-bold disabled:opacity-50 ${armKey === `claim-${r.id}` ? "bg-[var(--danger)] text-white" : "btn-neon"}`}
@@ -1099,7 +1149,7 @@ export function FleetLoadBoardPanel({
                 disabled={busy != null || !pick}
                 className="btn-press rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3.5 py-2.5 text-sm font-bold disabled:opacity-50"
                 aria-label={`Assign load ${laneOf(r)} to the chosen driver`}
-                onClick={() => void act(`assign-${r.id}`, () => api.assignBoardLoad({ id: r.id, targetUsername: pick }), `Offered — ${laneOf(r)} is assigned to @${pick}; it lands in their Loads when they accept.`)}
+                onClick={() => void actHt(`assign-${r.id}`, r.id, (ov) => api.assignBoardLoad({ id: r.id, targetUsername: pick, homeTimeOverride: ov }), `Offered — ${laneOf(r)} is assigned to @${pick}; it lands in their Loads when they accept.`)}
               >
                 {busy === `assign-${r.id}` ? "Assigning…" : "Assign"}
               </button>
@@ -1170,7 +1220,7 @@ export function FleetLoadBoardPanel({
                 disabled={busy != null}
                 className="btn-neon btn-press rounded-xl px-4 py-2.5 text-sm font-bold disabled:opacity-50"
                 aria-label={`Accept assigned load ${laneOf(r)}`}
-                onClick={() => void act(`accept-${r.id}`, () => api.acceptAssignedLoad({ id: r.id }), `Accepted — ${laneOf(r)} is in your Loads now, Load Tracker at Booked.`)}
+                onClick={() => void actHt(`accept-${r.id}`, r.id, (ov) => api.acceptAssignedLoad({ id: r.id, homeTimeOverride: ov }), `Accepted — ${laneOf(r)} is in your Loads now, Load Tracker at Booked.`)}
               >
                 {busy === `accept-${r.id}` ? "Accepting…" : "✅ Accept this load"}
               </button>
@@ -1245,7 +1295,7 @@ export function FleetLoadBoardPanel({
                 disabled={busy != null || !pick || pick === r.claimedBy}
                 className="btn-press rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3.5 py-2.5 text-sm font-bold disabled:opacity-50"
                 aria-label={`Reassign load ${laneOf(r)} to the chosen driver`}
-                onClick={() => void act(`assign-${r.id}`, () => api.assignBoardLoad({ id: r.id, targetUsername: pick }), `Reassigned — ${laneOf(r)} is offered to @${pick} now, waiting on their answer.`)}
+                onClick={() => void actHt(`assign-${r.id}`, r.id, (ov) => api.assignBoardLoad({ id: r.id, targetUsername: pick, homeTimeOverride: ov }), `Reassigned — ${laneOf(r)} is offered to @${pick} now, waiting on their answer.`)}
               >
                 {busy === `assign-${r.id}` ? "Reassigning…" : "Reassign"}
               </button>
@@ -1274,6 +1324,44 @@ export function FleetLoadBoardPanel({
               <p className="w-full text-xs leading-relaxed text-[var(--dim)]">🔒 {r.unassignBlockedReason}</p>
             ))}
         </div>
+        {htBox && htBox.rowId === r.id && (
+          <div className="mt-3 rounded-xl border border-amber-400/40 bg-amber-500/10 px-3 py-3">
+            <p className="text-sm font-bold text-amber-200">🏠 Home-time warning — this load is NOT bound</p>
+            <p className="mt-1 text-sm leading-relaxed">{htBox.warning.summary}</p>
+            <p className="mt-1 text-xs leading-relaxed text-[var(--dim)]">
+              Binding it anyway takes an override with a reason — the break, the math, and the reason are sealed on the
+              record, and the driver is notified. A commitment the driver set themselves can only be overridden by the
+              driver.
+            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <input
+                className="min-w-[220px] flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm"
+                value={htBox.reason}
+                onChange={(e) => setHtBox({ ...htBox, reason: e.target.value })}
+                placeholder="Reason for the override — it goes on the sealed record"
+                aria-label={`Reason for overriding the home-time commitment on ${laneOf(r)}`}
+                maxLength={300}
+              />
+              <button
+                type="button"
+                disabled={busy != null || !htBox.reason.trim()}
+                className="btn-press rounded-xl bg-[var(--danger)] px-3.5 py-2.5 text-sm font-bold text-white disabled:opacity-50"
+                aria-label={`Override the home-time commitment and bind ${laneOf(r)}`}
+                onClick={() => htBox.retry(htBox.reason.trim())}
+              >
+                Override &amp; bind it
+              </button>
+              <button
+                type="button"
+                className="btn-press rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3.5 py-2.5 text-sm font-bold"
+                aria-label="Leave the load unbound"
+                onClick={() => setHtBox(null)}
+              >
+                Never mind
+              </button>
+            </div>
+          </div>
+        )}
         {r.status === "taken" && (
           <p className="mt-2 text-xs text-[var(--dim)]">
             Load Tracker: {r.linkedPodSealed ? "Delivered — POD sealed" : r.linkedLoadStatus ? r.linkedLoadStatus.replace(/_/g, " ") : "booked"}

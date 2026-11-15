@@ -5341,3 +5341,124 @@ export const dqfAlertDismissals = sqliteTable("dqf_alert_dismissals", {
     .notNull()
     .$defaultFn(() => new Date()),
 });
+
+// ---- Home-time commitments + retention (migration 0135, Wave 2 item 9) ----
+// A home-time commitment is a term the DRIVER stated (or their
+// fleet stated for them) — never a term the app invents. Kinds:
+// by_date (home by one instant), every_n_days (a cadence anchored
+// on a known home deadline), weekends (home by Saturday 00:00
+// UTC). Commitments are corrected by voiding + re-recording,
+// never edited. Whether a deadline was KEPT is derived from the
+// sealed record (duty spells at the home location, delivery
+// seals, and the overrides below) by the pure rules in
+// homeTime.ts — no outcome is ever stored as a claim.
+export const homeTimeCommitments = sqliteTable("home_time_commitments", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  companyId: integer("company_id").notNull(),
+  driverUsername: text("driver_username").notNull(),
+  // by_date | every_n_days | weekends
+  kind: text("kind").notNull(),
+  // by_date: the home-by instant.
+  homeByAt: integer("home_by_at", { mode: "timestamp_ms" }),
+  // every_n_days: the cadence in days + one known deadline
+  // instant the series is anchored on.
+  everyNDays: integer("every_n_days"),
+  anchorAt: integer("anchor_at", { mode: "timestamp_ms" }),
+  // driver | fleet — who stated the term. Override authority
+  // follows it: a driver-stated term is overridden only by the
+  // driver; a fleet-stated term by the desk or the driver.
+  setBy: text("set_by").notNull(),
+  createdBy: text("created_by").notNull(),
+  note: text("note"),
+  effectiveFrom: integer("effective_from", { mode: "timestamp_ms" }).notNull(),
+  effectiveTo: integer("effective_to", { mode: "timestamp_ms" }),
+  voidedAt: integer("voided_at", { mode: "timestamp_ms" }),
+  voidedBy: text("voided_by"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+// One row per knowing break of a home-time commitment at a
+// binding funnel (claim / assign / accept): the load was bound
+// ANYWAY, by a named person, for a stated reason, with the math
+// that was shown (delivery appointment, computed home ETA, the
+// deadline). Every row is chain-sealed (home_time_overridden)
+// at write time. The hit-rate report reads these as the
+// "overridden" tally — an override is a fact, not a verdict.
+export const homeTimeOverrides = sqliteTable("home_time_overrides", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  companyId: integer("company_id").notNull(),
+  driverUsername: text("driver_username").notNull(),
+  commitmentId: integer("commitment_id").notNull(),
+  deadlineAt: integer("deadline_at", { mode: "timestamp_ms" }).notNull(),
+  boardLoadId: integer("board_load_id").notNull(),
+  // The driver's load once the binding created one (claim /
+  // accept / open claim); null for an assign that is still
+  // waiting on the driver's accept.
+  loadId: integer("load_id"),
+  // claim | assign | accept
+  method: text("method").notNull(),
+  overriddenBy: text("overridden_by").notNull(),
+  reason: text("reason").notNull(),
+  deliveryAt: integer("delivery_at", { mode: "timestamp_ms" }),
+  homeEtaAt: integer("home_eta_at", { mode: "timestamp_ms" }),
+  createdAt: integer("created_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+// Pulse survey episodes (Wave 2 item 9): at most one prompt per
+// driver per 14-day episode; the row is the episode's outcome —
+// answered (answers_json carries the driver's own 1–5 answers)
+// or dismissed. A driver's answers are THEIR record: the fleet
+// sees aggregates only, and only when 3+ drivers answered in the
+// window (below that, counts only — a small fleet makes any
+// average an attribution). Notes never leave the driver's own
+// view at any count.
+export const pulseResponses = sqliteTable("pulse_responses", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  companyId: integer("company_id").notNull(),
+  driverUsername: text("driver_username").notNull(),
+  episodeKey: text("episode_key").notNull(),
+  // answered | dismissed
+  status: text("status").notNull(),
+  answersJson: text("answers_json").notNull().default("{}"),
+  note: text("note"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+// Retention fact snapshots (migration 0135): detention waits
+// and trip miles live in PROFILE-scoped tables — a driver's own
+// session can read them, their fleet's desk cannot (the host
+// scopes reads to the caller). So when a driver opens their own
+// home-time record, their session computes those two fact counts
+// from their sealed records and stores them here, company-scoped,
+// stamped with when they were computed. The desk's board reads
+// the snapshot and shows its date — stale facts are labelled,
+// never passed off as live. (The missed-commitment count needs
+// no snapshot: commitments, overrides, and the duty chain are
+// company/global records the desk computes live, identically.)
+export const homeTimeFactSnapshots = sqliteTable("home_time_fact_snapshots", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  companyId: integer("company_id").notNull(),
+  driverUsername: text("driver_username").notNull(),
+  detentionOverruns90: integer("detention_overruns90").notNull().default(0),
+  milesRecent30: real("miles_recent30").notNull().default(0),
+  milesPrior30: real("miles_prior30").notNull().default(0),
+  computedAt: integer("computed_at", { mode: "timestamp_ms" }).notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});

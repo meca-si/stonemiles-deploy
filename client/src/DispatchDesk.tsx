@@ -32,6 +32,7 @@ import { api, type ApiResponse } from "./api";
 import { FleetBoardPanel } from "./FleetBoard";
 import { ExceptionQueuePanel } from "./AutonomyPanel";
 import { FleetDqfPanel } from "./DqfPanel";
+import { FleetHomeTimePanel } from "./HomeTimePanel";
 
 type DeskData = ApiResponse<typeof api, "getDispatchDesk">;
 type DeskClient = DeskData["clients"][number];
@@ -414,6 +415,9 @@ export function DispatchDesk({
 
             {/* Driver qualification files — 49 CFR 391 (Wave 2 item 6) */}
             <FleetDqfPanel />
+
+            {/* Home time & retention (Wave 2 item 9) */}
+            <FleetHomeTimePanel />
 
             {/* Client book */}
             <section className="mt-3 rounded-xl border border-[var(--glass-border)] bg-[var(--surface2)] px-3 py-3" aria-label="Client fleets">
