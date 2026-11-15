@@ -841,6 +841,13 @@
       "when": 1795000000000,
       "tag": "0120_truck_trailer_photos",
       "breakpoints": true
+    },
+    {
+      "idx": 120,
+      "version": "6",
+      "when": 1795100000000,
+      "tag": "0121_points_earning_lanes",
+      "breakpoints": true
     }
   ]
 }

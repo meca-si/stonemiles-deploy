@@ -42,7 +42,12 @@
 // (truck + trailer photos, My Trailer identity) adds +1 table
 // (vehicle_photos), +1 autoincrement PK, +1 timestamp_ms (photo
 // created_at); the 4 profile trailer-identity columns are plain
-// integer/text and ride the unchanged rules.
+// integer/text and ride the unchanged rules. Migration 0121 (points
+// earning lanes) adds +2 tables (poster_referrals, sealed_lanes),
+// +1 autoincrement PK (poster_referrals.id; sealed_lanes' PK is a
+// text lane key and rides the unchanged text rule), +3 timestamp_ms
+// (poster_referrals created/landed + sealed_lanes first_sealed_at);
+// the fuel_price_reports.reporter column is plain text.
 //
 //   bun run host/pg/transform-schema.ts
 
@@ -107,15 +112,15 @@ replaceAll(
   'integer mode "timestamp_ms" -> timestamp(tz, date)',
   /integer\(("[a-z0-9_]+"), \{ mode: "timestamp_ms" \}\)/g,
   'timestamp($1, { withTimezone: true, mode: "date" })',
-  307,
+  310,
 );
 replaceAll(
   "autoincrement PK -> serial",
   /integer\(("[a-z0-9_]+")\)\.primaryKey\(\{ autoIncrement: true \}\)/g,
   "serial($1).primaryKey()",
-  137,
+  138,
 );
-replaceAll("sqliteTable -> pgTable", /\bsqliteTable\(/g, "pgTable(", 168);
+replaceAll("sqliteTable -> pgTable", /\bsqliteTable\(/g, "pgTable(", 170);
 replaceAll("real -> doublePrecision", /\breal\(/g, "doublePrecision(", 177);
 
 // Leftovers: any of these means the source schema grew a shape this

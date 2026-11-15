@@ -449,7 +449,7 @@ export const pointsLog = sqliteTable("points_log", {
   username: text("username").notNull(),
   amount: integer("amount").notNull(),
   reason: text("reason").notNull(),
-  source: text("source").notNull(), // daily_* tasks | daily_fuel_receipt_bonus (+15 receipt bonus, fuelReceiptBonus.ts) | clean_streak | sealed_miles | rank_milestone | gift_in | gift_out | conversion | signup | subscription | renewal | referral | referral_milestone | clawback
+  source: text("source").notNull(), // daily_* tasks | daily_fuel_receipt_bonus (+15 receipt bonus, fuelReceiptBonus.ts) | clean_streak | sealed_miles | rank_milestone | gift_in | gift_out | conversion | signup | subscription | renewal | referral | referral_milestone | clawback | lane1_* / lane2_* / lane3_* (the three earning lanes, pointsLanes.ts)
   refKey: text("ref_key"), // dedupe key for automatic awards
   createdAt: integer("created_at", { mode: "timestamp_ms" })
     .notNull()
@@ -2580,6 +2580,12 @@ export const fuelPriceReports = sqliteTable("fuel_price_reports", {
   reportedAt: integer("reported_at", { mode: "timestamp_ms" }).notNull(),
   // receipt_verified | purchase | reported (see the grade comment above)
   grade: text("grade").notNull().default("reported"),
+  // Who filed a MANUAL price report (migration 0121, Lane 2 points):
+  // stamped ONLY by reportFuelPrice so a corroborated report can pay
+  // its reporter. Purchase-derived rows stay reporter NULL — those
+  // are anonymous by design (see the logFuelPurchase price-feed
+  // comment) and never earn Lane 2 points.
+  reporter: text("reporter"),
   createdAt: integer("created_at", { mode: "timestamp_ms" })
     .notNull()
     .$defaultFn(() => new Date()),
@@ -4438,6 +4444,41 @@ export const vehiclePhotos = sqliteTable("vehicle_photos", {
   createdAt: integer("created_at", { mode: "timestamp_ms" })
     .notNull()
     .$defaultFn(() => new Date()),
+});
+
+// Points earning lanes (migration 0121, locked by x 2026-11-15 —
+// pointsLanes.ts). poster_referrals: a driver's broker/shipper
+// referral, recorded when the desk creates the poster account with
+// the driver's referral code on it. Status "pending" until the
+// poster's first load is released to a board (board_load_id set on a
+// broker_poster_loads / shipper_loads row), then "landed" — the
+// Lane 3 award pays at landing, never at signup. Global table (no
+// profile_id): the points ledger is username-keyed and global too.
+export const posterReferrals = sqliteTable("poster_referrals", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  referrerUsername: text("referrer_username").notNull(),
+  kind: text("kind").notNull(), // broker | shipper
+  accountId: integer("account_id").notNull(), // broker_accounts.id | shipper_accounts.id
+  status: text("status").notNull().default("pending"), // pending | landed
+  createdAt: integer("created_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  landedAt: integer("landed_at", { mode: "timestamp_ms" }),
+});
+
+// Points earning lanes (migration 0121): the first-sealed-lane
+// registry. One row per normalized origin→destination lane key
+// ("CITY,ST->CITY,ST"), claimed by the FIRST driver to seal a load on
+// that lane — first writer wins (the lane_key primary key + insert
+// on-conflict-do-nothing in the seal paths / points evaluator). A
+// voided first seal deletes its row, so the lane honestly opens
+// again. Global table (no profile_id): "nobody has logged this lane"
+// is a platform-wide fact, not a per-profile one.
+export const sealedLanes = sqliteTable("sealed_lanes", {
+  laneKey: text("lane_key").primaryKey(),
+  firstUsername: text("first_username").notNull(),
+  firstLoadId: integer("first_load_id").notNull(),
+  firstSealedAt: integer("first_sealed_at", { mode: "timestamp_ms" }).notNull(),
 });
 
 export const breakdownLogs = sqliteTable("breakdown_logs", {
