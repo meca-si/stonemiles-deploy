@@ -9178,6 +9178,9 @@ export function App() {
     showMilesPanel: boolean;
     showTruck: boolean;
     featuredBadge: FeaturedBadgeKey | null;
+    // Birthday (Rewards Layer 2): month + day only — never a year.
+    birthMonth: number | null;
+    birthDay: number | null;
   } | null>(null);
   const [avatarFile, setAvatarFile] = useState<{ base64: string; mime: string } | null>(null);
   const [newPin, setNewPin] = useState("");
@@ -9218,6 +9221,8 @@ export function App() {
         showMilesPanel: p.showMilesPanel,
         showTruck: p.showTruck ?? true,
         featuredBadge: p.featuredBadge ?? null,
+        birthMonth: p.birthMonth ?? null,
+        birthDay: p.birthDay ?? null,
       });
     }
     if (!showSettings) setSocialForm(null);
@@ -21492,63 +21497,11 @@ export function App() {
               <p className="mt-1.5 text-xs text-[var(--dim)]">Your trailer, in your words — every field optional. Its type and length are the routing specs right below (Trailer type + Trailer length) — one place, not two. VIN and plate stay private, just like the truck&apos;s. Saves with SAVE SETTINGS at the bottom.</p>
               <VehiclePhotosSection kind="trailer" queryClient={queryClient} setBanner={setBanner} />
             </div>
-            {/* Birthday (migration 0124, Rewards Layer 2): month + day
-                ONLY — the app never asks for a birth year, so one can
-                never be stored. Pays the birthday drop in SM Points
-                (Layer 2) once a year, inside a week of the day. */}
-            <div className="mt-4 rounded-2xl border border-[var(--glass-border)] bg-[var(--surface2)] p-3">
-              <span className={labelCls}>Birthday — month and day only</span>
-              <div className="mt-2 grid grid-cols-2 gap-3">
-                <div>
-                  <label className={labelCls} htmlFor="set-birth-month">Month</label>
-                  <select
-                    id="set-birth-month"
-                    className={inputCls}
-                    aria-label="Birth month"
-                    value={profile.birthMonth ?? ""}
-                    onChange={(e) => {
-                      const m = e.target.value ? parseInt(e.target.value, 10) : null;
-                      if (m == null) {
-                        setProfile({ ...profile, birthMonth: null, birthDay: null });
-                        return;
-                      }
-                      const maxDay = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1] ?? 31;
-                      const d = profile.birthDay == null ? 1 : Math.min(profile.birthDay, maxDay);
-                      setProfile({ ...profile, birthMonth: m, birthDay: d });
-                    }}
-                  >
-                    <option value="">—</option>
-                    {["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"].map((name, i) => (
-                      <option key={name} value={i + 1}>{name}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className={labelCls} htmlFor="set-birth-day">Day</label>
-                  <select
-                    id="set-birth-day"
-                    className={inputCls}
-                    aria-label="Birth day"
-                    value={profile.birthDay ?? ""}
-                    disabled={profile.birthMonth == null}
-                    onChange={(e) => {
-                      const d = e.target.value ? parseInt(e.target.value, 10) : null;
-                      if (d == null) {
-                        setProfile({ ...profile, birthMonth: null, birthDay: null });
-                        return;
-                      }
-                      setProfile({ ...profile, birthDay: d });
-                    }}
-                  >
-                    <option value="">—</option>
-                    {Array.from({ length: profile.birthMonth == null ? 31 : ([31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][profile.birthMonth - 1] ?? 31) }, (_, i) => i + 1).map((d) => (
-                      <option key={d} value={d}>{d}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-              <p className="mt-1.5 text-xs text-[var(--dim)]">Optional — set it and your birthday pays SM Points once a year (Layer 2, in the points panel). Month and day only: the app never asks for a birth year. Saves with SAVE SETTINGS at the bottom.</p>
-            </div>
+            {/* Birthday (Rewards Layer 2) is NOT edited here: its
+                home is the My social profile editor further down
+                (sp-birth-month / sp-birth-day, saved by SAVE PROFILE
+                through updateMyProfile). The settings draft still
+                round-trips the stored month/day untouched. */}
             <ConnectTruckSection className="mt-3 rounded-2xl border border-[var(--glass-border)] bg-[var(--surface2)] p-3" onOpenPlans={() => setShowPlans(true)} />
             <CurrentTrailerCard queryClient={queryClient} setBanner={setBanner} />
             <div className="mt-4">
@@ -22341,6 +22294,67 @@ export function App() {
                     <label className={labelCls} htmlFor="sp-bio">Bio</label>
                     <input id="sp-bio" className={inputCls} value={socialForm.bio} onChange={(e) => setSocialForm({ ...socialForm, bio: e.target.value })} />
                   </div>
+                  {/* Birthday (migration 0124, Rewards Layer 2): month
+                      + day ONLY — the app never asks for a birth year,
+                      so one can never be stored. This block is the
+                      birthday's home: the My social profile editor,
+                      loaded from getUserProfile (owner-only) and saved
+                      by SAVE PROFILE through updateMyProfile onto the
+                      profile row. Pays the birthday drop in SM Points
+                      once a year, inside a week of the day. */}
+                  <div className="rounded-xl border border-[var(--border)] px-3 py-3">
+                    <span className={labelCls}>Birthday — month and day only</span>
+                    <div className="mt-2 grid grid-cols-2 gap-3">
+                      <div>
+                        <label className={labelCls} htmlFor="sp-birth-month">Month</label>
+                        <select
+                          id="sp-birth-month"
+                          className={inputCls}
+                          aria-label="Birth month"
+                          value={socialForm.birthMonth ?? ""}
+                          onChange={(e) => {
+                            const m = e.target.value ? parseInt(e.target.value, 10) : null;
+                            if (m == null) {
+                              setSocialForm({ ...socialForm, birthMonth: null, birthDay: null });
+                              return;
+                            }
+                            const maxDay = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1] ?? 31;
+                            const d = socialForm.birthDay == null ? 1 : Math.min(socialForm.birthDay, maxDay);
+                            setSocialForm({ ...socialForm, birthMonth: m, birthDay: d });
+                          }}
+                        >
+                          <option value="">—</option>
+                          {["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"].map((name, i) => (
+                            <option key={name} value={i + 1}>{name}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className={labelCls} htmlFor="sp-birth-day">Day</label>
+                        <select
+                          id="sp-birth-day"
+                          className={inputCls}
+                          aria-label="Birth day"
+                          value={socialForm.birthDay ?? ""}
+                          disabled={socialForm.birthMonth == null}
+                          onChange={(e) => {
+                            const d = e.target.value ? parseInt(e.target.value, 10) : null;
+                            if (d == null) {
+                              setSocialForm({ ...socialForm, birthMonth: null, birthDay: null });
+                              return;
+                            }
+                            setSocialForm({ ...socialForm, birthDay: d });
+                          }}
+                        >
+                          <option value="">—</option>
+                          {Array.from({ length: socialForm.birthMonth == null ? 31 : ([31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][socialForm.birthMonth - 1] ?? 31) }, (_, i) => i + 1).map((d) => (
+                            <option key={d} value={d}>{d}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                    <p className="mt-1.5 text-xs text-[var(--dim)]">Optional — set it and your birthday pays SM Points once a year (Layer 2, in the points panel). Month and day only: the app never asks for a birth year, and your birthday never shows on your public profile. Saves with SAVE PROFILE below.</p>
+                  </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className={labelCls} htmlFor="sp-dm">Who can DM me</label>
@@ -22476,11 +22490,18 @@ export function App() {
                           showMilesPanel: socialForm.showMilesPanel,
                           showTruck: socialForm.showTruck,
                           featuredBadge: socialForm.featuredBadge,
+                          birthMonth: socialForm.birthMonth,
+                          birthDay: socialForm.birthDay,
                           avatarDataBase64: avatarFile?.base64 ?? null,
                           avatarMime: avatarFile?.mime ?? null,
                         })
                         .then(() => {
                           setAvatarFile(null);
+                          // Mirror the just-saved birthday into the
+                          // settings profile draft, so a later SAVE
+                          // SETTINGS (saveProfile round-trips the whole
+                          // draft) can never wipe it with a stale copy.
+                          setProfile((prev) => ({ ...prev, birthMonth: socialForm.birthMonth, birthDay: socialForm.birthDay }));
                           queryClient.invalidateQueries({ queryKey: ["my-social"] });
                           queryClient.invalidateQueries({ queryKey: ["social-profile"] });
                           queryClient.invalidateQueries({ queryKey: ["directory"] });

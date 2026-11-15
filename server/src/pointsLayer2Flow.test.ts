@@ -177,6 +177,100 @@ describe("Layer 2 — birthday (month + day only, never a year)", () => {
   });
 });
 
+// ---- Birthday via the My social profile editor (updateMyProfile) -----------------
+//
+// Regression pin for the Layer 2 ship defect: the birthday selects
+// were placed on the Settings → Truck fold (the saveProfile draft),
+// NOT on the profile edit screen (Settings → My social profile), and
+// neither getUserProfile nor updateMyProfile carried the fields —
+// so from the profile editor a birthday could never be set and the
+// +100 drop could never fire from UI input. These tests pin the
+// profile-editor path end to end.
+
+describe("Layer 2 — birthday through the My social profile editor", () => {
+  const socialArgs = (over: Record<string, unknown> = {}) => ({
+    displayName: "Test Driver",
+    bio: null,
+    company: null,
+    truckInfo: null,
+    homeCity: null,
+    homeState: null,
+    contactPhone: null,
+    contactEmail: null,
+    mcNumber: null,
+    dotNumber: null,
+    twicHas: false,
+    twicExpires: null,
+    endorsements: [],
+    dmPolicy: "everyone" as const,
+    groupPolicy: "everyone" as const,
+    showReputation: false,
+    showMilesPanel: true,
+    showTruck: true,
+    featuredBadge: null,
+    birthMonth: null as number | null,
+    birthDay: null as number | null,
+    avatarDataBase64: null,
+    avatarMime: null,
+    ...over,
+  });
+
+  test("saving month/day on the profile editor persists, loads back owner-only, and pays the drop", async () => {
+    const u = await seedUser("l2bdayeditor");
+    const { month, day } = todayMonthDay();
+    await Actions.updateMyProfile.handler(ctxFor(u), socialArgs({ birthMonth: month, birthDay: day }));
+    // Persisted on the profile row (the same columns saveProfile writes).
+    const prof = await Actions.getProfile.handler(ctxFor(u), {});
+    expect(prof.profile!.birthMonth).toBe(month);
+    expect(prof.profile!.birthDay).toBe(day);
+    // The editor's own load path returns the saved values to the owner…
+    const mine = await Actions.getUserProfile.handler(ctxFor(u), { username: u.username });
+    expect(mine.birthMonth).toBe(month);
+    expect(mine.birthDay).toBe(day);
+    // …and to NOBODY else: another driver viewing this profile gets nulls.
+    const other = await seedUser("l2bdayviewer");
+    const theirs = await Actions.getUserProfile.handler(ctxFor(other), { username: u.username });
+    expect(theirs.birthMonth).toBeNull();
+    expect(theirs.birthDay).toBeNull();
+    // And the award the defect starved now fires from editor input.
+    await getPoints(u);
+    const rows = await layer2Rows(u.username, "layer2_birthday");
+    expect(rows.length).toBe(1);
+    expect(rows[0]!.amount).toBe(100);
+  });
+
+  test("clearing both fields on the editor clears the stored birthday", async () => {
+    const u = await seedUser("l2bdayclear");
+    await Actions.updateMyProfile.handler(ctxFor(u), socialArgs({ birthMonth: 6, birthDay: 15 }));
+    let prof = await Actions.getProfile.handler(ctxFor(u), {});
+    expect(prof.profile!.birthMonth).toBe(6);
+    expect(prof.profile!.birthDay).toBe(15);
+    await Actions.updateMyProfile.handler(ctxFor(u), socialArgs({ birthMonth: null, birthDay: null }));
+    prof = await Actions.getProfile.handler(ctxFor(u), {});
+    expect(prof.profile!.birthMonth).toBeNull();
+    expect(prof.profile!.birthDay).toBeNull();
+    const mine = await Actions.getUserProfile.handler(ctxFor(u), { username: u.username });
+    expect(mine.birthMonth).toBeNull();
+    expect(mine.birthDay).toBeNull();
+  });
+
+  test("the editor refuses a half-set or impossible birthday", async () => {
+    const u = await seedUser("l2bdaybad");
+    await expect(
+      Actions.updateMyProfile.handler(ctxFor(u), socialArgs({ birthMonth: 6, birthDay: null })),
+    ).rejects.toThrow();
+    await expect(
+      Actions.updateMyProfile.handler(ctxFor(u), socialArgs({ birthMonth: null, birthDay: 15 })),
+    ).rejects.toThrow();
+    await expect(
+      Actions.updateMyProfile.handler(ctxFor(u), socialArgs({ birthMonth: 2, birthDay: 30 })),
+    ).rejects.toThrow();
+    const prof = await Actions.getProfile.handler(ctxFor(u), {});
+    expect(prof.profile!.birthMonth).toBeNull();
+    expect(prof.profile!.birthDay).toBeNull();
+  });
+});
+
 // ---- Maintenance safety net ------------------------------------------------------
 
 describe("Layer 2 — maintenance discipline + the safety net", () => {

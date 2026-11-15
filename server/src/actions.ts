@@ -32450,6 +32450,13 @@ export const Actions = {
       // twicExpires carry the TWIC holding only (never a card
       // number); endorsements are the driver's CDL endorsement keys.
       contactEmail: z.string().nullable(),
+      // Birthday (migration 0124, Rewards Layer 2): month + day
+      // ONLY — no birth-year field exists anywhere. PRIVATE on the
+      // exact same terms as the phone/email above (returned only
+      // when the caller IS this user), so the My social profile
+      // editor can load and change it; it never shows publicly.
+      birthMonth: z.number().nullable(),
+      birthDay: z.number().nullable(),
       mcNumber: z.string().nullable(),
       dotNumber: z.string().nullable(),
       saferUrl: z.string().nullable(),
@@ -32589,6 +32596,8 @@ export const Actions = {
         homeState: row?.homeState ?? null,
         contactPhone: isMe ? (row?.contactPhone ?? null) : null,
         contactEmail: isMe ? (row?.contactEmail ?? null) : null,
+        birthMonth: isMe ? (prof[0]?.birthMonth ?? null) : null,
+        birthDay: isMe ? (prof[0]?.birthDay ?? null) : null,
         mcNumber: row?.mcNumber ?? null,
         dotNumber: row?.dotNumber ?? null,
         saferUrl: saferUrlFor({ dotNumber: row?.dotNumber ?? null, mcNumber: row?.mcNumber ?? null }),
@@ -32672,6 +32681,14 @@ export const Actions = {
       // driver's earned set before it is stored — an unearned choice
       // stores null (default order), never the unearned badge.
       featuredBadge: z.enum(["referral", "all_time_best", "season_rank"]).nullable().default(null),
+      // Birthday (migration 0124, Rewards Layer 2): month + day
+      // only — there is deliberately no birth-year field. This is
+      // the My social profile editor's save path for the birthday:
+      // the pair is validated together in the handler (same rules
+      // as saveProfile) and stored on the profile row
+      // (profile.birthMonth / birthDay); both null clears it.
+      birthMonth: z.number().int().min(1).max(12).nullable().default(null),
+      birthDay: z.number().int().min(1).max(31).nullable().default(null),
       avatarDataBase64: z.string().max(8_000_000).nullable(),
       avatarMime: z.string().max(60).nullable(),
     }),
@@ -32684,11 +32701,24 @@ export const Actions = {
         .where(eq(schema.profile.id, myProfileId(ctx)))
         .limit(1);
       const me = prof[0]?.socialUsername ?? "driver";
-      // Keep the chat display name in sync with the profile display name.
+      // Birthday pair validation (Rewards Layer 2) — identical to
+      // saveProfile: month and day are set together or not at all,
+      // and the day must exist in the month. Month + day only; no
+      // year exists to validate.
+      const birthMonth = args.birthMonth ?? null;
+      const birthDay = args.birthDay ?? null;
+      if ((birthMonth == null) !== (birthDay == null)) {
+        throw new Error("Birthday needs both a month and a day — or neither. (We never ask for a birth year.)");
+      }
+      if (birthMonth != null && !validBirthMonthDay(birthMonth, birthDay)) {
+        throw new Error("That birthday doesn't exist — check the month and day. (We never ask for a birth year.)");
+      }
+      // Keep the chat display name in sync with the profile display
+      // name, and store the birthday on the same profile row.
       if (prof[0]) {
         await db
           .update(schema.profile)
-          .set({ chatName: args.displayName })
+          .set({ chatName: args.displayName, birthMonth, birthDay })
           .where(eq(schema.profile.id, myProfileId(ctx)));
       }
       let avatarBlobKey: string | null = null;
