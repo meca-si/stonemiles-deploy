@@ -208,6 +208,10 @@ type CredentialLike,
 type CredentialStatus,
 } from "./credentialAlerts";
 import {
+settlementLineFor,
+settlementTotals,
+} from "./settlement";
+import {
 SEASON_EPOCH,
 SEASON_MS,
 pointsBalanceFromLedger,
@@ -42335,6 +42339,124 @@ export const Actions = {
       }
       out.sort((a, b) => Date.parse(a.deliveredAt) - Date.parse(b.deliveredAt) || a.loadId - b.loadId);
       return { rows: out };
+    },
+  }),
+
+  // ---- Settlement view (TMS queue item 2) -------------------------------------
+  // A driver sees their OWN sealed loads and what each paid THEM,
+  // line by line, from their own My Pay setting (settlement.ts).
+  // Read-only display: nothing here moves money or edits a load.
+  // Own data only — the loads read is host-scoped to the caller's
+  // profile and the seal state comes from the same scoped chain, so
+  // another driver's loads can never appear, figured or not.
+
+  getMySettlement: defineAction({
+    description: "The caller's own sealed loads with per-line pay computed from their My Pay setting (CPM or percent), read-only.",
+    request: z.object({}),
+    response: z.object({
+      payBasis: z.string(),
+      driverCpm: z.number().nullable(),
+      driverPayPct: z.number().nullable(),
+      companyName: z.string().nullable(),
+      lines: z.array(
+        z.object({
+          loadId: z.number(),
+          shipper: z.string().nullable(),
+          pickupCity: z.string().nullable(),
+          pickupState: z.string().nullable(),
+          deliveryCity: z.string().nullable(),
+          deliveryState: z.string().nullable(),
+          referenceNumber: z.string().nullable(),
+          sealedAt: z.string(),
+          rate: z.number().nullable(),
+          extraCharges: z.number(),
+          gross: z.number().nullable(),
+          loadedMiles: z.number().nullable(),
+          deadheadMiles: z.number().nullable(),
+          pay: z.number().nullable(),
+          basisNote: z.string(),
+        }),
+      ),
+      totalPay: z.number(),
+      totalGross: z.number(),
+      figured: z.number(),
+      unfigured: z.number(),
+    }),
+    async handler(ctx) {
+      const db = ctx.db<typeof schema>();
+      const profRows = await db
+        .select()
+        .from(schema.profile)
+        .where(eq(schema.profile.id, myProfileId(ctx)))
+        .limit(1);
+      const prof = profRows[0];
+      const setting = {
+        payBasis: prof?.payBasis ?? "cpm",
+        driverCpm: prof?.driverCpm ?? null,
+        driverPayPct: prof?.driverPayPct ?? null,
+      };
+      const loads = await db.select().from(schema.loads).orderBy(desc(schema.loads.id));
+      const pods = await podStatusByLoad(ctx);
+      type LineOut = {
+        loadId: number;
+        shipper: string | null;
+        pickupCity: string | null;
+        pickupState: string | null;
+        deliveryCity: string | null;
+        deliveryState: string | null;
+        referenceNumber: string | null;
+        sealedAt: string;
+        rate: number | null;
+        extraCharges: number;
+        gross: number | null;
+        loadedMiles: number | null;
+        deadheadMiles: number | null;
+        pay: number | null;
+        basisNote: string;
+      };
+      const lines: LineOut[] = [];
+      const rawLines: ReturnType<typeof settlementLineFor>[] = [];
+      for (const l of loads) {
+        const pod = pods.get(l.id);
+        if (!pod?.sealed || !pod.sealedAt) continue; // sealed loads only
+        const line = settlementLineFor(setting, {
+          rate: l.rate ?? null,
+          extraCharges: l.extraCharges ?? 0,
+          loadedMiles: l.loadedMiles ?? null,
+        });
+        rawLines.push(line);
+        lines.push({
+          loadId: l.id,
+          shipper: l.shipper,
+          pickupCity: l.pickupCity,
+          pickupState: l.pickupState,
+          deliveryCity: l.deliveryCity,
+          deliveryState: l.deliveryState,
+          referenceNumber: l.referenceNumber ?? null,
+          sealedAt: pod.sealedAt,
+          rate: l.rate ?? null,
+          extraCharges: l.extraCharges ?? 0,
+          gross: line.gross,
+          loadedMiles: l.loadedMiles ?? null,
+          deadheadMiles: l.deadheadMiles ?? null,
+          pay: line.pay,
+          basisNote: line.basisNote,
+        });
+      }
+      // Newest delivery first — the driver reads their latest pay at the top.
+      lines.sort((a, b) => Date.parse(b.sealedAt) - Date.parse(a.sealedAt) || b.loadId - a.loadId);
+      const totals = settlementTotals(rawLines);
+      return {
+        payBasis: setting.payBasis,
+        driverCpm: setting.driverCpm,
+        driverPayPct: setting.driverPayPct,
+        companyName: prof?.companyName ?? null,
+        lines,
+        totalPay: totals.totalPay,
+        totalGross: totals.totalGross,
+        figured: totals.figured,
+        unfigured: totals.unfigured,
+      };
     },
   }),
 

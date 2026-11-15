@@ -398,6 +398,86 @@ export function OwedBoardPanel({ setBanner, lang = "en" }: { setBanner: Banner; 
   );
 }
 
+// ---------- 2b) My settlement — what my sealed loads paid me ---------------------
+// TMS queue item 2: the driver's OWN sealed loads with pay figured
+// per line from their own My Pay setting (server: settlement.ts via
+// getMySettlement). Read-only — no edits, no money movement; the
+// fleet's money stays the fleet's, this is the driver's own cut.
+
+export function SettlementPanel({ lang = "en" }: { setBanner: Banner; lang?: Lang }) {
+  const q = useQuery({ queryKey: ["my-settlement"], queryFn: () => api.getMySettlement({}) });
+  const d = q.data;
+  const lines = d?.lines ?? [];
+  return (
+    <Section title={tt(lang, "money.mySettlementTitle")} ariaLabel="My settlement — what my sealed loads paid me">
+      <p className="text-sm text-[var(--dim)]">
+        Every load you've <strong className="text-[var(--text)]">delivered and sealed</strong>, with what it paid <strong className="text-[var(--text)]">you</strong> figured line by line from your own pay setting in <strong className="text-[var(--text)]">Settings → My pay</strong>
+        {d ? (
+          <>
+            {" "}— right now:{" "}
+            <strong className="text-[var(--text)]">
+              {d.payBasis === "percent"
+                ? d.driverPayPct != null
+                  ? `${d.driverPayPct}% of each load's pay`
+                  : "percent of each load's pay (percent not set yet)"
+                : d.driverCpm != null
+                  ? `$${d.driverCpm.toFixed(2)}/mi`
+                  : "$0.55/mi standard (your CPM isn't set)"}
+            </strong>
+            {d.companyName ? <> at <strong className="text-[var(--text)]">{d.companyName}</strong></> : null}.
+          </>
+        ) : (
+          "."
+        )}{" "}
+        Read-only: this view figures your cut from the sealed record — it doesn't move money, and only your own loads ever show here.
+      </p>
+      {q.isLoading && <p className="mt-3 text-sm text-[var(--dim)]">Reading your sealed loads…</p>}
+      {!q.isLoading && lines.length === 0 && (
+        <p className="mt-3 rounded-xl bg-[var(--surface2)] px-3 py-2.5 text-sm">No sealed loads yet — when a delivery seals, its line lands here with your pay figured on it.</p>
+      )}
+      {lines.length > 0 && d && (
+        <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+          <div className="rounded-xl bg-[var(--surface2)] px-2 py-2.5">
+            <div className="font-condensed text-xl font-bold">{money(d.totalPay)}</div>
+            <div className="text-[11px] text-[var(--dim)]">your pay, figured</div>
+          </div>
+          <div className="rounded-xl bg-[var(--surface2)] px-2 py-2.5">
+            <div className="font-condensed text-xl font-bold">{lines.length}</div>
+            <div className="text-[11px] text-[var(--dim)]">sealed loads</div>
+          </div>
+          <div className="rounded-xl bg-[var(--surface2)] px-2 py-2.5">
+            <div className="font-condensed text-xl font-bold">{money(d.totalGross)}</div>
+            <div className="text-[11px] text-[var(--dim)]">load pay it ran on{d.unfigured > 0 ? ` · ${d.unfigured} not figured` : ""}</div>
+          </div>
+        </div>
+      )}
+      <div className="mt-3 space-y-2">
+        {lines.map((l) => (
+          <div key={l.loadId} className="rounded-xl bg-[var(--surface2)] px-3 py-2.5 text-sm">
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="font-bold">Load #{l.loadId} · {laneOf(l)}</span>
+              <span className="shrink-0 font-condensed text-lg font-bold">{l.pay != null ? money(l.pay) : "not figured"}</span>
+            </div>
+            <div className="text-xs text-[var(--dim)]">
+              {l.shipper ?? "Shipper not listed"}
+              {l.referenceNumber ? ` · Ref ${l.referenceNumber}` : ""} · sealed {new Date(l.sealedAt).toLocaleDateString()}
+            </div>
+            <div className="mt-0.5 text-xs text-[var(--dim)]">
+              {l.gross != null ? `Load pay ${money(l.gross)}${l.extraCharges > 0 ? ` (rate ${money(l.rate ?? 0)} + ${money(l.extraCharges)} charges)` : ""}` : "Load pay: no rate on file"}
+              {l.loadedMiles != null ? ` · ${l.loadedMiles.toLocaleString()} loaded mi` : " · loaded miles not on file"}
+              {l.deadheadMiles != null ? ` · ${l.deadheadMiles.toLocaleString()} deadhead mi (not paid miles)` : ""}
+            </div>
+            <div className="mt-0.5 text-xs">{l.basisNote}</div>
+          </div>
+        ))}
+      </div>
+      {d && d.unfigured > 0 && (
+        <p className="mt-2 text-xs text-[var(--dim)]">{d.unfigured} line{d.unfigured === 1 ? " is" : "s are"} not figured — each one says why on its line. Nothing is ever guessed: no rate or no miles on file means no number until the record has it.</p>
+      )}
+    </Section>
+  );
+}
+
 // ---------- 3) True rate per load ------------------------------------------------
 
 export function TrueRatePanel({ setBanner, mpg, lang = "en" }: { setBanner: Banner; mpg: number; lang?: Lang }) {
@@ -1416,6 +1496,9 @@ export function MoneyFlowHub({ setBanner, mpg, onOpenBreakdownHelp, onOpenParkin
       </div>
       <div id="owed-board" className="scroll-mt-4">
         <OwedBoardPanel setBanner={setBanner} lang={lang} />
+      </div>
+      <div id="my-settlement" className="scroll-mt-4">
+        <SettlementPanel setBanner={setBanner} lang={lang} />
       </div>
       <div id="true-rate" className="scroll-mt-4">
         <TrueRatePanel setBanner={setBanner} mpg={mpg} lang={lang} />
