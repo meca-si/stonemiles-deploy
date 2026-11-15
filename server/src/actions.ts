@@ -7295,11 +7295,13 @@ const profileShape = z.object({
   truckEngine: z.string().max(80).nullable().default(null),
   truckTransmission: z.string().max(80).nullable().default(null),
   // My Trailer identity (migration 0120): the trailer as its own
-  // piece of equipment — year, make, VIN, plate. All optional;
-  // defaulted so older saved profiles still validate. Trailer type
-  // and length are the routing-spec fields above, not repeated here.
+  // piece of equipment — year, make, VIN, plate. Migration 0123 adds
+  // the model beside the make. All optional; defaulted so older
+  // saved profiles still validate. Trailer type and length are the
+  // routing-spec fields above, not repeated here.
   trailerYear: z.number().int().min(1950).max(2100).nullable().default(null),
   trailerMake: z.string().max(60).nullable().default(null),
+  trailerModel: z.string().max(60).nullable().default(null),
   trailerVin: z.string().max(40).nullable().default(null),
   trailerPlate: z.string().max(30).nullable().default(null),
 });
@@ -11838,17 +11840,19 @@ function publicTruckLineFor(prof: {
 }
 
 // Public trailer line for the social profile (My Trailer identity,
-// migration 0120): built ONLY from the trailer's year, make, and the
-// trailer type label — "2022 Great Dane · Step Deck". Trailer VIN
-// and plate are NEVER part of this line; they stay owner-only in
-// Settings -> Truck, exactly like the truck's VIN and plate.
+// migration 0120; model added by migration 0123): built ONLY from
+// the trailer's year, make, model, and the trailer type label —
+// "2022 Great Dane <model> · Step Deck". Trailer VIN and plate are
+// NEVER part of this line; they stay owner-only in Settings ->
+// Truck, exactly like the truck's VIN and plate.
 function publicTrailerLineFor(prof: {
   trailerYear: number | null;
   trailerMake: string | null;
+  trailerModel: string | null;
   trailerType: string;
 } | null | undefined): string | null {
   if (!prof) return null;
-  const head = [prof.trailerYear != null ? String(prof.trailerYear) : "", prof.trailerMake ?? ""]
+  const head = [prof.trailerYear != null ? String(prof.trailerYear) : "", prof.trailerMake ?? "", prof.trailerModel ?? ""]
     .map((x) => x.trim())
     .filter(Boolean)
     .join(" ");
@@ -18894,6 +18898,7 @@ export const Actions = {
           truckTransmission: row.truckTransmission ?? null,
           trailerYear: row.trailerYear ?? null,
           trailerMake: row.trailerMake ?? null,
+          trailerModel: row.trailerModel ?? null,
           trailerVin: row.trailerVin ?? null,
           trailerPlate: row.trailerPlate ?? null,
           pinSet: row.pinHash != null,
@@ -18952,6 +18957,7 @@ export const Actions = {
         truckTransmission: args.truckTransmission?.trim() || null,
         trailerYear: args.trailerYear,
         trailerMake: args.trailerMake?.trim() || null,
+        trailerModel: args.trailerModel?.trim() || null,
         trailerVin: args.trailerVin?.trim() || null,
         trailerPlate: args.trailerPlate?.trim() || null,
         updatedAt: new Date(),
@@ -19000,6 +19006,7 @@ export const Actions = {
             truckTransmission: values.truckTransmission,
             trailerYear: values.trailerYear,
             trailerMake: values.trailerMake,
+            trailerModel: values.trailerModel,
             trailerVin: values.trailerVin,
             trailerPlate: values.trailerPlate,
             updatedAt: values.updatedAt,
@@ -31980,9 +31987,10 @@ export const Actions = {
       // viewer is not the driver themselves.
       showTruck: z.boolean(),
       truckLine: z.string().nullable(),
-      // My Trailer on profile (migration 0120): trailerLine mirrors
-      // truckLine — year + make + trailer type ONLY (never VIN or
-      // plate), same toggle, same staging rule. truckPhotos /
+      // My Trailer on profile (migration 0120; model added by
+      // migration 0123): trailerLine mirrors truckLine — year +
+      // make + model + trailer type ONLY (never VIN or plate), same
+      // toggle, same staging rule. truckPhotos /
       // trailerPhotos are the two photo sets (up to 5 each): URLs
       // only, and ONLY when the showTruck toggle is ON — with the
       // toggle off, no photo of either vehicle appears in this
@@ -42627,6 +42635,7 @@ export const Actions = {
             })
           : ["  (no DVIR signed yet)"]),
       ];
+      const trailerName = [p?.trailerYear ?? null, p?.trailerMake ?? null, p?.trailerModel ?? null].filter(Boolean).join(" ");
       const identityRows: [string, string][] = [
         ["Truck", truckName],
         ["Unit number", p?.truckUnitNumber ?? ""],
@@ -42636,6 +42645,9 @@ export const Actions = {
         ["Transmission", p?.truckTransmission ?? ""],
         ["Height", p ? `${p.heightFt} ft ${p.heightIn} in` : ""],
         ["Gross weight (lbs)", p?.weightLbs != null ? String(p.weightLbs) : ""],
+        ["Trailer", trailerName],
+        ["Trailer VIN", p?.trailerVin ?? ""],
+        ["Trailer plate", p?.trailerPlate ?? ""],
         ["Trailer length (ft)", p?.lengthFt != null ? String(p.lengthFt) : ""],
         ["Trailer type", p?.trailerType ?? ""],
         ["MPG (default)", p?.mpg != null ? String(p.mpg) : ""],
@@ -42843,7 +42855,7 @@ export const Actions = {
       const p = prof[0];
       const truckName = [p?.truckYear ?? null, p?.truckMake ?? null, p?.truckModel ?? null].filter(Boolean).join(" ");
       const truckLabel = truckName ? (p?.truckUnitNumber ? `${truckName} · Unit ${p.truckUnitNumber}` : truckName) : null;
-      const trailerName = [p?.trailerYear ?? null, p?.trailerMake ?? null].filter(Boolean).join(" ");
+      const trailerName = [p?.trailerYear ?? null, p?.trailerMake ?? null, p?.trailerModel ?? null].filter(Boolean).join(" ");
       const trailerTypeLabel = p?.trailerType ? p.trailerType.replace(/_/g, " ") : null;
       const trailerLabel = [trailerName || null, trailerTypeLabel].filter(Boolean).join(" · ") || null;
       const safeToOperate = args.safeToOperate ?? !critical;
