@@ -292,6 +292,18 @@ import {
   type EldSyncFeedResult,
 } from "./eldSync";
 import {
+  parkingArrivalPlan,
+  parkingPartnerFromEnv,
+} from "./parking";
+import {
+  canDetentionClaimMove,
+  detentionClaimPack,
+  facilityDetentionStats,
+  facilityKeyOf,
+  type DetentionClaimStatus,
+  type FacilityDetentionStat,
+} from "./detentionClaim";
+import {
 SEASON_EPOCH,
 SEASON_MS,
 pointsBalanceFromLedger,
@@ -13049,6 +13061,7 @@ function cleanBrokerFields(args: {
 const ELD_PROVIDER_NAMES: Record<string, string> = {
   samsara: "Samsara",
   motive: "Motive",
+  simulated: "Simulated ELD",
 };
 
 const eldFeedShape = z.object({
@@ -13077,6 +13090,17 @@ const ELD_FEED_MAP: Record<string, { feed: string; label: string; endpoint: stri
     { feed: "ifta", label: "IFTA trips + summaries", endpoint: "GET /v1/ifta/trips · /v1/ifta/summary" },
     { feed: "identity", label: "Driver & truck identity (logged on connect)", endpoint: "GET /v1/drivers · /v1/vehicles" },
   ],
+  // The test-harness device (Wave 2 items 4+5 Step 0): no provider
+  // endpoints exist — the "feed" is the simulated payload set the
+  // harness itself generates, and every stored snapshot says so.
+  simulated: [
+    { feed: "hos_clocks", label: "HOS clocks", endpoint: "simulated device payload" },
+    { feed: "hos_logs", label: "HOS logs", endpoint: "simulated device payload" },
+    { feed: "dvirs", label: "DVIRs", endpoint: "simulated device payload" },
+    { feed: "vehicle_stats", label: "Vehicle stats — odometer + GPS", endpoint: "simulated device payload" },
+    { feed: "ifta", label: "IFTA jurisdiction miles", endpoint: "simulated device payload" },
+    { feed: "identity", label: "Driver & truck identity (logged on connect)", endpoint: "simulated device payload" },
+  ],
 };
 
 const eldConnectionShape = z.object({
@@ -13084,7 +13108,7 @@ const eldConnectionShape = z.object({
   provider: z.string(),
   providerName: z.string(),
   label: z.string(),
-  status: z.string(), // not_connected | validating | connected | error | revoked
+  status: z.string(), // not_connected | validating | connected | error | revoked | simulated
   tokenMasked: z.string().nullable(),
   feeds: z.array(eldFeedShape),
   lastError: z.string().nullable(),
@@ -13528,7 +13552,7 @@ async function toEldConnection(
     label: row.label,
     status: row.status,
     tokenMasked: row.tokenLast4 ? `••••••••${row.tokenLast4}` : null,
-    feeds: row.status === "connected" || row.status === "error" ? await eldFeedsFor(ctx, row) : [],
+    feeds: row.status === "connected" || row.status === "error" || row.status === "simulated" ? await eldFeedsFor(ctx, row) : [],
     lastError: row.lastError,
     connectedBy: row.connectedBy,
     createdAt: row.createdAt.toISOString(),
@@ -16697,6 +16721,33 @@ async function resolveLibraryDocument(ctx: Ctx, ref: string): Promise<ResolvedLi
     return { ok: true, error: null, docKind: "filing", title, filename: `stonemiles-tax-summary-${year}.pdf`, mime: "application/pdf", bytes };
   }
 
+  if (kind === "detention-claim") {
+    // The detention COLLECTION pack for one sealed visit (Wave 2
+    // item 5): facility, sealed arrival/departure, wait, free time,
+    // time beyond it, GPS, load reference — and the claim amount
+    // ONLY when the driver recorded detention terms on the load,
+    // labelled "driver's recorded terms" on the document. Scope:
+    // detention_records is host-scoped, and this door additionally
+    // requires the record to be the caller's own — a ref naming
+    // another driver's visit reads exactly like one that doesn't
+    // exist. The pack prints for the driver and the broker/factor
+    // they send it to; it is never on a share/receive/public
+    // surface (the doors enforce that, same as invoices).
+    const id = Number(parts[1]);
+    const rows = await db.select().from(schema.detentionRecords).where(eq(schema.detentionRecords.id, id)).limit(1);
+    const r = rows[0];
+    if (!r || r.departedAt == null) return docRefused("detention claim");
+    const { input, place } = await detentionClaimInputFor(ctx, r);
+    const pack = detentionClaimPack(input);
+    const title = `Detention claim - ${place} - ${r.arrivedAt.toISOString().slice(0, 10)}`;
+    const bytes = libraryPdfBytes({
+      title,
+      subtitle: "From the sealed detention record in your library — times stamped when they happened",
+      sections: [{ heading: "Detention claim", lines: pack.text.split("\n").slice(2) }],
+    });
+    return { ok: true, error: null, docKind: "detention_claim", title, filename: `detention-claim-${r.id}.pdf`, mime: "application/pdf", bytes };
+  }
+
   if (kind === "invoice") {
     // The branded invoice for one sealed load (TMS queue item 3).
     // Scope: the invoices table is host-scoped, so a ref naming
@@ -17368,6 +17419,88 @@ async function buildLibrary(ctx: Ctx) {
     chain: { intact: walk.intact, checked: walk.checked, headHash: walk.headHash },
     fleet,
   };
+}
+
+// ---- Detention collection helpers (Wave 2 item 5) -----------------
+
+/** The claim-pack input for one closed detention row: the sealed
+ *  visit facts, the linked load (labels + the driver's recorded
+ *  terms), and this facility's stats from the driver's own sealed
+ *  records. Shared by the pack action, the send action, and the
+ *  Library document door so all three print the identical pack. */
+async function detentionClaimInputFor(
+  ctx: Ctx,
+  row: typeof schema.detentionRecords.$inferSelect,
+): Promise<{
+  input: Parameters<typeof detentionClaimPack>[0];
+  load: typeof schema.loads.$inferSelect | undefined;
+  place: string;
+}> {
+  const db = ctx.db<typeof schema>();
+  const loads = row.loadId != null ? await db.select().from(schema.loads).where(eq(schema.loads.id, row.loadId)).limit(1) : [];
+  const load = loads[0];
+  const place = row.placeLabel
+    || (load ? [load.deliveryCity, load.deliveryState].filter(Boolean).join(", ") : "")
+    || "Stop";
+  // Detention records and loads are host-scoped tables: these
+  // selects already return only the record owner's rows.
+  const mine = await db.select().from(schema.detentionRecords);
+  const myLoads = await db.select().from(schema.loads);
+  const labelFor = (r: typeof schema.detentionRecords.$inferSelect): string => {
+    if (r.placeLabel) return r.placeLabel;
+    const l = r.loadId != null ? myLoads.find((x) => x.id === r.loadId) : undefined;
+    return (l ? [l.deliveryCity, l.deliveryState].filter(Boolean).join(", ") : "") || "Stop";
+  };
+  const stats = facilityDetentionStats(
+    mine
+      .filter((r) => r.departedAt != null)
+      .map((r) => {
+        const label = labelFor(r);
+        return {
+          placeKey: facilityKeyOf(label),
+          placeLabel: label,
+          arrivedAtIso: r.arrivedAt.toISOString(),
+          departedAtIso: r.departedAt!.toISOString(),
+          graceMinutes: r.graceMinutes,
+        };
+      }),
+  );
+  const facility: FacilityDetentionStat | null = stats.find((s) => s.placeKey === facilityKeyOf(place)) ?? null;
+  return {
+    place,
+    load,
+    input: {
+      place,
+      site: (row.site === "pickup" || row.site === "delivery" ? row.site : "stop") as "pickup" | "delivery" | "stop",
+      apptAtIso: row.apptAt ? row.apptAt.toISOString() : null,
+      arrivedAtIso: row.arrivedAt.toISOString(),
+      departedAtIso: row.departedAt!.toISOString(),
+      graceMinutes: row.graceMinutes,
+      arriveLat: row.arriveLat,
+      arriveLon: row.arriveLon,
+      departLat: row.departLat,
+      departLon: row.departLon,
+      chainHash: row.chainHash,
+      load: load
+        ? {
+            reference: load.referenceNumber,
+            originLabel: [load.pickupCity, load.pickupState].filter(Boolean).join(", ") || "Origin",
+            destinationLabel: [load.deliveryCity, load.deliveryState].filter(Boolean).join(", ") || "Destination",
+            brokerName: load.brokerName,
+            brokerCompany: load.brokerCompany,
+            brokerMc: load.brokerMc,
+          }
+        : null,
+      detentionRatePerHour: load?.detentionRatePerHour ?? null,
+      facility,
+    },
+  };
+}
+
+/** The detention record's claim status as the typed union. */
+function claimStatusOf(row: typeof schema.detentionRecords.$inferSelect): DetentionClaimStatus {
+  const s = row.claimStatus;
+  return s === "generated" || s === "sent" || s === "acknowledged" || s === "paid" || s === "disputed" ? s : "none";
 }
 
 export const Actions = {
@@ -34618,9 +34751,25 @@ export const Actions = {
   // simulated snapshots, and live sync still awaits a real ELD —
   // this harness never claims otherwise. Manager-gated like every
   // ELD write.
+  //
+  // ZERO-CONNECTION PATH (Wave 2 items 4+5 Step 0): with no
+  // connectionId, the harness stands up a dedicated SIMULATED
+  // connection (provider "simulated", label "Simulated device",
+  // status "simulated", NO token — there is nothing to paste for a
+  // device that doesn't exist) and syncs against it. Before this,
+  // the hub's test-sync button lived only inside a saved
+  // connection's card, so an account with zero saved connections —
+  // exactly the account the harness exists for — could never reach
+  // it. The simulated connection's status is its own value, never
+  // "connected", so no official-record surface (which keys on
+  // status "connected" and skips simulated snapshots besides) can
+  // mistake it for a real ELD.
   runEldTestSync: defineAction({
-    description: "Run a test sync of simulated ELD device data through the real sync pipeline for one of the caller's connections (live sync still awaits a real ELD device).",
-    request: z.object({ connectionId: z.number().int().positive() }),
+    description: "Run a test sync of simulated ELD device data through the real sync pipeline — against one of the caller's connections, or against a stood-up simulated device when no connection is named (live sync still awaits a real ELD device).",
+    request: z.object({
+      connectionId: z.number().int().positive().optional(),
+      provider: z.string().max(40).optional(),
+    }),
     response: z.object({
       ok: z.boolean(),
       error: z.string().nullable(),
@@ -34638,15 +34787,66 @@ export const Actions = {
       if (!gate.canManage) {
         return { ok: false, error: "Only the fleet owner / admin can run the ELD test sync — drivers and dispatch can view connection status.", accepted: 0, rejected: 0, lines: [], note: null };
       }
-      const rows = await db
-        .select()
-        .from(schema.eldConnections)
-        .where(eq(schema.eldConnections.id, args.connectionId))
-        .limit(1);
-      const conn = rows[0];
-      if (!conn) return { ok: false, error: "That ELD connection doesn't exist.", accepted: 0, rejected: 0, lines: [], note: null };
-      if (conn.status === "revoked") {
-        return { ok: false, error: "That connection was revoked — its token is wiped, so there's nothing to sync against. Connect the ELD again first.", accepted: 0, rejected: 0, lines: [], note: null };
+      let conn: typeof schema.eldConnections.$inferSelect | undefined;
+      if (args.connectionId != null) {
+        const rows = await db
+          .select()
+          .from(schema.eldConnections)
+          .where(eq(schema.eldConnections.id, args.connectionId))
+          .limit(1);
+        conn = rows[0];
+        if (!conn) return { ok: false, error: "That ELD connection doesn't exist.", accepted: 0, rejected: 0, lines: [], note: null };
+        if (conn.status === "revoked") {
+          return { ok: false, error: "That connection was revoked — its token is wiped, so there's nothing to sync against. Connect the ELD again first.", accepted: 0, rejected: 0, lines: [], note: null };
+        }
+      } else {
+        // No connection named: the simulated device. Reuse the one
+        // already stood up (a revoked one is left revoked — a fresh
+        // one stands up beside it); otherwise create it, labelled
+        // simulated in the provider, the label, AND the status.
+        const sims = await db
+          .select()
+          .from(schema.eldConnections)
+          .where(eq(schema.eldConnections.provider, "simulated"));
+        conn = sims.find((c) => c.status !== "revoked");
+        if (!conn) {
+          const mine = await myMembership(ctx, gate.me);
+          const feeds = (ELD_FEED_MAP.simulated ?? []).map((f) => ({
+            feed: f.feed,
+            state: "awaiting_first_sync",
+            detail: "Awaiting first sync — this device is simulated; its data is test data, never provider data.",
+          }));
+          const inserted = await db
+            .insert(schema.eldConnections)
+            .values({
+              provider: "simulated",
+              companyId: mine?.company.id ?? null,
+              label: "Simulated device",
+              status: "simulated",
+              tokenEnc: null,
+              tokenLast4: null,
+              feedsJson: JSON.stringify(feeds),
+              lastError: null,
+              connectedBy: gate.me,
+            })
+            .returning();
+          conn = inserted[0];
+          if (!conn) throw new Error("runEldTestSync: simulated connection insert returned no rows");
+          await appendChain(ctx, {
+            refKind: "driver",
+            refId: null,
+            sessionId: null,
+            event: "eld_simulated_connection_created",
+            payload: {
+              provider: "simulated",
+              label: "Simulated device",
+              simulated: true,
+              tokenStored: false,
+              by: gate.me,
+              at: new Date().toISOString(),
+            },
+          });
+        }
       }
       const batch = simulatedEldPayloads(new Date());
       const r = await applyEldSyncBatch(ctx, conn, batch, "test_harness");
@@ -47623,6 +47823,12 @@ export const Actions = {
         waitMinutes: z.number().nullable(),
         billableMinutes: z.number().nullable(),
         chainHash: z.string().nullable(),
+        // Detention collection (Wave 2 item 5): the claim
+        // lifecycle for this visit + the driver's recorded terms
+        // on its load (their own contract data, shown to them).
+        claimStatus: z.string(),
+        claimRecipient: z.string().nullable(),
+        detentionRatePerHour: z.number().nullable(),
       })),
       totalBillableMinutes: z.number(),
       openCount: z.number(),
@@ -47652,6 +47858,9 @@ export const Actions = {
           waitMinutes: t.waitMinutes,
           billableMinutes: t.billableMinutes,
           chainHash: r.chainHash ?? null,
+          claimStatus: r.claimStatus ?? "none",
+          claimRecipient: r.claimRecipient ?? null,
+          detentionRatePerHour: load?.detentionRatePerHour ?? null,
         };
       });
       return { records: records.slice(0, args.limit), totalBillableMinutes, openCount };
@@ -47683,6 +47892,537 @@ export const Actions = {
         chainHash: row.chainHash,
       });
       return { text, filename: `stonemiles-detention-${row.id}.txt` };
+    },
+  }),
+
+  // ---- Reservable HOS-aware parking (Research Wave 2 item 4) -----
+  // INTEGRATION ONLY: reservations ride a partner's supply through
+  // the parking.ts seam. No partner configured (the state until a
+  // partner agreement lands) → the reserve action refuses with the
+  // plain reason and writes nothing; the planner's stops stay
+  // suggestions, labelled as such. When a partner IS configured,
+  // the hold is placed with the partner FIRST and only a partner-
+  // accepted hold becomes a row + a chain seal.
+
+  getParkingReservations: defineAction({
+    description: "The caller's parking reservations and whether a parking partner is connected (reservations need one — without a partner the stops stay planner suggestions).",
+    request: z.object({}),
+    response: z.object({
+      partnerConfigured: z.boolean(),
+      partnerName: z.string().nullable(),
+      reservations: z.array(z.object({
+        id: z.number(),
+        stopName: z.string(),
+        stopLat: z.number(),
+        stopLon: z.number(),
+        alongMi: z.number(),
+        etaAt: z.string(),
+        latestArrivalAt: z.string(),
+        status: z.string(),
+        partnerName: z.string().nullable(),
+        partnerRef: z.string().nullable(),
+        createdAt: z.string(),
+      })),
+    }),
+    async handler(ctx) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const partner = parkingPartnerFromEnv(process.env);
+      const rows = await db
+        .select()
+        .from(schema.parkingReservations)
+        .where(eq(schema.parkingReservations.driverUsername, me))
+        .orderBy(desc(schema.parkingReservations.id));
+      return {
+        partnerConfigured: partner != null,
+        partnerName: partner?.name ?? null,
+        reservations: rows.map((r) => ({
+          id: r.id,
+          stopName: r.stopName,
+          stopLat: r.stopLat,
+          stopLon: r.stopLon,
+          alongMi: r.alongMi,
+          etaAt: r.etaAt.toISOString(),
+          latestArrivalAt: r.latestArrivalAt.toISOString(),
+          status: r.status,
+          partnerName: r.partnerName,
+          partnerRef: r.partnerRef,
+          createdAt: r.createdAt.toISOString(),
+        })),
+      };
+    },
+  }),
+
+  reserveParking: defineAction({
+    description: "Reserve a planner-picked parking stop through the connected parking partner, with the arrival window computed against the driver's HOS clock. Refused plainly — nothing written — when no partner is connected or the clock can't reach the stop.",
+    request: z.object({
+      stopName: z.string().min(1).max(200),
+      stopLat: z.number().min(-90).max(90),
+      stopLon: z.number().min(-180).max(180),
+      alongMi: z.number().min(0).max(5000),
+      paceMph: z.number().min(1).max(120).optional(),
+    }),
+    response: z.object({
+      ok: z.boolean(),
+      error: z.string().nullable(),
+      reservationId: z.number().nullable(),
+      status: z.string().nullable(),
+      etaAt: z.string().nullable(),
+      latestArrivalAt: z.string().nullable(),
+      fit: z.string().nullable(),
+    }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const partner = parkingPartnerFromEnv(process.env);
+      if (!partner) {
+        return {
+          ok: false,
+          error: "Parking reservations aren't connected yet — no parking partner is linked to STONEMILES, so this stop stays a planner suggestion. Nothing was reserved.",
+          reservationId: null, status: null, etaAt: null, latestArrivalAt: null, fit: null,
+        };
+      }
+      // The arrival window is computed from the driver's REAL
+      // clocks (the sealed duty timeline), not from anything the
+      // client claims — the reservation proves what it was booked
+      // against.
+      const now = new Date();
+      const { events } = await effectiveDutyTimeline(ctx);
+      const clocks = hosClocksFor(events.filter((e) => e.username === me), now.getTime());
+      const bindingRemainH = clocks.hasData ? Math.min(clocks.driveRemainH, clocks.windowRemainH) : null;
+      const plan = parkingArrivalPlan({
+        now,
+        alongMi: args.alongMi,
+        paceMph: args.paceMph ?? 50,
+        bindingRemainH,
+      });
+      if (plan.fit === "wont_make_it") {
+        return {
+          ok: false,
+          error: "Your hours run out before you'd reach this stop — it isn't offered for reserving. Pick a stop your clock can reach.",
+          reservationId: null, status: null,
+          etaAt: plan.etaAt.toISOString(), latestArrivalAt: plan.latestArrivalAt.toISOString(), fit: plan.fit,
+        };
+      }
+      let placed: { partnerRef: string; status: "held" | "confirmed" };
+      try {
+        placed = await partner.reserve({
+          stopName: args.stopName,
+          stopLat: args.stopLat,
+          stopLon: args.stopLon,
+          etaAt: plan.etaAt.toISOString(),
+          latestArrivalAt: plan.latestArrivalAt.toISOString(),
+          driverRef: me,
+        });
+      } catch {
+        return {
+          ok: false,
+          error: `${partner.name} couldn't place the hold just now — nothing was reserved. Try again in a bit.`,
+          reservationId: null, status: null,
+          etaAt: plan.etaAt.toISOString(), latestArrivalAt: plan.latestArrivalAt.toISOString(), fit: plan.fit,
+        };
+      }
+      const inserted = await db
+        .insert(schema.parkingReservations)
+        .values({
+          profileId: myProfileId(ctx),
+          driverUsername: me,
+          stopName: args.stopName,
+          stopLat: args.stopLat,
+          stopLon: args.stopLon,
+          alongMi: args.alongMi,
+          etaAt: plan.etaAt,
+          latestArrivalAt: plan.latestArrivalAt,
+          status: placed.status,
+          partnerName: partner.name,
+          partnerRef: placed.partnerRef,
+        })
+        .returning({ id: schema.parkingReservations.id });
+      const reservationId = inserted[0]!.id;
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "parking_reserved",
+        payload: {
+          reservationId,
+          stopName: args.stopName,
+          alongMi: args.alongMi,
+          etaAt: plan.etaAt.toISOString(),
+          latestArrivalAt: plan.latestArrivalAt.toISOString(),
+          fit: plan.fit,
+          partner: partner.name,
+          partnerRef: placed.partnerRef,
+          status: placed.status,
+          by: me,
+          at: now.toISOString(),
+        },
+      });
+      ctx.invalidateQueries();
+      return {
+        ok: true,
+        error: null,
+        reservationId,
+        status: placed.status,
+        etaAt: plan.etaAt.toISOString(),
+        latestArrivalAt: plan.latestArrivalAt.toISOString(),
+        fit: plan.fit,
+      };
+    },
+  }),
+
+  cancelParkingReservation: defineAction({
+    description: "Cancel one of the caller's parking reservations — the partner hold is released first, then the cancellation seals.",
+    request: z.object({ id: z.number().int().positive() }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const rows = await db.select().from(schema.parkingReservations).where(eq(schema.parkingReservations.id, args.id)).limit(1);
+      const row = rows[0];
+      if (!row || row.driverUsername !== me) return { ok: false, error: "That reservation doesn't exist." };
+      if (row.status === "cancelled" || row.status === "used") {
+        return { ok: false, error: `That reservation is already ${row.status} — nothing to cancel.` };
+      }
+      const partner = parkingPartnerFromEnv(process.env);
+      if (partner && row.partnerRef) {
+        try {
+          await partner.cancel(row.partnerRef);
+        } catch {
+          return { ok: false, error: `${partner.name} couldn't release the hold just now — the reservation is unchanged. Try again in a bit.` };
+        }
+      }
+      await db
+        .update(schema.parkingReservations)
+        .set({ status: "cancelled", updatedAt: new Date() })
+        .where(eq(schema.parkingReservations.id, row.id));
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "parking_reservation_cancelled",
+        payload: { reservationId: row.id, stopName: row.stopName, partnerRef: row.partnerRef, by: me, at: new Date().toISOString() },
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
+    },
+  }),
+
+  markParkingReservationUsed: defineAction({
+    description: "Mark one of the caller's parking reservations as used — the driver parked there.",
+    request: z.object({ id: z.number().int().positive() }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const rows = await db.select().from(schema.parkingReservations).where(eq(schema.parkingReservations.id, args.id)).limit(1);
+      const row = rows[0];
+      if (!row || row.driverUsername !== me) return { ok: false, error: "That reservation doesn't exist." };
+      if (row.status !== "held" && row.status !== "confirmed") {
+        return { ok: false, error: `That reservation is ${row.status} — it can't be marked used.` };
+      }
+      await db
+        .update(schema.parkingReservations)
+        .set({ status: "used", updatedAt: new Date() })
+        .where(eq(schema.parkingReservations.id, row.id));
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "parking_reservation_used",
+        payload: { reservationId: row.id, stopName: row.stopName, partnerRef: row.partnerRef, by: me, at: new Date().toISOString() },
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
+    },
+  }),
+
+  // ---- Detention collection pack (Research Wave 2 item 5) --------
+  // The sealed detention clock proves the time; this turns a
+  // closed visit into a CLAIM: a pack document through the Library
+  // doors (ref detention-claim:{id}), priced ONLY from detention
+  // terms the driver recorded on the load (never invented), with a
+  // chain-sealed lifecycle (generated → sent → acknowledged →
+  // paid | disputed) and per-facility stats from sealed records.
+
+  setLoadDetentionTerms: defineAction({
+    description: "Record (or clear) the driver's own detention terms on one of their loads — the per-hour figure from their agreement, which the detention claim pack prices from and labels as the driver's recorded terms.",
+    request: z.object({
+      loadId: z.number().int().positive(),
+      ratePerHour: z.number().min(0).max(10000).nullable(),
+    }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const rows = await db.select().from(schema.loads).where(eq(schema.loads.id, args.loadId)).limit(1);
+      const load = rows[0];
+      if (!load) return { ok: false, error: "That load doesn't exist." };
+      await db
+        .update(schema.loads)
+        .set({ detentionRatePerHour: args.ratePerHour })
+        .where(eq(schema.loads.id, load.id));
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: load.id,
+        sessionId: null,
+        event: "detention_terms_recorded",
+        payload: {
+          loadId: load.id,
+          detentionRatePerHour: args.ratePerHour,
+          source: "driver_recorded",
+          by: me,
+          at: new Date().toISOString(),
+        },
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
+    },
+  }),
+
+  getDetentionClaimPack: defineAction({
+    description: "The detention collection pack for one closed visit: facility, sealed times, wait, free time, time beyond it, GPS, load reference, and the claim priced from the driver's recorded terms (or a blank amount line when no terms are on file). First generation moves the claim to 'generated' and seals it.",
+    request: z.object({ id: z.number().int().positive() }),
+    response: z.object({
+      ok: z.boolean(),
+      error: z.string().nullable(),
+      text: z.string().nullable(),
+      filename: z.string().nullable(),
+      claimStatus: z.string().nullable(),
+      amountCents: z.number().nullable(),
+    }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const rows = await db.select().from(schema.detentionRecords).where(eq(schema.detentionRecords.id, args.id)).limit(1);
+      const row = rows[0];
+      if (!row) return { ok: false, error: "That detention record doesn't exist.", text: null, filename: null, claimStatus: null, amountCents: null };
+      if (row.departedAt == null) return { ok: false, error: "That clock is still running — the claim pack builds when you tap Done and the visit seals.", text: null, filename: null, claimStatus: null, amountCents: null };
+      const { input } = await detentionClaimInputFor(ctx, row);
+      const pack = detentionClaimPack(input);
+      let status = claimStatusOf(row);
+      if (status === "none") {
+        await db
+          .update(schema.detentionRecords)
+          .set({ claimStatus: "generated", claimGeneratedAt: new Date(), updatedAt: new Date() })
+          .where(eq(schema.detentionRecords.id, row.id));
+        await appendChain(ctx, {
+          refKind: "driver",
+          refId: null,
+          sessionId: null,
+          event: "detention_claim_generated",
+          payload: {
+            detentionId: row.id,
+            loadId: row.loadId,
+            billableMinutes: pack.facts.billableMinutes,
+            amountCents: pack.amountCents,
+            termsSource: pack.amountCents != null ? "driver_recorded" : "none_on_file",
+            by: me,
+            at: new Date().toISOString(),
+          },
+        });
+        status = "generated";
+        ctx.invalidateQueries();
+      }
+      return {
+        ok: true,
+        error: null,
+        text: pack.text,
+        filename: `stonemiles-detention-claim-${row.id}.txt`,
+        claimStatus: status,
+        amountCents: pack.amountCents,
+      };
+    },
+  }),
+
+  sendDetentionClaimPack: defineAction({
+    description: "Email the detention claim pack (PDF) to the broker/factor address on file for the load — or an address the driver gives — through the same document-send path as the POD. Advances the claim to 'sent' only when the mail actually goes out; seals the send either way it lands.",
+    request: z.object({ id: z.number().int().positive(), toEmail: z.string().max(200).optional() }),
+    response: z.object({
+      ok: z.boolean(),
+      error: z.string().nullable(),
+      sendStatus: z.string().nullable(),
+      claimStatus: z.string().nullable(),
+      recipient: z.string().nullable(),
+    }),
+    privileged: [privileged.sendDocEmail],
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const fail = (error: string) => ({ ok: false, error, sendStatus: null, claimStatus: null, recipient: null });
+      const rows = await db.select().from(schema.detentionRecords).where(eq(schema.detentionRecords.id, args.id)).limit(1);
+      const row = rows[0];
+      if (!row) return fail("That detention record doesn't exist.");
+      if (row.departedAt == null) return fail("That clock is still running — the claim pack sends when the visit seals.");
+      const status = claimStatusOf(row);
+      if (status === "none") return fail("Build the claim pack first — then send it.");
+      if (status !== "generated") return fail(`This claim is already ${status} — it isn't sent twice.`);
+      // The recipient: the driver's address wins; otherwise the
+      // address on file for the load — the paperwork recipient,
+      // else the broker account that posted the load (the same
+      // resolution the POD send uses).
+      let recipient = args.toEmail?.trim() || null;
+      if (!recipient && row.loadId != null) {
+        const pw = await db.select().from(schema.loadPaperwork).where(eq(schema.loadPaperwork.loadId, row.loadId)).limit(1);
+        recipient = pw[0]?.recipientEmail?.trim() || null;
+      }
+      if (!recipient && row.loadId != null) {
+        const prefill = await paperworkRecipientPrefill(ctx, row.loadId);
+        recipient = prefill?.email?.trim() || null;
+      }
+      if (!recipient) {
+        return fail("No email address on file for this load's broker — add the address you're sending to and try again.");
+      }
+      const doc = await resolveLibraryDocument(ctx, `detention-claim:${row.id}`);
+      if (!doc.ok || !doc.bytes) return fail("The claim pack couldn't be built from the sealed record.");
+      const myEmail = viewerOf(ctx)?.email ?? (await accountEmailFor(ctx, me));
+      const subject = doc.title;
+      const res = (await ctx.executePrivileged(privileged.sendDocEmail, {
+        to: recipient,
+        replyTo: myEmail ?? null,
+        subject,
+        text: [
+          `${subject}`,
+          ``,
+          `Sent by @${me} from their STONEMILES Library. The detention claim pack is attached (${doc.filename}).`,
+          myEmail ? `Reply to this email and it goes to ${myEmail} — the sender — not to the app.` : `Reply to this email and it goes to the sender.`,
+          ``,
+          `STONEMILES by Stonervision — sealed records, plain and simple.`,
+        ].join("\n"),
+        attachmentBase64: Buffer.from(doc.bytes).toString("base64"),
+        attachmentFilename: doc.filename,
+      })) as { ok: boolean; notConfigured: boolean; providerId: string | null; errorMessage: string | null };
+      const sendStatus: "sent" | "queued" | "failed" = res.ok && res.providerId ? "sent" : res.notConfigured ? "queued" : "failed";
+      const errorMessage = sendStatus === "failed" ? (res.errorMessage ?? "The mail transport refused the send.") : null;
+      await db.insert(schema.documentSends).values({
+        username: me,
+        docRef: `detention-claim:${row.id}`,
+        docKind: "detention_claim",
+        docTitle: doc.title,
+        toEmail: recipient,
+        replyTo: myEmail ?? null,
+        subject,
+        status: sendStatus,
+        providerId: res.providerId ?? null,
+        detail: errorMessage,
+        sentAt: sendStatus === "sent" ? new Date() : null,
+      });
+      await appendChain(ctx, {
+        refKind: "library",
+        refId: null,
+        sessionId: null,
+        event: "document_emailed",
+        payload: { by: me, ref: `detention-claim:${row.id}`, docKind: "detention_claim", to: recipient, subject, status: sendStatus },
+      });
+      if (sendStatus === "sent") {
+        await db
+          .update(schema.detentionRecords)
+          .set({ claimStatus: "sent", claimSentAt: new Date(), claimRecipient: recipient, updatedAt: new Date() })
+          .where(eq(schema.detentionRecords.id, row.id));
+        await appendChain(ctx, {
+          refKind: "driver",
+          refId: null,
+          sessionId: null,
+          event: "detention_claim_sent",
+          payload: { detentionId: row.id, loadId: row.loadId, to: recipient, by: me, at: new Date().toISOString() },
+        });
+      }
+      ctx.invalidateQueries();
+      return {
+        ok: sendStatus !== "failed",
+        error: sendStatus === "failed" ? (errorMessage ?? "The claim email couldn't be sent.") : null,
+        sendStatus,
+        claimStatus: sendStatus === "sent" ? "sent" : status,
+        recipient,
+      };
+    },
+  }),
+
+  setDetentionClaimStatus: defineAction({
+    description: "Move a detention claim along its lifecycle — acknowledged, paid, or disputed (each transition chain-sealed; the order is enforced).",
+    request: z.object({
+      id: z.number().int().positive(),
+      status: z.enum(["acknowledged", "paid", "disputed"]),
+    }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable(), claimStatus: z.string().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const rows = await db.select().from(schema.detentionRecords).where(eq(schema.detentionRecords.id, args.id)).limit(1);
+      const row = rows[0];
+      if (!row) return { ok: false, error: "That detention record doesn't exist.", claimStatus: null };
+      const from = claimStatusOf(row);
+      const to = args.status as DetentionClaimStatus;
+      if (!canDetentionClaimMove(from, to)) {
+        return { ok: false, error: `A claim that is ${from} can't move to ${to} from here.`, claimStatus: from };
+      }
+      await db
+        .update(schema.detentionRecords)
+        .set({ claimStatus: to, updatedAt: new Date() })
+        .where(eq(schema.detentionRecords.id, row.id));
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "detention_claim_status",
+        payload: { detentionId: row.id, loadId: row.loadId, from, to, by: me, at: new Date().toISOString() },
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null, claimStatus: to };
+    },
+  }),
+
+  getFacilityDetentionStats: defineAction({
+    description: "Per-facility detention stats from the caller's OWN sealed detention records: visits, times held past free time, average time beyond it, sample size always attached. Below 3 visits the facts print without a score.",
+    request: z.object({}),
+    response: z.object({
+      facilities: z.array(z.object({
+        placeKey: z.string(),
+        placeLabel: z.string(),
+        visits: z.number(),
+        detainedCount: z.number(),
+        avgBillableMinutes: z.number(),
+        totalBillableMinutes: z.number(),
+        lastVisitAt: z.string(),
+        scoreEligible: z.boolean(),
+      })),
+    }),
+    async handler(ctx) {
+      const db = ctx.db<typeof schema>();
+      // Host-scoped tables: these selects are already the caller's own.
+      const mine = await db.select().from(schema.detentionRecords);
+      const myLoads = await db.select().from(schema.loads);
+      const labelFor = (r: typeof schema.detentionRecords.$inferSelect): string => {
+        if (r.placeLabel) return r.placeLabel;
+        const l = r.loadId != null ? myLoads.find((x) => x.id === r.loadId) : undefined;
+        return (l ? [l.deliveryCity, l.deliveryState].filter(Boolean).join(", ") : "") || "Stop";
+      };
+      const stats = facilityDetentionStats(
+        mine
+          .filter((r) => r.departedAt != null)
+          .map((r) => {
+            const label = labelFor(r);
+            return {
+              placeKey: facilityKeyOf(label),
+              placeLabel: label,
+              arrivedAtIso: r.arrivedAt.toISOString(),
+              departedAtIso: r.departedAt!.toISOString(),
+              graceMinutes: r.graceMinutes,
+            };
+          }),
+      );
+      return {
+        facilities: stats.map((s) => ({
+          placeKey: s.placeKey,
+          placeLabel: s.placeLabel,
+          visits: s.visits,
+          detainedCount: s.detainedCount,
+          avgBillableMinutes: Math.round(s.avgBillableMinutes),
+          totalBillableMinutes: s.totalBillableMinutes,
+          lastVisitAt: s.lastVisitAtIso,
+          scoreEligible: s.scoreEligible,
+        })),
+      };
     },
   }),
 

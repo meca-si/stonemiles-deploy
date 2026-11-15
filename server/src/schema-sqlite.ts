@@ -1868,6 +1868,17 @@ export const loads = sqliteTable("loads", {
   // sensor reading.
   reeferSetpointF: real("reefer_setpoint_f"),
   reeferBandF: real("reefer_band_f"),
+  // Detention collection (migration 0132, Wave 2 item 5): the
+  // driver's OWN detention terms for this load — a per-hour figure
+  // THEY recorded from their agreement with the broker/shipper.
+  // Driver-entered only, never inferred from the rate or anything
+  // else; the detention claim pack prices its time from this figure
+  // and labels it "driver's recorded terms". Null = no terms on
+  // file — the claim pack then prints time facts only and leaves
+  // the amount line blank. (The detention_records table itself
+  // stays money-free by design; terms live on the load, where the
+  // driver's other agreement facts live.)
+  detentionRatePerHour: real("detention_rate_per_hour"),
   // Dock helper: the delivery appointment, the dock door assigned
   // (when known), and the lumper fee paid at the dock with its
   // receipt filed as a blob (fingerprinted like load documents).
@@ -2856,10 +2867,14 @@ export const eldConnections = sqliteTable("eld_connections", {
   // pre-auth rows; migration 0108 backfills them to profile 1.
   profileId: integer("profile_id"),
   id: integer("id").primaryKey({ autoIncrement: true }),
-  provider: text("provider").notNull(), // samsara | motive
+  provider: text("provider").notNull(), // samsara | motive | simulated
   companyId: integer("company_id"),
   label: text("label").notNull(), // admin-chosen name, e.g. "Fleet Samsara"
-  // not_connected | validating | connected | error | revoked
+  // not_connected | validating | connected | error | revoked |
+  // simulated (the test-harness device stood up by runEldTestSync
+  // when no real connection exists — no token, ever; its snapshots
+  // carry the simulated marker and official-record surfaces skip
+  // them exactly like any test-sync data)
   status: text("status").notNull().default("not_connected"),
   tokenEnc: text("token_enc"), // enc:v1:… vault ciphertext; null after revoke
   tokenLast4: text("token_last4"),
@@ -4967,6 +4982,52 @@ export const detentionRecords = sqliteTable("detention_records", {
   departLat: real("depart_lat"),
   departLon: real("depart_lon"),
   chainHash: text("chain_hash"),
+  // Detention collection (migration 0132, Wave 2 item 5): the claim
+  // lifecycle for THIS visit's collection pack — none → generated →
+  // sent → acknowledged → paid | disputed. Every transition seals
+  // into the chain (detention_claim_* events); the columns are the
+  // current-state cache. Still NO money column: the claim amount
+  // is computed at pack time from the load's driver-recorded terms
+  // (loads.detention_rate_per_hour) and lives on the pack document,
+  // never stored here.
+  claimStatus: text("claim_status").notNull().default("none"),
+  claimGeneratedAt: integer("claim_generated_at", { mode: "timestamp_ms" }),
+  claimSentAt: integer("claim_sent_at", { mode: "timestamp_ms" }),
+  claimRecipient: text("claim_recipient"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+// Parking reservations (migration 0132, Wave 2 item 4): a parking
+// stop the planner picked, reserved through a PARTNER's supply
+// (Truck Parking Club-class) — STONEMILES builds no parking supply
+// of its own. A row exists only when a partner actually accepted
+// the hold: the partner seam (parking.ts parkingPartnerFromEnv)
+// returns null until a partner agreement + credentials exist, and
+// with no partner the reserve action refuses honestly and writes
+// nothing. The arrival window is computed against the driver's
+// HOS clock at reserve time (eta = now + miles at the standing
+// pace; latest = when the binding clock runs out) and snapshotted
+// here, so the reservation proves what it was booked against.
+export const parkingReservations = sqliteTable("parking_reservations", {
+  profileId: integer("profile_id"),
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  driverUsername: text("driver_username").notNull(),
+  stopName: text("stop_name").notNull(),
+  stopLat: real("stop_lat").notNull(),
+  stopLon: real("stop_lon").notNull(),
+  alongMi: real("along_mi").notNull(),
+  etaAt: integer("eta_at", { mode: "timestamp_ms" }).notNull(),
+  latestArrivalAt: integer("latest_arrival_at", { mode: "timestamp_ms" }).notNull(),
+  // held | confirmed | cancelled | used — the partner's word for
+  // the hold, cached; transitions seal into the chain.
+  status: text("status").notNull().default("held"),
+  partnerName: text("partner_name"),
+  partnerRef: text("partner_ref"),
   createdAt: integer("created_at", { mode: "timestamp_ms" })
     .notNull()
     .$defaultFn(() => new Date()),

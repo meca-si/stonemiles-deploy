@@ -219,6 +219,7 @@ import {
   type PlannerCandidate,
 } from "./stopPlanner";
 import { selectAutoAddStops, type AutoAddStop } from "./autoAddStops";
+import { parkingFitFor, PARKING_FIT_LABEL } from "./parkingFit";
 import { eldIdentitySections, eldIdentityStamp } from "./eldIdentity";
 import { TruckStopCardSheet } from "./TruckStopCard";
 import {
@@ -25317,6 +25318,47 @@ function ParkingSheet({
       // Device storage full/blocked — the spot stays saved for this session.
     }
   };
+  // Parking reservations (Wave 2 item 4): partner-held, HOS-aware.
+  // The server says plainly whether a parking partner is connected;
+  // until one is, reserving is disabled with the honest reason and
+  // these stops stay planner suggestions — never a fake hold.
+  const queryClient = useQueryClient();
+  const reservationsQuery = useQuery({
+    queryKey: ["parking-reservations"],
+    queryFn: () => api.getParkingReservations({}),
+  });
+  const partnerConfigured = reservationsQuery.data?.partnerConfigured ?? false;
+  const myReservations = reservationsQuery.data?.reservations ?? [];
+  const [reserveBusyKey, setReserveBusyKey] = useState<string | null>(null);
+  const [reserveMsg, setReserveMsg] = useState<{ key: string; text: string; ok: boolean } | null>(null);
+  const doReserve = (c: { key: string; name: string; lat: number; lon: number; alongMi: number }) => {
+    setReserveBusyKey(c.key);
+    setReserveMsg(null);
+    void api.reserveParking({ stopName: c.name, stopLat: c.lat, stopLon: c.lon, alongMi: c.alongMi, paceMph: pace })
+      .then((r) => {
+        setReserveMsg({
+          key: c.key,
+          ok: r.ok,
+          text: r.ok
+            ? `Reserved through ${reservationsQuery.data?.partnerName ?? "the parking partner"} — arrive by ${r.latestArrivalAt ? new Date(r.latestArrivalAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "your clock's end"} to stay inside your hours.`
+            : (r.error ?? "Couldn't reserve — try again."),
+        });
+        if (r.ok) void queryClient.invalidateQueries({ queryKey: ["parking-reservations"] });
+      })
+      .catch(() => setReserveMsg({ key: c.key, ok: false, text: "Couldn't reserve — check your connection and try again." }))
+      .finally(() => setReserveBusyKey(null));
+  };
+  const doReservationAction = (id: number, action: "cancel" | "used") => {
+    setReserveBusyKey(`res-${id}`);
+    void (action === "cancel" ? api.cancelParkingReservation({ id }) : api.markParkingReservationUsed({ id }))
+      .then(() => void queryClient.invalidateQueries({ queryKey: ["parking-reservations"] }))
+      .catch(() => undefined)
+      .finally(() => setReserveBusyKey(null));
+  };
+  const reservationFor = (name: string, lat: number, lon: number) =>
+    myReservations.find(
+      (r) => (r.status === "held" || r.status === "confirmed") && r.stopName === name && Math.abs(r.stopLat - lat) < 0.001 && Math.abs(r.stopLon - lon) < 0.001,
+    );
   useEffect(() => {
     if (!pos) return;
     let stop = false;
@@ -25555,6 +25597,69 @@ function ParkingSheet({
                 ) : null}
                 {c.avail}
               </div>
+              {hos.hasData &&
+                (() => {
+                  const fit = parkingFitFor({
+                    now: new Date(),
+                    alongMi: c.alongMi,
+                    speedMph,
+                    driveRemainH: hos.driveRemainH,
+                    windowRemainH: hos.windowRemainH,
+                  });
+                  const existing = reservationFor(c.name, c.lat, c.lon);
+                  const cantReach = fit.verdict === "wont_make_it";
+                  return (
+                    <div className="mt-1.5">
+                      <span
+                        className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-bold ${
+                          fit.verdict === "fits"
+                            ? "bg-emerald-900/60 text-emerald-200"
+                            : fit.verdict === "tight"
+                              ? "bg-amber-900/60 text-amber-200"
+                              : fit.verdict === "wont_make_it"
+                                ? "bg-red-950/60 text-red-200"
+                                : "bg-[var(--surface)] text-[var(--dim)]"
+                        }`}
+                      >
+                        {fit.verdict === "fits" ? "✓ " : fit.verdict === "tight" ? "⚠ " : fit.verdict === "wont_make_it" ? "✕ " : ""}
+                        {PARKING_FIT_LABEL[fit.verdict]}
+                        {fit.verdict !== "unknown" ? ` — about ${Math.max(0, Math.round(fit.marginMinutes))} min of clock left when you get there` : ""}
+                      </span>
+                      {existing ? (
+                        <p className="mt-1.5 text-xs font-bold text-[var(--ok)]">
+                          ✓ Reserved{existing.partnerName ? ` through ${existing.partnerName}` : ""} — arrive by{" "}
+                          {new Date(existing.latestArrivalAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} to stay inside your hours.
+                        </p>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            className="btn-press mt-1.5 w-full rounded-xl border border-[var(--border)] py-2 text-sm font-bold disabled:opacity-50"
+                            aria-label={`Reserve parking at ${c.name}`}
+                            disabled={!partnerConfigured || cantReach || reserveBusyKey === c.key}
+                            onClick={() => doReserve(c)}
+                          >
+                            {reserveBusyKey === c.key ? "Reserving…" : "🅿️ Reserve this stop"}
+                          </button>
+                          {!partnerConfigured ? (
+                            <p className="mt-1 text-[11px] leading-relaxed text-[var(--dim)]">
+                              Reservations aren't connected yet — no parking partner is linked to STONEMILES, so this stop stays a planner suggestion.
+                            </p>
+                          ) : cantReach ? (
+                            <p className="mt-1 text-[11px] leading-relaxed text-[var(--dim)]">
+                              Not offered for reserving — your hours run out before you'd get here.
+                            </p>
+                          ) : null}
+                          {reserveMsg?.key === c.key && (
+                            <p className={`mt-1 text-[11px] font-semibold leading-relaxed ${reserveMsg.ok ? "text-[var(--ok)]" : "text-red-300"}`} role="status">
+                              {reserveMsg.text}
+                            </p>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  );
+                })()}
               <button
                 type="button"
                 className="btn-neon btn-press mt-2 w-full rounded-xl py-2.5 font-bold"
@@ -25595,6 +25700,43 @@ function ParkingSheet({
                 })()}
             </div>
           ))}
+        </div>
+        <div className="mt-4 rounded-xl bg-[var(--surface2)] px-3 py-2.5" aria-label="Your parking reservations">
+          <div className="text-xs font-bold uppercase tracking-wide text-[var(--dim)]">🎟️ Your parking reservations</div>
+          {!partnerConfigured && (
+            <p className="mt-1 text-xs leading-relaxed text-[var(--dim)]">
+              Reservations aren't connected yet — no parking partner is linked to STONEMILES. The stops above stay
+              planner suggestions from map and driver-reported data; nothing here books or holds a space.
+            </p>
+          )}
+          {myReservations.length === 0 ? (
+            <p className="mt-1 text-xs text-[var(--dim)]">No reservations yet.</p>
+          ) : (
+            <div className="mt-1.5 space-y-1.5">
+              {myReservations.map((r) => (
+                <div key={r.id} className="rounded-lg bg-[var(--surface)] px-2.5 py-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-semibold">{r.stopName}</span>
+                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold ${r.status === "held" || r.status === "confirmed" ? "bg-emerald-900/60 text-emerald-200" : "bg-[var(--surface2)] text-[var(--dim)]"}`}>
+                      {r.status === "held" ? "Held" : r.status === "confirmed" ? "Confirmed" : r.status === "used" ? "Used" : "Cancelled"}
+                    </span>
+                  </div>
+                  <p className="mt-0.5 text-xs text-[var(--dim)]">
+                    Arrive {new Date(r.etaAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}–
+                    {new Date(r.latestArrivalAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                    {r.partnerName ? ` · through ${r.partnerName}` : ""}
+                    {r.partnerRef ? ` · ref ${r.partnerRef}` : ""}
+                  </p>
+                  {(r.status === "held" || r.status === "confirmed") && (
+                    <span className="mt-1.5 flex gap-1.5">
+                      <button type="button" className="btn-press rounded-lg bg-[var(--surface2)] px-2.5 py-1.5 text-xs font-bold" aria-label={`Mark the reservation at ${r.stopName} as used — I parked there`} disabled={reserveBusyKey === `res-${r.id}`} onClick={() => doReservationAction(r.id, "used")}>Parked here ✓</button>
+                      <button type="button" className="btn-press rounded-lg bg-[var(--surface2)] px-2.5 py-1.5 text-xs font-bold" aria-label={`Cancel the reservation at ${r.stopName}`} disabled={reserveBusyKey === `res-${r.id}`} onClick={() => doReservationAction(r.id, "cancel")}>Cancel</button>
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -26574,6 +26716,7 @@ const ELD_STATUS_LABEL: Record<string, string> = {
   error: "Error — see below",
   revoked: "Revoked",
   not_connected: "Not connected",
+  simulated: "Simulated device (test data)",
 };
 
 const ELD_TOKEN_DIRECTIONS: Record<string, string[]> = {
@@ -26759,6 +26902,34 @@ function EldConnectionsHub({ onOpenPlans }: { onOpenPlans?: () => void }) {
       .finally(() => setSyncBusy(null));
   };
 
+  // Hub-level test sync (Wave 2 items 4+5 Step 0): the SAME harness
+  // with no connection named — the server stands up its simulated
+  // device and syncs against it. This exists because the
+  // per-connection button above renders only inside a saved
+  // connection's card: an account with zero saved connections (the
+  // normal state before a real ELD is linked) had no way to reach
+  // the harness at all. The card for this lives OUTSIDE the
+  // connections map below, gated on hub.canManage only.
+  const [hubSyncBusy, setHubSyncBusy] = useState(false);
+  const [hubSyncResult, setHubSyncResult] = useState<{ lines: string[]; note: string | null } | null>(null);
+  const doHubTestSync = () => {
+    setHubSyncBusy(true);
+    setMsg(null);
+    void api
+      .runEldTestSync({})
+      .then((r) => {
+        if (r.ok) {
+          setHubSyncResult({ lines: r.lines, note: r.note });
+          void queryClient.invalidateQueries({ queryKey: ["eld-hub"] });
+          void queryClient.invalidateQueries({ queryKey: ["eld-identity"] });
+        } else {
+          setMsg(r.error ?? "The test sync couldn't run.");
+        }
+      })
+      .catch(() => setMsg("The test sync couldn't run — check your connection and try again."))
+      .finally(() => setHubSyncBusy(false));
+  };
+
   return (
     <section aria-label="ELD connections">
       <h3 className="font-condensed text-xl font-bold">🔌 ELD connections — cloud ELD</h3>
@@ -26934,6 +27105,47 @@ function EldConnectionsHub({ onOpenPlans }: { onOpenPlans?: () => void }) {
                   )}
                 </article>
               ))}
+            </div>
+          )}
+
+          {/* Hub-level test sync — deliberately OUTSIDE the
+              connections map above (Wave 2 items 4+5 Step 0). The
+              per-connection test-sync button can only render when a
+              saved connection exists; this card is the harness door
+              for accounts with none, and it works by having the
+              server stand up its labelled simulated device (no token
+              exists for it, and none is asked for). */}
+          {hub.canManage && (
+            <div className="mt-3 rounded-2xl border-2 border-[var(--border)] bg-[var(--surface)] p-3.5" aria-label="ELD test sync — simulated device">
+              <p className="text-sm font-bold">🧪 Test sync — simulated device</p>
+              <p className="mt-1 text-xs leading-relaxed text-[var(--dim)]">
+                No real ELD needed. STONEMILES stands up a clearly-labelled <strong className="text-[var(--text)]">simulated
+                device</strong> and pushes its test data through the real sync pipeline (contract validation → feed
+                snapshots → identity log → sealed sync record), so the whole path is proven before a real device
+                exists. Everything it stores is stamped “simulated” and never poses as your ELD's official record.{" "}
+                <strong className="text-[var(--text)]">Live sync still awaits a real ELD device.</strong>
+              </p>
+              <button
+                type="button"
+                className="btn-press mt-2.5 w-full rounded-xl bg-[var(--surface2)] border border-[var(--border)] py-2.5 text-sm font-bold"
+                aria-label="Run a test sync with the simulated ELD device"
+                disabled={hubSyncBusy}
+                onClick={doHubTestSync}
+              >
+                {hubSyncBusy ? "Syncing…" : "🧪 Run test sync (simulated device)"}
+              </button>
+              {hubSyncResult && (
+                <div className="mt-2">
+                  <ul className="space-y-0.5 text-xs leading-relaxed">
+                    {hubSyncResult.lines.map((line) => (
+                      <li key={line}>• {line}</li>
+                    ))}
+                  </ul>
+                  {hubSyncResult.note && (
+                    <p className="mt-1.5 text-xs leading-relaxed text-[var(--dim)]" role="status">{hubSyncResult.note}</p>
+                  )}
+                </div>
+              )}
             </div>
           )}
 

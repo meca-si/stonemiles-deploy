@@ -42,6 +42,7 @@ import {
   type PlannerStopKind,
 } from "./stopPlanner";
 import { nightParkingPicks } from "./extras";
+import { parkingFitFor, PARKING_FIT_LABEL } from "./parkingFit";
 import { t as tt, type Lang } from "./i18n";
 import type { AutoAddStop } from "./autoAddStops";
 
@@ -578,6 +579,31 @@ export function StopPlannerSheet(props: StopPlannerProps) {
                           <span className="block text-xs text-[var(--dim)]">
                             ~{fmtMi(c.alongMi)} mi ahead · {c.parkingSpaces != null ? `${c.parkingSpaces} spaces in map data` : "truck parking tagged · space count not in map data"}
                           </span>
+                          {hos.hasData &&
+                            (() => {
+                              const fit = parkingFitFor({
+                                now: new Date(),
+                                alongMi: c.alongMi,
+                                speedMph: paceMph,
+                                driveRemainH: hos.driveRemainH,
+                                windowRemainH: hos.windowRemainH,
+                              });
+                              return (
+                                <span
+                                  className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[11px] font-bold ${
+                                    fit.verdict === "fits"
+                                      ? "bg-emerald-900/60 text-emerald-200"
+                                      : fit.verdict === "tight"
+                                        ? "bg-amber-900/60 text-amber-200"
+                                        : fit.verdict === "wont_make_it"
+                                          ? "bg-red-950/60 text-red-200"
+                                          : "bg-[var(--surface)] text-[var(--dim)]"
+                                  }`}
+                                >
+                                  {PARKING_FIT_LABEL[fit.verdict]}
+                                </span>
+                              );
+                            })()}
                         </span>
                         <button type="button" className="btn-press shrink-0 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs font-bold" aria-label={`Route to night parking at ${c.name}`} onClick={() => props.onRoute(c.name, c.lat, c.lon)}>
                           Route

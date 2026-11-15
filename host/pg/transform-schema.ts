@@ -91,6 +91,13 @@
 // stamp, dismissal dismissed_at), and +1 REAL (the broker's own
 // bond amount — their record only, never the trust summary); the
 // remaining new columns are plain integer/text.
+// Migration 0132 (parking reservations + detention collection)
+// adds +1 table (parking_reservations), +1 autoincrement PK, +6
+// timestamp_ms (detention claim generated/sent; reservation eta /
+// latest-arrival / created / updated), and +4 REAL (the load's
+// driver-recorded detention terms; reservation stop lat/lon +
+// miles-along-route); the claim-status / claim-recipient /
+// reservation status / partner columns are plain text.
 //
 //   bun run host/pg/transform-schema.ts
 
@@ -155,16 +162,16 @@ replaceAll(
   'integer mode "timestamp_ms" -> timestamp(tz, date)',
   /integer\(("[a-z0-9_]+"), \{ mode: "timestamp_ms" \}\)/g,
   'timestamp($1, { withTimezone: true, mode: "date" })',
-  348,
+  354,
 );
 replaceAll(
   "autoincrement PK -> serial",
   /integer\(("[a-z0-9_]+")\)\.primaryKey\(\{ autoIncrement: true \}\)/g,
   "serial($1).primaryKey()",
-  148,
+  149,
 );
-replaceAll("sqliteTable -> pgTable", /\bsqliteTable\(/g, "pgTable(", 183);
-replaceAll("real -> doublePrecision", /\breal\(/g, "doublePrecision(", 188);
+replaceAll("sqliteTable -> pgTable", /\bsqliteTable\(/g, "pgTable(", 184);
+replaceAll("real -> doublePrecision", /\breal\(/g, "doublePrecision(", 192);
 
 // Leftovers: any of these means the source schema grew a shape this
 // transform does not know. Fail, don't guess.

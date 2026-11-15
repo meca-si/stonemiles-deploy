@@ -1356,6 +1356,90 @@ export function DetentionPanel({ setBanner, lang = "en" }: { setBanner: Banner; 
   const queryClient = useQueryClient();
   const q = useQuery({ queryKey: ["detention"], queryFn: () => api.listDetention({ limit: 30 }) });
   const loadsQ = useQuery({ queryKey: ["loads"], queryFn: () => api.listLoads({ limit: 50 }) });
+  // Detention collection (Wave 2 item 5): claim packs + lifecycle,
+  // and per-facility stats from the driver's own sealed records.
+  const facQ = useQuery({ queryKey: ["facility-detention-stats"], queryFn: () => api.getFacilityDetentionStats({}) });
+  const [claimBusyId, setClaimBusyId] = useState<number | null>(null);
+  const [termsDraft, setTermsDraft] = useState<Record<number, string>>({});
+  const [sendDraft, setSendDraft] = useState<Record<number, string>>({});
+  const invalidateClaim = () => {
+    void queryClient.invalidateQueries({ queryKey: ["detention"] });
+    void queryClient.invalidateQueries({ queryKey: ["facility-detention-stats"] });
+  };
+  const buildClaimPack = (id: number) => {
+    setClaimBusyId(id);
+    void api.getDetentionClaimPack({ id })
+      .then((r) => {
+        if (r.ok && r.text && r.filename) {
+          downloadTextFile(r.filename, r.text);
+          setBanner(r.amountCents != null
+            ? "Claim pack built and downloaded — priced from the detention terms you recorded on the load."
+            : "Claim pack built and downloaded — time facts only; no detention terms are recorded on this load, so the amount line is blank for you to complete.");
+          invalidateClaim();
+        } else {
+          setBanner(r.error ?? "The claim pack couldn't be built.");
+        }
+      })
+      .catch(() => setBanner("The claim pack couldn't be built — try again."))
+      .finally(() => setClaimBusyId(null));
+  };
+  const downloadClaimPdf = (id: number) => {
+    setClaimBusyId(id);
+    void api.getLibraryDocument({ ref: `detention-claim:${id}` })
+      .then((r) => {
+        if (r.ok && r.dataBase64 && r.filename) savePdfBase64(r.filename, r.dataBase64);
+        else setBanner(r.error ?? "The claim pack PDF couldn't be built.");
+      })
+      .catch(() => setBanner("The claim pack PDF couldn't be built — try again."))
+      .finally(() => setClaimBusyId(null));
+  };
+  const sendClaimPack = (id: number) => {
+    setClaimBusyId(id);
+    const toEmail = (sendDraft[id] ?? "").trim();
+    void api.sendDetentionClaimPack({ id, ...(toEmail ? { toEmail } : {}) })
+      .then((r) => {
+        if (r.ok && r.sendStatus === "sent") setBanner(`Claim pack emailed to ${r.recipient ?? "the address on file"} — the claim now reads Sent.`);
+        else if (r.ok) setBanner("Email isn't set up on this account yet — the send is queued in your Library outbox, and the claim stays at Pack built until the mail actually goes out.");
+        else setBanner(r.error ?? "The claim pack couldn't be sent.");
+        invalidateClaim();
+      })
+      .catch(() => setBanner("The claim pack couldn't be sent — try again."))
+      .finally(() => setClaimBusyId(null));
+  };
+  const moveClaim = (id: number, status: "acknowledged" | "paid" | "disputed") => {
+    setClaimBusyId(id);
+    void api.setDetentionClaimStatus({ id, status })
+      .then((r) => {
+        setBanner(r.ok ? `Claim marked ${status}.` : (r.error ?? "That claim move isn't allowed from here."));
+        invalidateClaim();
+      })
+      .catch(() => setBanner("The claim couldn't be updated — try again."))
+      .finally(() => setClaimBusyId(null));
+  };
+  const saveTerms = (loadId: number) => {
+    const raw = (termsDraft[loadId] ?? "").trim();
+    const rate = raw === "" ? null : Number(raw);
+    if (rate != null && (!Number.isFinite(rate) || rate < 0)) {
+      setBanner("Detention terms are a per-hour figure — numbers only, like 65.");
+      return;
+    }
+    setClaimBusyId(-loadId);
+    void api.setLoadDetentionTerms({ loadId, ratePerHour: rate })
+      .then((r) => {
+        setBanner(r.ok ? (rate != null ? `Detention terms saved on the load — $${rate.toFixed(2)}/hr, your recorded terms.` : "Detention terms cleared from the load.") : (r.error ?? "The terms couldn't be saved."));
+        invalidateClaim();
+      })
+      .catch(() => setBanner("The terms couldn't be saved — try again."))
+      .finally(() => setClaimBusyId(null));
+  };
+  const CLAIM_LABEL: Record<string, string> = {
+    none: "No claim yet",
+    generated: "Pack built",
+    sent: "Sent",
+    acknowledged: "Acknowledged",
+    paid: "Paid",
+    disputed: "Disputed",
+  };
   const records = q.data?.records ?? [];
   const open = records.filter((r) => r.departedAt == null);
   const [site, setSite] = useState<"pickup" | "delivery" | "stop">("delivery");
@@ -1479,12 +1563,110 @@ export function DetentionPanel({ setBanner, lang = "en" }: { setBanner: Banner; 
               </span>
               <button type="button" className={`${smallBtn} shrink-0`} aria-label={`Download the detention proof for record ${r.id}`} onClick={() => proof(r.id)}>⬇ Proof</button>
             </div>
+            <div className="mt-2 border-t border-[var(--border)] pt-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-bold uppercase tracking-wide text-[var(--dim)]">Detention claim</span>
+                <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${r.claimStatus === "paid" ? "bg-emerald-900/60 text-emerald-200" : r.claimStatus === "disputed" ? "bg-red-950/60 text-red-200" : r.claimStatus === "none" ? "bg-[var(--surface)] text-[var(--dim)]" : "bg-amber-900/60 text-amber-200"}`}>
+                  {CLAIM_LABEL[r.claimStatus] ?? r.claimStatus}
+                </span>
+              </div>
+              {r.claimStatus === "sent" && r.claimRecipient && (
+                <p className="mt-1 text-xs text-[var(--dim)]">Sent to {r.claimRecipient}</p>
+              )}
+              {r.loadId != null && (
+                <div className="mt-1.5">
+                  {r.detentionRatePerHour != null ? (
+                    <p className="text-xs text-[var(--dim)]">
+                      Terms on this load: <strong className="text-[var(--text)]">${r.detentionRatePerHour.toFixed(2)}/hr</strong> — your recorded terms; the claim pack prices from these.
+                    </p>
+                  ) : (
+                    <p className="text-xs text-[var(--dim)]">No detention terms recorded on this load — the claim pack prints time facts only, with the amount blank for you.</p>
+                  )}
+                  <div className="mt-1 flex gap-1.5">
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      min={0}
+                      className={`${inputCls} !w-28`}
+                      placeholder="$/hr"
+                      aria-label={`Detention terms in dollars per hour for load ${r.loadId}`}
+                      value={termsDraft[r.loadId] ?? ""}
+                      onChange={(e) => setTermsDraft((d) => ({ ...d, [r.loadId!]: e.target.value }))}
+                    />
+                    <button type="button" className={smallBtn} disabled={claimBusyId === -r.loadId} aria-label={`Save detention terms for load ${r.loadId}`} onClick={() => saveTerms(r.loadId!)}>
+                      {r.detentionRatePerHour != null ? "Update terms" : "Save terms"}
+                    </button>
+                  </div>
+                </div>
+              )}
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {r.claimStatus === "none" && (
+                  <button type="button" className={smallBtn} disabled={claimBusyId === r.id} aria-label={`Build the detention claim pack for record ${r.id}`} onClick={() => buildClaimPack(r.id)}>
+                    {claimBusyId === r.id ? "Building…" : "🧾 Build claim pack"}
+                  </button>
+                )}
+                {r.claimStatus !== "none" && (
+                  <button type="button" className={smallBtn} disabled={claimBusyId === r.id} aria-label={`Download the detention claim pack PDF for record ${r.id}`} onClick={() => downloadClaimPdf(r.id)}>
+                    ⬇ Claim pack (PDF)
+                  </button>
+                )}
+                {(r.claimStatus === "sent" || r.claimStatus === "acknowledged") && (
+                  <>
+                    {r.claimStatus === "sent" && (
+                      <button type="button" className={smallBtn} disabled={claimBusyId === r.id} aria-label={`Mark the claim for record ${r.id} acknowledged`} onClick={() => moveClaim(r.id, "acknowledged")}>Mark acknowledged</button>
+                    )}
+                    <button type="button" className={smallBtn} disabled={claimBusyId === r.id} aria-label={`Mark the claim for record ${r.id} paid`} onClick={() => moveClaim(r.id, "paid")}>Mark paid</button>
+                    <button type="button" className={smallBtn} disabled={claimBusyId === r.id} aria-label={`Mark the claim for record ${r.id} disputed`} onClick={() => moveClaim(r.id, "disputed")}>Mark disputed</button>
+                  </>
+                )}
+                {r.claimStatus === "disputed" && (
+                  <button type="button" className={smallBtn} disabled={claimBusyId === r.id} aria-label={`Mark the disputed claim for record ${r.id} paid`} onClick={() => moveClaim(r.id, "paid")}>Mark paid</button>
+                )}
+              </div>
+              {r.claimStatus === "generated" && (
+                <div className="mt-2">
+                  <div className="flex gap-1.5">
+                    <input
+                      type="email"
+                      className={inputCls}
+                      placeholder="Broker / factor email (blank = address on file)"
+                      aria-label={`Email address to send the claim pack for record ${r.id} to`}
+                      value={sendDraft[r.id] ?? ""}
+                      onChange={(e) => setSendDraft((d) => ({ ...d, [r.id]: e.target.value }))}
+                    />
+                    <button type="button" className={`${smallBtn} shrink-0`} disabled={claimBusyId === r.id} aria-label={`Email the claim pack for record ${r.id}`} onClick={() => sendClaimPack(r.id)}>
+                      {claimBusyId === r.id ? "Sending…" : "✉️ Email the pack"}
+                    </button>
+                  </div>
+                  <p className="mt-1 text-[11px] text-[var(--dim)]">Sends the pack PDF to the broker/factor address on file for the load, or the address you type.</p>
+                </div>
+              )}
+            </div>
           </div>
         ))}
         {records.length === 0 && !q.isLoading && <p className="text-xs text-[var(--dim)]">No detention clocked yet — your first ARRIVE tap starts the record.</p>}
       </div>
       {q.data && q.data.totalBillableMinutes > 0 && (
         <p className="mt-2 text-xs font-semibold text-[var(--dim)]">Total time past free time on sealed visits: {fmtDur(q.data.totalBillableMinutes)} — time only; what it pays is set by your agreement.</p>
+      )}
+      {(facQ.data?.facilities.length ?? 0) > 0 && (
+        <div className="mt-3 border-t border-[var(--border)] pt-3" aria-label="Facility detention record from your sealed visits">
+          <p className="text-xs font-bold uppercase tracking-wide text-[var(--dim)]">Facilities in your sealed records</p>
+          <div className="mt-1.5 space-y-1.5">
+            {facQ.data!.facilities.slice(0, 6).map((f) => (
+              <div key={f.placeKey} className="rounded-xl bg-[var(--surface2)] px-3 py-2 text-sm">
+                <strong>{f.placeLabel}</strong>
+                <span className="block text-xs text-[var(--dim)]">
+                  {f.visits} sealed visit{f.visits === 1 ? "" : "s"} · held past free time on {f.detainedCount} · average {fmtDur(f.avgBillableMinutes)} beyond free time
+                  {f.scoreEligible
+                    ? ` · held past free time on ${f.detainedCount} of ${f.visits} visits`
+                    : ` · only ${f.visits} visit${f.visits === 1 ? "" : "s"} on record — facts only, no pattern claimed yet`}
+                </span>
+              </div>
+            ))}
+          </div>
+          <p className="mt-1.5 text-[11px] text-[var(--dim)]">From your own sealed detention clocks only — no outside database, no other drivers' visits.</p>
+        </div>
       )}
     </Section>
   );

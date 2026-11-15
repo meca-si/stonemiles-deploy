@@ -121,6 +121,7 @@ __export(exports_schema_sqlite, {
   onboardingState: () => onboardingState,
   ownerGiveawayRecipients: () => ownerGiveawayRecipients,
   ownerGiveaways: () => ownerGiveaways,
+  parkingReservations: () => parkingReservations,
   passkeyCredentials: () => passkeyCredentials,
   passportPrefs: () => passportPrefs,
   passwordResetTokens: () => passwordResetTokens,
@@ -309,6 +310,7 @@ __export(exports_schema_pg, {
   onboardingState: () => onboardingState2,
   ownerGiveawayRecipients: () => ownerGiveawayRecipients2,
   ownerGiveaways: () => ownerGiveaways2,
+  parkingReservations: () => parkingReservations2,
   passkeyCredentials: () => passkeyCredentials2,
   passportPrefs: () => passportPrefs2,
   passwordResetTokens: () => passwordResetTokens2,
@@ -8631,6 +8633,7 @@ var loads = sqliteTable("loads", {
   loadedHeightIn: integer3("loaded_height_in"),
   reeferSetpointF: real2("reefer_setpoint_f"),
   reeferBandF: real2("reefer_band_f"),
+  detentionRatePerHour: real2("detention_rate_per_hour"),
   dockApptAt: integer3("dock_appt_at", { mode: "timestamp_ms" }),
   dockDoor: text2("dock_door"),
   lumperFee: real2("lumper_fee"),
@@ -10162,6 +10165,26 @@ var detentionRecords = sqliteTable("detention_records", {
   departLat: real2("depart_lat"),
   departLon: real2("depart_lon"),
   chainHash: text2("chain_hash"),
+  claimStatus: text2("claim_status").notNull().default("none"),
+  claimGeneratedAt: integer3("claim_generated_at", { mode: "timestamp_ms" }),
+  claimSentAt: integer3("claim_sent_at", { mode: "timestamp_ms" }),
+  claimRecipient: text2("claim_recipient"),
+  createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
+  updatedAt: integer3("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
+});
+var parkingReservations = sqliteTable("parking_reservations", {
+  profileId: integer3("profile_id"),
+  id: integer3("id").primaryKey({ autoIncrement: true }),
+  driverUsername: text2("driver_username").notNull(),
+  stopName: text2("stop_name").notNull(),
+  stopLat: real2("stop_lat").notNull(),
+  stopLon: real2("stop_lon").notNull(),
+  alongMi: real2("along_mi").notNull(),
+  etaAt: integer3("eta_at", { mode: "timestamp_ms" }).notNull(),
+  latestArrivalAt: integer3("latest_arrival_at", { mode: "timestamp_ms" }).notNull(),
+  status: text2("status").notNull().default("held"),
+  partnerName: text2("partner_name"),
+  partnerRef: text2("partner_ref"),
   createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
   updatedAt: integer3("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
 });
@@ -11040,6 +11063,7 @@ var loads2 = pgTable("loads", {
   loadedHeightIn: integer2("loaded_height_in"),
   reeferSetpointF: doublePrecision("reefer_setpoint_f"),
   reeferBandF: doublePrecision("reefer_band_f"),
+  detentionRatePerHour: doublePrecision("detention_rate_per_hour"),
   dockApptAt: timestamp("dock_appt_at", { withTimezone: true, mode: "date" }),
   dockDoor: text("dock_door"),
   lumperFee: doublePrecision("lumper_fee"),
@@ -12571,6 +12595,26 @@ var detentionRecords2 = pgTable("detention_records", {
   departLat: doublePrecision("depart_lat"),
   departLon: doublePrecision("depart_lon"),
   chainHash: text("chain_hash"),
+  claimStatus: text("claim_status").notNull().default("none"),
+  claimGeneratedAt: timestamp("claim_generated_at", { withTimezone: true, mode: "date" }),
+  claimSentAt: timestamp("claim_sent_at", { withTimezone: true, mode: "date" }),
+  claimRecipient: text("claim_recipient"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
+});
+var parkingReservations2 = pgTable("parking_reservations", {
+  profileId: integer2("profile_id"),
+  id: serial("id").primaryKey(),
+  driverUsername: text("driver_username").notNull(),
+  stopName: text("stop_name").notNull(),
+  stopLat: doublePrecision("stop_lat").notNull(),
+  stopLon: doublePrecision("stop_lon").notNull(),
+  alongMi: doublePrecision("along_mi").notNull(),
+  etaAt: timestamp("eta_at", { withTimezone: true, mode: "date" }).notNull(),
+  latestArrivalAt: timestamp("latest_arrival_at", { withTimezone: true, mode: "date" }).notNull(),
+  status: text("status").notNull().default("held"),
+  partnerName: text("partner_name"),
+  partnerRef: text("partner_ref"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date),
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
 });
@@ -12844,6 +12888,7 @@ var statusOutbox3 = impl.statusOutbox;
 var autoExceptions3 = impl.autoExceptions;
 var loadPaperwork3 = impl.loadPaperwork;
 var brokerBondAlertDismissals3 = impl.brokerBondAlertDismissals;
+var parkingReservations3 = impl.parkingReservations;
 var accounts3 = impl.accounts;
 var authSessions3 = impl.authSessions;
 var passwordResetTokens3 = impl.passwordResetTokens;
@@ -17329,6 +17374,165 @@ function summarizeEldSync(results) {
     rejected: results.length - accepted,
     lines: results.map((r) => r.ok ? `${r.feed}: received` : `${r.feed}: rejected \u2014 ${r.errors.join("; ")}`)
   };
+}
+
+// src/parking.ts
+var PARKING_TIGHT_MARGIN_MIN = 45;
+function parkingArrivalPlan(args) {
+  const pace = args.paceMph > 0 ? args.paceMph : 50;
+  const driveMs = args.alongMi / pace * 3600000;
+  const etaAt = new Date(args.now.getTime() + driveMs);
+  if (args.bindingRemainH == null || !Number.isFinite(args.bindingRemainH)) {
+    return { etaAt, latestArrivalAt: etaAt, marginMinutes: 0, fit: "unknown" };
+  }
+  const latestArrivalAt = new Date(args.now.getTime() + args.bindingRemainH * 3600000);
+  const marginMinutes = (latestArrivalAt.getTime() - etaAt.getTime()) / 60000;
+  const fit = marginMinutes < 0 ? "wont_make_it" : marginMinutes < PARKING_TIGHT_MARGIN_MIN ? "tight" : "fits";
+  return { etaAt, latestArrivalAt, marginMinutes, fit };
+}
+function parkingPartnerFromEnv(env, transport) {
+  const apiKey = env.PARKING_PARTNER_API_KEY?.trim();
+  const baseUrl = env.PARKING_PARTNER_BASE_URL?.trim();
+  if (!apiKey || !baseUrl)
+    return null;
+  const name = env.PARKING_PARTNER_NAME?.trim() || "Parking partner";
+  const fetchFn = transport ?? (async (url, init) => {
+    const r = await fetch(url, init);
+    return { ok: r.ok, status: r.status, json: () => r.json() };
+  });
+  const call = async (pathSuffix, method, body) => {
+    const r = await fetchFn(`${baseUrl.replace(/\/+$/, "")}${pathSuffix}`, {
+      method,
+      headers: {
+        authorization: `Bearer ${apiKey}`,
+        "content-type": "application/json"
+      },
+      body: body === undefined ? undefined : JSON.stringify(body)
+    });
+    if (!r.ok)
+      throw new Error(`parking partner answered ${r.status}`);
+    return r.json();
+  };
+  return {
+    name,
+    async reserve(req) {
+      const out = await call("/reservations", "POST", req);
+      const partnerRef = typeof out.id === "string" && out.id ? out.id : typeof out.reference === "string" ? out.reference : "";
+      if (!partnerRef)
+        throw new Error("parking partner accepted the call but returned no reservation reference");
+      return { partnerRef, status: out.status === "confirmed" ? "confirmed" : "held" };
+    },
+    async cancel(partnerRef) {
+      await call(`/reservations/${encodeURIComponent(partnerRef)}`, "DELETE");
+    }
+  };
+}
+
+// src/detentionClaim.ts
+var DETENTION_CLAIM_NEXT = {
+  none: ["generated"],
+  generated: ["sent"],
+  sent: ["acknowledged", "paid", "disputed"],
+  acknowledged: ["paid", "disputed"],
+  paid: [],
+  disputed: ["paid"]
+};
+function canDetentionClaimMove(from, to) {
+  return (DETENTION_CLAIM_NEXT[from] ?? []).includes(to);
+}
+var money3 = (cents) => `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+var gps = (lat, lon) => lat != null && lon != null ? `${lat.toFixed(5)}, ${lon.toFixed(5)}` : "not captured";
+var fmtWhen = (iso) => new Date(iso).toLocaleString("en-US", {
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+  timeZone: "UTC"
+}) + " UTC";
+function detentionClaimPack(input) {
+  const { waitMinutes, billableMinutes } = detentionTimes(Date.parse(input.arrivedAtIso), Date.parse(input.departedAtIso), input.graceMinutes);
+  const facts = {
+    totalMinutes: waitMinutes ?? 0,
+    graceMinutes: Math.max(0, Math.round(input.graceMinutes)),
+    billableMinutes: billableMinutes ?? 0
+  };
+  const amountCents = input.detentionRatePerHour != null && input.detentionRatePerHour > 0 ? Math.round(facts.billableMinutes / 60 * input.detentionRatePerHour * 100) : null;
+  const amountLabel = amountCents != null ? `${money3(amountCents)} \u2014 ${formatDurationMinutes(facts.billableMinutes)} beyond free time \xD7 $${input.detentionRatePerHour.toFixed(2)}/hr (driver's recorded terms)` : null;
+  const lines = [
+    "STONEMILES \u2014 DETENTION CLAIM",
+    "",
+    `Facility: ${input.place}`,
+    `Visit: ${input.site === "pickup" ? "Pickup" : input.site === "delivery" ? "Delivery" : "Stop"}`,
+    ...input.load ? [
+      `Load: ${input.load.originLabel} \u2192 ${input.load.destinationLabel}`,
+      ...input.load.reference ? [`Load reference: ${input.load.reference}`] : [],
+      ...input.load.brokerCompany || input.load.brokerName ? [`Broker: ${[input.load.brokerCompany, input.load.brokerName].filter(Boolean).join(" \u2014 ")}`] : [],
+      ...input.load.brokerMc ? [`Broker MC: ${input.load.brokerMc}`] : []
+    ] : ["Load: (not linked to a load)"],
+    "",
+    `Appointment: ${input.apptAtIso ? fmtWhen(input.apptAtIso) : "not recorded"}`,
+    `Arrived: ${fmtWhen(input.arrivedAtIso)}`,
+    `Departed: ${fmtWhen(input.departedAtIso)}`,
+    `Total time at facility: ${formatDurationMinutes(facts.totalMinutes)}`,
+    `Free time allowed: ${formatDurationMinutes(facts.graceMinutes)}`,
+    `Time beyond free time: ${formatDurationMinutes(facts.billableMinutes)}`,
+    `Arrival GPS: ${gps(input.arriveLat, input.arriveLon)}`,
+    `Departure GPS: ${gps(input.departLat, input.departLon)}`,
+    "",
+    ...amountLabel != null ? [`Detention claimed: ${amountLabel}`] : [
+      "Detention claimed: __________ (no detention terms recorded on this load \u2014 amount left for the driver to complete from their agreement)"
+    ],
+    ...input.facility && input.facility.visits >= 3 ? [
+      "",
+      `This facility in your sealed records: ${input.facility.visits} visits, held past free time on ${input.facility.detainedCount} of them, average ${formatDurationMinutes(Math.round(input.facility.avgBillableMinutes))} beyond free time.`
+    ] : [],
+    "",
+    "Times are from this visit's sealed detention record in STONEMILES \u2014 the arrival",
+    "and departure were stamped when they happened and sealed into the record chain.",
+    ...input.chainHash ? [`Record seal: ${input.chainHash}`] : []
+  ];
+  return { text: lines.join(`
+`), facts, amountCents, amountLabel };
+}
+function facilityKeyOf(placeLabel) {
+  return placeLabel.trim().toLowerCase().replace(/\s+/g, " ");
+}
+function facilityDetentionStats(visits) {
+  const byKey = new Map;
+  for (const v of visits) {
+    if (!v.placeKey)
+      continue;
+    const list = byKey.get(v.placeKey) ?? [];
+    list.push(v);
+    byKey.set(v.placeKey, list);
+  }
+  const out = [];
+  for (const [placeKey, list] of byKey) {
+    let detainedCount = 0;
+    let totalBillable = 0;
+    let last = "";
+    for (const v of list) {
+      const { billableMinutes } = detentionTimes(Date.parse(v.arrivedAtIso), Date.parse(v.departedAtIso), v.graceMinutes);
+      const billable = billableMinutes ?? 0;
+      if (billable > 0)
+        detainedCount += 1;
+      totalBillable += billable;
+      if (v.departedAtIso > last)
+        last = v.departedAtIso;
+    }
+    out.push({
+      placeKey,
+      placeLabel: list[0].placeLabel,
+      visits: list.length,
+      detainedCount,
+      avgBillableMinutes: list.length > 0 ? totalBillable / list.length : 0,
+      totalBillableMinutes: totalBillable,
+      lastVisitAtIso: last,
+      scoreEligible: list.length >= 3
+    });
+  }
+  return out.sort((a, b) => b.visits - a.visits || a.placeLabel.localeCompare(b.placeLabel));
 }
 
 // src/pointsRetention.ts
@@ -28378,7 +28582,8 @@ function cleanBrokerFields(args) {
 }
 var ELD_PROVIDER_NAMES = {
   samsara: "Samsara",
-  motive: "Motive"
+  motive: "Motive",
+  simulated: "Simulated ELD"
 };
 var eldFeedShape = object({
   feed: string2(),
@@ -28403,6 +28608,14 @@ var ELD_FEED_MAP = {
     { feed: "vehicle_stats", label: "Vehicle locations + odometer", endpoint: "GET /v1/vehicle_locations" },
     { feed: "ifta", label: "IFTA trips + summaries", endpoint: "GET /v1/ifta/trips \xB7 /v1/ifta/summary" },
     { feed: "identity", label: "Driver & truck identity (logged on connect)", endpoint: "GET /v1/drivers \xB7 /v1/vehicles" }
+  ],
+  simulated: [
+    { feed: "hos_clocks", label: "HOS clocks", endpoint: "simulated device payload" },
+    { feed: "hos_logs", label: "HOS logs", endpoint: "simulated device payload" },
+    { feed: "dvirs", label: "DVIRs", endpoint: "simulated device payload" },
+    { feed: "vehicle_stats", label: "Vehicle stats \u2014 odometer + GPS", endpoint: "simulated device payload" },
+    { feed: "ifta", label: "IFTA jurisdiction miles", endpoint: "simulated device payload" },
+    { feed: "identity", label: "Driver & truck identity (logged on connect)", endpoint: "simulated device payload" }
   ]
 };
 var eldConnectionShape = object({
@@ -28656,7 +28869,7 @@ async function toEldConnection(ctx, row) {
     label: row.label,
     status: row.status,
     tokenMasked: row.tokenLast4 ? `\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022${row.tokenLast4}` : null,
-    feeds: row.status === "connected" || row.status === "error" ? await eldFeedsFor(ctx, row) : [],
+    feeds: row.status === "connected" || row.status === "error" || row.status === "simulated" ? await eldFeedsFor(ctx, row) : [],
     lastError: row.lastError,
     connectedBy: row.connectedBy,
     createdAt: row.createdAt.toISOString(),
@@ -30951,6 +31164,23 @@ async function resolveLibraryDocument(ctx, ref) {
     });
     return { ok: true, error: null, docKind: "filing", title, filename: `stonemiles-tax-summary-${year}.pdf`, mime: "application/pdf", bytes };
   }
+  if (kind === "detention-claim") {
+    const id = Number(parts[1]);
+    const rows = await db.select().from(detentionRecords3).where(eq(detentionRecords3.id, id)).limit(1);
+    const r = rows[0];
+    if (!r || r.departedAt == null)
+      return docRefused("detention claim");
+    const { input, place } = await detentionClaimInputFor(ctx, r);
+    const pack = detentionClaimPack(input);
+    const title = `Detention claim - ${place} - ${r.arrivedAt.toISOString().slice(0, 10)}`;
+    const bytes = libraryPdfBytes({
+      title,
+      subtitle: "From the sealed detention record in your library \u2014 times stamped when they happened",
+      sections: [{ heading: "Detention claim", lines: pack.text.split(`
+`).slice(2) }]
+    });
+    return { ok: true, error: null, docKind: "detention_claim", title, filename: `detention-claim-${r.id}.pdf`, mime: "application/pdf", bytes };
+  }
   if (kind === "invoice") {
     const id = Number(parts[1]);
     const rows = await db.select().from(loadInvoices3).where(eq(loadInvoices3.id, id)).limit(1);
@@ -31523,6 +31753,62 @@ async function buildLibrary(ctx) {
     chain: { intact: walk.intact, checked: walk.checked, headHash: walk.headHash },
     fleet
   };
+}
+async function detentionClaimInputFor(ctx, row) {
+  const db = ctx.db();
+  const loads = row.loadId != null ? await db.select().from(loads3).where(eq(loads3.id, row.loadId)).limit(1) : [];
+  const load = loads[0];
+  const place = row.placeLabel || (load ? [load.deliveryCity, load.deliveryState].filter(Boolean).join(", ") : "") || "Stop";
+  const mine = await db.select().from(detentionRecords3);
+  const myLoads = await db.select().from(loads3);
+  const labelFor = (r) => {
+    if (r.placeLabel)
+      return r.placeLabel;
+    const l = r.loadId != null ? myLoads.find((x) => x.id === r.loadId) : undefined;
+    return (l ? [l.deliveryCity, l.deliveryState].filter(Boolean).join(", ") : "") || "Stop";
+  };
+  const stats = facilityDetentionStats(mine.filter((r) => r.departedAt != null).map((r) => {
+    const label = labelFor(r);
+    return {
+      placeKey: facilityKeyOf(label),
+      placeLabel: label,
+      arrivedAtIso: r.arrivedAt.toISOString(),
+      departedAtIso: r.departedAt.toISOString(),
+      graceMinutes: r.graceMinutes
+    };
+  }));
+  const facility = stats.find((s) => s.placeKey === facilityKeyOf(place)) ?? null;
+  return {
+    place,
+    load,
+    input: {
+      place,
+      site: row.site === "pickup" || row.site === "delivery" ? row.site : "stop",
+      apptAtIso: row.apptAt ? row.apptAt.toISOString() : null,
+      arrivedAtIso: row.arrivedAt.toISOString(),
+      departedAtIso: row.departedAt.toISOString(),
+      graceMinutes: row.graceMinutes,
+      arriveLat: row.arriveLat,
+      arriveLon: row.arriveLon,
+      departLat: row.departLat,
+      departLon: row.departLon,
+      chainHash: row.chainHash,
+      load: load ? {
+        reference: load.referenceNumber,
+        originLabel: [load.pickupCity, load.pickupState].filter(Boolean).join(", ") || "Origin",
+        destinationLabel: [load.deliveryCity, load.deliveryState].filter(Boolean).join(", ") || "Destination",
+        brokerName: load.brokerName,
+        brokerCompany: load.brokerCompany,
+        brokerMc: load.brokerMc
+      } : null,
+      detentionRatePerHour: load?.detentionRatePerHour ?? null,
+      facility
+    }
+  };
+}
+function claimStatusOf(row) {
+  const s = row.claimStatus;
+  return s === "generated" || s === "sent" || s === "acknowledged" || s === "paid" || s === "disputed" ? s : "none";
 }
 var Actions = {
   getBetaStatus: defineAction({
@@ -45247,8 +45533,11 @@ ${args.question}`, { schema: answerSchema });
     }
   }),
   runEldTestSync: defineAction({
-    description: "Run a test sync of simulated ELD device data through the real sync pipeline for one of the caller's connections (live sync still awaits a real ELD device).",
-    request: object({ connectionId: number2().int().positive() }),
+    description: "Run a test sync of simulated ELD device data through the real sync pipeline \u2014 against one of the caller's connections, or against a stood-up simulated device when no connection is named (live sync still awaits a real ELD device).",
+    request: object({
+      connectionId: number2().int().positive().optional(),
+      provider: string2().max(40).optional()
+    }),
     response: object({
       ok: boolean2(),
       error: string2().nullable(),
@@ -45266,12 +45555,54 @@ ${args.question}`, { schema: answerSchema });
       if (!gate.canManage) {
         return { ok: false, error: "Only the fleet owner / admin can run the ELD test sync \u2014 drivers and dispatch can view connection status.", accepted: 0, rejected: 0, lines: [], note: null };
       }
-      const rows = await db.select().from(eldConnections3).where(eq(eldConnections3.id, args.connectionId)).limit(1);
-      const conn = rows[0];
-      if (!conn)
-        return { ok: false, error: "That ELD connection doesn't exist.", accepted: 0, rejected: 0, lines: [], note: null };
-      if (conn.status === "revoked") {
-        return { ok: false, error: "That connection was revoked \u2014 its token is wiped, so there's nothing to sync against. Connect the ELD again first.", accepted: 0, rejected: 0, lines: [], note: null };
+      let conn;
+      if (args.connectionId != null) {
+        const rows = await db.select().from(eldConnections3).where(eq(eldConnections3.id, args.connectionId)).limit(1);
+        conn = rows[0];
+        if (!conn)
+          return { ok: false, error: "That ELD connection doesn't exist.", accepted: 0, rejected: 0, lines: [], note: null };
+        if (conn.status === "revoked") {
+          return { ok: false, error: "That connection was revoked \u2014 its token is wiped, so there's nothing to sync against. Connect the ELD again first.", accepted: 0, rejected: 0, lines: [], note: null };
+        }
+      } else {
+        const sims = await db.select().from(eldConnections3).where(eq(eldConnections3.provider, "simulated"));
+        conn = sims.find((c) => c.status !== "revoked");
+        if (!conn) {
+          const mine = await myMembership(ctx, gate.me);
+          const feeds = (ELD_FEED_MAP.simulated ?? []).map((f) => ({
+            feed: f.feed,
+            state: "awaiting_first_sync",
+            detail: "Awaiting first sync \u2014 this device is simulated; its data is test data, never provider data."
+          }));
+          const inserted = await db.insert(eldConnections3).values({
+            provider: "simulated",
+            companyId: mine?.company.id ?? null,
+            label: "Simulated device",
+            status: "simulated",
+            tokenEnc: null,
+            tokenLast4: null,
+            feedsJson: JSON.stringify(feeds),
+            lastError: null,
+            connectedBy: gate.me
+          }).returning();
+          conn = inserted[0];
+          if (!conn)
+            throw new Error("runEldTestSync: simulated connection insert returned no rows");
+          await appendChain(ctx, {
+            refKind: "driver",
+            refId: null,
+            sessionId: null,
+            event: "eld_simulated_connection_created",
+            payload: {
+              provider: "simulated",
+              label: "Simulated device",
+              simulated: true,
+              tokenStored: false,
+              by: gate.me,
+              at: new Date().toISOString()
+            }
+          });
+        }
       }
       const batch = simulatedEldPayloads(new Date);
       const r = await applyEldSyncBatch(ctx, conn, batch, "test_harness");
@@ -55712,7 +56043,10 @@ ${args.question}`, { schema: answerSchema });
         departedAt: string2().nullable(),
         waitMinutes: number2().nullable(),
         billableMinutes: number2().nullable(),
-        chainHash: string2().nullable()
+        chainHash: string2().nullable(),
+        claimStatus: string2(),
+        claimRecipient: string2().nullable(),
+        detentionRatePerHour: number2().nullable()
       })),
       totalBillableMinutes: number2(),
       openCount: number2()
@@ -55743,7 +56077,10 @@ ${args.question}`, { schema: answerSchema });
           departedAt: r.departedAt ? r.departedAt.toISOString() : null,
           waitMinutes: t.waitMinutes,
           billableMinutes: t.billableMinutes,
-          chainHash: r.chainHash ?? null
+          chainHash: r.chainHash ?? null,
+          claimStatus: r.claimStatus ?? "none",
+          claimRecipient: r.claimRecipient ?? null,
+          detentionRatePerHour: load?.detentionRatePerHour ?? null
         };
       });
       return { records: records.slice(0, args.limit), totalBillableMinutes, openCount };
@@ -55774,6 +56111,496 @@ ${args.question}`, { schema: answerSchema });
         chainHash: row.chainHash
       });
       return { text, filename: `stonemiles-detention-${row.id}.txt` };
+    }
+  }),
+  getParkingReservations: defineAction({
+    description: "The caller's parking reservations and whether a parking partner is connected (reservations need one \u2014 without a partner the stops stay planner suggestions).",
+    request: object({}),
+    response: object({
+      partnerConfigured: boolean2(),
+      partnerName: string2().nullable(),
+      reservations: array(object({
+        id: number2(),
+        stopName: string2(),
+        stopLat: number2(),
+        stopLon: number2(),
+        alongMi: number2(),
+        etaAt: string2(),
+        latestArrivalAt: string2(),
+        status: string2(),
+        partnerName: string2().nullable(),
+        partnerRef: string2().nullable(),
+        createdAt: string2()
+      }))
+    }),
+    async handler(ctx) {
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const partner = parkingPartnerFromEnv(process.env);
+      const rows = await db.select().from(parkingReservations3).where(eq(parkingReservations3.driverUsername, me)).orderBy(desc(parkingReservations3.id));
+      return {
+        partnerConfigured: partner != null,
+        partnerName: partner?.name ?? null,
+        reservations: rows.map((r) => ({
+          id: r.id,
+          stopName: r.stopName,
+          stopLat: r.stopLat,
+          stopLon: r.stopLon,
+          alongMi: r.alongMi,
+          etaAt: r.etaAt.toISOString(),
+          latestArrivalAt: r.latestArrivalAt.toISOString(),
+          status: r.status,
+          partnerName: r.partnerName,
+          partnerRef: r.partnerRef,
+          createdAt: r.createdAt.toISOString()
+        }))
+      };
+    }
+  }),
+  reserveParking: defineAction({
+    description: "Reserve a planner-picked parking stop through the connected parking partner, with the arrival window computed against the driver's HOS clock. Refused plainly \u2014 nothing written \u2014 when no partner is connected or the clock can't reach the stop.",
+    request: object({
+      stopName: string2().min(1).max(200),
+      stopLat: number2().min(-90).max(90),
+      stopLon: number2().min(-180).max(180),
+      alongMi: number2().min(0).max(5000),
+      paceMph: number2().min(1).max(120).optional()
+    }),
+    response: object({
+      ok: boolean2(),
+      error: string2().nullable(),
+      reservationId: number2().nullable(),
+      status: string2().nullable(),
+      etaAt: string2().nullable(),
+      latestArrivalAt: string2().nullable(),
+      fit: string2().nullable()
+    }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const partner = parkingPartnerFromEnv(process.env);
+      if (!partner) {
+        return {
+          ok: false,
+          error: "Parking reservations aren't connected yet \u2014 no parking partner is linked to STONEMILES, so this stop stays a planner suggestion. Nothing was reserved.",
+          reservationId: null,
+          status: null,
+          etaAt: null,
+          latestArrivalAt: null,
+          fit: null
+        };
+      }
+      const now = new Date;
+      const { events } = await effectiveDutyTimeline(ctx);
+      const clocks = hosClocksFor(events.filter((e) => e.username === me), now.getTime());
+      const bindingRemainH = clocks.hasData ? Math.min(clocks.driveRemainH, clocks.windowRemainH) : null;
+      const plan = parkingArrivalPlan({
+        now,
+        alongMi: args.alongMi,
+        paceMph: args.paceMph ?? 50,
+        bindingRemainH
+      });
+      if (plan.fit === "wont_make_it") {
+        return {
+          ok: false,
+          error: "Your hours run out before you'd reach this stop \u2014 it isn't offered for reserving. Pick a stop your clock can reach.",
+          reservationId: null,
+          status: null,
+          etaAt: plan.etaAt.toISOString(),
+          latestArrivalAt: plan.latestArrivalAt.toISOString(),
+          fit: plan.fit
+        };
+      }
+      let placed;
+      try {
+        placed = await partner.reserve({
+          stopName: args.stopName,
+          stopLat: args.stopLat,
+          stopLon: args.stopLon,
+          etaAt: plan.etaAt.toISOString(),
+          latestArrivalAt: plan.latestArrivalAt.toISOString(),
+          driverRef: me
+        });
+      } catch {
+        return {
+          ok: false,
+          error: `${partner.name} couldn't place the hold just now \u2014 nothing was reserved. Try again in a bit.`,
+          reservationId: null,
+          status: null,
+          etaAt: plan.etaAt.toISOString(),
+          latestArrivalAt: plan.latestArrivalAt.toISOString(),
+          fit: plan.fit
+        };
+      }
+      const inserted = await db.insert(parkingReservations3).values({
+        profileId: myProfileId(ctx),
+        driverUsername: me,
+        stopName: args.stopName,
+        stopLat: args.stopLat,
+        stopLon: args.stopLon,
+        alongMi: args.alongMi,
+        etaAt: plan.etaAt,
+        latestArrivalAt: plan.latestArrivalAt,
+        status: placed.status,
+        partnerName: partner.name,
+        partnerRef: placed.partnerRef
+      }).returning({ id: parkingReservations3.id });
+      const reservationId = inserted[0].id;
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "parking_reserved",
+        payload: {
+          reservationId,
+          stopName: args.stopName,
+          alongMi: args.alongMi,
+          etaAt: plan.etaAt.toISOString(),
+          latestArrivalAt: plan.latestArrivalAt.toISOString(),
+          fit: plan.fit,
+          partner: partner.name,
+          partnerRef: placed.partnerRef,
+          status: placed.status,
+          by: me,
+          at: now.toISOString()
+        }
+      });
+      ctx.invalidateQueries();
+      return {
+        ok: true,
+        error: null,
+        reservationId,
+        status: placed.status,
+        etaAt: plan.etaAt.toISOString(),
+        latestArrivalAt: plan.latestArrivalAt.toISOString(),
+        fit: plan.fit
+      };
+    }
+  }),
+  cancelParkingReservation: defineAction({
+    description: "Cancel one of the caller's parking reservations \u2014 the partner hold is released first, then the cancellation seals.",
+    request: object({ id: number2().int().positive() }),
+    response: object({ ok: boolean2(), error: string2().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const rows = await db.select().from(parkingReservations3).where(eq(parkingReservations3.id, args.id)).limit(1);
+      const row = rows[0];
+      if (!row || row.driverUsername !== me)
+        return { ok: false, error: "That reservation doesn't exist." };
+      if (row.status === "cancelled" || row.status === "used") {
+        return { ok: false, error: `That reservation is already ${row.status} \u2014 nothing to cancel.` };
+      }
+      const partner = parkingPartnerFromEnv(process.env);
+      if (partner && row.partnerRef) {
+        try {
+          await partner.cancel(row.partnerRef);
+        } catch {
+          return { ok: false, error: `${partner.name} couldn't release the hold just now \u2014 the reservation is unchanged. Try again in a bit.` };
+        }
+      }
+      await db.update(parkingReservations3).set({ status: "cancelled", updatedAt: new Date }).where(eq(parkingReservations3.id, row.id));
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "parking_reservation_cancelled",
+        payload: { reservationId: row.id, stopName: row.stopName, partnerRef: row.partnerRef, by: me, at: new Date().toISOString() }
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
+    }
+  }),
+  markParkingReservationUsed: defineAction({
+    description: "Mark one of the caller's parking reservations as used \u2014 the driver parked there.",
+    request: object({ id: number2().int().positive() }),
+    response: object({ ok: boolean2(), error: string2().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const rows = await db.select().from(parkingReservations3).where(eq(parkingReservations3.id, args.id)).limit(1);
+      const row = rows[0];
+      if (!row || row.driverUsername !== me)
+        return { ok: false, error: "That reservation doesn't exist." };
+      if (row.status !== "held" && row.status !== "confirmed") {
+        return { ok: false, error: `That reservation is ${row.status} \u2014 it can't be marked used.` };
+      }
+      await db.update(parkingReservations3).set({ status: "used", updatedAt: new Date }).where(eq(parkingReservations3.id, row.id));
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "parking_reservation_used",
+        payload: { reservationId: row.id, stopName: row.stopName, partnerRef: row.partnerRef, by: me, at: new Date().toISOString() }
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
+    }
+  }),
+  setLoadDetentionTerms: defineAction({
+    description: "Record (or clear) the driver's own detention terms on one of their loads \u2014 the per-hour figure from their agreement, which the detention claim pack prices from and labels as the driver's recorded terms.",
+    request: object({
+      loadId: number2().int().positive(),
+      ratePerHour: number2().min(0).max(1e4).nullable()
+    }),
+    response: object({ ok: boolean2(), error: string2().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const rows = await db.select().from(loads3).where(eq(loads3.id, args.loadId)).limit(1);
+      const load = rows[0];
+      if (!load)
+        return { ok: false, error: "That load doesn't exist." };
+      await db.update(loads3).set({ detentionRatePerHour: args.ratePerHour }).where(eq(loads3.id, load.id));
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: load.id,
+        sessionId: null,
+        event: "detention_terms_recorded",
+        payload: {
+          loadId: load.id,
+          detentionRatePerHour: args.ratePerHour,
+          source: "driver_recorded",
+          by: me,
+          at: new Date().toISOString()
+        }
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
+    }
+  }),
+  getDetentionClaimPack: defineAction({
+    description: "The detention collection pack for one closed visit: facility, sealed times, wait, free time, time beyond it, GPS, load reference, and the claim priced from the driver's recorded terms (or a blank amount line when no terms are on file). First generation moves the claim to 'generated' and seals it.",
+    request: object({ id: number2().int().positive() }),
+    response: object({
+      ok: boolean2(),
+      error: string2().nullable(),
+      text: string2().nullable(),
+      filename: string2().nullable(),
+      claimStatus: string2().nullable(),
+      amountCents: number2().nullable()
+    }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const rows = await db.select().from(detentionRecords3).where(eq(detentionRecords3.id, args.id)).limit(1);
+      const row = rows[0];
+      if (!row)
+        return { ok: false, error: "That detention record doesn't exist.", text: null, filename: null, claimStatus: null, amountCents: null };
+      if (row.departedAt == null)
+        return { ok: false, error: "That clock is still running \u2014 the claim pack builds when you tap Done and the visit seals.", text: null, filename: null, claimStatus: null, amountCents: null };
+      const { input } = await detentionClaimInputFor(ctx, row);
+      const pack = detentionClaimPack(input);
+      let status = claimStatusOf(row);
+      if (status === "none") {
+        await db.update(detentionRecords3).set({ claimStatus: "generated", claimGeneratedAt: new Date, updatedAt: new Date }).where(eq(detentionRecords3.id, row.id));
+        await appendChain(ctx, {
+          refKind: "driver",
+          refId: null,
+          sessionId: null,
+          event: "detention_claim_generated",
+          payload: {
+            detentionId: row.id,
+            loadId: row.loadId,
+            billableMinutes: pack.facts.billableMinutes,
+            amountCents: pack.amountCents,
+            termsSource: pack.amountCents != null ? "driver_recorded" : "none_on_file",
+            by: me,
+            at: new Date().toISOString()
+          }
+        });
+        status = "generated";
+        ctx.invalidateQueries();
+      }
+      return {
+        ok: true,
+        error: null,
+        text: pack.text,
+        filename: `stonemiles-detention-claim-${row.id}.txt`,
+        claimStatus: status,
+        amountCents: pack.amountCents
+      };
+    }
+  }),
+  sendDetentionClaimPack: defineAction({
+    description: "Email the detention claim pack (PDF) to the broker/factor address on file for the load \u2014 or an address the driver gives \u2014 through the same document-send path as the POD. Advances the claim to 'sent' only when the mail actually goes out; seals the send either way it lands.",
+    request: object({ id: number2().int().positive(), toEmail: string2().max(200).optional() }),
+    response: object({
+      ok: boolean2(),
+      error: string2().nullable(),
+      sendStatus: string2().nullable(),
+      claimStatus: string2().nullable(),
+      recipient: string2().nullable()
+    }),
+    privileged: [privileged.sendDocEmail],
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const fail = (error) => ({ ok: false, error, sendStatus: null, claimStatus: null, recipient: null });
+      const rows = await db.select().from(detentionRecords3).where(eq(detentionRecords3.id, args.id)).limit(1);
+      const row = rows[0];
+      if (!row)
+        return fail("That detention record doesn't exist.");
+      if (row.departedAt == null)
+        return fail("That clock is still running \u2014 the claim pack sends when the visit seals.");
+      const status = claimStatusOf(row);
+      if (status === "none")
+        return fail("Build the claim pack first \u2014 then send it.");
+      if (status !== "generated")
+        return fail(`This claim is already ${status} \u2014 it isn't sent twice.`);
+      let recipient = args.toEmail?.trim() || null;
+      if (!recipient && row.loadId != null) {
+        const pw = await db.select().from(loadPaperwork3).where(eq(loadPaperwork3.loadId, row.loadId)).limit(1);
+        recipient = pw[0]?.recipientEmail?.trim() || null;
+      }
+      if (!recipient && row.loadId != null) {
+        const prefill = await paperworkRecipientPrefill(ctx, row.loadId);
+        recipient = prefill?.email?.trim() || null;
+      }
+      if (!recipient) {
+        return fail("No email address on file for this load's broker \u2014 add the address you're sending to and try again.");
+      }
+      const doc = await resolveLibraryDocument(ctx, `detention-claim:${row.id}`);
+      if (!doc.ok || !doc.bytes)
+        return fail("The claim pack couldn't be built from the sealed record.");
+      const myEmail = viewerOf(ctx)?.email ?? await accountEmailFor(ctx, me);
+      const subject = doc.title;
+      const res = await ctx.executePrivileged(privileged.sendDocEmail, {
+        to: recipient,
+        replyTo: myEmail ?? null,
+        subject,
+        text: [
+          `${subject}`,
+          ``,
+          `Sent by @${me} from their STONEMILES Library. The detention claim pack is attached (${doc.filename}).`,
+          myEmail ? `Reply to this email and it goes to ${myEmail} \u2014 the sender \u2014 not to the app.` : `Reply to this email and it goes to the sender.`,
+          ``,
+          `STONEMILES by Stonervision \u2014 sealed records, plain and simple.`
+        ].join(`
+`),
+        attachmentBase64: Buffer.from(doc.bytes).toString("base64"),
+        attachmentFilename: doc.filename
+      });
+      const sendStatus = res.ok && res.providerId ? "sent" : res.notConfigured ? "queued" : "failed";
+      const errorMessage = sendStatus === "failed" ? res.errorMessage ?? "The mail transport refused the send." : null;
+      await db.insert(documentSends3).values({
+        username: me,
+        docRef: `detention-claim:${row.id}`,
+        docKind: "detention_claim",
+        docTitle: doc.title,
+        toEmail: recipient,
+        replyTo: myEmail ?? null,
+        subject,
+        status: sendStatus,
+        providerId: res.providerId ?? null,
+        detail: errorMessage,
+        sentAt: sendStatus === "sent" ? new Date : null
+      });
+      await appendChain(ctx, {
+        refKind: "library",
+        refId: null,
+        sessionId: null,
+        event: "document_emailed",
+        payload: { by: me, ref: `detention-claim:${row.id}`, docKind: "detention_claim", to: recipient, subject, status: sendStatus }
+      });
+      if (sendStatus === "sent") {
+        await db.update(detentionRecords3).set({ claimStatus: "sent", claimSentAt: new Date, claimRecipient: recipient, updatedAt: new Date }).where(eq(detentionRecords3.id, row.id));
+        await appendChain(ctx, {
+          refKind: "driver",
+          refId: null,
+          sessionId: null,
+          event: "detention_claim_sent",
+          payload: { detentionId: row.id, loadId: row.loadId, to: recipient, by: me, at: new Date().toISOString() }
+        });
+      }
+      ctx.invalidateQueries();
+      return {
+        ok: sendStatus !== "failed",
+        error: sendStatus === "failed" ? errorMessage ?? "The claim email couldn't be sent." : null,
+        sendStatus,
+        claimStatus: sendStatus === "sent" ? "sent" : status,
+        recipient
+      };
+    }
+  }),
+  setDetentionClaimStatus: defineAction({
+    description: "Move a detention claim along its lifecycle \u2014 acknowledged, paid, or disputed (each transition chain-sealed; the order is enforced).",
+    request: object({
+      id: number2().int().positive(),
+      status: _enum(["acknowledged", "paid", "disputed"])
+    }),
+    response: object({ ok: boolean2(), error: string2().nullable(), claimStatus: string2().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const rows = await db.select().from(detentionRecords3).where(eq(detentionRecords3.id, args.id)).limit(1);
+      const row = rows[0];
+      if (!row)
+        return { ok: false, error: "That detention record doesn't exist.", claimStatus: null };
+      const from = claimStatusOf(row);
+      const to = args.status;
+      if (!canDetentionClaimMove(from, to)) {
+        return { ok: false, error: `A claim that is ${from} can't move to ${to} from here.`, claimStatus: from };
+      }
+      await db.update(detentionRecords3).set({ claimStatus: to, updatedAt: new Date }).where(eq(detentionRecords3.id, row.id));
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "detention_claim_status",
+        payload: { detentionId: row.id, loadId: row.loadId, from, to, by: me, at: new Date().toISOString() }
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null, claimStatus: to };
+    }
+  }),
+  getFacilityDetentionStats: defineAction({
+    description: "Per-facility detention stats from the caller's OWN sealed detention records: visits, times held past free time, average time beyond it, sample size always attached. Below 3 visits the facts print without a score.",
+    request: object({}),
+    response: object({
+      facilities: array(object({
+        placeKey: string2(),
+        placeLabel: string2(),
+        visits: number2(),
+        detainedCount: number2(),
+        avgBillableMinutes: number2(),
+        totalBillableMinutes: number2(),
+        lastVisitAt: string2(),
+        scoreEligible: boolean2()
+      }))
+    }),
+    async handler(ctx) {
+      const db = ctx.db();
+      const mine = await db.select().from(detentionRecords3);
+      const myLoads = await db.select().from(loads3);
+      const labelFor = (r) => {
+        if (r.placeLabel)
+          return r.placeLabel;
+        const l = r.loadId != null ? myLoads.find((x) => x.id === r.loadId) : undefined;
+        return (l ? [l.deliveryCity, l.deliveryState].filter(Boolean).join(", ") : "") || "Stop";
+      };
+      const stats = facilityDetentionStats(mine.filter((r) => r.departedAt != null).map((r) => {
+        const label = labelFor(r);
+        return {
+          placeKey: facilityKeyOf(label),
+          placeLabel: label,
+          arrivedAtIso: r.arrivedAt.toISOString(),
+          departedAtIso: r.departedAt.toISOString(),
+          graceMinutes: r.graceMinutes
+        };
+      }));
+      return {
+        facilities: stats.map((s) => ({
+          placeKey: s.placeKey,
+          placeLabel: s.placeLabel,
+          visits: s.visits,
+          detainedCount: s.detainedCount,
+          avgBillableMinutes: Math.round(s.avgBillableMinutes),
+          totalBillableMinutes: s.totalBillableMinutes,
+          lastVisitAt: s.lastVisitAtIso,
+          scoreEligible: s.scoreEligible
+        }))
+      };
     }
   }),
   listVehiclePhotos: defineAction({

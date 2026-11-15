@@ -1883,6 +1883,17 @@ export const loads = pgTable("loads", {
   // sensor reading.
   reeferSetpointF: doublePrecision("reefer_setpoint_f"),
   reeferBandF: doublePrecision("reefer_band_f"),
+  // Detention collection (migration 0132, Wave 2 item 5): the
+  // driver's OWN detention terms for this load — a per-hour figure
+  // THEY recorded from their agreement with the broker/shipper.
+  // Driver-entered only, never inferred from the rate or anything
+  // else; the detention claim pack prices its time from this figure
+  // and labels it "driver's recorded terms". Null = no terms on
+  // file — the claim pack then prints time facts only and leaves
+  // the amount line blank. (The detention_records table itself
+  // stays money-free by design; terms live on the load, where the
+  // driver's other agreement facts live.)
+  detentionRatePerHour: doublePrecision("detention_rate_per_hour"),
   // Dock helper: the delivery appointment, the dock door assigned
   // (when known), and the lumper fee paid at the dock with its
   // receipt filed as a blob (fingerprinted like load documents).
@@ -4982,6 +4993,52 @@ export const detentionRecords = pgTable("detention_records", {
   departLat: doublePrecision("depart_lat"),
   departLon: doublePrecision("depart_lon"),
   chainHash: text("chain_hash"),
+  // Detention collection (migration 0132, Wave 2 item 5): the claim
+  // lifecycle for THIS visit's collection pack — none → generated →
+  // sent → acknowledged → paid | disputed. Every transition seals
+  // into the chain (detention_claim_* events); the columns are the
+  // current-state cache. Still NO money column: the claim amount
+  // is computed at pack time from the load's driver-recorded terms
+  // (loads.detention_rate_per_hour) and lives on the pack document,
+  // never stored here.
+  claimStatus: text("claim_status").notNull().default("none"),
+  claimGeneratedAt: timestamp("claim_generated_at", { withTimezone: true, mode: "date" }),
+  claimSentAt: timestamp("claim_sent_at", { withTimezone: true, mode: "date" }),
+  claimRecipient: text("claim_recipient"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+// Parking reservations (migration 0132, Wave 2 item 4): a parking
+// stop the planner picked, reserved through a PARTNER's supply
+// (Truck Parking Club-class) — STONEMILES builds no parking supply
+// of its own. A row exists only when a partner actually accepted
+// the hold: the partner seam (parking.ts parkingPartnerFromEnv)
+// returns null until a partner agreement + credentials exist, and
+// with no partner the reserve action refuses honestly and writes
+// nothing. The arrival window is computed against the driver's
+// HOS clock at reserve time (eta = now + miles at the standing
+// pace; latest = when the binding clock runs out) and snapshotted
+// here, so the reservation proves what it was booked against.
+export const parkingReservations = pgTable("parking_reservations", {
+  profileId: integer("profile_id"),
+  id: serial("id").primaryKey(),
+  driverUsername: text("driver_username").notNull(),
+  stopName: text("stop_name").notNull(),
+  stopLat: doublePrecision("stop_lat").notNull(),
+  stopLon: doublePrecision("stop_lon").notNull(),
+  alongMi: doublePrecision("along_mi").notNull(),
+  etaAt: timestamp("eta_at", { withTimezone: true, mode: "date" }).notNull(),
+  latestArrivalAt: timestamp("latest_arrival_at", { withTimezone: true, mode: "date" }).notNull(),
+  // held | confirmed | cancelled | used — the partner's word for
+  // the hold, cached; transitions seal into the chain.
+  status: text("status").notNull().default("held"),
+  partnerName: text("partner_name"),
+  partnerRef: text("partner_ref"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
     .notNull()
     .$defaultFn(() => new Date()),
