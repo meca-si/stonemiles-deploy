@@ -4714,6 +4714,24 @@ export const loadInvoices = pgTable("load_invoices", {
   issuedAt: timestamp("issued_at", { withTimezone: true, mode: "date" }),
   dueAt: timestamp("due_at", { withTimezone: true, mode: "date" }),
   paidAt: timestamp("paid_at", { withTimezone: true, mode: "date" }),
+  // Factoring (migration 0134, Research Wave 2 item 7): the
+  // instant-pay submission state — none | packaged | submitted |
+  // advanced | settled, every transition chain-sealed. The
+  // package manifest (factorPackageJson) names the Library refs
+  // it stands on (invoice:<id> + pod:<loadId>) and the POD
+  // confirmation facts. factorPartner / factorRef are written
+  // ONLY by an accepted partner submission (the
+  // factorPartnerFromEnv seam — unconfigured in this build, so
+  // packaged is as far as any invoice gets until a real factor
+  // agreement lands; nothing here moves money).
+  factorStatus: text("factor_status").notNull().default("none"),
+  factorPartner: text("factor_partner"),
+  factorRef: text("factor_ref"),
+  factorPackageJson: text("factor_package_json"),
+  factorPackagedAt: timestamp("factor_packaged_at", { withTimezone: true, mode: "date" }),
+  factorSubmittedAt: timestamp("factor_submitted_at", { withTimezone: true, mode: "date" }),
+  factorAdvancedAt: timestamp("factor_advanced_at", { withTimezone: true, mode: "date" }),
+  factorSettledAt: timestamp("factor_settled_at", { withTimezone: true, mode: "date" }),
   notes: text("notes"),
   chainHash: text("chain_hash"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })

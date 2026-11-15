@@ -10020,6 +10020,14 @@ var loadInvoices = sqliteTable("load_invoices", {
   issuedAt: integer3("issued_at", { mode: "timestamp_ms" }),
   dueAt: integer3("due_at", { mode: "timestamp_ms" }),
   paidAt: integer3("paid_at", { mode: "timestamp_ms" }),
+  factorStatus: text2("factor_status").notNull().default("none"),
+  factorPartner: text2("factor_partner"),
+  factorRef: text2("factor_ref"),
+  factorPackageJson: text2("factor_package_json"),
+  factorPackagedAt: integer3("factor_packaged_at", { mode: "timestamp_ms" }),
+  factorSubmittedAt: integer3("factor_submitted_at", { mode: "timestamp_ms" }),
+  factorAdvancedAt: integer3("factor_advanced_at", { mode: "timestamp_ms" }),
+  factorSettledAt: integer3("factor_settled_at", { mode: "timestamp_ms" }),
   notes: text2("notes"),
   chainHash: text2("chain_hash"),
   createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
@@ -12482,6 +12490,14 @@ var loadInvoices2 = pgTable("load_invoices", {
   issuedAt: timestamp("issued_at", { withTimezone: true, mode: "date" }),
   dueAt: timestamp("due_at", { withTimezone: true, mode: "date" }),
   paidAt: timestamp("paid_at", { withTimezone: true, mode: "date" }),
+  factorStatus: text("factor_status").notNull().default("none"),
+  factorPartner: text("factor_partner"),
+  factorRef: text("factor_ref"),
+  factorPackageJson: text("factor_package_json"),
+  factorPackagedAt: timestamp("factor_packaged_at", { withTimezone: true, mode: "date" }),
+  factorSubmittedAt: timestamp("factor_submitted_at", { withTimezone: true, mode: "date" }),
+  factorAdvancedAt: timestamp("factor_advanced_at", { withTimezone: true, mode: "date" }),
+  factorSettledAt: timestamp("factor_settled_at", { withTimezone: true, mode: "date" }),
   notes: text("notes"),
   chainHash: text("chain_hash"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date),
@@ -17500,6 +17516,171 @@ function parkingPartnerFromEnv(env, transport) {
       await call(`/reservations/${encodeURIComponent(partnerRef)}`, "DELETE");
     }
   };
+}
+
+// src/factoring.ts
+var round25 = (n) => Math.round(n * 100) / 100;
+var FACTOR_STATUS_LABELS = {
+  none: "Not packaged",
+  packaged: "Packaged \u2014 ready to send",
+  submitted: "Submitted to the factor",
+  advanced: "Advance received from the factor",
+  settled: "Settled \u2014 the factor collected from the broker"
+};
+function factorStatusLabel(status) {
+  return FACTOR_STATUS_LABELS[status] ?? status;
+}
+function factoringEligibility(input) {
+  const checks = [
+    { key: "delivered", label: "Load delivered and POD sealed", ok: input.podSealed },
+    { key: "pod_confirmed", label: "POD paperwork confirmed", ok: input.podConfirmed },
+    {
+      key: "issued",
+      label: input.invoiceStatus === "paid" ? "Invoice issued (already paid \u2014 nothing left to factor)" : "Invoice issued",
+      ok: input.invoiceStatus === "issued"
+    }
+  ];
+  return { eligible: checks.every((c) => c.ok), checks };
+}
+var BUCKET_DEFS = [
+  { key: "current", label: "Current \u2014 not yet due" },
+  { key: "d30", label: "1\u201330 days past due" },
+  { key: "d60", label: "31\u201360 days past due" },
+  { key: "d90", label: "61\u201390 days past due" },
+  { key: "d90plus", label: "90+ days past due" }
+];
+function arDaysPastDue(inv, nowMs) {
+  if (inv.dueAtMs == null || !Number.isFinite(inv.dueAtMs))
+    return 0;
+  const days = Math.floor((nowMs - inv.dueAtMs) / 86400000);
+  return days > 0 ? days : 0;
+}
+function arBucketKeyFor(daysPastDue) {
+  if (daysPastDue <= 0)
+    return "current";
+  if (daysPastDue <= 30)
+    return "d30";
+  if (daysPastDue <= 60)
+    return "d60";
+  if (daysPastDue <= 90)
+    return "d90";
+  return "d90plus";
+}
+function buildArSummary(invoices, nowMs) {
+  const byKey = new Map(BUCKET_DEFS.map((b) => [b.key, { count: 0, total: 0 }]));
+  let outstandingCount = 0;
+  let outstandingTotal = 0;
+  let factoredCount = 0;
+  let factoredTotal = 0;
+  let packagedCount = 0;
+  let paidCount = 0;
+  let paidTotal = 0;
+  let settledFactoredCount = 0;
+  let draftCount = 0;
+  for (const inv of invoices) {
+    if (!Number.isFinite(inv.amount))
+      continue;
+    if (inv.status === "draft") {
+      draftCount++;
+      continue;
+    }
+    if (inv.status === "paid") {
+      paidCount++;
+      paidTotal += inv.amount;
+      if (inv.factorStatus === "settled")
+        settledFactoredCount++;
+      continue;
+    }
+    if (inv.status !== "issued")
+      continue;
+    if (inv.factorStatus === "submitted" || inv.factorStatus === "advanced") {
+      factoredCount++;
+      factoredTotal += inv.amount;
+      continue;
+    }
+    if (inv.factorStatus === "packaged")
+      packagedCount++;
+    const bucket = byKey.get(arBucketKeyFor(arDaysPastDue(inv, nowMs)));
+    bucket.count++;
+    bucket.total += inv.amount;
+    outstandingCount++;
+    outstandingTotal += inv.amount;
+  }
+  return {
+    buckets: BUCKET_DEFS.map((b) => ({
+      key: b.key,
+      label: b.label,
+      count: byKey.get(b.key).count,
+      total: round25(byKey.get(b.key).total)
+    })),
+    outstandingCount,
+    outstandingTotal: round25(outstandingTotal),
+    factoredCount,
+    factoredTotal: round25(factoredTotal),
+    packagedCount,
+    paidCount,
+    paidTotal: round25(paidTotal),
+    settledFactoredCount,
+    draftCount
+  };
+}
+function factorPartnerFromEnv(env, transport) {
+  const apiKey = env.FACTOR_PARTNER_API_KEY?.trim();
+  const baseUrl = env.FACTOR_PARTNER_BASE_URL?.trim();
+  if (!apiKey || !baseUrl)
+    return null;
+  const name = env.FACTOR_PARTNER_NAME?.trim() || "Factoring partner";
+  const fetchFn = transport ?? (async (url, init) => {
+    const r = await fetch(url, init);
+    return { ok: r.ok, status: r.status, json: () => r.json() };
+  });
+  return {
+    name,
+    async submit(pkg) {
+      const r = await fetchFn(`${baseUrl.replace(/\/+$/, "")}/submissions`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${apiKey}`,
+          "content-type": "application/json"
+        },
+        body: JSON.stringify(pkg)
+      });
+      if (!r.ok)
+        throw new Error(`factoring partner answered ${r.status}`);
+      const out = await r.json();
+      const partnerRef = typeof out.id === "string" && out.id ? out.id : typeof out.reference === "string" ? out.reference : "";
+      if (!partnerRef)
+        throw new Error("factoring partner accepted the call but returned no submission reference");
+      return { partnerRef };
+    }
+  };
+}
+
+// src/brokerCredit.ts
+var BROKER_CREDIT_MIN_SAMPLE = 3;
+var round12 = (n) => Math.round(n * 10) / 10;
+function brokerCreditSummary(facts) {
+  const loadsCarried = facts.filter((f) => f.delivered).length;
+  const spans = [];
+  for (const f of facts) {
+    if (f.issuedAtMs == null || f.paidAtMs == null)
+      continue;
+    if (!Number.isFinite(f.issuedAtMs) || !Number.isFinite(f.paidAtMs))
+      continue;
+    spans.push(Math.max(0, (f.paidAtMs - f.issuedAtMs) / 86400000));
+  }
+  const paidLoads = spans.length;
+  const avgDaysToPay = paidLoads > 0 ? round12(spans.reduce((s, d) => s + d, 0) / paidLoads) : null;
+  const hasScore = paidLoads >= BROKER_CREDIT_MIN_SAMPLE && avgDaysToPay != null;
+  let label;
+  if (paidLoads === 0) {
+    label = "No payment history in STONEMILES yet";
+  } else if (!hasScore) {
+    label = `${paidLoads} paid load${paidLoads === 1 ? "" : "s"} on record`;
+  } else {
+    label = `Pays in about ${Math.round(avgDaysToPay)} days on average \xB7 ${paidLoads} paid loads on record`;
+  }
+  return { loadsCarried, paidLoads, avgDaysToPay, sampleSize: paidLoads, hasScore, label };
 }
 
 // src/dqf.ts
@@ -28141,6 +28322,14 @@ var brokerTrustShape = object({
   verificationStatus: _enum(["verified", "stale", "on_file"]),
   verificationLabel: string2()
 });
+var brokerCreditShape = object({
+  loadsCarried: number2(),
+  paidLoads: number2(),
+  avgDaysToPay: number2().nullable(),
+  sampleSize: number2(),
+  hasScore: boolean2(),
+  label: string2()
+});
 var boardLoadShape = object({
   id: number2(),
   companyId: number2(),
@@ -28192,6 +28381,7 @@ var boardLoadShape = object({
   brokerMc: string2().nullable(),
   brokerSource: string2().nullable(),
   brokerTrust: brokerTrustShape.nullable(),
+  brokerCredit: brokerCreditShape.nullable(),
   boardScope: string2(),
   originKind: string2().nullable(),
   originLabel: string2().nullable(),
@@ -28202,7 +28392,7 @@ var boardLoadShape = object({
   createdAt: string2(),
   updatedAt: string2()
 });
-function toBoardLoad(row, linked, trust = null) {
+function toBoardLoad(row, linked, trust = null, credit = null) {
   let canUnassign = false;
   let blocked = null;
   if (row.status === "assigned") {
@@ -28273,6 +28463,7 @@ function toBoardLoad(row, linked, trust = null) {
     brokerMc: row.brokerMc ?? null,
     brokerSource: row.brokerSource ?? null,
     brokerTrust: trust,
+    brokerCredit: credit,
     boardScope: row.boardScope ?? "fleet",
     originKind: row.originKind ?? null,
     originLabel: row.originLabel ?? null,
@@ -29763,6 +29954,7 @@ var openBoardLoadShape = object({
   brokerCompany: string2().nullable(),
   brokerMc: string2().nullable(),
   brokerTrust: brokerTrustShape.nullable(),
+  brokerCredit: brokerCreditShape.nullable(),
   originKind: string2().nullable(),
   originLabel: string2().nullable(),
   dispatcherFeePct: number2().nullable(),
@@ -29770,7 +29962,7 @@ var openBoardLoadShape = object({
   createdAt: string2(),
   updatedAt: string2()
 });
-function toOpenBoardLoad(row, linked, trust = null) {
+function toOpenBoardLoad(row, linked, trust = null, credit = null) {
   return {
     id: row.id,
     postedBy: row.postedBy,
@@ -29808,6 +30000,7 @@ function toOpenBoardLoad(row, linked, trust = null) {
     brokerCompany: row.brokerCompany ?? null,
     brokerMc: row.brokerMc ?? null,
     brokerTrust: trust,
+    brokerCredit: credit,
     originKind: row.originKind ?? null,
     originLabel: row.originLabel ?? null,
     dispatcherFeePct: row.dispatcherFeePct ?? null,
@@ -30445,6 +30638,79 @@ async function brokerTrustForBoardRows(ctx, rows) {
     if (!account)
       continue;
     out.set(row.id, brokerTrustSummary(identityOfAccount(account), { seamConfigured, nowMs }));
+  }
+  return out;
+}
+function chainPayloadMs(payload, field) {
+  try {
+    const p = JSON.parse(payload);
+    const v = p[field];
+    if (typeof v !== "string")
+      return null;
+    const ms = Date.parse(v);
+    return Number.isFinite(ms) ? ms : null;
+  } catch {
+    return null;
+  }
+}
+async function brokerCreditForBoardRows(ctx, rows) {
+  const out = new Map;
+  const posterIds = [...new Set(rows.map((r) => r.brokerPosterLoadId).filter((v) => v != null))];
+  if (posterIds.length === 0)
+    return out;
+  const db = ctx.db();
+  const posters = await db.select().from(brokerPosterLoads3);
+  const posterById = new Map(posters.filter((p) => posterIds.includes(p.id)).map((p) => [p.id, p]));
+  const accountIds = [...new Set([...posterById.values()].map((p) => p.brokerId))];
+  if (accountIds.length === 0)
+    return out;
+  const allPosters = posters.filter((p) => accountIds.includes(p.brokerId));
+  const boardIds = [...new Set(allPosters.map((p) => p.boardLoadId).filter((v) => v != null))];
+  const boardRows = boardIds.length ? await db.select().from(boardLoads3).where(inArray(boardLoads3.id, boardIds)) : [];
+  const boardById = new Map(boardRows.map((b) => [b.id, b]));
+  const loadIdByPoster = new Map;
+  for (const p of allPosters) {
+    const b = p.boardLoadId != null ? boardById.get(p.boardLoadId) : null;
+    if (b?.loadId != null)
+      loadIdByPoster.set(p.id, b.loadId);
+  }
+  const driverLoadIds = [...new Set(loadIdByPoster.values())];
+  const factsByLoad = new Map;
+  if (driverLoadIds.length > 0) {
+    const events = await db.select().from(chainLog3).where(and(eq(chainLog3.refKind, "load"), inArray(chainLog3.event, ["pod_seal", "invoice_issued", "invoice_paid"]))).orderBy(asc(chainLog3.id));
+    for (const e of events) {
+      if (e.refId == null || !driverLoadIds.includes(e.refId))
+        continue;
+      const f = factsByLoad.get(e.refId) ?? { delivered: false, issuedAtMs: null, paidAtMs: null };
+      if (e.event === "pod_seal")
+        f.delivered = true;
+      else if (e.event === "invoice_issued" && f.issuedAtMs == null)
+        f.issuedAtMs = chainPayloadMs(e.payload, "issuedAt") ?? e.createdAt.getTime();
+      else if (e.event === "invoice_paid" && f.paidAtMs == null)
+        f.paidAtMs = chainPayloadMs(e.payload, "paidAt") ?? e.createdAt.getTime();
+      factsByLoad.set(e.refId, f);
+    }
+  }
+  const summaryByAccount = new Map;
+  for (const accountId of accountIds) {
+    const facts = [];
+    for (const p of allPosters) {
+      if (p.brokerId !== accountId)
+        continue;
+      const lid = loadIdByPoster.get(p.id);
+      if (lid == null)
+        continue;
+      facts.push(factsByLoad.get(lid) ?? { delivered: false, issuedAtMs: null, paidAtMs: null });
+    }
+    summaryByAccount.set(accountId, brokerCreditSummary(facts));
+  }
+  for (const row of rows) {
+    if (row.brokerPosterLoadId == null)
+      continue;
+    const poster = posterById.get(row.brokerPosterLoadId);
+    const s = poster ? summaryByAccount.get(poster.brokerId) : null;
+    if (s)
+      out.set(row.id, s);
   }
   return out;
 }
@@ -31351,6 +31617,96 @@ async function issueInvoiceRow(ctx, r, opts) {
   });
   return { dueAt: dueAt.toISOString() };
 }
+var factoringStateShape = object({
+  status: string2(),
+  statusLabel: string2(),
+  partnerConnected: boolean2(),
+  partnerName: string2().nullable(),
+  partnerRef: string2().nullable(),
+  eligible: boolean2(),
+  checks: array(object({ key: string2(), label: string2(), ok: boolean2() })),
+  packagedAt: string2().nullable(),
+  submittedAt: string2().nullable(),
+  advancedAt: string2().nullable(),
+  settledAt: string2().nullable(),
+  packageInvoiceRef: string2().nullable(),
+  packagePodRef: string2().nullable()
+});
+function factorPackageParsed(r) {
+  if (!r.factorPackageJson)
+    return null;
+  try {
+    const p = JSON.parse(r.factorPackageJson);
+    return typeof p?.invoiceRef === "string" && typeof p?.podRef === "string" ? p : null;
+  } catch {
+    return null;
+  }
+}
+async function factoringStateFor(ctx, r) {
+  const pods = await podStatusByLoad(ctx);
+  const pod = pods.get(r.loadId);
+  const podRow = await paperworkRowFor(ctx, r.loadId, "pod");
+  const eligibility = factoringEligibility({
+    invoiceStatus: r.status,
+    podSealed: pod?.sealed === true,
+    podConfirmed: podRow?.confirmStatus === "confirmed"
+  });
+  const partner = factorPartnerFromEnv(process.env);
+  const pkg = factorPackageParsed(r);
+  return {
+    status: r.factorStatus ?? "none",
+    statusLabel: factorStatusLabel(r.factorStatus ?? "none"),
+    partnerConnected: partner != null,
+    partnerName: r.factorPartner ?? partner?.name ?? null,
+    partnerRef: r.factorRef ?? null,
+    eligible: eligibility.eligible,
+    checks: eligibility.checks,
+    packagedAt: r.factorPackagedAt?.toISOString() ?? null,
+    submittedAt: r.factorSubmittedAt?.toISOString() ?? null,
+    advancedAt: r.factorAdvancedAt?.toISOString() ?? null,
+    settledAt: r.factorSettledAt?.toISOString() ?? null,
+    packageInvoiceRef: pkg?.invoiceRef ?? null,
+    packagePodRef: pkg?.podRef ?? null
+  };
+}
+async function recordInvoicePayment(ctx, r, paidAt, noteText) {
+  const db = ctx.db();
+  const loads = await db.select().from(loads3).where(eq(loads3.id, r.loadId)).limit(1);
+  const load = loads[0];
+  const claims = await db.select().from(claimEvents3).where(eq(claimEvents3.loadId, r.loadId));
+  const claimsTotal = Math.round(claims.reduce((s, c) => s + c.amount, 0) * 100) / 100;
+  const payments = await db.select().from(loadPayments3).where(eq(loadPayments3.loadId, r.loadId));
+  const paidTotal = Math.round(payments.reduce((s, p) => s + p.amount, 0) * 100) / 100;
+  const freight = load?.rate != null ? Math.round((load.rate + (load.extraCharges ?? 0)) * 100) / 100 : null;
+  const totalOwed = freight != null ? Math.round((freight + claimsTotal) * 100) / 100 : null;
+  const outstanding = totalOwed != null ? Math.round((totalOwed - paidTotal) * 100) / 100 : 0;
+  if (outstanding <= 0.005)
+    return 0;
+  const ins = await db.insert(loadPayments3).values({ loadId: r.loadId, amount: outstanding, paidAt, note: noteText }).returning({ id: loadPayments3.id });
+  const payRow = ins[0];
+  if (!payRow)
+    throw new Error("recordInvoicePayment: payment insert returned no rows");
+  const payHash = await appendChain(ctx, {
+    refKind: "load",
+    refId: r.loadId,
+    sessionId: null,
+    event: "load_payment",
+    payload: { paymentId: payRow.id, loadId: r.loadId, amount: outstanding, paidAt: paidAt.toISOString(), note: noteText, viaInvoice: r.id }
+  });
+  await db.update(loadPayments3).set({ chainHash: payHash }).where(eq(loadPayments3.id, payRow.id));
+  return outstanding;
+}
+async function markInvoicePaidRow(ctx, r, paidAt, recordedPayment) {
+  const db = ctx.db();
+  await db.update(loadInvoices3).set({ status: "paid", paidAt, updatedAt: new Date }).where(eq(loadInvoices3.id, r.id));
+  await appendChain(ctx, {
+    refKind: "load",
+    refId: r.loadId,
+    sessionId: null,
+    event: "invoice_paid",
+    payload: { invoiceId: r.id, number: r.number, loadId: r.loadId, amount: r.amount, paidAt: paidAt.toISOString(), recordedPayment }
+  });
+}
 async function businessIdentityFor(ctx) {
   const db = ctx.db();
   const rows = await db.select().from(profile3).where(eq(profile3.id, myProfileId(ctx))).limit(1);
@@ -31864,6 +32220,56 @@ async function resolveLibraryDocument(ctx, ref) {
       image: await businessLogoImageFor(ctx, biz)
     });
     return { ok: true, error: null, docKind: "invoice", title, filename: `invoice-${r.number}.pdf`, mime: "application/pdf", bytes };
+  }
+  if (kind === "factor-package") {
+    const id = Number(parts[1]);
+    const rows = await db.select().from(loadInvoices3).where(eq(loadInvoices3.id, id)).limit(1);
+    const r = rows[0];
+    if (!r)
+      return docRefused("factoring package");
+    const pkg = factorPackageParsed(r);
+    if (!pkg)
+      return { ...docRefused("factoring package"), error: "That invoice has no factoring package yet \u2014 assemble it from the invoice first." };
+    const biz = await businessIdentityFor(ctx);
+    const title = `Factoring package - Invoice ${r.number} - Load #${r.loadId}`;
+    const bytes = libraryPdfBytes({
+      title,
+      subtitle: `${biz.name ?? "Your business"} - the submission package for invoice ${r.number}, from the sealed records in your library`,
+      sections: [
+        {
+          heading: "Package contents",
+          lines: [
+            `Invoice document: ${pkg.invoiceRef} (Invoice ${pkg.invoiceNumber})`,
+            `Signed POD document: ${pkg.podRef} (Load #${pkg.loadId})`,
+            `POD paperwork confirmed by: ${pkg.podConfirmedBy ? `@${pkg.podConfirmedBy}` : "not recorded"}`,
+            `POD paperwork confirmed at: ${pkg.podConfirmedAt ?? "not recorded"}`,
+            `Package assembled: ${pkg.assembledAt}`
+          ]
+        },
+        {
+          heading: "The bill",
+          lines: [
+            `Bill to: ${pkg.billToName}`,
+            `Lane: ${pkg.lane}`,
+            `Amount: ${moneyText(pkg.amount)}`,
+            `Issued: ${pkg.issuedAt ? pkg.issuedAt.slice(0, 10) : "not issued"}`,
+            `Due: ${pkg.dueAt ? pkg.dueAt.slice(0, 10) : "no due date"}`
+          ]
+        },
+        {
+          heading: "Submission state",
+          lines: [
+            `Status: ${factorStatusLabel(r.factorStatus ?? "none")}`,
+            `Factor: ${r.factorPartner ?? "No factoring partner connected yet \u2014 the package is assembled and unsent."}`,
+            ...r.factorRef ? [`Partner reference: ${r.factorRef}`] : [],
+            ...r.factorSubmittedAt ? [`Submitted: ${r.factorSubmittedAt.toISOString()}`] : [],
+            ...r.factorAdvancedAt ? [`Advance recorded: ${r.factorAdvancedAt.toISOString()}`] : [],
+            ...r.factorSettledAt ? [`Settled: ${r.factorSettledAt.toISOString()}`] : []
+          ]
+        }
+      ]
+    });
+    return { ok: true, error: null, docKind: "factor_package", title, filename: `factoring-package-${r.number}.pdf`, mime: "application/pdf", bytes };
   }
   if (kind === "pl") {
     const pKind = parts[1];
@@ -39265,9 +39671,10 @@ Keep it for your records.
       const canManage = mine.role === "owner" || mine.role === "dispatch";
       const visible = rows.filter((r) => r.status === "open" || canManage || r.claimedBy === me);
       const trustByBoardId = await brokerTrustForBoardRows(ctx, visible);
+      const creditByBoardId = await brokerCreditForBoardRows(ctx, visible);
       const board = [];
       for (const r of visible) {
-        const shaped = toBoardLoad(r, r.status === "taken" ? await boardLinkedState(ctx, r) : null, trustByBoardId.get(r.id) ?? null);
+        const shaped = toBoardLoad(r, r.status === "taken" ? await boardLinkedState(ctx, r) : null, trustByBoardId.get(r.id) ?? null, creditByBoardId.get(r.id) ?? null);
         if (r.status === "overflowed") {
           const copies = await db.select().from(boardLoads3).where(eq(boardLoads3.overflowFromBoardLoadId, r.id));
           shaped.overflowOpenBoardId = copies[0]?.id ?? null;
@@ -56117,6 +56524,7 @@ ${args.question}`, { schema: answerSchema });
         amount: number2(),
         status: string2(),
         displayStatus: string2(),
+        factorStatus: string2(),
         issuedAt: string2().nullable(),
         dueAt: string2().nullable(),
         paidAt: string2().nullable(),
@@ -56137,6 +56545,7 @@ ${args.question}`, { schema: answerSchema });
           amount: r.amount,
           status: r.status,
           displayStatus: invoiceDisplayStatus({ status: r.status, dueAtMs: r.dueAt?.getTime() ?? null }, now),
+          factorStatus: r.factorStatus ?? "none",
           issuedAt: r.issuedAt?.toISOString() ?? null,
           dueAt: r.dueAt?.toISOString() ?? null,
           paidAt: r.paidAt?.toISOString() ?? null,
@@ -56168,6 +56577,7 @@ ${args.question}`, { schema: answerSchema });
       dueAt: string2().nullable(),
       paidAt: string2().nullable(),
       notes: string2().nullable(),
+      factoring: factoringStateShape,
       business: object({
         name: string2().nullable(),
         address: string2().nullable(),
@@ -56204,6 +56614,7 @@ ${args.question}`, { schema: answerSchema });
         dueAt: r.dueAt?.toISOString() ?? null,
         paidAt: r.paidAt?.toISOString() ?? null,
         notes: r.notes ?? null,
+        factoring: await factoringStateFor(ctx, r),
         business: {
           name: biz.name,
           address: biz.address,
@@ -56247,39 +56658,9 @@ ${args.question}`, { schema: answerSchema });
       if (r.status === "paid")
         throw new Error(`Invoice ${r.number} is already marked paid.`);
       const paidAt = args.paidAt && Number.isFinite(Date.parse(args.paidAt)) ? new Date(args.paidAt) : new Date;
-      const loads = await db.select().from(loads3).where(eq(loads3.id, r.loadId)).limit(1);
-      const load = loads[0];
-      const claims = await db.select().from(claimEvents3).where(eq(claimEvents3.loadId, r.loadId));
-      const claimsTotal = Math.round(claims.reduce((s, c) => s + c.amount, 0) * 100) / 100;
-      const payments = await db.select().from(loadPayments3).where(eq(loadPayments3.loadId, r.loadId));
-      const paidTotal = Math.round(payments.reduce((s, p) => s + p.amount, 0) * 100) / 100;
-      const freight = load?.rate != null ? Math.round((load.rate + (load.extraCharges ?? 0)) * 100) / 100 : null;
-      const totalOwed = freight != null ? Math.round((freight + claimsTotal) * 100) / 100 : null;
-      const outstanding = totalOwed != null ? Math.round((totalOwed - paidTotal) * 100) / 100 : 0;
-      let recordedPayment = 0;
-      if (outstanding > 0.005) {
-        recordedPayment = outstanding;
-        const ins = await db.insert(loadPayments3).values({ loadId: r.loadId, amount: outstanding, paidAt, note: args.note?.trim() || `Invoice ${r.number} marked paid` }).returning({ id: loadPayments3.id });
-        const payRow = ins[0];
-        if (!payRow)
-          throw new Error("markInvoicePaid: payment insert returned no rows");
-        const payHash = await appendChain(ctx, {
-          refKind: "load",
-          refId: r.loadId,
-          sessionId: null,
-          event: "load_payment",
-          payload: { paymentId: payRow.id, loadId: r.loadId, amount: outstanding, paidAt: paidAt.toISOString(), note: args.note?.trim() || `Invoice ${r.number} marked paid`, viaInvoice: r.id }
-        });
-        await db.update(loadPayments3).set({ chainHash: payHash }).where(eq(loadPayments3.id, payRow.id));
-      }
-      await db.update(loadInvoices3).set({ status: "paid", paidAt, updatedAt: new Date }).where(eq(loadInvoices3.id, r.id));
-      await appendChain(ctx, {
-        refKind: "load",
-        refId: r.loadId,
-        sessionId: null,
-        event: "invoice_paid",
-        payload: { invoiceId: r.id, number: r.number, loadId: r.loadId, amount: r.amount, paidAt: paidAt.toISOString(), recordedPayment }
-      });
+      const noteText = args.note?.trim() || `Invoice ${r.number} marked paid`;
+      const recordedPayment = await recordInvoicePayment(ctx, r, paidAt, noteText);
+      await markInvoicePaidRow(ctx, r, paidAt, recordedPayment);
       ctx.invalidateQueries();
       return { ok: true, recordedPayment };
     }
@@ -56306,6 +56687,197 @@ ${args.question}`, { schema: answerSchema });
       });
       ctx.invalidateQueries();
       return { ok: true };
+    }
+  }),
+  getInvoiceFactoring: defineAction({
+    description: "One invoice's instant-pay state: eligibility checks from the records, the submission ladder state, the package refs, and whether a factoring partner is connected.",
+    request: object({ id: number2().int().positive() }),
+    response: factoringStateShape,
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const rows = await db.select().from(loadInvoices3).where(eq(loadInvoices3.id, args.id)).limit(1);
+      const r = rows[0];
+      if (!r)
+        throw new Error("getInvoiceFactoring: no such invoice");
+      return factoringStateFor(ctx, r);
+    }
+  }),
+  submitInvoiceForFactoring: defineAction({
+    description: "Assemble the factoring package for an issued invoice (invoice + confirmed POD, through the Library doors) and send it when a factoring partner is connected. Unconfigured, the state stops honestly at packaged \u2014 nothing is sent and nothing is called submitted.",
+    request: object({ id: number2().int().positive() }),
+    response: object({
+      ok: literal(true),
+      factorStatus: string2(),
+      partnerConnected: boolean2(),
+      message: string2()
+    }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const rows = await db.select().from(loadInvoices3).where(eq(loadInvoices3.id, args.id)).limit(1);
+      const r = rows[0];
+      if (!r)
+        throw new Error("submitInvoiceForFactoring: no such invoice");
+      const status = r.factorStatus ?? "none";
+      if (status === "settled")
+        throw new Error(`Invoice ${r.number} is already settled through factoring \u2014 the lane is closed.`);
+      if (status === "submitted" || status === "advanced")
+        throw new Error(`Invoice ${r.number} is already with the factor (${factorStatusLabel(status).toLowerCase()}).`);
+      const pods = await podStatusByLoad(ctx);
+      const pod = pods.get(r.loadId);
+      if (!pod?.sealed)
+        throw new Error("That load hasn't been delivered and sealed yet \u2014 factoring stands on the sealed delivery, same as the invoice did.");
+      const podRow = await paperworkRowFor(ctx, r.loadId, "pod");
+      if (podRow?.confirmStatus !== "confirmed")
+        throw new Error("The POD paperwork for this load isn't confirmed yet \u2014 confirm it in the load's paperwork first. A factor buys confirmed paperwork, not a provisional read.");
+      if (r.status === "draft")
+        throw new Error(`Invoice ${r.number} is still a draft \u2014 issue it first, then package it for factoring.`);
+      if (r.status === "paid")
+        throw new Error(`Invoice ${r.number} is already paid \u2014 there's nothing left to factor.`);
+      let row = r;
+      if (status === "none") {
+        const pkg = {
+          invoiceRef: `invoice:${r.id}`,
+          podRef: `pod:${r.loadId}`,
+          invoiceId: r.id,
+          invoiceNumber: r.number,
+          loadId: r.loadId,
+          billToName: r.billToName,
+          lane: laneTextOf(r),
+          amount: r.amount,
+          issuedAt: r.issuedAt?.toISOString() ?? null,
+          dueAt: r.dueAt?.toISOString() ?? null,
+          podConfirmedBy: podRow.confirmedBy ?? null,
+          podConfirmedAt: podRow.confirmedAt?.toISOString() ?? null,
+          assembledAt: new Date().toISOString()
+        };
+        const packagedAt = new Date;
+        await db.update(loadInvoices3).set({ factorStatus: "packaged", factorPackageJson: JSON.stringify(pkg), factorPackagedAt: packagedAt, updatedAt: new Date }).where(eq(loadInvoices3.id, r.id));
+        await appendChain(ctx, {
+          refKind: "load",
+          refId: r.loadId,
+          sessionId: null,
+          event: "invoice_factor_packaged",
+          payload: { invoiceId: r.id, number: r.number, loadId: r.loadId, invoiceRef: pkg.invoiceRef, podRef: pkg.podRef, at: packagedAt.toISOString() }
+        });
+        const fresh = await db.select().from(loadInvoices3).where(eq(loadInvoices3.id, r.id)).limit(1);
+        row = fresh[0] ?? { ...r, factorStatus: "packaged", factorPackageJson: JSON.stringify(pkg), factorPackagedAt: packagedAt };
+      }
+      const partner = factorPartnerFromEnv(process.env);
+      if (!partner) {
+        ctx.invalidateQueries();
+        return {
+          ok: true,
+          factorStatus: "packaged",
+          partnerConnected: false,
+          message: `Package assembled for invoice ${r.number} \u2014 invoice + confirmed POD. No factoring partner is connected yet, so it hasn't been sent; it will send as-is the day a partner connects.`
+        };
+      }
+      const pkg = factorPackageParsed(row);
+      if (!pkg)
+        throw new Error("submitInvoiceForFactoring: the stored package couldn't be read back \u2014 nothing was sent.");
+      let partnerRef;
+      try {
+        partnerRef = (await partner.submit(pkg)).partnerRef;
+      } catch (e) {
+        throw new Error(`The package for invoice ${r.number} is assembled, but ${partner.name} didn't accept it (${e instanceof Error ? e.message : "send failed"}). It stays packaged \u2014 nothing was submitted.`);
+      }
+      const submittedAt = new Date;
+      await db.update(loadInvoices3).set({ factorStatus: "submitted", factorPartner: partner.name, factorRef: partnerRef, factorSubmittedAt: submittedAt, updatedAt: new Date }).where(eq(loadInvoices3.id, r.id));
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: r.loadId,
+        sessionId: null,
+        event: "invoice_factor_submitted",
+        payload: { invoiceId: r.id, number: r.number, loadId: r.loadId, partner: partner.name, partnerRef, at: submittedAt.toISOString() }
+      });
+      ctx.invalidateQueries();
+      return {
+        ok: true,
+        factorStatus: "submitted",
+        partnerConnected: true,
+        message: `Invoice ${r.number} submitted to ${partner.name} (their ref ${partnerRef}).`
+      };
+    }
+  }),
+  recordFactorAdvance: defineAction({
+    description: "Record that the factor advanced on a submitted invoice (record only \u2014 the money moved between the factor and the driver off-app; this is the bookkeeping).",
+    request: object({ id: number2().int().positive() }),
+    response: object({ ok: literal(true) }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const rows = await db.select().from(loadInvoices3).where(eq(loadInvoices3.id, args.id)).limit(1);
+      const r = rows[0];
+      if (!r)
+        throw new Error("recordFactorAdvance: no such invoice");
+      if ((r.factorStatus ?? "none") !== "submitted")
+        throw new Error(`Invoice ${r.number} isn't with a factor yet \u2014 an advance is recorded on a submitted invoice.`);
+      const advancedAt = new Date;
+      await db.update(loadInvoices3).set({ factorStatus: "advanced", factorAdvancedAt: advancedAt, updatedAt: new Date }).where(eq(loadInvoices3.id, r.id));
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: r.loadId,
+        sessionId: null,
+        event: "invoice_factor_advanced",
+        payload: { invoiceId: r.id, number: r.number, loadId: r.loadId, partner: r.factorPartner ?? null, partnerRef: r.factorRef ?? null, at: advancedAt.toISOString() }
+      });
+      ctx.invalidateQueries();
+      return { ok: true };
+    }
+  }),
+  recordFactorSettlement: defineAction({
+    description: "Record that the broker paid the factor in full and the invoice settled: closes the invoice as paid and records the covering payment so the who-owes-me board clears (record only, no money moves).",
+    request: object({ id: number2().int().positive() }),
+    response: object({ ok: literal(true), recordedPayment: number2() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const rows = await db.select().from(loadInvoices3).where(eq(loadInvoices3.id, args.id)).limit(1);
+      const r = rows[0];
+      if (!r)
+        throw new Error("recordFactorSettlement: no such invoice");
+      const status = r.factorStatus ?? "none";
+      if (status !== "submitted" && status !== "advanced")
+        throw new Error(`Invoice ${r.number} isn't with a factor \u2014 settlement is recorded on a submitted or advanced invoice.`);
+      if (r.status === "paid")
+        throw new Error(`Invoice ${r.number} is already marked paid.`);
+      const settledAt = new Date;
+      await db.update(loadInvoices3).set({ factorStatus: "settled", factorSettledAt: settledAt, updatedAt: new Date }).where(eq(loadInvoices3.id, r.id));
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: r.loadId,
+        sessionId: null,
+        event: "invoice_factor_settled",
+        payload: { invoiceId: r.id, number: r.number, loadId: r.loadId, partner: r.factorPartner ?? null, partnerRef: r.factorRef ?? null, at: settledAt.toISOString() }
+      });
+      const recordedPayment = await recordInvoicePayment(ctx, r, settledAt, `Invoice ${r.number} settled through factoring`);
+      await markInvoicePaidRow(ctx, r, settledAt, recordedPayment);
+      ctx.invalidateQueries();
+      return { ok: true, recordedPayment };
+    }
+  }),
+  getAccountsReceivable: defineAction({
+    description: "The caller's accounts receivable: outstanding invoices aged by days past due, what's with a factor, what's packaged, and what's been paid \u2014 all from their own invoice records.",
+    request: object({}),
+    response: object({
+      buckets: array(object({ key: string2(), label: string2(), count: number2(), total: number2() })),
+      outstandingCount: number2(),
+      outstandingTotal: number2(),
+      factoredCount: number2(),
+      factoredTotal: number2(),
+      packagedCount: number2(),
+      paidCount: number2(),
+      paidTotal: number2(),
+      settledFactoredCount: number2(),
+      draftCount: number2()
+    }),
+    async handler(ctx) {
+      const db = ctx.db();
+      const rows = await db.select().from(loadInvoices3);
+      return buildArSummary(rows.map((r) => ({
+        amount: r.amount,
+        status: r.status,
+        dueAtMs: r.dueAt?.getTime() ?? null,
+        factorStatus: r.factorStatus ?? "none"
+      })), Date.now());
     }
   }),
   getProfitLoss: defineAction({
@@ -61726,9 +62298,10 @@ ${args.question}`, { schema: answerSchema });
       }
       const rows = (await db.select().from(boardLoads3).where(eq(boardLoads3.boardScope, "open")).orderBy(desc(boardLoads3.id))).filter((r) => r.status === "open" || r.claimedBy === me);
       const trustByBoardId = await brokerTrustForBoardRows(ctx, rows);
+      const creditByBoardId = await brokerCreditForBoardRows(ctx, rows);
       const board = [];
       for (const r of rows) {
-        board.push(toOpenBoardLoad(r, r.status === "taken" ? await boardLinkedState(ctx, r) : null, trustByBoardId.get(r.id) ?? null));
+        board.push(toOpenBoardLoad(r, r.status === "taken" ? await boardLinkedState(ctx, r) : null, trustByBoardId.get(r.id) ?? null, creditByBoardId.get(r.id) ?? null));
       }
       return {
         myUsername: me,

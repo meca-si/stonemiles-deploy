@@ -4699,6 +4699,24 @@ export const loadInvoices = sqliteTable("load_invoices", {
   issuedAt: integer("issued_at", { mode: "timestamp_ms" }),
   dueAt: integer("due_at", { mode: "timestamp_ms" }),
   paidAt: integer("paid_at", { mode: "timestamp_ms" }),
+  // Factoring (migration 0134, Research Wave 2 item 7): the
+  // instant-pay submission state — none | packaged | submitted |
+  // advanced | settled, every transition chain-sealed. The
+  // package manifest (factorPackageJson) names the Library refs
+  // it stands on (invoice:<id> + pod:<loadId>) and the POD
+  // confirmation facts. factorPartner / factorRef are written
+  // ONLY by an accepted partner submission (the
+  // factorPartnerFromEnv seam — unconfigured in this build, so
+  // packaged is as far as any invoice gets until a real factor
+  // agreement lands; nothing here moves money).
+  factorStatus: text("factor_status").notNull().default("none"),
+  factorPartner: text("factor_partner"),
+  factorRef: text("factor_ref"),
+  factorPackageJson: text("factor_package_json"),
+  factorPackagedAt: integer("factor_packaged_at", { mode: "timestamp_ms" }),
+  factorSubmittedAt: integer("factor_submitted_at", { mode: "timestamp_ms" }),
+  factorAdvancedAt: integer("factor_advanced_at", { mode: "timestamp_ms" }),
+  factorSettledAt: integer("factor_settled_at", { mode: "timestamp_ms" }),
   notes: text("notes"),
   chainHash: text("chain_hash"),
   createdAt: integer("created_at", { mode: "timestamp_ms" })

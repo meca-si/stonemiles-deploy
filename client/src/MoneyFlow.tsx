@@ -20,6 +20,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fileToBase64 } from "@hatch/space-sdk/client";
 import { api } from "./api";
 import { MyDqfCard } from "./DqfPanel";
+import { InvoiceFactoringPanel, ReceivablesPanel } from "./FactoringPanel";
 import { t as tt, type Lang } from "./i18n";
 import { Section, XBar, downloadTextFile, money } from "./NextLevel";
 import {
@@ -1688,6 +1689,9 @@ export function MoneyFlowHub({ setBanner, mpg, onOpenBreakdownHelp, onOpenParkin
       <div id="invoices" className="scroll-mt-4">
         <InvoicesPanel setBanner={setBanner} lang={lang} />
       </div>
+      <div id="receivables" className="scroll-mt-4">
+        <ReceivablesPanel />
+      </div>
       <div id="my-settlement" className="scroll-mt-4">
         <SettlementPanel setBanner={setBanner} lang={lang} />
       </div>
@@ -1828,7 +1832,7 @@ export function InvoicesPanel({ setBanner, lang = "en" }: { setBanner: Banner; l
             >
               <div className="min-w-0">
                 <p className="truncate text-sm font-bold">{inv.number} — {inv.billToName}</p>
-                <p className="truncate text-xs text-[var(--dim)]">Load #{inv.loadId} · {inv.lane}{inv.dueAt ? ` · due ${inv.dueAt.slice(0, 10)}` : ""}</p>
+                <p className="truncate text-xs text-[var(--dim)]">Load #{inv.loadId} · {inv.lane}{inv.dueAt ? ` · due ${inv.dueAt.slice(0, 10)}` : ""}{inv.factorStatus !== "none" ? ` · ⚡ factoring: ${inv.factorStatus}` : ""}</p>
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 <span className="font-condensed text-base font-bold">{money(inv.amount)}</span>
@@ -1902,6 +1906,7 @@ export function InvoicesPanel({ setBanner, lang = "en" }: { setBanner: Banner; l
               Email invoice
             </button>
           </div>
+          <InvoiceFactoringPanel invoiceId={d.id} setBanner={setBanner} />
         </div>
       )}
     </Section>

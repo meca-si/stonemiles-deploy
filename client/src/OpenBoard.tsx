@@ -190,6 +190,15 @@ export function OpenBoardPanel({
               </dd>
             </div>
           )}
+          {r.brokerCredit && (
+            <div className="col-span-2">
+              <dt className="inline text-[var(--dim)]">💵 Payment record: </dt>
+              <dd className="inline font-semibold">
+                {r.brokerCredit.label}
+                {r.brokerCredit.loadsCarried > 0 ? ` · ${r.brokerCredit.loadsCarried} load${r.brokerCredit.loadsCarried === 1 ? "" : "s"} carried in STONEMILES` : ""}
+              </dd>
+            </div>
+          )}
           {r.commodity && (
             <div><dt className="inline text-[var(--dim)]">Freight: </dt><dd className="inline font-semibold">{r.commodity}{r.hazmat ? " · HAZMAT" : ""}</dd></div>
           )}

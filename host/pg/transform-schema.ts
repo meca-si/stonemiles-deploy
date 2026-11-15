@@ -104,6 +104,10 @@
 // dismissal dismissed_at); the entry dates ride as YYYY-MM-DD
 // text (the credential-alert convention) and the remaining new
 // columns are plain integer/text.
+// Migration 0134 (factoring) adds +4 timestamp_ms to
+// load_invoices (factor packaged/submitted/advanced/settled);
+// the status / partner / ref / package-manifest columns are
+// plain text.
 //
 //   bun run host/pg/transform-schema.ts
 
@@ -168,7 +172,7 @@ replaceAll(
   'integer mode "timestamp_ms" -> timestamp(tz, date)',
   /integer\(("[a-z0-9_]+"), \{ mode: "timestamp_ms" \}\)/g,
   'timestamp($1, { withTimezone: true, mode: "date" })',
-  359,
+  363,
 );
 replaceAll(
   "autoincrement PK -> serial",
