@@ -55,6 +55,9 @@
 // arrive/depart lat/lon), +1 boolean (dvir safe_to_operate); the
 // dvir truck/trailer label columns, the maintenance status column,
 // and detention place/chain-hash text ride the unchanged text rule.
+// Migration 0123 (trailer model) adds no table and no converted
+// column: the profile trailer_model column is plain text and rides
+// the unchanged text rule.
 //
 //   bun run host/pg/transform-schema.ts
 

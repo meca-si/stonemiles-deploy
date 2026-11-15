@@ -117,13 +117,16 @@ export const profile = pgTable("profile", {
   // My Trailer identity (migration 0120): the trailer as its own
   // piece of equipment, mirroring My Truck — year, make, VIN, plate,
   // all optional, typed in by the driver in Settings -> Truck.
-  // Trailer TYPE and LENGTH are NOT duplicated here: they already
-  // live on this row as the routing specs (trailerType / lengthFt).
-  // VIN and plate are OWNER-ONLY exactly like the truck's — they
-  // never reach any public surface; the public trailer line is built
-  // from year + make + trailer type only (see getUserProfile).
+  // Migration 0123 adds the trailer MODEL beside the make, mirroring
+  // truckModel. Trailer TYPE and LENGTH are NOT duplicated here: they
+  // already live on this row as the routing specs (trailerType /
+  // lengthFt). VIN and plate are OWNER-ONLY exactly like the truck's
+  // — they never reach any public surface; the public trailer line is
+  // built from year + make + model + trailer type only (see
+  // getUserProfile).
   trailerYear: integer("trailer_year"),
   trailerMake: text("trailer_make"),
+  trailerModel: text("trailer_model"),
   trailerVin: text("trailer_vin"),
   trailerPlate: text("trailer_plate"),
   // The driver's social handle (usernames are how people follow/DM/add).
