@@ -64,6 +64,23 @@ function invalidPage() {
   app.innerHTML = `<h1>Track your freight</h1><div class="err"><p style="margin:0;">This tracking link isn't valid anymore. Ask the driver or the shipping desk for a fresh link.</p></div>`;
 }
 
+// Automatic status updates (autonomy core): published by the
+// carrier's system from sealed records only — pickup and delivery
+// seals, detention clocks. A withdrawn update never renders; the
+// correction that replaced it renders in its place, marked.
+function timelineHtml(info) {
+  const items = info.timeline || [];
+  if (!items.length) return "";
+  const rows = items
+    .map((t) => {
+      const when = t.at ? new Date(t.at).toLocaleString() : "";
+      const label = t.corrected ? `Correction — ${t.label}` : t.label;
+      return `<li>${esc(label)}${when ? ` <span class="dim">${esc(when)}</span>` : ""}</li>`;
+    })
+    .join("");
+  return `<h2>Status updates</h2><ol class="stops">${rows}</ol><p class="dim">Posted automatically from the carrier's sealed records — no update appears here without one behind it.</p>`;
+}
+
 function render(info) {
   if (info.state === "delivered") {
     if (timer) clearInterval(timer);
@@ -75,7 +92,8 @@ function render(info) {
       ${kv("Shipper", info.shipperName)}
       ${kv("Commodity", info.commodity)}
       ${kv("Carrier", info.fleetName)}
-      ${kv("Driver", info.driverFirstName)}`;
+      ${kv("Driver", info.driverFirstName)}
+      ${timelineHtml(info)}`;
     return;
   }
   const stops = (info.stops || []).length
@@ -103,6 +121,7 @@ function render(info) {
     ${kv("Driver", info.driverFirstName)}
     ${stops}
     ${position}
+    ${timelineHtml(info)}
     <button id="refreshBtn" type="button">Refresh</button>
     <p class="dim">This page updates itself every minute while the load is on the road.</p>`;
   document.getElementById("refreshBtn").addEventListener("click", () => void load());

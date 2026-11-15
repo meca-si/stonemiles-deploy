@@ -16,6 +16,7 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type ApiResponse } from "./api";
 import { buildSmsHandoff, isPlausibleMobile, maskPhone } from "./receiverCopy";
+import { LoadAutonomyBlock } from "./AutonomyPanel";
 
 type LinkState = ApiResponse<typeof api, "getLoadReceiveLink">;
 
@@ -355,6 +356,7 @@ export function DeliveryCloseout({ loadId, setBanner }: { loadId: number; setBan
       ) : (
         <div className="mt-2 space-y-3">
           <TrackShareBlock loadId={loadId} setBanner={setBanner} />
+          <LoadAutonomyBlock loadId={loadId} />
           <div>
             <div className="text-xs font-bold text-[var(--dim)]">1 · RECEIVE LINK — the receiver confirms on their own phone</div>
             <div className="mt-1 flex flex-wrap items-center gap-2">

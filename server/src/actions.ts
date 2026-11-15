@@ -232,6 +232,21 @@ import {
 } from "./fleetVisibility";
 import { buildRecordsBundle, type RecordsBundle } from "./recordsBundle";
 import {
+  chainStatusFromFacts,
+  deriveExceptions,
+  deriveMilestones,
+  detentionVisitsFromFacts,
+  exceptionNotification,
+  outwardTimeline,
+  rankExceptions,
+  statusSummary,
+  MILESTONE_LABELS,
+  EXCEPTION_LABELS,
+  type ChainFact,
+  type EvidenceRef,
+  type ExceptionKind,
+} from "./autonomy";
+import {
   credentialNotification,
   dedupePolicyFor,
   dmNotification,
@@ -2359,6 +2374,392 @@ async function completeDeliveryConfirmation(
   }
   ctx.invalidateQueries();
   return { already: false, sealHash };
+}
+
+// ---- Autonomy core (Research Wave 2 item 1) ------------------------------
+// The database half of autonomy.ts. evaluateLoadAutonomy derives a
+// load's milestones + exceptions from SEALED records only (the hash
+// chain is shared, so this runs from any context — the driver's own
+// reads, a fleet desk, the broker queue, and the PUBLIC track page)
+// and records what changed: milestones into the syndication outbox
+// (each publication itself sealed as an auto_status chain event),
+// exceptions into auto_exceptions (new ones notify their audiences
+// through the notification center — in-app only, never email).
+// Guardrails live in autonomy.ts and are pinned by tests: no
+// outward status without a sealed source, freshness printed never
+// upgraded, no rate/money field anywhere, sub-threshold confidence
+// becomes an exception, every publication is reversible by a
+// correction that supersedes it.
+
+type AutoExceptionRow = typeof schema.autoExceptions.$inferSelect;
+
+function parseEvidenceJson(json: string): EvidenceRef[] {
+  try {
+    const parsed: unknown = JSON.parse(json);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (e): e is EvidenceRef =>
+        e != null && typeof e === "object" && typeof (e as EvidenceRef).kind === "string" && typeof (e as EvidenceRef).ref === "string",
+    );
+  } catch {
+    return [];
+  }
+}
+
+interface AutonomyAudiences {
+  driverUsername: string | null;
+  companyId: number | null;
+  brokerAccountId: number | null;
+  lane: string | null;
+}
+
+/** Who an autonomy row for this load belongs to: the driver who
+ * hauls it, their fleet (when the load came through a company
+ * board or the driver is a company member), and the broker account
+ * that posted it (portal loads only). Resolved from shared tables
+ * so every evaluating context reaches the same answer. */
+async function autonomyAudiences(
+  ctx: Ctx,
+  loadId: number,
+  load: LoadRow | null,
+): Promise<AutonomyAudiences> {
+  const db = ctx.db<typeof schema>();
+  const boardRows = await db
+    .select()
+    .from(schema.boardLoads)
+    .where(eq(schema.boardLoads.loadId, loadId))
+    .orderBy(desc(schema.boardLoads.id));
+  const board = boardRows.find((b) => b.status === "taken") ?? boardRows[0] ?? null;
+  let driverUsername: string | null = load ? await driverUsernameForLoad(ctx, load) : null;
+  if (!driverUsername && board?.claimedBy) driverUsername = board.claimedBy;
+  if (!driverUsername) {
+    const snaps = await db.select().from(schema.driverFleetStatus).where(eq(schema.driverFleetStatus.loadId, loadId));
+    driverUsername = snaps[0]?.username ?? null;
+  }
+  let companyId: number | null = board?.companyId ?? null;
+  if (companyId == null && driverUsername) {
+    const members = await db
+      .select()
+      .from(schema.companyMembers)
+      .where(eq(schema.companyMembers.username, driverUsername));
+    companyId = members[0]?.companyId ?? null;
+  }
+  let brokerAccountId: number | null = null;
+  if (board) {
+    const posters = await db
+      .select()
+      .from(schema.brokerPosterLoads)
+      .where(eq(schema.brokerPosterLoads.boardLoadId, board.id))
+      .orderBy(desc(schema.brokerPosterLoads.id));
+    brokerAccountId = posters[0]?.brokerId ?? null;
+  }
+  const laneSource = load ?? board;
+  const lane = laneSource
+    ? laneLabel(laneSource.pickupCity, laneSource.pickupState, laneSource.deliveryCity, laneSource.deliveryState)
+    : null;
+  return { driverUsername, companyId, brokerAccountId, lane };
+}
+
+/** Notify a newly opened exception's audiences through the
+ * notification center (recordNotificationSafe — in-app only, and a
+ * center failure never breaks the evaluation). */
+async function notifyExceptionAudiences(
+  ctx: Ctx,
+  args: {
+    exceptionId: number;
+    loadId: number;
+    kind: ExceptionKind;
+    audiences: AutonomyAudiences;
+  },
+): Promise<void> {
+  const db = ctx.db<typeof schema>();
+  const note = exceptionNotification({ kind: args.kind, lane: args.audiences.lane, loadId: args.loadId });
+  const targets = new Set<string>();
+  if (args.audiences.driverUsername) targets.add(args.audiences.driverUsername);
+  if (args.audiences.companyId != null) {
+    const members = await db
+      .select()
+      .from(schema.companyMembers)
+      .where(eq(schema.companyMembers.companyId, args.audiences.companyId));
+    for (const m of members) if (m.role === "owner" || m.role === "dispatch") targets.add(m.username);
+  }
+  if (args.audiences.brokerAccountId != null) {
+    const accts = await db
+      .select()
+      .from(schema.brokerAccounts)
+      .where(eq(schema.brokerAccounts.id, args.audiences.brokerAccountId));
+    const acct = accts[0];
+    if (acct) {
+      targets.add(acct.ownerUsername);
+      if (acct.linkedUsername) targets.add(acct.linkedUsername);
+    }
+  }
+  for (const username of targets) {
+    await recordNotificationSafe(ctx, {
+      username,
+      kind: "system",
+      title: note.title,
+      body: note.body,
+      dedupeKey: `exception:${args.exceptionId}`,
+      refKind: "load",
+      refId: args.loadId,
+    });
+  }
+}
+
+/** Evaluate one load: publish newly sealed milestones to the
+ * outbox, open/refresh/clear its exceptions. Idempotent — a second
+ * run over unchanged records writes nothing. Returns what changed. */
+async function evaluateLoadAutonomy(
+  ctx: Ctx,
+  loadId: number,
+): Promise<{ published: number; opened: number; cleared: number }> {
+  const db = ctx.db<typeof schema>();
+  const now = new Date();
+  const chainRows = await db
+    .select()
+    .from(schema.chainLog)
+    .where(and(eq(schema.chainLog.refKind, "load"), eq(schema.chainLog.refId, loadId)))
+    .orderBy(asc(schema.chainLog.id));
+  const facts: ChainFact[] = chainRows.map((r) => {
+    let payload: Record<string, unknown> = {};
+    try {
+      const parsed: unknown = JSON.parse(r.payload);
+      if (parsed != null && typeof parsed === "object") payload = parsed as Record<string, unknown>;
+    } catch { /* a malformed payload contributes no facts */ }
+    return { id: r.id, event: r.event, hash: r.hash, at: r.createdAt.toISOString(), payload };
+  });
+  const chain = chainStatusFromFacts(facts);
+
+  // A deleted load's queue entries close out; nothing publishes.
+  if (chain.deleted) {
+    const open = await db
+      .select()
+      .from(schema.autoExceptions)
+      .where(and(eq(schema.autoExceptions.loadId, loadId), eq(schema.autoExceptions.status, "open")));
+    for (const row of open) {
+      await db
+        .update(schema.autoExceptions)
+        .set({ status: "resolved", resolution: "condition_cleared", resolvedBy: "system", resolvedAt: now, updatedAt: now })
+        .where(eq(schema.autoExceptions.id, row.id));
+    }
+    return { published: 0, opened: 0, cleared: open.length };
+  }
+
+  const loadRows = await db.select().from(schema.loads).where(eq(schema.loads.id, loadId)).limit(1);
+  const load = loadRows[0] ?? null;
+  const audiences = await autonomyAudiences(ctx, loadId, load);
+  const driverUsername = audiences.driverUsername;
+
+  // -- Milestones → outbox (guardrails a + d: chain-derived only,
+  //    every candidate here is at full confidence by construction).
+  let published = 0;
+  const milestones = deriveMilestones(facts);
+  if (milestones.length > 0) {
+    const existing = await db.select().from(schema.statusOutbox).where(eq(schema.statusOutbox.loadId, loadId));
+    for (const m of milestones) {
+      const prior = existing.find((r) => r.dedupeKey === m.dedupeKey);
+      if (prior) continue; // already published — or voided by a correction, which stands
+      const hash = await appendChain(ctx, {
+        refKind: "load",
+        refId: loadId,
+        sessionId: null,
+        event: "auto_status",
+        payload: {
+          loadId,
+          kind: m.kind,
+          label: m.label,
+          dedupeKey: m.dedupeKey,
+          confidence: m.confidence,
+          evidence: m.evidence,
+          at: now.toISOString(),
+        },
+      });
+      await db.insert(schema.statusOutbox).values({
+        loadId,
+        kind: m.kind,
+        label: m.label,
+        summary: statusSummary({ lane: audiences.lane, label: m.label }),
+        evidenceJson: JSON.stringify(m.evidence),
+        confidence: m.confidence,
+        chainHash: hash,
+        dedupeKey: m.dedupeKey,
+        createdAt: new Date(m.at),
+      });
+      published++;
+    }
+  }
+
+  // -- Exceptions → queue rows.
+  const snapshot = driverUsername ? await fleetStatusFor(ctx, driverUsername) : null;
+  const snapForLoad = snapshot && snapshot.loadId === loadId ? snapshot : null;
+  const position = driverUsername
+    ? (await db.select().from(schema.driverPositions).where(eq(schema.driverPositions.username, driverUsername)).limit(1))[0]
+    : undefined;
+  const trackLinks = await db
+    .select()
+    .from(schema.receiveLinks)
+    .where(and(eq(schema.receiveLinks.loadId, loadId), eq(schema.receiveLinks.kind, "track"), eq(schema.receiveLinks.status, "active")));
+  const visits = detentionVisitsFromFacts(facts);
+  const openDetention = visits.find((v) => v.open) ?? null;
+  let suppliedApptAt: string | null = null;
+  for (const f of facts) {
+    if (f.event === "exception_resolved" && typeof f.payload.appointmentAt === "string") {
+      suppliedApptAt = f.payload.appointmentAt;
+    }
+  }
+  const candidates = deriveExceptions({
+    loadId,
+    rowStatus: load?.status ?? null,
+    snapshotStatus: snapForLoad?.loadStatus ?? null,
+    chain,
+    hasTrackShare: trackLinks.length > 0,
+    positionAt: position?.updatedAt.toISOString() ?? null,
+    dockApptAt: load?.dockApptAt?.toISOString() ?? null,
+    suppliedApptAt,
+    detentionApptAt: visits.find((v) => v.apptAt != null)?.apptAt ?? null,
+    appointmentCheckable: load != null,
+    openDetention,
+    now,
+  });
+
+  const rows = await db.select().from(schema.autoExceptions).where(eq(schema.autoExceptions.loadId, loadId));
+  let opened = 0;
+  let cleared = 0;
+  for (const cand of candidates) {
+    const dedupeKey = `${loadId}:${cand.kind}`;
+    const openRow = rows.find((r) => r.dedupeKey === dedupeKey && r.status === "open");
+    if (openRow) {
+      await db
+        .update(schema.autoExceptions)
+        .set({
+          severity: cand.severity,
+          detail: cand.detail,
+          evidenceJson: JSON.stringify(cand.evidence),
+          fingerprint: cand.fingerprint,
+          driverUsername: audiences.driverUsername ?? openRow.driverUsername,
+          companyId: audiences.companyId ?? openRow.companyId,
+          brokerAccountId: audiences.brokerAccountId ?? openRow.brokerAccountId,
+          updatedAt: now,
+        })
+        .where(eq(schema.autoExceptions.id, openRow.id));
+      continue;
+    }
+    const latest = rows
+      .filter((r) => r.dedupeKey === dedupeKey)
+      .sort((a, b) => b.id - a.id)[0];
+    if (latest && latest.status !== "open" && latest.fingerprint === cand.fingerprint) {
+      continue; // a human closed this exact episode — it stays closed
+    }
+    if (!audiences.driverUsername) continue; // nowhere to route it — never invent an audience
+    const ins = await db
+      .insert(schema.autoExceptions)
+      .values({
+        loadId,
+        kind: cand.kind,
+        severity: cand.severity,
+        detail: cand.detail,
+        evidenceJson: JSON.stringify(cand.evidence),
+        driverUsername: audiences.driverUsername,
+        companyId: audiences.companyId,
+        brokerAccountId: audiences.brokerAccountId,
+        status: "open",
+        dedupeKey,
+        fingerprint: cand.fingerprint,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning({ id: schema.autoExceptions.id });
+    const rowId = ins[0]?.id;
+    opened++;
+    if (rowId != null) {
+      await notifyExceptionAudiences(ctx, {
+        exceptionId: rowId,
+        loadId,
+        kind: cand.kind,
+        audiences,
+      });
+    }
+  }
+  // Conditions that cleared on their own close their rows — the
+  // queue only ever shows live problems. A context that cannot
+  // observe the load row (a desk or broker evaluating another
+  // driver's load) never auto-clears the row-based kinds:
+  // unverifiable is not the same as cleared, and clearing on a
+  // partial view would flap the exception every time the view
+  // changed hands.
+  const candidateKinds = new Set(candidates.map((c) => c.kind));
+  for (const row of rows) {
+    if (row.status !== "open" || candidateKinds.has(row.kind as ExceptionKind)) continue;
+    if (load == null && (row.kind === "conflicting_records" || row.kind === "low_confidence" || row.kind === "missing_appointment")) continue;
+    const hash = await appendChain(ctx, {
+      refKind: "load",
+      refId: loadId,
+      sessionId: null,
+      event: "exception_auto_cleared",
+      payload: { exceptionId: row.id, loadId, kind: row.kind, at: now.toISOString() },
+    });
+    await db
+      .update(schema.autoExceptions)
+      .set({
+        status: "resolved",
+        resolution: "condition_cleared",
+        resolvedBy: "system",
+        resolvedAt: now,
+        chainHash: hash,
+        updatedAt: now,
+      })
+      .where(eq(schema.autoExceptions.id, row.id));
+    cleared++;
+  }
+  return { published, opened, cleared };
+}
+
+/** Evaluation for producers and public reads that must never break
+ * because autonomy hiccuped (the track page, a status publish). */
+async function evaluateAutonomySafe(ctx: Ctx, loadId: number): Promise<void> {
+  try {
+    await evaluateLoadAutonomy(ctx, loadId);
+  } catch { /* the event that triggered evaluation is the record */ }
+}
+
+/** Which of the caller's hats an exception row belongs to. */
+async function exceptionRoleFor(
+  ctx: Ctx,
+  me: string,
+  row: AutoExceptionRow,
+): Promise<"driver" | "fleet" | "broker" | null> {
+  if (row.driverUsername === me) return "driver";
+  if (row.companyId != null) {
+    const membership = await myMembership(ctx, me);
+    if (membership && (membership.role === "owner" || membership.role === "dispatch") && membership.company.id === row.companyId) {
+      return "fleet";
+    }
+  }
+  if (row.brokerAccountId != null) {
+    const db = ctx.db<typeof schema>();
+    const accts = await db.select().from(schema.brokerAccounts).where(eq(schema.brokerAccounts.id, row.brokerAccountId));
+    const acct = accts[0];
+    if (acct && (acct.ownerUsername === me || acct.linkedUsername === me)) return "broker";
+  }
+  return null;
+}
+
+function exceptionShape(row: AutoExceptionRow, lane: string | null, audiences: string[]) {
+  return {
+    id: row.id,
+    loadId: row.loadId,
+    lane,
+    kind: row.kind,
+    kindLabel: EXCEPTION_LABELS[row.kind as ExceptionKind] ?? row.kind,
+    severity: row.severity,
+    detail: row.detail,
+    evidence: parseEvidenceJson(row.evidenceJson),
+    audiences,
+    driverUsername: row.driverUsername,
+    status: row.status,
+    createdAt: row.createdAt.toISOString(),
+  };
 }
 
 /** The signed POD document — ONE builder shared by the Library
@@ -22944,6 +23345,10 @@ export const Actions = {
           payload: { loadId: args.loadId, by: me, via: scope.via, at: new Date().toISOString() },
         });
       }
+      // The share going live is an autonomy trigger: whatever is
+      // already sealed publishes to the timeline now, and a share
+      // with nothing sealed behind it raises its exception instead.
+      await evaluateAutonomySafe(ctx, args.loadId);
       ctx.invalidateQueries();
       return { ok: true, error: null, url: trackUrlFor(row.token), state: "live" };
     },
@@ -22982,6 +23387,322 @@ export const Actions = {
     },
   }),
 
+  // ---- Autonomy core (Research Wave 2 item 1) ------------------------------
+  // Automatic check calls + status syndication + exception queues.
+  // The evaluator (evaluateLoadAutonomy above) derives milestones
+  // from sealed records only; these actions are its surfaces: the
+  // driver's per-load view, the per-role exception queues, the
+  // sealed resolution path, and the correction (void) path. The
+  // syndication feed is the in-app outbox — no partner feed is
+  // connected, and no shape here carries a rate or money field.
+
+  getLoadAutonomy: defineAction({
+    description: "This load's automatic status timeline + its open exceptions (the load's driver, or its fleet's desk).",
+    request: z.object({ loadId: z.number().int().positive() }),
+    response: z.object({
+      ok: z.boolean(),
+      error: z.string().nullable(),
+      lane: z.string().nullable(),
+      timeline: z.array(
+        z.object({ id: z.number(), kind: z.string(), label: z.string(), at: z.string(), corrected: z.boolean() }),
+      ),
+      updates: z.array(
+        z.object({
+          id: z.number(),
+          kind: z.string(),
+          label: z.string(),
+          summary: z.string(),
+          at: z.string(),
+          confidence: z.number(),
+          superseded: z.boolean(),
+        }),
+      ),
+      exceptions: z.array(
+        z.object({
+          id: z.number(),
+          loadId: z.number(),
+          lane: z.string().nullable(),
+          kind: z.string(),
+          kindLabel: z.string(),
+          severity: z.number(),
+          detail: z.string(),
+          evidence: z.array(
+            z.object({ kind: z.string(), ref: z.string(), at: z.string().nullable(), note: z.string() }),
+          ),
+          audiences: z.array(z.string()),
+          driverUsername: z.string(),
+          status: z.string(),
+          createdAt: z.string(),
+        }),
+      ),
+    }),
+    async handler(ctx, args) {
+      const fail = { ok: false, error: "That load isn't in your scope.", lane: null, timeline: [], updates: [], exceptions: [] };
+      const scope = await libraryLoadScope(ctx, args.loadId);
+      if (!scope) return fail;
+      await evaluateAutonomySafe(ctx, args.loadId);
+      const db = ctx.db<typeof schema>();
+      const rows = await db
+        .select()
+        .from(schema.statusOutbox)
+        .where(eq(schema.statusOutbox.loadId, args.loadId))
+        .orderBy(asc(schema.statusOutbox.id));
+      const timeline = outwardTimeline(
+        rows.map((r) => ({
+          id: r.id,
+          kind: r.kind,
+          label: r.label,
+          summary: r.summary,
+          createdAt: r.createdAt.toISOString(),
+          supersededById: r.supersededById,
+          supersedesId: r.supersedesId,
+        })),
+      );
+      const exRows = await db
+        .select()
+        .from(schema.autoExceptions)
+        .where(and(eq(schema.autoExceptions.loadId, args.loadId), eq(schema.autoExceptions.status, "open")));
+      const audiences = await autonomyAudiences(ctx, args.loadId, scope.via === "mine" ? scope.load : null);
+      return {
+        ok: true,
+        error: null,
+        lane: audiences.lane,
+        timeline,
+        updates: rows.map((r) => ({
+          id: r.id,
+          kind: r.kind,
+          label: r.label,
+          summary: r.summary,
+          at: r.createdAt.toISOString(),
+          confidence: r.confidence,
+          superseded: r.supersededById != null,
+        })),
+        exceptions: rankExceptions(
+          exRows.map((r) => ({ ...exceptionShape(r, audiences.lane, []), createdAt: r.createdAt.toISOString() })),
+        ),
+      };
+    },
+  }),
+
+  getExceptionQueue: defineAction({
+    description: "My exception queue across my roles (driver / fleet desk / broker): ranked, evidence attached. Nothing here was published outward.",
+    request: z.object({}),
+    response: z.object({
+      items: z.array(
+        z.object({
+          id: z.number(),
+          loadId: z.number(),
+          lane: z.string().nullable(),
+          kind: z.string(),
+          kindLabel: z.string(),
+          severity: z.number(),
+          detail: z.string(),
+          evidence: z.array(
+            z.object({ kind: z.string(), ref: z.string(), at: z.string().nullable(), note: z.string() }),
+          ),
+          audiences: z.array(z.string()),
+          driverUsername: z.string(),
+          status: z.string(),
+          createdAt: z.string(),
+        }),
+      ),
+      counts: z.object({ driver: z.number(), fleet: z.number(), broker: z.number() }),
+    }),
+    async handler(ctx) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      // Refresh the bounded candidate set first: loads with a live
+      // outward share, loads with an open exception (to catch
+      // clearings), and the load my own app is publishing.
+      const candidateIds = new Set<number>();
+      const shares = await db
+        .select({ loadId: schema.receiveLinks.loadId })
+        .from(schema.receiveLinks)
+        .where(and(eq(schema.receiveLinks.kind, "track"), eq(schema.receiveLinks.status, "active")));
+      for (const s of shares) candidateIds.add(s.loadId);
+      const openSeed = await db
+        .select({ loadId: schema.autoExceptions.loadId })
+        .from(schema.autoExceptions)
+        .where(eq(schema.autoExceptions.status, "open"));
+      for (const s of openSeed) candidateIds.add(s.loadId);
+      const mySnap = await fleetStatusFor(ctx, me);
+      if (mySnap?.loadId != null) candidateIds.add(mySnap.loadId);
+      for (const id of [...candidateIds].slice(0, 50)) {
+        await evaluateAutonomySafe(ctx, id);
+      }
+      const open = await db
+        .select()
+        .from(schema.autoExceptions)
+        .where(eq(schema.autoExceptions.status, "open"))
+        .orderBy(asc(schema.autoExceptions.id));
+      const laneCache = new Map<number, string | null>();
+      const items = [];
+      const counts = { driver: 0, fleet: 0, broker: 0 };
+      for (const row of open) {
+        const role = await exceptionRoleFor(ctx, me, row);
+        if (!role) continue;
+        if (!laneCache.has(row.loadId)) {
+          const aud = await autonomyAudiences(ctx, row.loadId, null);
+          laneCache.set(row.loadId, aud.lane);
+        }
+        counts[role]++;
+        items.push(exceptionShape(row, laneCache.get(row.loadId) ?? null, [role]));
+      }
+      return { items: rankExceptions(items), counts };
+    },
+  }),
+
+  resolveException: defineAction({
+    description: "Resolve one of my exceptions: supply the missing fact (an appointment) or dismiss it with a note. Sealed; never fabricates a status.",
+    request: z.object({
+      exceptionId: z.number().int().positive(),
+      resolution: z.enum(["supplied_fact", "dismissed"]),
+      note: z.string().max(500).nullable().default(null),
+      appointmentAt: z.string().max(40).nullable().default(null),
+    }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const rows = await db
+        .select()
+        .from(schema.autoExceptions)
+        .where(eq(schema.autoExceptions.id, args.exceptionId))
+        .limit(1);
+      const row = rows[0];
+      if (!row) return { ok: false, error: "That exception isn't on file." };
+      if (row.status !== "open") return { ok: false, error: "That exception is already closed." };
+      const role = await exceptionRoleFor(ctx, me, row);
+      if (!role) return { ok: false, error: "That exception isn't in your queue." };
+      const note = args.note?.trim() ? args.note.trim().slice(0, 500) : null;
+      let appointmentAt: string | null = null;
+      if (args.resolution === "dismissed") {
+        if (!note) return { ok: false, error: "A dismissal needs a short note saying why — it goes on the sealed record." };
+      } else {
+        // supplied_fact: the one fact a resolution can supply in
+        // this build is the missing appointment. Anything else is
+        // dismissed with a note instead — a resolution never
+        // fabricates a status.
+        if (row.kind !== "missing_appointment") {
+          return { ok: false, error: "That one can't take a supplied fact — dismiss it with a note instead." };
+        }
+        const parsed = args.appointmentAt ? new Date(args.appointmentAt) : null;
+        if (!parsed || Number.isNaN(parsed.getTime())) {
+          return { ok: false, error: "Supply the appointment date and time to clear this." };
+        }
+        appointmentAt = parsed.toISOString();
+      }
+      const hash = await appendChain(ctx, {
+        refKind: "load",
+        refId: row.loadId,
+        sessionId: null,
+        event: "exception_resolved",
+        payload: {
+          exceptionId: row.id,
+          loadId: row.loadId,
+          kind: row.kind,
+          resolution: args.resolution,
+          note,
+          appointmentAt,
+          by: me,
+          role,
+          at: new Date().toISOString(),
+        },
+      });
+      // When the resolver can write the load row (its own scope),
+      // the supplied appointment lands on the load itself too; the
+      // chain fact above is what every other context reads.
+      if (appointmentAt) {
+        const loadRows = await db.select().from(schema.loads).where(eq(schema.loads.id, row.loadId)).limit(1);
+        if (loadRows[0]) {
+          await db
+            .update(schema.loads)
+            .set({ dockApptAt: new Date(appointmentAt) })
+            .where(eq(schema.loads.id, row.loadId));
+        }
+      }
+      const now = new Date();
+      await db
+        .update(schema.autoExceptions)
+        .set({
+          status: args.resolution === "dismissed" ? "dismissed" : "resolved",
+          resolution: args.resolution,
+          resolutionNote: note,
+          resolvedBy: me,
+          resolvedAt: now,
+          chainHash: hash,
+          updatedAt: now,
+        })
+        .where(eq(schema.autoExceptions.id, row.id));
+      await evaluateAutonomySafe(ctx, row.loadId);
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
+    },
+  }),
+
+  voidAutoStatus: defineAction({
+    description: "Withdraw one automatic status update: a sealed correction supersedes it on the tracking page (the load's driver or its fleet's desk).",
+    request: z.object({
+      outboxId: z.number().int().positive(),
+      reason: z.string().max(300).nullable().default(null),
+    }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const rows = await db.select().from(schema.statusOutbox).where(eq(schema.statusOutbox.id, args.outboxId)).limit(1);
+      const row = rows[0];
+      if (!row) return { ok: false, error: "That update isn't on file." };
+      if (row.supersededById != null) return { ok: true, error: null };
+      const loadRows = await db.select().from(schema.loads).where(eq(schema.loads.id, row.loadId)).limit(1);
+      const audiences = await autonomyAudiences(ctx, row.loadId, loadRows[0] ?? null);
+      let allowed = audiences.driverUsername === me;
+      if (!allowed && audiences.companyId != null) {
+        const membership = await myMembership(ctx, me);
+        allowed =
+          membership != null &&
+          (membership.role === "owner" || membership.role === "dispatch") &&
+          membership.company.id === audiences.companyId;
+      }
+      if (!allowed) return { ok: false, error: "That update isn't yours to withdraw." };
+      const reason = args.reason?.trim() ? args.reason.trim().slice(0, 300) : null;
+      const now = new Date();
+      const hash = await appendChain(ctx, {
+        refKind: "load",
+        refId: row.loadId,
+        sessionId: null,
+        event: "auto_status_voided",
+        payload: { outboxId: row.id, loadId: row.loadId, kind: row.kind, reason, by: me, at: now.toISOString() },
+      });
+      const ins = await db
+        .insert(schema.statusOutbox)
+        .values({
+          loadId: row.loadId,
+          kind: "correction",
+          label: MILESTONE_LABELS.correction!,
+          summary: statusSummary({ lane: audiences.lane, label: `Correction — the "${row.label}" update was withdrawn` }),
+          evidenceJson: JSON.stringify([
+            { kind: "chain", ref: hash, at: now.toISOString(), note: reason ? `withdrawn by @${me}: ${reason}` : `withdrawn by @${me}` },
+          ]),
+          confidence: 1,
+          chainHash: hash,
+          dedupeKey: `correction:${row.id}`,
+          supersedesId: row.id,
+          createdAt: now,
+        })
+        .returning({ id: schema.statusOutbox.id });
+      const correctionId = ins[0]?.id;
+      if (correctionId != null) {
+        await db
+          .update(schema.statusOutbox)
+          .set({ supersededById: correctionId })
+          .where(eq(schema.statusOutbox.id, row.id));
+      }
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
+    },
+  }),
+
   getTrackInfo: defineAction({
     description: "PUBLIC: tracking view for a shared load — route, stops, ETA, location + freshness. Never any rate or money field. Expires at delivery.",
     request: z.object({ token: z.string().min(8).max(80) }),
@@ -23005,6 +23726,9 @@ export const Actions = {
       lon: z.number().nullable(),
       positionAt: z.string().nullable(),
       positionFreshness: z.string().nullable(),
+      timeline: z.array(
+        z.object({ id: z.number(), kind: z.string(), label: z.string(), at: z.string(), corrected: z.boolean() }),
+      ),
     }),
     async handler(ctx, args) {
       const invalid = {
@@ -23013,6 +23737,7 @@ export const Actions = {
         statusLabel: null, stops: [] as string[], etaAt: null, fleetName: null,
         driverFirstName: null, positionVisible: false, lat: null, lon: null,
         positionAt: null, positionFreshness: null,
+        timeline: [] as { id: number; kind: string; label: string; at: string; corrected: boolean }[],
       };
       if (receiveThrottleBlocked(args.token)) return invalid;
       const resolved = await resolveReceiveToken(ctx, args.token);
@@ -23023,6 +23748,29 @@ export const Actions = {
       receiveThrottleOk(args.token);
       const { load } = resolved;
       const db = ctx.db<typeof schema>();
+      // Autonomy core: a track-page view is an evaluation trigger —
+      // newly sealed milestones publish to the outbox (and so onto
+      // this page's timeline) with no driver taps, and anything the
+      // system can't stand behind lands in the exception queues
+      // instead of on this page. Safe-wrapped: the page never
+      // breaks because evaluation hiccuped.
+      await evaluateAutonomySafe(ctx, load.id);
+      const outboxRows = await db
+        .select()
+        .from(schema.statusOutbox)
+        .where(eq(schema.statusOutbox.loadId, load.id))
+        .orderBy(asc(schema.statusOutbox.id));
+      const timeline = outwardTimeline(
+        outboxRows.map((r) => ({
+          id: r.id,
+          kind: r.kind,
+          label: r.label,
+          summary: r.summary,
+          createdAt: r.createdAt.toISOString(),
+          supersededById: r.supersededById,
+          supersedesId: r.supersedesId,
+        })),
+      );
       const confirmation = await deliveryConfirmationFor(ctx, load.id);
       const state = trackShareStateFor({ linkStatus: resolved.link.status, delivered: confirmation != null });
       const driverUsername = await driverUsernameForLoad(ctx, load);
@@ -23084,6 +23832,7 @@ export const Actions = {
         lon,
         positionAt,
         positionFreshness,
+        timeline,
       };
     },
   }),
@@ -48393,6 +49142,10 @@ export const Actions = {
             publishedAt: values.publishedAt,
           },
         });
+      // A fresh snapshot is an autonomy trigger for the named load:
+      // the driver's app is awake, so its sealed milestones publish
+      // and its exceptions refresh while the facts are current.
+      if (load) await evaluateAutonomySafe(ctx, load.id);
       return { ok: true, error: null, hasActiveLoad: load != null };
     },
   }),

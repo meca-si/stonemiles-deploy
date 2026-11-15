@@ -27,6 +27,7 @@
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type ApiResponse } from "./api";
+import { ExceptionQueuePanel } from "./AutonomyPanel";
 
 type BrokerDeskData = ApiResponse<typeof api, "getBrokerDesk">;
 type PipelineRow = BrokerDeskData["pipeline"][number];
@@ -236,6 +237,9 @@ export function BrokerDesk({
                 and seals records only.
               </p>
             </section>
+
+            {/* Exception queue — held-back automatic status on my posted loads (Wave 2 item 1) */}
+            <ExceptionQueuePanel brokerOnly />
 
             {/* My poster fee */}
             <section className="mt-3 rounded-xl border border-[var(--glass-border)] bg-[var(--surface2)] px-3 py-3" aria-label="My poster fee">

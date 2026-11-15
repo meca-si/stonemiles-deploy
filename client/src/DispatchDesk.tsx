@@ -30,6 +30,7 @@ import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type ApiResponse } from "./api";
 import { FleetBoardPanel } from "./FleetBoard";
+import { ExceptionQueuePanel } from "./AutonomyPanel";
 
 type DeskData = ApiResponse<typeof api, "getDispatchDesk">;
 type DeskClient = DeskData["clients"][number];
@@ -406,6 +407,9 @@ export function DispatchDesk({
 
             {/* Fleet board — live trucks (TMS queue item 4) */}
             <FleetBoardPanel />
+
+            {/* Exception queue — held-back automatic status (Wave 2 item 1) */}
+            <ExceptionQueuePanel />
 
             {/* Client book */}
             <section className="mt-3 rounded-xl border border-[var(--glass-border)] bg-[var(--surface2)] px-3 py-3" aria-label="Client fleets">

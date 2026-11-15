@@ -5025,3 +5025,79 @@ export const pushDevices = pgTable("push_devices", {
     .$defaultFn(() => new Date()),
   lastSeenAt: timestamp("last_seen_at", { withTimezone: true, mode: "date" }),
 });
+
+// ---- Autonomy core (migration 0129, Research Wave 2 item 1) --------------
+// The syndication outbox: the feed of record for automatic load
+// status. One row per auto-status the evaluator published for a
+// load — the milestone, its plain summary (lane + label; NO rate
+// or money field exists on this table by design), the evidence it
+// stands on (record ids / chain hashes, as JSON), and its computed
+// confidence. A void writes a kind="correction" row whose
+// supersedes_id names the row it withdraws; the withdrawn row's
+// superseded_by_id points back, and outward surfaces render only
+// un-superseded rows (autonomy.outwardTimeline). This is an IN-APP
+// feed: no partner feed is connected (no deal, no credentials), so
+// nothing is POSTed anywhere — the share-link page reads this table.
+export const statusOutbox = pgTable("status_outbox", {
+  id: serial("id").primaryKey(),
+  loadId: integer("load_id").notNull(),
+  // booked | picked_up | in_transit | arriving | detention |
+  // delivered | correction
+  kind: text("kind").notNull(),
+  label: text("label").notNull(),
+  summary: text("summary").notNull(),
+  evidenceJson: text("evidence_json").notNull().default("[]"),
+  confidence: doublePrecision("confidence").notNull().default(1),
+  // The chain entry that sealed this publication (auto_status).
+  chainHash: text("chain_hash"),
+  // Idempotency within the load: one row per status kind, one per
+  // detention visit, one per correction target.
+  dedupeKey: text("dedupe_key").notNull(),
+  supersedesId: integer("supersedes_id"),
+  supersededById: integer("superseded_by_id"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+// One row per exception episode in the autonomy exception queues.
+// An exception is an auto-action the system could NOT take with
+// confidence (autonomy.ts deriveExceptions): it carries its kind,
+// severity, a plain detail, and its evidence (JSON), plus the
+// audience routing resolved at open time — the load's driver, the
+// driver's fleet (company id), and the broker account the load
+// came from — so each role's queue is a filtered read of this one
+// table. Resolution is itself sealed (exception_resolved chain
+// event; its hash rides here): a resolution either supplies the
+// missing fact or dismisses with a note — it never fabricates a
+// status. dedupe_key is one OPEN row per (load, kind); the
+// fingerprint keeps a dismissed episode dismissed until the
+// episode itself changes.
+export const autoExceptions = pgTable("auto_exceptions", {
+  id: serial("id").primaryKey(),
+  loadId: integer("load_id").notNull(),
+  // stale_location | missing_appointment | conflicting_records |
+  // detention_overdue | missing_evidence | low_confidence
+  kind: text("kind").notNull(),
+  severity: integer("severity").notNull().default(1),
+  detail: text("detail").notNull(),
+  evidenceJson: text("evidence_json").notNull().default("[]"),
+  driverUsername: text("driver_username").notNull(),
+  companyId: integer("company_id"),
+  brokerAccountId: integer("broker_account_id"),
+  status: text("status").notNull().default("open"), // open | resolved | dismissed
+  // supplied_fact | dismissed | condition_cleared
+  resolution: text("resolution"),
+  resolutionNote: text("resolution_note"),
+  resolvedBy: text("resolved_by"),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true, mode: "date" }),
+  dedupeKey: text("dedupe_key").notNull(),
+  fingerprint: text("fingerprint").notNull().default(""),
+  chainHash: text("chain_hash"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});

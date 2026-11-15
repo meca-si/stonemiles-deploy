@@ -34,6 +34,7 @@ __export(exports_schema_sqlite, {
   authAuditLog: () => authAuditLog,
   authMailQueue: () => authMailQueue,
   authSessions: () => authSessions,
+  autoExceptions: () => autoExceptions,
   betaAccess: () => betaAccess,
   betaCodes: () => betaCodes,
   betaJoinRequests: () => betaJoinRequests,
@@ -167,6 +168,7 @@ __export(exports_schema_sqlite, {
   siVettingChecks: () => siVettingChecks,
   socialReports: () => socialReports,
   socialUsers: () => socialUsers,
+  statusOutbox: () => statusOutbox,
   stepupState: () => stepupState,
   subscriptionEvents: () => subscriptionEvents,
   teamAuditLog: () => teamAuditLog,
@@ -218,6 +220,7 @@ __export(exports_schema_pg, {
   authAuditLog: () => authAuditLog2,
   authMailQueue: () => authMailQueue2,
   authSessions: () => authSessions2,
+  autoExceptions: () => autoExceptions2,
   betaAccess: () => betaAccess2,
   betaCodes: () => betaCodes2,
   betaJoinRequests: () => betaJoinRequests2,
@@ -351,6 +354,7 @@ __export(exports_schema_pg, {
   siVettingChecks: () => siVettingChecks2,
   socialReports: () => socialReports2,
   socialUsers: () => socialUsers2,
+  statusOutbox: () => statusOutbox2,
   stepupState: () => stepupState2,
   subscriptionEvents: () => subscriptionEvents2,
   teamAuditLog: () => teamAuditLog2,
@@ -10172,6 +10176,41 @@ var pushDevices = sqliteTable("push_devices", {
   updatedAt: integer3("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
   lastSeenAt: integer3("last_seen_at", { mode: "timestamp_ms" })
 });
+var statusOutbox = sqliteTable("status_outbox", {
+  id: integer3("id").primaryKey({ autoIncrement: true }),
+  loadId: integer3("load_id").notNull(),
+  kind: text2("kind").notNull(),
+  label: text2("label").notNull(),
+  summary: text2("summary").notNull(),
+  evidenceJson: text2("evidence_json").notNull().default("[]"),
+  confidence: real2("confidence").notNull().default(1),
+  chainHash: text2("chain_hash"),
+  dedupeKey: text2("dedupe_key").notNull(),
+  supersedesId: integer3("supersedes_id"),
+  supersededById: integer3("superseded_by_id"),
+  createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
+});
+var autoExceptions = sqliteTable("auto_exceptions", {
+  id: integer3("id").primaryKey({ autoIncrement: true }),
+  loadId: integer3("load_id").notNull(),
+  kind: text2("kind").notNull(),
+  severity: integer3("severity").notNull().default(1),
+  detail: text2("detail").notNull(),
+  evidenceJson: text2("evidence_json").notNull().default("[]"),
+  driverUsername: text2("driver_username").notNull(),
+  companyId: integer3("company_id"),
+  brokerAccountId: integer3("broker_account_id"),
+  status: text2("status").notNull().default("open"),
+  resolution: text2("resolution"),
+  resolutionNote: text2("resolution_note"),
+  resolvedBy: text2("resolved_by"),
+  resolvedAt: integer3("resolved_at", { mode: "timestamp_ms" }),
+  dedupeKey: text2("dedupe_key").notNull(),
+  fingerprint: text2("fingerprint").notNull().default(""),
+  chainHash: text2("chain_hash"),
+  createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
+  updatedAt: integer3("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
+});
 
 // src/schema-pg.ts
 var profile2 = pgTable("profile", {
@@ -12502,6 +12541,41 @@ var pushDevices2 = pgTable("push_devices", {
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date),
   lastSeenAt: timestamp("last_seen_at", { withTimezone: true, mode: "date" })
 });
+var statusOutbox2 = pgTable("status_outbox", {
+  id: serial("id").primaryKey(),
+  loadId: integer2("load_id").notNull(),
+  kind: text("kind").notNull(),
+  label: text("label").notNull(),
+  summary: text("summary").notNull(),
+  evidenceJson: text("evidence_json").notNull().default("[]"),
+  confidence: doublePrecision("confidence").notNull().default(1),
+  chainHash: text("chain_hash"),
+  dedupeKey: text("dedupe_key").notNull(),
+  supersedesId: integer2("supersedes_id"),
+  supersededById: integer2("superseded_by_id"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
+});
+var autoExceptions2 = pgTable("auto_exceptions", {
+  id: serial("id").primaryKey(),
+  loadId: integer2("load_id").notNull(),
+  kind: text("kind").notNull(),
+  severity: integer2("severity").notNull().default(1),
+  detail: text("detail").notNull(),
+  evidenceJson: text("evidence_json").notNull().default("[]"),
+  driverUsername: text("driver_username").notNull(),
+  companyId: integer2("company_id"),
+  brokerAccountId: integer2("broker_account_id"),
+  status: text("status").notNull().default("open"),
+  resolution: text("resolution"),
+  resolutionNote: text("resolution_note"),
+  resolvedBy: text("resolved_by"),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true, mode: "date" }),
+  dedupeKey: text("dedupe_key").notNull(),
+  fingerprint: text("fingerprint").notNull().default(""),
+  chainHash: text("chain_hash"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
+});
 
 // src/schema.ts
 var impl = process.env.STONEMILES_DIALECT === "postgres" ? exports_schema_pg : exports_schema_sqlite;
@@ -12674,6 +12748,8 @@ var breakdownLogs3 = impl.breakdownLogs;
 var offlineCaptures3 = impl.offlineCaptures;
 var notifications3 = impl.notifications;
 var pushDevices3 = impl.pushDevices;
+var statusOutbox3 = impl.statusOutbox;
+var autoExceptions3 = impl.autoExceptions;
 var accounts3 = impl.accounts;
 var authSessions3 = impl.authSessions;
 var passwordResetTokens3 = impl.passwordResetTokens;
@@ -16156,6 +16232,281 @@ function buildRecordsBundle(input) {
       credentials: input.credentials.length
     }
   };
+}
+
+// src/autonomy.ts
+var CONFIDENCE_THRESHOLD = 0.8;
+var STALE_LOCATION_MIN = 30;
+function confidenceForSignal(source) {
+  return source === "chain" ? 1 : 0.5;
+}
+function chainEvidence(fact) {
+  return { kind: "chain", ref: fact.hash, at: fact.at, note: `chain event ${fact.event}` };
+}
+var STATUS_RANK = {
+  booked: 0,
+  picked_up: 1,
+  in_transit: 2,
+  arriving: 3,
+  delivered: 4
+};
+function statusRank(status) {
+  if (status == null)
+    return -1;
+  return STATUS_RANK[status] ?? -1;
+}
+function chainStatusFromFacts(facts) {
+  let status = null;
+  let delivered = false;
+  let deleted = false;
+  let hasLoadSaved = false;
+  let statusAfterDelivery = false;
+  let deliveredSeen = false;
+  for (const f of facts) {
+    if (f.event === "load_deleted")
+      deleted = true;
+    if (f.event === "load_saved") {
+      hasLoadSaved = true;
+      if (status == null)
+        status = "booked";
+    } else if (f.event === "pickup_sealed") {
+      if (statusRank(status) < 1)
+        status = "picked_up";
+    } else if (f.event === "load_status") {
+      const s = typeof f.payload.status === "string" ? f.payload.status : null;
+      if (deliveredSeen && s)
+        statusAfterDelivery = true;
+      if (s && statusRank(s) > statusRank(status))
+        status = s;
+    } else if (f.event === "delivery_confirmed" || f.event === "pod_seal") {
+      delivered = true;
+      deliveredSeen = true;
+      status = "delivered";
+    }
+  }
+  return { status, delivered, deleted, hasLoadSaved, statusAfterDelivery };
+}
+var MILESTONE_LABELS = {
+  booked: "Booked \u2014 waiting for pickup",
+  picked_up: "Picked up \u2014 on the road",
+  in_transit: "On the road \u2014 in transit",
+  arriving: "Arriving \u2014 at the delivery area",
+  delivered: "Delivered",
+  correction: "Correction \u2014 an earlier update was withdrawn"
+};
+function formatWaitMinutes(min) {
+  const m = Math.max(0, Math.round(min));
+  if (m < 60)
+    return `${m} min`;
+  const h = Math.floor(m / 60);
+  const r = m % 60;
+  return r === 0 ? `${h} h` : `${h} h ${r} min`;
+}
+function deriveMilestones(facts) {
+  const out = [];
+  const seenStatus = new Set;
+  const pushStatus = (kind, fact) => {
+    if (seenStatus.has(kind))
+      return;
+    seenStatus.add(kind);
+    out.push({
+      kind,
+      label: MILESTONE_LABELS[kind],
+      at: fact.at,
+      dedupeKey: kind,
+      evidence: [chainEvidence(fact)],
+      confidence: confidenceForSignal("chain")
+    });
+  };
+  for (const f of facts) {
+    if (f.event === "load_saved") {
+      pushStatus("booked", f);
+    } else if (f.event === "pickup_sealed") {
+      pushStatus("picked_up", f);
+    } else if (f.event === "load_status") {
+      const s = typeof f.payload.status === "string" ? f.payload.status : null;
+      if (s === "picked_up")
+        pushStatus("picked_up", f);
+      else if (s === "in_transit")
+        pushStatus("in_transit", f);
+      else if (s === "arriving")
+        pushStatus("arriving", f);
+    } else if (f.event === "detention_departure") {
+      const detentionId = typeof f.payload.detentionId === "number" ? f.payload.detentionId : null;
+      const place = typeof f.payload.place === "string" && f.payload.place ? f.payload.place : "the dock";
+      const wait = typeof f.payload.waitMinutes === "number" ? f.payload.waitMinutes : null;
+      out.push({
+        kind: "detention",
+        label: `Detention recorded at ${place}${wait != null ? ` \u2014 ${formatWaitMinutes(wait)} on the sealed clock` : ""}`,
+        at: f.at,
+        dedupeKey: `detention:${detentionId ?? f.id}`,
+        evidence: [
+          chainEvidence(f),
+          ...detentionId != null ? [{ kind: "detention", ref: String(detentionId), at: f.at, note: "sealed detention visit" }] : []
+        ],
+        confidence: confidenceForSignal("chain")
+      });
+    } else if (f.event === "delivery_confirmed" || f.event === "pod_seal") {
+      pushStatus("delivered", f);
+    }
+  }
+  return out;
+}
+function detentionVisitsFromFacts(facts) {
+  const byId = new Map;
+  for (const f of facts) {
+    const id = typeof f.payload.detentionId === "number" ? f.payload.detentionId : null;
+    const key = id != null ? `id:${id}` : `evt:${f.id}`;
+    if (f.event === "detention_arrival") {
+      byId.set(key, {
+        detentionId: id,
+        site: typeof f.payload.site === "string" ? f.payload.site : null,
+        place: typeof f.payload.place === "string" ? f.payload.place : null,
+        arrivedAt: typeof f.payload.at === "string" ? f.payload.at : f.at,
+        graceMinutes: typeof f.payload.graceMinutes === "number" ? f.payload.graceMinutes : 120,
+        apptAt: typeof f.payload.apptAt === "string" ? f.payload.apptAt : null,
+        open: true
+      });
+    } else if (f.event === "detention_departure") {
+      const v = byId.get(key);
+      if (v)
+        v.open = false;
+    }
+  }
+  return [...byId.values()];
+}
+function deriveExceptions(input) {
+  const out = [];
+  const { chain } = input;
+  if (chain.deleted)
+    return out;
+  const chainStatus = chain.status;
+  if (input.hasTrackShare && !chain.hasLoadSaved) {
+    out.push({
+      kind: "missing_evidence",
+      severity: 3,
+      detail: "This load has a live tracking share, but the sealed record holds no booking entry for it \u2014 there is nothing the automatic updates can stand behind.",
+      evidence: [{ kind: "load", ref: String(input.loadId), at: null, note: "no load_saved event in the sealed record" }],
+      fingerprint: "share"
+    });
+  }
+  const chainAheadOfRow = !chain.delivered && input.rowStatus != null && chainStatus != null && statusRank(chainStatus) > statusRank(input.rowStatus);
+  if (chainAheadOfRow) {
+    out.push({
+      kind: "conflicting_records",
+      severity: 3,
+      detail: `The sealed record says "${chainStatus}" but the load record still says "${input.rowStatus}". The sealed record is what goes out \u2014 the load record needs to agree with it.`,
+      evidence: [{ kind: "load", ref: String(input.loadId), at: null, note: `load record status "${input.rowStatus}" vs sealed "${chainStatus}"` }],
+      fingerprint: `${input.rowStatus}->${chainStatus}`
+    });
+  } else if (chain.statusAfterDelivery) {
+    out.push({
+      kind: "conflicting_records",
+      severity: 3,
+      detail: "A status change was sealed AFTER this load's delivery was sealed \u2014 the record moved backwards. The delivery stands; the later status needs a human look.",
+      evidence: [{ kind: "load", ref: String(input.loadId), at: null, note: "load_status event after delivery confirmation" }],
+      fingerprint: "post-delivery-status"
+    });
+  }
+  const claimedAhead = (input.rowStatus != null && statusRank(input.rowStatus) > statusRank(chainStatus) ? { claimed: input.rowStatus, source: "row" } : null) ?? (input.snapshotStatus != null && statusRank(input.snapshotStatus) > statusRank(chainStatus) ? { claimed: input.snapshotStatus, source: "snapshot" } : null);
+  if (claimedAhead && !chainAheadOfRow) {
+    out.push({
+      kind: "low_confidence",
+      severity: 2,
+      detail: `A newer status ("${claimedAhead.claimed}") is showing on an unsealed signal, ahead of the sealed record ("${chainStatus ?? "nothing sealed yet"}"). It stays off the tracking page until the seal lands.`,
+      evidence: [
+        {
+          kind: claimedAhead.source === "row" ? "load" : "snapshot",
+          ref: String(input.loadId),
+          at: null,
+          note: `unsealed claim "${claimedAhead.claimed}" (confidence ${confidenceForSignal(claimedAhead.source)} \u2014 below the ${CONFIDENCE_THRESHOLD} bar)`
+        }
+      ],
+      fingerprint: `${claimedAhead.source}:${claimedAhead.claimed}->${chainStatus ?? "none"}`
+    });
+  }
+  const onRoad = chainStatus === "picked_up" || chainStatus === "in_transit" || chainStatus === "arriving";
+  if (onRoad && !chain.delivered) {
+    const ageMin = input.positionAt ? Math.floor((input.now.getTime() - new Date(input.positionAt).getTime()) / 60000) : null;
+    if (ageMin == null || ageMin > STALE_LOCATION_MIN) {
+      out.push({
+        kind: "stale_location",
+        severity: 2,
+        detail: ageMin == null ? "This load is on the road on the sealed record, but no location has ever been reported for the truck. The tracking page says so plainly instead of guessing." : `This load is on the road, but the truck's last location is ${ageMin} minutes old \u2014 past the ${STALE_LOCATION_MIN}-minute line. The tracking page keeps printing that age; it never poses as live.`,
+        evidence: [
+          {
+            kind: "position",
+            ref: String(input.loadId),
+            at: input.positionAt,
+            note: ageMin == null ? "no position on file" : `last position ${ageMin} min before evaluation`
+          }
+        ],
+        fingerprint: input.positionAt ?? "none"
+      });
+    }
+  }
+  if (input.openDetention && !chain.delivered) {
+    const arrivedMs = new Date(input.openDetention.arrivedAt).getTime();
+    const overAt = arrivedMs + input.openDetention.graceMinutes * 60000;
+    if (input.now.getTime() > overAt) {
+      const overMin = Math.floor((input.now.getTime() - overAt) / 60000);
+      out.push({
+        kind: "detention_overdue",
+        severity: 2,
+        detail: `The detention clock${input.openDetention.place ? ` at ${input.openDetention.place}` : ""} ran past its free time ${formatWaitMinutes(overMin)} ago and the visit is still open \u2014 no departure is sealed yet.`,
+        evidence: [
+          {
+            kind: "detention",
+            ref: input.openDetention.detentionId != null ? String(input.openDetention.detentionId) : String(input.loadId),
+            at: input.openDetention.arrivedAt,
+            note: `arrival sealed; free time ${input.openDetention.graceMinutes} min`
+          }
+        ],
+        fingerprint: `det:${input.openDetention.detentionId ?? input.openDetention.arrivedAt}`
+      });
+    }
+  }
+  if (input.appointmentCheckable && !chain.delivered && input.dockApptAt == null && input.suppliedApptAt == null && input.detentionApptAt == null) {
+    out.push({
+      kind: "missing_appointment",
+      severity: 1,
+      detail: "No delivery appointment is on file for this load, so the automatic updates can't promise an arrival time. Supply the appointment to clear this.",
+      evidence: [{ kind: "load", ref: String(input.loadId), at: null, note: "no appointment on the load, in the chain, or on a detention visit" }],
+      fingerprint: "none"
+    });
+  }
+  return out;
+}
+function rankExceptions(rows) {
+  return [...rows].sort((a, b) => {
+    if (a.severity !== b.severity)
+      return b.severity - a.severity;
+    const byAge = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    if (byAge !== 0)
+      return byAge;
+    return a.id - b.id;
+  });
+}
+function statusSummary(args) {
+  return args.lane ? `${args.label} \u2014 ${args.lane}` : args.label;
+}
+var EXCEPTION_LABELS = {
+  stale_location: "Location gone stale",
+  missing_appointment: "No appointment on file",
+  conflicting_records: "Records disagree",
+  detention_overdue: "Detention running over",
+  missing_evidence: "No sealed record behind the share",
+  low_confidence: "Status waiting on its seal"
+};
+function exceptionNotification(args) {
+  const label = EXCEPTION_LABELS[args.kind];
+  return {
+    title: `Load #${args.loadId} needs a look \u2014 ${label.toLowerCase()}`,
+    body: `${args.lane ?? `Load #${args.loadId}`} \u2014 ${label}. It is in the exception queue with its evidence attached; nothing went out to the tracking page for it.`
+  };
+}
+function outwardTimeline(rows) {
+  return rows.filter((r) => r.supersededById == null).map((r) => ({ id: r.id, kind: r.kind, label: r.label, at: r.createdAt, corrected: r.kind === "correction" })).sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime() || a.id - b.id);
 }
 
 // src/notifications.ts
@@ -20617,6 +20968,277 @@ async function completeDeliveryConfirmation(ctx, opts) {
   }
   ctx.invalidateQueries();
   return { already: false, sealHash };
+}
+function parseEvidenceJson(json) {
+  try {
+    const parsed = JSON.parse(json);
+    if (!Array.isArray(parsed))
+      return [];
+    return parsed.filter((e) => e != null && typeof e === "object" && typeof e.kind === "string" && typeof e.ref === "string");
+  } catch {
+    return [];
+  }
+}
+async function autonomyAudiences(ctx, loadId, load) {
+  const db = ctx.db();
+  const boardRows = await db.select().from(boardLoads3).where(eq(boardLoads3.loadId, loadId)).orderBy(desc(boardLoads3.id));
+  const board = boardRows.find((b) => b.status === "taken") ?? boardRows[0] ?? null;
+  let driverUsername = load ? await driverUsernameForLoad(ctx, load) : null;
+  if (!driverUsername && board?.claimedBy)
+    driverUsername = board.claimedBy;
+  if (!driverUsername) {
+    const snaps = await db.select().from(driverFleetStatus3).where(eq(driverFleetStatus3.loadId, loadId));
+    driverUsername = snaps[0]?.username ?? null;
+  }
+  let companyId = board?.companyId ?? null;
+  if (companyId == null && driverUsername) {
+    const members = await db.select().from(companyMembers3).where(eq(companyMembers3.username, driverUsername));
+    companyId = members[0]?.companyId ?? null;
+  }
+  let brokerAccountId = null;
+  if (board) {
+    const posters = await db.select().from(brokerPosterLoads3).where(eq(brokerPosterLoads3.boardLoadId, board.id)).orderBy(desc(brokerPosterLoads3.id));
+    brokerAccountId = posters[0]?.brokerId ?? null;
+  }
+  const laneSource = load ?? board;
+  const lane = laneSource ? laneLabel(laneSource.pickupCity, laneSource.pickupState, laneSource.deliveryCity, laneSource.deliveryState) : null;
+  return { driverUsername, companyId, brokerAccountId, lane };
+}
+async function notifyExceptionAudiences(ctx, args) {
+  const db = ctx.db();
+  const note = exceptionNotification({ kind: args.kind, lane: args.audiences.lane, loadId: args.loadId });
+  const targets = new Set;
+  if (args.audiences.driverUsername)
+    targets.add(args.audiences.driverUsername);
+  if (args.audiences.companyId != null) {
+    const members = await db.select().from(companyMembers3).where(eq(companyMembers3.companyId, args.audiences.companyId));
+    for (const m of members)
+      if (m.role === "owner" || m.role === "dispatch")
+        targets.add(m.username);
+  }
+  if (args.audiences.brokerAccountId != null) {
+    const accts = await db.select().from(brokerAccounts3).where(eq(brokerAccounts3.id, args.audiences.brokerAccountId));
+    const acct = accts[0];
+    if (acct) {
+      targets.add(acct.ownerUsername);
+      if (acct.linkedUsername)
+        targets.add(acct.linkedUsername);
+    }
+  }
+  for (const username of targets) {
+    await recordNotificationSafe(ctx, {
+      username,
+      kind: "system",
+      title: note.title,
+      body: note.body,
+      dedupeKey: `exception:${args.exceptionId}`,
+      refKind: "load",
+      refId: args.loadId
+    });
+  }
+}
+async function evaluateLoadAutonomy(ctx, loadId) {
+  const db = ctx.db();
+  const now = new Date;
+  const chainRows = await db.select().from(chainLog3).where(and(eq(chainLog3.refKind, "load"), eq(chainLog3.refId, loadId))).orderBy(asc(chainLog3.id));
+  const facts = chainRows.map((r) => {
+    let payload = {};
+    try {
+      const parsed = JSON.parse(r.payload);
+      if (parsed != null && typeof parsed === "object")
+        payload = parsed;
+    } catch {}
+    return { id: r.id, event: r.event, hash: r.hash, at: r.createdAt.toISOString(), payload };
+  });
+  const chain = chainStatusFromFacts(facts);
+  if (chain.deleted) {
+    const open = await db.select().from(autoExceptions3).where(and(eq(autoExceptions3.loadId, loadId), eq(autoExceptions3.status, "open")));
+    for (const row of open) {
+      await db.update(autoExceptions3).set({ status: "resolved", resolution: "condition_cleared", resolvedBy: "system", resolvedAt: now, updatedAt: now }).where(eq(autoExceptions3.id, row.id));
+    }
+    return { published: 0, opened: 0, cleared: open.length };
+  }
+  const loadRows = await db.select().from(loads3).where(eq(loads3.id, loadId)).limit(1);
+  const load = loadRows[0] ?? null;
+  const audiences = await autonomyAudiences(ctx, loadId, load);
+  const driverUsername = audiences.driverUsername;
+  let published = 0;
+  const milestones = deriveMilestones(facts);
+  if (milestones.length > 0) {
+    const existing = await db.select().from(statusOutbox3).where(eq(statusOutbox3.loadId, loadId));
+    for (const m of milestones) {
+      const prior = existing.find((r) => r.dedupeKey === m.dedupeKey);
+      if (prior)
+        continue;
+      const hash = await appendChain(ctx, {
+        refKind: "load",
+        refId: loadId,
+        sessionId: null,
+        event: "auto_status",
+        payload: {
+          loadId,
+          kind: m.kind,
+          label: m.label,
+          dedupeKey: m.dedupeKey,
+          confidence: m.confidence,
+          evidence: m.evidence,
+          at: now.toISOString()
+        }
+      });
+      await db.insert(statusOutbox3).values({
+        loadId,
+        kind: m.kind,
+        label: m.label,
+        summary: statusSummary({ lane: audiences.lane, label: m.label }),
+        evidenceJson: JSON.stringify(m.evidence),
+        confidence: m.confidence,
+        chainHash: hash,
+        dedupeKey: m.dedupeKey,
+        createdAt: new Date(m.at)
+      });
+      published++;
+    }
+  }
+  const snapshot = driverUsername ? await fleetStatusFor(ctx, driverUsername) : null;
+  const snapForLoad = snapshot && snapshot.loadId === loadId ? snapshot : null;
+  const position = driverUsername ? (await db.select().from(driverPositions3).where(eq(driverPositions3.username, driverUsername)).limit(1))[0] : undefined;
+  const trackLinks = await db.select().from(receiveLinks3).where(and(eq(receiveLinks3.loadId, loadId), eq(receiveLinks3.kind, "track"), eq(receiveLinks3.status, "active")));
+  const visits = detentionVisitsFromFacts(facts);
+  const openDetention = visits.find((v) => v.open) ?? null;
+  let suppliedApptAt = null;
+  for (const f of facts) {
+    if (f.event === "exception_resolved" && typeof f.payload.appointmentAt === "string") {
+      suppliedApptAt = f.payload.appointmentAt;
+    }
+  }
+  const candidates = deriveExceptions({
+    loadId,
+    rowStatus: load?.status ?? null,
+    snapshotStatus: snapForLoad?.loadStatus ?? null,
+    chain,
+    hasTrackShare: trackLinks.length > 0,
+    positionAt: position?.updatedAt.toISOString() ?? null,
+    dockApptAt: load?.dockApptAt?.toISOString() ?? null,
+    suppliedApptAt,
+    detentionApptAt: visits.find((v) => v.apptAt != null)?.apptAt ?? null,
+    appointmentCheckable: load != null,
+    openDetention,
+    now
+  });
+  const rows = await db.select().from(autoExceptions3).where(eq(autoExceptions3.loadId, loadId));
+  let opened = 0;
+  let cleared = 0;
+  for (const cand of candidates) {
+    const dedupeKey = `${loadId}:${cand.kind}`;
+    const openRow = rows.find((r) => r.dedupeKey === dedupeKey && r.status === "open");
+    if (openRow) {
+      await db.update(autoExceptions3).set({
+        severity: cand.severity,
+        detail: cand.detail,
+        evidenceJson: JSON.stringify(cand.evidence),
+        fingerprint: cand.fingerprint,
+        driverUsername: audiences.driverUsername ?? openRow.driverUsername,
+        companyId: audiences.companyId ?? openRow.companyId,
+        brokerAccountId: audiences.brokerAccountId ?? openRow.brokerAccountId,
+        updatedAt: now
+      }).where(eq(autoExceptions3.id, openRow.id));
+      continue;
+    }
+    const latest = rows.filter((r) => r.dedupeKey === dedupeKey).sort((a, b) => b.id - a.id)[0];
+    if (latest && latest.status !== "open" && latest.fingerprint === cand.fingerprint) {
+      continue;
+    }
+    if (!audiences.driverUsername)
+      continue;
+    const ins = await db.insert(autoExceptions3).values({
+      loadId,
+      kind: cand.kind,
+      severity: cand.severity,
+      detail: cand.detail,
+      evidenceJson: JSON.stringify(cand.evidence),
+      driverUsername: audiences.driverUsername,
+      companyId: audiences.companyId,
+      brokerAccountId: audiences.brokerAccountId,
+      status: "open",
+      dedupeKey,
+      fingerprint: cand.fingerprint,
+      createdAt: now,
+      updatedAt: now
+    }).returning({ id: autoExceptions3.id });
+    const rowId = ins[0]?.id;
+    opened++;
+    if (rowId != null) {
+      await notifyExceptionAudiences(ctx, {
+        exceptionId: rowId,
+        loadId,
+        kind: cand.kind,
+        audiences
+      });
+    }
+  }
+  const candidateKinds = new Set(candidates.map((c) => c.kind));
+  for (const row of rows) {
+    if (row.status !== "open" || candidateKinds.has(row.kind))
+      continue;
+    if (load == null && (row.kind === "conflicting_records" || row.kind === "low_confidence" || row.kind === "missing_appointment"))
+      continue;
+    const hash = await appendChain(ctx, {
+      refKind: "load",
+      refId: loadId,
+      sessionId: null,
+      event: "exception_auto_cleared",
+      payload: { exceptionId: row.id, loadId, kind: row.kind, at: now.toISOString() }
+    });
+    await db.update(autoExceptions3).set({
+      status: "resolved",
+      resolution: "condition_cleared",
+      resolvedBy: "system",
+      resolvedAt: now,
+      chainHash: hash,
+      updatedAt: now
+    }).where(eq(autoExceptions3.id, row.id));
+    cleared++;
+  }
+  return { published, opened, cleared };
+}
+async function evaluateAutonomySafe(ctx, loadId) {
+  try {
+    await evaluateLoadAutonomy(ctx, loadId);
+  } catch {}
+}
+async function exceptionRoleFor(ctx, me, row) {
+  if (row.driverUsername === me)
+    return "driver";
+  if (row.companyId != null) {
+    const membership = await myMembership(ctx, me);
+    if (membership && (membership.role === "owner" || membership.role === "dispatch") && membership.company.id === row.companyId) {
+      return "fleet";
+    }
+  }
+  if (row.brokerAccountId != null) {
+    const db = ctx.db();
+    const accts = await db.select().from(brokerAccounts3).where(eq(brokerAccounts3.id, row.brokerAccountId));
+    const acct = accts[0];
+    if (acct && (acct.ownerUsername === me || acct.linkedUsername === me))
+      return "broker";
+  }
+  return null;
+}
+function exceptionShape(row, lane, audiences) {
+  return {
+    id: row.id,
+    loadId: row.loadId,
+    lane,
+    kind: row.kind,
+    kindLabel: EXCEPTION_LABELS[row.kind] ?? row.kind,
+    severity: row.severity,
+    detail: row.detail,
+    evidence: parseEvidenceJson(row.evidenceJson),
+    audiences,
+    driverUsername: row.driverUsername,
+    status: row.status,
+    createdAt: row.createdAt.toISOString()
+  };
 }
 async function buildSignedPodPdf(ctx, load, confirmation) {
   const title = `Signed proof of delivery \u2014 Load #${load.id}`;
@@ -35271,6 +35893,7 @@ var Actions = {
           payload: { loadId: args.loadId, by: me, via: scope.via, at: new Date().toISOString() }
         });
       }
+      await evaluateAutonomySafe(ctx, args.loadId);
       ctx.invalidateQueries();
       return { ok: true, error: null, url: trackUrlFor(row.token), state: "live" };
     }
@@ -35303,6 +35926,259 @@ var Actions = {
       return { ok: true, error: null };
     }
   }),
+  getLoadAutonomy: defineAction({
+    description: "This load's automatic status timeline + its open exceptions (the load's driver, or its fleet's desk).",
+    request: object({ loadId: number2().int().positive() }),
+    response: object({
+      ok: boolean2(),
+      error: string2().nullable(),
+      lane: string2().nullable(),
+      timeline: array(object({ id: number2(), kind: string2(), label: string2(), at: string2(), corrected: boolean2() })),
+      updates: array(object({
+        id: number2(),
+        kind: string2(),
+        label: string2(),
+        summary: string2(),
+        at: string2(),
+        confidence: number2(),
+        superseded: boolean2()
+      })),
+      exceptions: array(object({
+        id: number2(),
+        loadId: number2(),
+        lane: string2().nullable(),
+        kind: string2(),
+        kindLabel: string2(),
+        severity: number2(),
+        detail: string2(),
+        evidence: array(object({ kind: string2(), ref: string2(), at: string2().nullable(), note: string2() })),
+        audiences: array(string2()),
+        driverUsername: string2(),
+        status: string2(),
+        createdAt: string2()
+      }))
+    }),
+    async handler(ctx, args) {
+      const fail = { ok: false, error: "That load isn't in your scope.", lane: null, timeline: [], updates: [], exceptions: [] };
+      const scope = await libraryLoadScope(ctx, args.loadId);
+      if (!scope)
+        return fail;
+      await evaluateAutonomySafe(ctx, args.loadId);
+      const db = ctx.db();
+      const rows = await db.select().from(statusOutbox3).where(eq(statusOutbox3.loadId, args.loadId)).orderBy(asc(statusOutbox3.id));
+      const timeline = outwardTimeline(rows.map((r) => ({
+        id: r.id,
+        kind: r.kind,
+        label: r.label,
+        summary: r.summary,
+        createdAt: r.createdAt.toISOString(),
+        supersededById: r.supersededById,
+        supersedesId: r.supersedesId
+      })));
+      const exRows = await db.select().from(autoExceptions3).where(and(eq(autoExceptions3.loadId, args.loadId), eq(autoExceptions3.status, "open")));
+      const audiences = await autonomyAudiences(ctx, args.loadId, scope.via === "mine" ? scope.load : null);
+      return {
+        ok: true,
+        error: null,
+        lane: audiences.lane,
+        timeline,
+        updates: rows.map((r) => ({
+          id: r.id,
+          kind: r.kind,
+          label: r.label,
+          summary: r.summary,
+          at: r.createdAt.toISOString(),
+          confidence: r.confidence,
+          superseded: r.supersededById != null
+        })),
+        exceptions: rankExceptions(exRows.map((r) => ({ ...exceptionShape(r, audiences.lane, []), createdAt: r.createdAt.toISOString() })))
+      };
+    }
+  }),
+  getExceptionQueue: defineAction({
+    description: "My exception queue across my roles (driver / fleet desk / broker): ranked, evidence attached. Nothing here was published outward.",
+    request: object({}),
+    response: object({
+      items: array(object({
+        id: number2(),
+        loadId: number2(),
+        lane: string2().nullable(),
+        kind: string2(),
+        kindLabel: string2(),
+        severity: number2(),
+        detail: string2(),
+        evidence: array(object({ kind: string2(), ref: string2(), at: string2().nullable(), note: string2() })),
+        audiences: array(string2()),
+        driverUsername: string2(),
+        status: string2(),
+        createdAt: string2()
+      })),
+      counts: object({ driver: number2(), fleet: number2(), broker: number2() })
+    }),
+    async handler(ctx) {
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const candidateIds = new Set;
+      const shares = await db.select({ loadId: receiveLinks3.loadId }).from(receiveLinks3).where(and(eq(receiveLinks3.kind, "track"), eq(receiveLinks3.status, "active")));
+      for (const s of shares)
+        candidateIds.add(s.loadId);
+      const openSeed = await db.select({ loadId: autoExceptions3.loadId }).from(autoExceptions3).where(eq(autoExceptions3.status, "open"));
+      for (const s of openSeed)
+        candidateIds.add(s.loadId);
+      const mySnap = await fleetStatusFor(ctx, me);
+      if (mySnap?.loadId != null)
+        candidateIds.add(mySnap.loadId);
+      for (const id of [...candidateIds].slice(0, 50)) {
+        await evaluateAutonomySafe(ctx, id);
+      }
+      const open = await db.select().from(autoExceptions3).where(eq(autoExceptions3.status, "open")).orderBy(asc(autoExceptions3.id));
+      const laneCache = new Map;
+      const items = [];
+      const counts = { driver: 0, fleet: 0, broker: 0 };
+      for (const row of open) {
+        const role = await exceptionRoleFor(ctx, me, row);
+        if (!role)
+          continue;
+        if (!laneCache.has(row.loadId)) {
+          const aud = await autonomyAudiences(ctx, row.loadId, null);
+          laneCache.set(row.loadId, aud.lane);
+        }
+        counts[role]++;
+        items.push(exceptionShape(row, laneCache.get(row.loadId) ?? null, [role]));
+      }
+      return { items: rankExceptions(items), counts };
+    }
+  }),
+  resolveException: defineAction({
+    description: "Resolve one of my exceptions: supply the missing fact (an appointment) or dismiss it with a note. Sealed; never fabricates a status.",
+    request: object({
+      exceptionId: number2().int().positive(),
+      resolution: _enum(["supplied_fact", "dismissed"]),
+      note: string2().max(500).nullable().default(null),
+      appointmentAt: string2().max(40).nullable().default(null)
+    }),
+    response: object({ ok: boolean2(), error: string2().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const rows = await db.select().from(autoExceptions3).where(eq(autoExceptions3.id, args.exceptionId)).limit(1);
+      const row = rows[0];
+      if (!row)
+        return { ok: false, error: "That exception isn't on file." };
+      if (row.status !== "open")
+        return { ok: false, error: "That exception is already closed." };
+      const role = await exceptionRoleFor(ctx, me, row);
+      if (!role)
+        return { ok: false, error: "That exception isn't in your queue." };
+      const note = args.note?.trim() ? args.note.trim().slice(0, 500) : null;
+      let appointmentAt = null;
+      if (args.resolution === "dismissed") {
+        if (!note)
+          return { ok: false, error: "A dismissal needs a short note saying why \u2014 it goes on the sealed record." };
+      } else {
+        if (row.kind !== "missing_appointment") {
+          return { ok: false, error: "That one can't take a supplied fact \u2014 dismiss it with a note instead." };
+        }
+        const parsed = args.appointmentAt ? new Date(args.appointmentAt) : null;
+        if (!parsed || Number.isNaN(parsed.getTime())) {
+          return { ok: false, error: "Supply the appointment date and time to clear this." };
+        }
+        appointmentAt = parsed.toISOString();
+      }
+      const hash = await appendChain(ctx, {
+        refKind: "load",
+        refId: row.loadId,
+        sessionId: null,
+        event: "exception_resolved",
+        payload: {
+          exceptionId: row.id,
+          loadId: row.loadId,
+          kind: row.kind,
+          resolution: args.resolution,
+          note,
+          appointmentAt,
+          by: me,
+          role,
+          at: new Date().toISOString()
+        }
+      });
+      if (appointmentAt) {
+        const loadRows = await db.select().from(loads3).where(eq(loads3.id, row.loadId)).limit(1);
+        if (loadRows[0]) {
+          await db.update(loads3).set({ dockApptAt: new Date(appointmentAt) }).where(eq(loads3.id, row.loadId));
+        }
+      }
+      const now = new Date;
+      await db.update(autoExceptions3).set({
+        status: args.resolution === "dismissed" ? "dismissed" : "resolved",
+        resolution: args.resolution,
+        resolutionNote: note,
+        resolvedBy: me,
+        resolvedAt: now,
+        chainHash: hash,
+        updatedAt: now
+      }).where(eq(autoExceptions3.id, row.id));
+      await evaluateAutonomySafe(ctx, row.loadId);
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
+    }
+  }),
+  voidAutoStatus: defineAction({
+    description: "Withdraw one automatic status update: a sealed correction supersedes it on the tracking page (the load's driver or its fleet's desk).",
+    request: object({
+      outboxId: number2().int().positive(),
+      reason: string2().max(300).nullable().default(null)
+    }),
+    response: object({ ok: boolean2(), error: string2().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const rows = await db.select().from(statusOutbox3).where(eq(statusOutbox3.id, args.outboxId)).limit(1);
+      const row = rows[0];
+      if (!row)
+        return { ok: false, error: "That update isn't on file." };
+      if (row.supersededById != null)
+        return { ok: true, error: null };
+      const loadRows = await db.select().from(loads3).where(eq(loads3.id, row.loadId)).limit(1);
+      const audiences = await autonomyAudiences(ctx, row.loadId, loadRows[0] ?? null);
+      let allowed = audiences.driverUsername === me;
+      if (!allowed && audiences.companyId != null) {
+        const membership = await myMembership(ctx, me);
+        allowed = membership != null && (membership.role === "owner" || membership.role === "dispatch") && membership.company.id === audiences.companyId;
+      }
+      if (!allowed)
+        return { ok: false, error: "That update isn't yours to withdraw." };
+      const reason = args.reason?.trim() ? args.reason.trim().slice(0, 300) : null;
+      const now = new Date;
+      const hash = await appendChain(ctx, {
+        refKind: "load",
+        refId: row.loadId,
+        sessionId: null,
+        event: "auto_status_voided",
+        payload: { outboxId: row.id, loadId: row.loadId, kind: row.kind, reason, by: me, at: now.toISOString() }
+      });
+      const ins = await db.insert(statusOutbox3).values({
+        loadId: row.loadId,
+        kind: "correction",
+        label: MILESTONE_LABELS.correction,
+        summary: statusSummary({ lane: audiences.lane, label: `Correction \u2014 the "${row.label}" update was withdrawn` }),
+        evidenceJson: JSON.stringify([
+          { kind: "chain", ref: hash, at: now.toISOString(), note: reason ? `withdrawn by @${me}: ${reason}` : `withdrawn by @${me}` }
+        ]),
+        confidence: 1,
+        chainHash: hash,
+        dedupeKey: `correction:${row.id}`,
+        supersedesId: row.id,
+        createdAt: now
+      }).returning({ id: statusOutbox3.id });
+      const correctionId = ins[0]?.id;
+      if (correctionId != null) {
+        await db.update(statusOutbox3).set({ supersededById: correctionId }).where(eq(statusOutbox3.id, row.id));
+      }
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
+    }
+  }),
   getTrackInfo: defineAction({
     description: "PUBLIC: tracking view for a shared load \u2014 route, stops, ETA, location + freshness. Never any rate or money field. Expires at delivery.",
     request: object({ token: string2().min(8).max(80) }),
@@ -35325,7 +36201,8 @@ var Actions = {
       lat: number2().nullable(),
       lon: number2().nullable(),
       positionAt: string2().nullable(),
-      positionFreshness: string2().nullable()
+      positionFreshness: string2().nullable(),
+      timeline: array(object({ id: number2(), kind: string2(), label: string2(), at: string2(), corrected: boolean2() }))
     }),
     async handler(ctx, args) {
       const invalid = {
@@ -35347,7 +36224,8 @@ var Actions = {
         lat: null,
         lon: null,
         positionAt: null,
-        positionFreshness: null
+        positionFreshness: null,
+        timeline: []
       };
       if (receiveThrottleBlocked(args.token))
         return invalid;
@@ -35359,6 +36237,17 @@ var Actions = {
       receiveThrottleOk(args.token);
       const { load } = resolved;
       const db = ctx.db();
+      await evaluateAutonomySafe(ctx, load.id);
+      const outboxRows = await db.select().from(statusOutbox3).where(eq(statusOutbox3.loadId, load.id)).orderBy(asc(statusOutbox3.id));
+      const timeline = outwardTimeline(outboxRows.map((r) => ({
+        id: r.id,
+        kind: r.kind,
+        label: r.label,
+        summary: r.summary,
+        createdAt: r.createdAt.toISOString(),
+        supersededById: r.supersededById,
+        supersedesId: r.supersedesId
+      })));
       const confirmation = await deliveryConfirmationFor(ctx, load.id);
       const state = trackShareStateFor({ linkStatus: resolved.link.status, delivered: confirmation != null });
       const driverUsername = await driverUsernameForLoad(ctx, load);
@@ -35414,7 +36303,8 @@ var Actions = {
         lat,
         lon,
         positionAt,
-        positionFreshness
+        positionFreshness,
+        timeline
       };
     }
   }),
@@ -55944,6 +56834,8 @@ ${args.question}`, { schema: answerSchema });
           publishedAt: values.publishedAt
         }
       });
+      if (load)
+        await evaluateAutonomySafe(ctx, load.id);
       return { ok: true, error: null, hasActiveLoad: load != null };
     }
   }),

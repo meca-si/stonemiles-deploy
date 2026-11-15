@@ -77,6 +77,10 @@
 // autoincrement PK (notifications.id), +8 timestamp_ms (captures
 // captured/synced; notifications read/created/updated; devices
 // created/updated/last-seen), and +1 boolean (push_devices.enabled).
+// Migration 0129 (autonomy core) adds +2 tables (status_outbox,
+// auto_exceptions), +2 autoincrement PKs, +4 timestamp_ms (outbox
+// created; exceptions resolved/created/updated), and +1 REAL
+// (outbox confidence); the remaining columns are plain integer/text.
 //
 //   bun run host/pg/transform-schema.ts
 
@@ -141,16 +145,16 @@ replaceAll(
   'integer mode "timestamp_ms" -> timestamp(tz, date)',
   /integer\(("[a-z0-9_]+"), \{ mode: "timestamp_ms" \}\)/g,
   'timestamp($1, { withTimezone: true, mode: "date" })',
-  335,
+  339,
 );
 replaceAll(
   "autoincrement PK -> serial",
   /integer\(("[a-z0-9_]+")\)\.primaryKey\(\{ autoIncrement: true \}\)/g,
   "serial($1).primaryKey()",
-  144,
+  146,
 );
-replaceAll("sqliteTable -> pgTable", /\bsqliteTable\(/g, "pgTable(", 179);
-replaceAll("real -> doublePrecision", /\breal\(/g, "doublePrecision(", 186);
+replaceAll("sqliteTable -> pgTable", /\bsqliteTable\(/g, "pgTable(", 181);
+replaceAll("real -> doublePrecision", /\breal\(/g, "doublePrecision(", 187);
 
 // Leftovers: any of these means the source schema grew a shape this
 // transform does not know. Fail, don't guess.

@@ -190,6 +190,8 @@ export const breakdownLogs = impl.breakdownLogs;
 export const offlineCaptures = impl.offlineCaptures;
 export const notifications = impl.notifications;
 export const pushDevices = impl.pushDevices;
+export const statusOutbox = impl.statusOutbox;
+export const autoExceptions = impl.autoExceptions;
 
 // Auth (Phase 2b, added at the Phase 2 merge): account + session tables.
 export const accounts = impl.accounts;
