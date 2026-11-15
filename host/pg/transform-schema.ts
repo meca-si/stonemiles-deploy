@@ -71,6 +71,12 @@
 // (driver_fleet_status) with a text primary key (rides the unchanged
 // text rule), +2 timestamp_ms (eta_at, published_at), and +2 REAL
 // (end_lat, end_lon); its remaining columns are plain integer/text.
+// Migration 0128 (offline mode + ELD sync + push plumbing) adds +3
+// tables (offline_captures — composite text PK, rides the text rule;
+// notifications; push_devices — text PK on the token), +1
+// autoincrement PK (notifications.id), +8 timestamp_ms (captures
+// captured/synced; notifications read/created/updated; devices
+// created/updated/last-seen), and +1 boolean (push_devices.enabled).
 //
 //   bun run host/pg/transform-schema.ts
 
@@ -129,21 +135,21 @@ replaceAll(
   'integer mode "boolean" -> boolean',
   /integer\(("[a-z0-9_]+"), \{ mode: "boolean" \}\)/g,
   "boolean($1)",
-  109,
+  110,
 );
 replaceAll(
   'integer mode "timestamp_ms" -> timestamp(tz, date)',
   /integer\(("[a-z0-9_]+"), \{ mode: "timestamp_ms" \}\)/g,
   'timestamp($1, { withTimezone: true, mode: "date" })',
-  327,
+  335,
 );
 replaceAll(
   "autoincrement PK -> serial",
   /integer\(("[a-z0-9_]+")\)\.primaryKey\(\{ autoIncrement: true \}\)/g,
   "serial($1).primaryKey()",
-  143,
+  144,
 );
-replaceAll("sqliteTable -> pgTable", /\bsqliteTable\(/g, "pgTable(", 176);
+replaceAll("sqliteTable -> pgTable", /\bsqliteTable\(/g, "pgTable(", 179);
 replaceAll("real -> doublePrecision", /\breal\(/g, "doublePrecision(", 186);
 
 // Leftovers: any of these means the source schema grew a shape this

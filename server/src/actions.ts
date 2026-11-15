@@ -232,6 +232,24 @@ import {
 } from "./fleetVisibility";
 import { buildRecordsBundle, type RecordsBundle } from "./recordsBundle";
 import {
+  credentialNotification,
+  dedupePolicyFor,
+  dmNotification,
+  hosNotification,
+  loadOfferNotification,
+  pushSenderFromEnv,
+  pushStateFor,
+  pushStatusLine,
+  type NotificationKind,
+} from "./notifications";
+import {
+  snapshotIsSimulated,
+  summarizeEldSync,
+  simulatedEldPayloads,
+  validateEldFeedPayload,
+  type EldSyncFeedResult,
+} from "./eldSync";
+import {
 SEASON_EPOCH,
 SEASON_MS,
 pointsBalanceFromLedger,
@@ -717,6 +735,417 @@ async function appendChain(
 
 async function sha256(text: string): Promise<string> {
   return sha256Bytes(new TextEncoder().encode(text));
+}
+
+// ---- Offline mode · notification center · ELD sync (queue items 7–9) -------
+// The shared machinery for the last three TMS queue items. Rules live
+// in the pure modules (notifications.ts, eldSync.ts); what follows is
+// the database half: recording notifications with their dedupe
+// policy, sealing duty changes (live and offline-synced through the
+// one path), inserting signed DVIRs (ditto), and applying ELD sync
+// batches into eld_snapshots through the one pipeline.
+
+/** Record one notification-center row for a user, applying the
+ * kind's dedupe policy (notifications.ts): message/HOS alerts bump
+ * the one unread row for their key, a credential threshold records
+ * once per card, offers are always their own row. The row's
+ * push_state is resolved honestly at insert: no enabled devices →
+ * "no_devices"; devices but no FCM sender in this build →
+ * "not_configured" (device push wires in with the Android build).
+ * Throws on database failure — callers that must never break the
+ * producing event use recordNotificationSafe. */
+async function recordNotification(
+  ctx: Ctx,
+  args: {
+    username: string;
+    kind: NotificationKind;
+    title: string;
+    body: string;
+    dedupeKey?: string | null;
+    refKind?: string | null;
+    refId?: number | null;
+  },
+): Promise<void> {
+  const db = ctx.db<typeof schema>();
+  const policy = dedupePolicyFor(args.kind);
+  const now = new Date();
+  if (args.dedupeKey && policy !== "unique") {
+    const existing = await db
+      .select()
+      .from(schema.notifications)
+      .where(
+        and(
+          eq(schema.notifications.username, args.username),
+          eq(schema.notifications.dedupeKey, args.dedupeKey),
+        ),
+      )
+      .orderBy(desc(schema.notifications.id));
+    if (policy === "ever") {
+      if (existing.length > 0) return; // this threshold already notified for this card
+    } else {
+      const unread = existing.find((n) => n.readAt == null);
+      if (unread) {
+        await db
+          .update(schema.notifications)
+          .set({
+            title: args.title,
+            body: args.body,
+            count: unread.count + 1,
+            refKind: args.refKind ?? unread.refKind,
+            refId: args.refId ?? unread.refId,
+            updatedAt: now,
+          })
+          .where(eq(schema.notifications.id, unread.id));
+        return;
+      }
+    }
+  }
+  const devices = await db
+    .select({ token: schema.pushDevices.token, enabled: schema.pushDevices.enabled })
+    .from(schema.pushDevices)
+    .where(eq(schema.pushDevices.username, args.username));
+  const enabledTokens = devices.filter((d) => d.enabled).map((d) => d.token);
+  const sender = pushSenderFromEnv(process.env);
+  let sendOk: boolean | null = null;
+  if (sender && enabledTokens.length > 0) {
+    try {
+      sendOk = (await sender.send(enabledTokens, { title: args.title, body: args.body, kind: args.kind })).ok;
+    } catch {
+      sendOk = false;
+    }
+  }
+  const pushState = pushStateFor({
+    enabledDeviceCount: enabledTokens.length,
+    senderConfigured: sender != null,
+    sendOk,
+  });
+  await db.insert(schema.notifications).values({
+    username: args.username,
+    kind: args.kind,
+    title: args.title,
+    body: args.body,
+    dedupeKey: args.dedupeKey ?? null,
+    refKind: args.refKind ?? null,
+    refId: args.refId ?? null,
+    count: 1,
+    pushState,
+    createdAt: now,
+    updatedAt: now,
+  });
+}
+
+/** recordNotification for producers that must never fail because a
+ * notification couldn't be written (a chat send, a door submission,
+ * a sealed HOS warning): the event itself is the record; the center
+ * is a mirror of it. */
+async function recordNotificationSafe(
+  ctx: Ctx,
+  args: Parameters<typeof recordNotification>[1],
+): Promise<void> {
+  try {
+    await recordNotification(ctx, args);
+  } catch {
+    /* the center never breaks the event that produced it */
+  }
+}
+
+/** The auto-swap pairing rule, shared by setDuty and the offline
+ * sync: an automatic change only ever lands on Off Duty (2-minute
+ * stage) or Sleeper Berth (10-minute stage). */
+function dutyAutoSwapPairingOk(
+  state: string,
+  autoStage: string | null | undefined,
+): boolean {
+  return (
+    (autoStage === "off_duty_2min" && state === "off_duty") ||
+    (autoStage === "sleeper_10min" && state === "sleeper")
+  );
+}
+
+/** Seal one duty change into the chain — THE path, used by the live
+ * setDuty action and by syncDutyCapture for changes captured
+ * offline. An offline seal carries the device's captured timestamp
+ * as the event time and is flagged offlineCapture in the payload:
+ * the record shows when the change actually happened AND that it
+ * was captured with no signal, never pretending otherwise. */
+async function sealDutyChange(
+  ctx: Ctx,
+  me: string,
+  args: {
+    state: "off_duty" | "sleeper" | "on_duty" | "driving";
+    at: Date;
+    location: string | null;
+    source: "manual" | "auto_no_movement";
+    autoStage: string | null;
+    stillSince: string | null;
+    offline: { captureId: string; capturedAt: string } | null;
+  },
+): Promise<string> {
+  return appendChain(ctx, {
+    refKind: "driver",
+    refId: null,
+    sessionId: null,
+    event: "duty_change",
+    payload: {
+      state: args.state,
+      at: args.at.toISOString(),
+      location: args.location,
+      username: me,
+      source: args.source,
+      autoStage: args.autoStage,
+      stillSince: args.stillSince,
+      ...(args.offline
+        ? { offlineCapture: true, captureId: args.offline.captureId, capturedAt: args.offline.capturedAt }
+        : {}),
+    },
+  });
+}
+
+type DvirInsertArgs = {
+  kind: "pretrip" | "posttrip";
+  items: { item: string; ok: boolean }[];
+  defects: {
+    item: string;
+    note: string;
+    critical: boolean;
+    category?: string | null;
+    photoDataBase64?: string | null;
+    photoMime?: string | null;
+  }[];
+  signedName: string;
+  odometer: number | null;
+  lat?: number | null;
+  lon?: number | null;
+  safeToOperate?: boolean | null;
+};
+
+/** Insert one signed DVIR — THE path, used by the live saveDvir
+ * action and by syncDvirCapture for inspections captured offline.
+ * `inspectedAt` is when the inspection actually happened (the
+ * device's captured time for an offline sync; the server's now for
+ * a live save); identity snapshots, defect drafts, the chain seal,
+ * and the daily points all follow from it exactly as a live save.
+ * An offline seal is flagged in the chain payload. */
+async function insertSignedDvir(
+  ctx: Ctx,
+  args: DvirInsertArgs,
+  opts: { inspectedAt: Date; offline: { captureId: string; capturedAt: string } | null },
+): Promise<{ id: number; criticalDefect: boolean; draftEntryIds: number[]; chainHash: string }> {
+  const db = ctx.db<typeof schema>();
+  // A defect without a note is not a record — the note is what
+  // the shop (and the next driver) acts on.
+  for (const d of args.defects) {
+    if (!d.note.trim()) {
+      throw new Error(`saveDvir: the defect on "${d.item}" needs a note — say what's wrong before signing.`);
+    }
+  }
+  const critical = args.defects.some((d) => d.critical);
+  // Identity snapshot: the truck/trailer as recorded in My Truck
+  // / My Trailer RIGHT NOW. The signed record keeps this even if
+  // the profile identity changes later.
+  const prof = await db.select().from(schema.profile).where(eq(schema.profile.id, myProfileId(ctx))).limit(1);
+  const p = prof[0];
+  const truckName = [p?.truckYear ?? null, p?.truckMake ?? null, p?.truckModel ?? null].filter(Boolean).join(" ");
+  const truckLabel = truckName ? (p?.truckUnitNumber ? `${truckName} · Unit ${p.truckUnitNumber}` : truckName) : null;
+  const trailerName = [p?.trailerYear ?? null, p?.trailerMake ?? null, p?.trailerModel ?? null].filter(Boolean).join(" ");
+  const trailerTypeLabel = p?.trailerType ? p.trailerType.replace(/_/g, " ") : null;
+  const trailerLabel = [trailerName || null, trailerTypeLabel].filter(Boolean).join(" · ") || null;
+  const safeToOperate = args.safeToOperate ?? !critical;
+  const now = opts.inspectedAt;
+  const res = await db
+    .insert(schema.dvirReports)
+    .values({
+      inspectedAt: now,
+      kind: args.kind,
+      itemsJson: JSON.stringify(args.items),
+      defectsJson: JSON.stringify(args.defects.map((d) => ({ item: d.item, note: d.note, critical: d.critical }))),
+      signedName: args.signedName,
+      status: args.defects.length > 0 ? "defects_reported" : "signed",
+      odometer: args.odometer,
+      lat: args.lat ?? null,
+      lon: args.lon ?? null,
+      truckLabel,
+      trailerLabel,
+      safeToOperate,
+    })
+    .returning({ id: schema.dvirReports.id });
+  const row = res[0];
+  if (!row) throw new Error("saveDvir: insert returned no rows");
+  // Every defect auto-drafts a maintenance-log entry (status
+  // "draft") in its mapped category — the driver confirms/edits
+  // it in the log, and closing it clears the open defect. A
+  // defect photo files as paperwork on that draft, on the same
+  // blob path as receipts.
+  const draftEntryIds: number[] = [];
+  for (const d of args.defects) {
+    const category = categoryForDvirItem(d.item, d.category ?? null);
+    const ins = await db
+      .insert(schema.maintenanceLogEntries)
+      .values({
+        performedAt: now,
+        odometer: args.odometer,
+        category,
+        description: dvirDraftDescription(d.item),
+        shop: null,
+        cost: 0,
+        nextDueMiles: null,
+        nextDueAt: null,
+        notes: dvirDraftNotes(d.note, row.id, args.kind),
+        status: "draft",
+      })
+      .returning({ id: schema.maintenanceLogEntries.id });
+    const entry = ins[0];
+    if (!entry) continue;
+    draftEntryIds.push(entry.id);
+    await db.insert(schema.dvirDefectLinks).values({
+      dvirId: row.id,
+      item: d.item,
+      maintenanceEntryId: entry.id,
+    });
+    if (d.photoDataBase64 && d.photoMime) {
+      const blobKey = `dvir-defect-${row.id}-${entry.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      await ctx.blobs.put(blobKey, base64ToBytes(d.photoDataBase64), { contentType: d.photoMime });
+      await db.insert(schema.maintenanceLogAttachments).values({
+        entryId: entry.id,
+        label: `Defect photo — ${d.item}`,
+        blobKey,
+        mime: d.photoMime,
+      });
+    }
+  }
+  const chainHash = await appendChain(ctx, {
+    refKind: "driver",
+    refId: null,
+    sessionId: null,
+    event: "dvir_signed",
+    payload: {
+      dvirId: row.id,
+      kind: args.kind,
+      items: args.items.length,
+      defects: args.defects.map((d) => ({ item: d.item, note: d.note, critical: d.critical })),
+      criticalDefect: critical,
+      signedName: args.signedName,
+      odometer: args.odometer,
+      lat: args.lat ?? null,
+      lon: args.lon ?? null,
+      safeToOperate,
+      truckLabel,
+      trailerLabel,
+      draftEntryIds,
+      at: now.toISOString(),
+      ...(opts.offline
+        ? { offlineCapture: true, captureId: opts.offline.captureId, capturedAt: opts.offline.capturedAt }
+        : {}),
+    },
+  });
+  // SM Points daily table: a signed PRE-trip DVIR pays the +50
+  // "dvir" line; a signed POST-trip DVIR pays the +25
+  // "posttrip_dvir" line (owner addition 2026-10-24). Each pays at
+  // most once per driver-local day, inside the unchanged 500 cap.
+  // An offline DVIR synced late earns on its sync day — the award
+  // is keyed to the signed record's id, so a re-sync never pays twice.
+  {
+    const me = await myUsername(ctx);
+    await awardDailyTask(ctx, {
+      username: me,
+      task: args.kind === "pretrip" ? "dvir" : "posttrip_dvir",
+      reason: args.kind === "pretrip" ? "Pre-trip DVIR signed" : "Post-trip DVIR signed",
+      refSuffix: `-dvir${row.id}`,
+    });
+  }
+  return { id: row.id, criticalDefect: critical, draftEntryIds, chainHash };
+}
+
+/** Apply one ELD sync batch to a connection — THE pipeline every
+ * feed travels: validate against the feed contract (eldSync.ts),
+ * store accepted payloads as eld_snapshots rows exactly as
+ * received, land the identity feed in eld_identity, refresh the
+ * connection's per-feed states, and seal the batch into the chain.
+ * Rejected feeds are reported with their errors and store nothing.
+ * The test harness (runEldTestSync) calls this with simulated
+ * payloads; the provider fetch layer — staged until a real ELD is
+ * wired at go-live — will call it with real ones. */
+async function applyEldSyncBatch(
+  ctx: Ctx,
+  conn: typeof schema.eldConnections.$inferSelect,
+  batch: { feed: string; payload: unknown }[],
+  source: "test_harness" | "provider",
+): Promise<{ results: EldSyncFeedResult[]; accepted: number; rejected: number; lines: string[]; chainHash: string }> {
+  const db = ctx.db<typeof schema>();
+  const results: EldSyncFeedResult[] = [];
+  for (const item of batch) {
+    const v = validateEldFeedPayload(item.feed, item.payload);
+    if (!v.ok) {
+      results.push({ feed: item.feed, ok: false, errors: v.errors });
+      continue;
+    }
+    // Snapshots store the payload exactly as received (the table's
+    // standing rule) — including the simulated marker on test-sync
+    // data, which is how every surface tells it from live data.
+    // The normalized form is used only where a typed row is built
+    // from it (eld_identity, just below).
+    await db.insert(schema.eldSnapshots).values({
+      connectionId: conn.id,
+      feed: item.feed,
+      payloadJson: JSON.stringify(item.payload),
+    });
+    if (item.feed === "identity") {
+      const n = v.normalized as { driver: Record<string, unknown>; truck: Record<string, unknown> };
+      await db.insert(schema.eldIdentity).values({
+        connectionId: conn.id,
+        provider: conn.provider,
+        driverJson: JSON.stringify(n.driver),
+        truckJson: JSON.stringify(n.truck),
+      });
+    }
+    results.push({ feed: item.feed, ok: true, errors: [] });
+  }
+  const summary = summarizeEldSync(results);
+  // Refresh the connection's stored per-feed states for the feeds
+  // this batch carried (feeds with snapshots derive "received" in
+  // eldFeedsFor; this keeps the stored copy truthful too — and a
+  // test sync's stored detail says simulated, in plain words).
+  try {
+    const stored = JSON.parse(conn.feedsJson) as { feed: string; state: string; detail: string }[];
+    if (Array.isArray(stored)) {
+      for (const r of results) {
+        const entry = stored.find((s) => s.feed === r.feed);
+        if (!entry) continue;
+        if (r.ok) {
+          entry.state = "received";
+          entry.detail =
+            source === "test_harness"
+              ? "Test sync — simulated device data received through the sync pipeline. Live sync awaits a real ELD device."
+              : `Last received ${new Date().toLocaleString()} from the provider.`;
+        } else {
+          entry.detail = `Last sync rejected this feed: ${r.errors.join("; ")}`;
+        }
+      }
+      await db
+        .update(schema.eldConnections)
+        .set({ feedsJson: JSON.stringify(stored), updatedAt: new Date() })
+        .where(eq(schema.eldConnections.id, conn.id));
+    }
+  } catch {
+    /* feedsJson unreadable — eldFeedsFor still derives state from snapshots */
+  }
+  const chainHash = await appendChain(ctx, {
+    refKind: "driver",
+    refId: null,
+    sessionId: null,
+    event: "eld_sync_received",
+    payload: {
+      connectionId: conn.id,
+      provider: conn.provider,
+      source,
+      simulated: source === "test_harness",
+      accepted: summary.accepted,
+      rejected: summary.rejected,
+      feeds: results.map((r) => r.feed),
+      at: new Date().toISOString(),
+    },
+  });
+  return { results, ...summary, chainHash };
 }
 
 // ---- STONEMILES SI helpers (2026-11-01) --------------------------------------
@@ -11999,10 +12428,16 @@ async function eldFeedsFor(
       .filter((s) => s.feed === f.feed)
       .sort((a, b) => b.receivedAt.getTime() - a.receivedAt.getTime())[0];
     if (snap) {
+      // A test-harness sync's snapshots carry the simulated marker
+      // in the payload itself — the feed state says so in plain
+      // words, never presenting simulated data as provider data.
+      const simulated = snapshotIsSimulated(snap.payloadJson);
       return {
         ...f,
         state: "received",
-        detail: `Last received ${snap.receivedAt.toLocaleString()} from ${ELD_PROVIDER_NAMES[conn.provider] ?? conn.provider}.`,
+        detail: simulated
+          ? `Test sync ${snap.receivedAt.toLocaleString()} — simulated device data through the sync pipeline. Live sync awaits a real ELD device.`
+          : `Last received ${snap.receivedAt.toLocaleString()} from ${ELD_PROVIDER_NAMES[conn.provider] ?? conn.provider}.`,
       };
     }
     const marked = stored.find((s) => s.feed === f.feed && s.state === "blocked_by_plan");
@@ -12043,7 +12478,9 @@ async function toEldConnection(
 
 /** Latest mirrored HOS clocks from a connected ELD's hos_clocks feed, or
  *  null when no ELD clocks have actually been received. The payload shape
- *  is the sync mapping's contract: remaining hours per clock. */
+ *  is the sync mapping's contract: remaining hours per clock. Simulated
+ *  test-sync snapshots are SKIPPED: test data never poses as the ELD's
+ *  official record. */
 async function mirroredEldHos(
   ctx: Ctx,
 ): Promise<{
@@ -12065,7 +12502,7 @@ async function mirroredEldHos(
       .from(schema.eldSnapshots)
       .where(eq(schema.eldSnapshots.connectionId, c.id))
       .orderBy(desc(schema.eldSnapshots.id));
-    const snap = snaps.find((s) => s.feed === "hos_clocks");
+    const snap = snaps.find((s) => s.feed === "hos_clocks" && !snapshotIsSimulated(s.payloadJson));
     if (!snap) continue;
     try {
       const p = JSON.parse(snap.payloadJson) as Record<string, unknown>;
@@ -20339,7 +20776,7 @@ export const Actions = {
           .select()
           .from(schema.eldSnapshots)
           .where(eq(schema.eldSnapshots.connectionId, c.id));
-        const stats = snaps.find((s) => s.feed === "vehicle_stats");
+        const stats = snaps.find((s) => s.feed === "vehicle_stats" && !snapshotIsSimulated(s.payloadJson));
         if (stats) {
           try {
             const p = JSON.parse(stats.payloadJson) as { odometerMi?: unknown };
@@ -25141,6 +25578,29 @@ export const Actions = {
         event: "broker_submission_email_alert",
         payload: { submissionId: id, viaDoor, emailStatus: alertStatus, at: new Date().toISOString() },
       });
+      // Notification center (queue item 9): the same offer lands in
+      // the fleet owner's in-app center beside the email — sender
+      // and lane only, NO rate (the builder never receives it).
+      // Best-effort, like the email: a center failure never fails
+      // the submission.
+      {
+        const built = loadOfferNotification({
+          brokerName: args.brokerName?.trim() || link.brokerName,
+          brokerCompany: args.brokerCompany?.trim() || link.brokerCompany,
+          pickupLabel: fields.pickupCity ? `${fields.pickupCity}${fields.pickupState ? `, ${fields.pickupState}` : ""}` : null,
+          deliveryLabel: fields.deliveryCity ? `${fields.deliveryCity}${fields.deliveryState ? `, ${fields.deliveryState}` : ""}` : null,
+          viaDoor,
+        });
+        await recordNotificationSafe(ctx, {
+          username: link.ownerUsername,
+          kind: "load_offer",
+          title: built.title,
+          body: built.body,
+          dedupeKey: `offer:${id}`,
+          refKind: "broker_submission",
+          refId: id,
+        });
+      }
       ctx.invalidateQueries();
       return { ok: true, error: null, submissionId: id, extracted };
     },
@@ -28511,44 +28971,129 @@ export const Actions = {
       // An auto-swap only ever lands on Off Duty (2-min stage) or
       // Sleeper Berth (10-min stage) — refuse any other pairing so a
       // client bug can never auto-drive someone's log.
-      if (source === "auto_no_movement") {
-        const okPair =
-          (args.autoStage === "off_duty_2min" && args.state === "off_duty") ||
-          (args.autoStage === "sleeper_10min" && args.state === "sleeper");
-        if (!okPair) {
-          const hash = await appendChain(ctx, {
-            refKind: "driver",
-            refId: null,
-            sessionId: null,
-            event: "duty_auto_swap_rejected",
-            payload: {
-              username: me,
-              attemptedState: args.state,
-              autoStage: args.autoStage ?? null,
-              reason: "Auto-swap refused: stage/state pairing is not the 2-min Off Duty or 10-min Sleeper rule.",
-              at: new Date().toISOString(),
-            },
-          });
-          return { hash };
-        }
+      if (source === "auto_no_movement" && !dutyAutoSwapPairingOk(args.state, args.autoStage)) {
+        const hash = await appendChain(ctx, {
+          refKind: "driver",
+          refId: null,
+          sessionId: null,
+          event: "duty_auto_swap_rejected",
+          payload: {
+            username: me,
+            attemptedState: args.state,
+            autoStage: args.autoStage ?? null,
+            reason: "Auto-swap refused: stage/state pairing is not the 2-min Off Duty or 10-min Sleeper rule.",
+            at: new Date().toISOString(),
+          },
+        });
+        return { hash };
       }
-      const hash = await appendChain(ctx, {
-        refKind: "driver",
-        refId: null,
-        sessionId: null,
-        event: "duty_change",
-        payload: {
-          state: args.state,
-          at: new Date().toISOString(),
-          location: args.locationLabel?.trim() || null,
-          username: me,
-          source,
-          autoStage: source === "auto_no_movement" ? (args.autoStage ?? null) : null,
-          stillSince: source === "auto_no_movement" ? (args.stillSince ?? null) : null,
-        },
+      const hash = await sealDutyChange(ctx, me, {
+        state: args.state,
+        at: new Date(),
+        location: args.locationLabel?.trim() || null,
+        source,
+        autoStage: source === "auto_no_movement" ? (args.autoStage ?? null) : null,
+        stillSince: source === "auto_no_movement" ? (args.stillSince ?? null) : null,
+        offline: null,
       });
       ctx.invalidateQueries();
       return { hash };
+    },
+  }),
+
+  // Offline duty sync (TMS queue item 7, migration 0128): a duty
+  // change the driver made with no signal arrives here when the
+  // connection returns, carrying the device's own capture id and
+  // the moment the change actually happened. It seals through the
+  // same sealDutyChange path as a live tap, with the captured time
+  // as the event time and an offlineCapture flag in the payload —
+  // the HOS timeline then reads exactly as if the tap had landed
+  // live, and the record honestly shows it was captured offline.
+  // IDEMPOTENT by (driver, captureId): the offline_captures row is
+  // written with the seal, so a re-sync after a lost response
+  // returns the original hash and seals nothing twice. A capture
+  // that breaks the auto-swap pairing rule is REFUSED and recorded
+  // as refused (terminal — the client drops it and shows why).
+  syncDutyCapture: defineAction({
+    description: "Sync one duty change captured offline: seals it into the chain at its captured time, flagged as an offline capture. Idempotent per capture id.",
+    request: z.object({
+      captureId: z.string().min(1).max(80),
+      state: z.enum(["off_duty", "sleeper", "on_duty", "driving"]),
+      locationLabel: z.string().max(120).nullable().optional(),
+      source: z.enum(["manual", "auto_no_movement"]).optional(),
+      autoStage: z.enum(["off_duty_2min", "sleeper_10min"]).nullable().optional(),
+      stillSince: z.string().max(40).nullable().optional(),
+      capturedAt: z.string().max(40),
+    }),
+    response: z.object({
+      status: z.enum(["sealed", "refused"]),
+      hash: z.string().nullable(),
+      duplicate: z.boolean(),
+      error: z.string().nullable(),
+    }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const capturedMs = Date.parse(args.capturedAt);
+      if (Number.isNaN(capturedMs)) {
+        return { status: "refused" as const, hash: null, duplicate: false, error: "That capture's timestamp couldn't be read — it wasn't sealed." };
+      }
+      const prior = await db
+        .select()
+        .from(schema.offlineCaptures)
+        .where(
+          and(
+            eq(schema.offlineCaptures.username, me),
+            eq(schema.offlineCaptures.captureId, args.captureId),
+          ),
+        )
+        .limit(1);
+      const priorRow = prior[0];
+      if (priorRow) {
+        if (priorRow.chainHash) {
+          return { status: "sealed" as const, hash: priorRow.chainHash, duplicate: true, error: null };
+        }
+        let refusedError = "That capture was refused when it first synced.";
+        try {
+          const parsed = JSON.parse(priorRow.resultJson ?? "{}") as { error?: string };
+          if (parsed.error) refusedError = parsed.error;
+        } catch { /* keep the generic refusal */ }
+        return { status: "refused" as const, hash: null, duplicate: true, error: refusedError };
+      }
+      const source = args.source ?? "manual";
+      if (source === "auto_no_movement" && !dutyAutoSwapPairingOk(args.state, args.autoStage)) {
+        const error = "Auto-swap refused: stage/state pairing is not the 2-min Off Duty or 10-min Sleeper rule.";
+        await db.insert(schema.offlineCaptures).values({
+          username: me,
+          captureId: args.captureId,
+          kind: "duty",
+          chainHash: null,
+          resultJson: JSON.stringify({ error }),
+          capturedAt: new Date(capturedMs),
+          syncedAt: new Date(),
+        });
+        return { status: "refused" as const, hash: null, duplicate: false, error };
+      }
+      const hash = await sealDutyChange(ctx, me, {
+        state: args.state,
+        at: new Date(capturedMs),
+        location: args.locationLabel?.trim() || null,
+        source,
+        autoStage: source === "auto_no_movement" ? (args.autoStage ?? null) : null,
+        stillSince: source === "auto_no_movement" ? (args.stillSince ?? null) : null,
+        offline: { captureId: args.captureId, capturedAt: new Date(capturedMs).toISOString() },
+      });
+      await db.insert(schema.offlineCaptures).values({
+        username: me,
+        captureId: args.captureId,
+        kind: "duty",
+        chainHash: hash,
+        resultJson: null,
+        capturedAt: new Date(capturedMs),
+        syncedAt: new Date(),
+      });
+      ctx.invalidateQueries();
+      return { status: "sealed" as const, hash, duplicate: false, error: null };
     },
   }),
 
@@ -28774,6 +29319,25 @@ export const Actions = {
         event: args.event,
         payload: parsed,
       });
+      // Notification center (queue item 9): a sealed HOS warning
+      // also lands in the driver's center, deduped per clock +
+      // threshold until read — the sealed event stays the record;
+      // the center row is its mirror. Best-effort by construction.
+      if (args.event === "hos_warning") {
+        const me = await myUsername(ctx);
+        const clock = typeof parsed.clock === "string" ? parsed.clock : "unknown";
+        const thresholdMin = typeof parsed.thresholdMin === "number" ? parsed.thresholdMin : 0;
+        const built = hosNotification({ clock, thresholdMin });
+        await recordNotificationSafe(ctx, {
+          username: me,
+          kind: "hos",
+          title: built.title,
+          body: built.body,
+          dedupeKey: `hos:${clock}:${thresholdMin}`,
+          refKind: "driver",
+          refId: null,
+        });
+      }
       ctx.invalidateQueries();
       return { hash };
     },
@@ -31872,6 +32436,61 @@ export const Actions = {
     },
   }),
 
+  // ELD test-harness sync (TMS queue item 8): pushes a simulated
+  // device payload set through applyEldSyncBatch — the REAL sync
+  // pipeline (contract validation → eld_snapshots → eld_identity →
+  // feed states → chain seal) — so the whole downstream path is
+  // proven before a real device exists. HONEST LIMIT, in the copy
+  // and in the data: the payloads are stamped simulated:true in the
+  // stored snapshots themselves, the official-record surfaces
+  // (mirrored clocks, IFTA, ELD DVIRs, trip miles source) skip
+  // simulated snapshots, and live sync still awaits a real ELD —
+  // this harness never claims otherwise. Manager-gated like every
+  // ELD write.
+  runEldTestSync: defineAction({
+    description: "Run a test sync of simulated ELD device data through the real sync pipeline for one of the caller's connections (live sync still awaits a real ELD device).",
+    request: z.object({ connectionId: z.number().int().positive() }),
+    response: z.object({
+      ok: z.boolean(),
+      error: z.string().nullable(),
+      accepted: z.number(),
+      rejected: z.number(),
+      lines: z.array(z.string()),
+      note: z.string().nullable(),
+    }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const gate = await eldManageGate(ctx);
+      if (!gate.premium) {
+        return { ok: false, error: "ELD connections are a Diamond feature — the test sync runs on a connection, and connections come with Diamond Driver and Owner plans.", accepted: 0, rejected: 0, lines: [], note: null };
+      }
+      if (!gate.canManage) {
+        return { ok: false, error: "Only the fleet owner / admin can run the ELD test sync — drivers and dispatch can view connection status.", accepted: 0, rejected: 0, lines: [], note: null };
+      }
+      const rows = await db
+        .select()
+        .from(schema.eldConnections)
+        .where(eq(schema.eldConnections.id, args.connectionId))
+        .limit(1);
+      const conn = rows[0];
+      if (!conn) return { ok: false, error: "That ELD connection doesn't exist.", accepted: 0, rejected: 0, lines: [], note: null };
+      if (conn.status === "revoked") {
+        return { ok: false, error: "That connection was revoked — its token is wiped, so there's nothing to sync against. Connect the ELD again first.", accepted: 0, rejected: 0, lines: [], note: null };
+      }
+      const batch = simulatedEldPayloads(new Date());
+      const r = await applyEldSyncBatch(ctx, conn, batch, "test_harness");
+      ctx.invalidateQueries();
+      return {
+        ok: true,
+        error: null,
+        accepted: r.accepted,
+        rejected: r.rejected,
+        lines: r.lines,
+        note: "Test sync complete — simulated device data flowed through the real sync pipeline and is stored stamped “simulated”. Live sync starts when a real ELD device is connected; nothing here is live provider data.",
+      };
+    },
+  }),
+
   // IFTA reconciliation: the app's sealed miles-by-state for a quarter
   // beside the ELD's own IFTA feed for the same quarter. Differences are
   // shown side by side — the ELD figure NEVER overwrites the app record.
@@ -31930,7 +32549,7 @@ export const Actions = {
           .from(schema.eldSnapshots)
           .where(eq(schema.eldSnapshots.connectionId, c.id))
           .orderBy(desc(schema.eldSnapshots.id));
-        const snap = snaps.find((s) => s.feed === "ifta");
+        const snap = snaps.find((s) => s.feed === "ifta" && !snapshotIsSimulated(s.payloadJson));
         if (!snap) continue;
         try {
           const p = JSON.parse(snap.payloadJson) as { states?: { state: string; miles: number }[] };
@@ -33136,6 +33755,60 @@ export const Actions = {
       // NO email alert for chat messages (owner decision, 2026-11-14):
       // the in-app unread badge is the notification. See the note on
       // chat email alerts near sendAlertEmail.
+      // Notification center (queue item 9): every OTHER member with
+      // message alerts on gets a center row for this message —
+      // deduped per conversation until they read it — through
+      // recordNotificationSafe, so a center failure can never break
+      // a send. Still NO email; phone push rides these same rows
+      // when the Android build wires FCM in.
+      {
+        const members = await db
+          .select()
+          .from(schema.chatMembers)
+          .where(eq(schema.chatMembers.groupId, args.groupId));
+        const groupRows = await db
+          .select()
+          .from(schema.chatGroups)
+          .where(eq(schema.chatGroups.id, args.groupId))
+          .limit(1);
+        const group = groupRows[0];
+        const built = dmNotification({
+          senderName: sender,
+          groupLabel: group?.kind === "dm" ? null : (group?.name ?? "Company chat"),
+          body: args.body,
+          kind: args.kind,
+        });
+        for (const m of members) {
+          if (m.username.toLowerCase() === dm.me.toLowerCase()) continue;
+          // The member's message-alerts switch lives on their
+          // app_settings row (profile-id keyed); no row = the
+          // default, alerts ON.
+          const profRows = await db
+            .select({ id: schema.profile.id })
+            .from(schema.profile)
+            .where(eq(schema.profile.socialUsername, m.username))
+            .limit(1);
+          let notify = true;
+          if (profRows[0]) {
+            const settingsRows = await db
+              .select({ notifyChat: schema.appSettings.notifyChat })
+              .from(schema.appSettings)
+              .where(eq(schema.appSettings.id, profRows[0].id))
+              .limit(1);
+            if (settingsRows[0] && settingsRows[0].notifyChat === false) notify = false;
+          }
+          if (!notify) continue;
+          await recordNotificationSafe(ctx, {
+            username: m.username,
+            kind: "dm",
+            title: built.title,
+            body: built.body,
+            dedupeKey: `dm:${args.groupId}`,
+            refKind: "chat",
+            refId: args.groupId,
+          });
+        }
+      }
       ctx.invalidateQueries();
       return { id: inserted.id };
     },
@@ -42272,7 +42945,7 @@ export const Actions = {
           .from(schema.eldSnapshots)
           .where(eq(schema.eldSnapshots.connectionId, eldActive.id))
           .orderBy(desc(schema.eldSnapshots.id));
-        const dvirSnap = snaps.find((s) => s.feed === "dvirs");
+        const dvirSnap = snaps.find((s) => s.feed === "dvirs" && !snapshotIsSimulated(s.payloadJson));
         if (dvirSnap) {
           try {
             const p = JSON.parse(dvirSnap.payloadJson) as {
@@ -43055,6 +43728,29 @@ export const Actions = {
     async handler(ctx) {
       const me = await myUsername(ctx);
       const statuses = await credentialStatusesFor(ctx, me);
+      // Notification center (queue item 9): each active alert is
+      // recorded the first time it's seen. The dedupe is 'ever' per
+      // (credential, threshold, expiry date) — a threshold notifies
+      // once per card, a renewal re-arms it, and a dismissed alert
+      // (not in the active set) never records. Best-effort: the
+      // center never breaks the alerts read.
+      for (const s of activeCredentialAlerts(statuses)) {
+        const built = credentialNotification({
+          label: s.label,
+          threshold: s.threshold ?? 0,
+          daysLeft: s.daysLeft,
+          expiresOn: s.expiresOn,
+        });
+        await recordNotificationSafe(ctx, {
+          username: me,
+          kind: "credential",
+          title: built.title,
+          body: built.body,
+          dedupeKey: `credential:${s.key}:${s.threshold ?? 0}:${s.expiresOn ?? ""}`,
+          refKind: "credential",
+          refId: null,
+        });
+      }
       const shape = (s: CredentialStatus) => ({
         key: s.key,
         label: s.label,
@@ -43117,6 +43813,220 @@ export const Actions = {
       }
       ctx.invalidateQueries();
       return { ok: true, error: null };
+    },
+  }),
+
+  // ---- Notification center + push plumbing (TMS queue item 9, migration 0128) --
+  // The center's rows are recorded by the producers themselves —
+  // sendChatMessage (DMs/dispatch), submitBrokerUpload (load
+  // offers), getCredentialAlerts (credential thresholds, recorded
+  // when first seen), logSealedEvent (HOS warnings) — through
+  // recordNotification with the dedupe policy in notifications.ts.
+  // These actions are the read side plus the device plumbing.
+  // STANDING RULE: no email is ever sent for a notification —
+  // in-app center now, phone push when the Android build wires FCM
+  // into pushSenderFromEnv (notifications.ts). Until then every
+  // row's push_state says so honestly (no_devices / not_configured).
+
+  getNotifications: defineAction({
+    description: "The caller's notification center: newest first, with the unread count and the honest phone-push status.",
+    request: z.object({ limit: z.number().int().positive().max(100).default(50) }),
+    response: z.object({
+      notifications: z.array(
+        z.object({
+          id: z.number(),
+          kind: z.string(),
+          title: z.string(),
+          body: z.string(),
+          count: z.number(),
+          refKind: z.string().nullable(),
+          refId: z.number().nullable(),
+          pushState: z.string(),
+          read: z.boolean(),
+          createdAt: z.string(),
+          updatedAt: z.string(),
+        }),
+      ),
+      unreadCount: z.number(),
+      push: z.object({
+        deviceCount: z.number(),
+        senderConfigured: z.boolean(),
+        statusLine: z.string(),
+      }),
+    }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const rows = await db
+        .select()
+        .from(schema.notifications)
+        .where(eq(schema.notifications.username, me))
+        .orderBy(desc(schema.notifications.id))
+        .limit(args.limit);
+      const unread = await db
+        .select({ id: schema.notifications.id })
+        .from(schema.notifications)
+        .where(and(eq(schema.notifications.username, me), isNull(schema.notifications.readAt)));
+      const devices = await db
+        .select({ enabled: schema.pushDevices.enabled })
+        .from(schema.pushDevices)
+        .where(eq(schema.pushDevices.username, me));
+      const deviceCount = devices.filter((d) => d.enabled).length;
+      const senderConfigured = pushSenderFromEnv(process.env) != null;
+      return {
+        notifications: rows.map((n) => ({
+          id: n.id,
+          kind: n.kind,
+          title: n.title,
+          body: n.body,
+          count: n.count,
+          refKind: n.refKind,
+          refId: n.refId,
+          pushState: n.pushState,
+          read: n.readAt != null,
+          createdAt: n.createdAt.toISOString(),
+          updatedAt: n.updatedAt.toISOString(),
+        })),
+        unreadCount: unread.length,
+        push: {
+          deviceCount,
+          senderConfigured,
+          statusLine: pushStatusLine({ enabledDeviceCount: deviceCount, senderConfigured }),
+        },
+      };
+    },
+  }),
+
+  markNotificationsRead: defineAction({
+    description: "Mark notification-center rows read — the named ids, or every unread row when all is set.",
+    request: z.object({
+      ids: z.array(z.number().int().positive()).max(200).nullable().optional(),
+      all: z.boolean().optional(),
+    }),
+    response: z.object({ ok: z.boolean(), marked: z.number() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const now = new Date();
+      if (args.all) {
+        const updated = await db
+          .update(schema.notifications)
+          .set({ readAt: now, updatedAt: now })
+          .where(and(eq(schema.notifications.username, me), isNull(schema.notifications.readAt)))
+          .returning({ id: schema.notifications.id });
+        ctx.invalidateQueries();
+        return { ok: true, marked: updated.length };
+      }
+      const ids = args.ids ?? [];
+      if (ids.length === 0) return { ok: true, marked: 0 };
+      const updated = await db
+        .update(schema.notifications)
+        .set({ readAt: now, updatedAt: now })
+        .where(
+          and(
+            eq(schema.notifications.username, me),
+            isNull(schema.notifications.readAt),
+            inArray(schema.notifications.id, ids),
+          ),
+        )
+        .returning({ id: schema.notifications.id });
+      ctx.invalidateQueries();
+      return { ok: true, marked: updated.length };
+    },
+  }),
+
+  // Push device registration: the plumbing the Android build's FCM
+  // wiring will use. Registering stores the token against the
+  // caller (a token belongs to one user at a time — re-registering
+  // moves it); delivery itself stays unconfigured until a real
+  // sender exists, and the response says which world we're in.
+  registerPushDevice: defineAction({
+    description: "Register a device push token for the caller (FCM plumbing for the Android build; delivery activates when the native sender wires in).",
+    request: z.object({
+      platform: z.enum(["android", "ios"]),
+      token: z
+        .string()
+        .min(10)
+        .max(4096),
+    }),
+    response: z.object({ ok: z.boolean(), senderConfigured: z.boolean() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const now = new Date();
+      await db
+        .insert(schema.pushDevices)
+        .values({
+          token: args.token,
+          username: me,
+          platform: args.platform,
+          enabled: true,
+          createdAt: now,
+          updatedAt: now,
+          lastSeenAt: now,
+        })
+        .onConflictDoUpdate({
+          target: schema.pushDevices.token,
+          set: { username: me, platform: args.platform, enabled: true, updatedAt: now, lastSeenAt: now },
+        });
+      ctx.invalidateQueries();
+      return { ok: true, senderConfigured: pushSenderFromEnv(process.env) != null };
+    },
+  }),
+
+  unregisterPushDevice: defineAction({
+    description: "Remove one of the caller's registered push devices.",
+    request: z.object({
+      token: z
+        .string()
+        .min(1)
+        .max(4096),
+    }),
+    response: z.object({ ok: z.boolean() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      await db
+        .delete(schema.pushDevices)
+        .where(and(eq(schema.pushDevices.token, args.token), eq(schema.pushDevices.username, me)));
+      ctx.invalidateQueries();
+      return { ok: true };
+    },
+  }),
+
+  getPushDevices: defineAction({
+    description: "The caller's registered push devices (token shown by last 4 only) and whether a push sender is configured.",
+    request: z.object({}),
+    response: z.object({
+      devices: z.array(
+        z.object({
+          platform: z.string(),
+          tokenLast4: z.string(),
+          enabled: z.boolean(),
+          lastSeenAt: z.string().nullable(),
+          createdAt: z.string(),
+        }),
+      ),
+      senderConfigured: z.boolean(),
+    }),
+    async handler(ctx) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const rows = await db
+        .select()
+        .from(schema.pushDevices)
+        .where(eq(schema.pushDevices.username, me))
+        .orderBy(desc(schema.pushDevices.createdAt));
+      return {
+        devices: rows.map((d) => ({
+          platform: d.platform,
+          tokenLast4: d.token.slice(-4),
+          enabled: d.enabled,
+          lastSeenAt: d.lastSeenAt ? d.lastSeenAt.toISOString() : null,
+          createdAt: d.createdAt.toISOString(),
+        })),
+        senderConfigured: pushSenderFromEnv(process.env) != null,
+      };
     },
   }),
 
@@ -45101,110 +46011,152 @@ export const Actions = {
     }),
     response: z.object({ id: z.number(), criticalDefect: z.boolean(), draftEntryIds: z.array(z.number()) }),
     async handler(ctx, args) {
-      const db = ctx.db<typeof schema>();
-      // A defect without a note is not a record — the note is what
-      // the shop (and the next driver) acts on.
-      for (const d of args.defects) {
-        if (!d.note.trim()) {
-          throw new Error(`saveDvir: the defect on "${d.item}" needs a note — say what's wrong before signing.`);
-        }
-      }
-      const critical = args.defects.some((d) => d.critical);
-      // Identity snapshot: the truck/trailer as recorded in My Truck
-      // / My Trailer RIGHT NOW. The signed record keeps this even if
-      // the profile identity changes later.
-      const prof = await db.select().from(schema.profile).where(eq(schema.profile.id, myProfileId(ctx))).limit(1);
-      const p = prof[0];
-      const truckName = [p?.truckYear ?? null, p?.truckMake ?? null, p?.truckModel ?? null].filter(Boolean).join(" ");
-      const truckLabel = truckName ? (p?.truckUnitNumber ? `${truckName} · Unit ${p.truckUnitNumber}` : truckName) : null;
-      const trailerName = [p?.trailerYear ?? null, p?.trailerMake ?? null, p?.trailerModel ?? null].filter(Boolean).join(" ");
-      const trailerTypeLabel = p?.trailerType ? p.trailerType.replace(/_/g, " ") : null;
-      const trailerLabel = [trailerName || null, trailerTypeLabel].filter(Boolean).join(" · ") || null;
-      const safeToOperate = args.safeToOperate ?? !critical;
-      const now = new Date();
-      const res = await db
-        .insert(schema.dvirReports)
-        .values({
-          inspectedAt: now,
-          kind: args.kind,
-          itemsJson: JSON.stringify(args.items),
-          defectsJson: JSON.stringify(args.defects.map((d) => ({ item: d.item, note: d.note, critical: d.critical }))),
-          signedName: args.signedName,
-          status: args.defects.length > 0 ? "defects_reported" : "signed",
-          odometer: args.odometer,
-          lat: args.lat ?? null,
-          lon: args.lon ?? null,
-          truckLabel,
-          trailerLabel,
-          safeToOperate,
-        })
-        .returning({ id: schema.dvirReports.id });
-      const row = res[0];
-      if (!row) throw new Error("saveDvir: insert returned no rows");
-      // Every defect auto-drafts a maintenance-log entry (status
-      // "draft") in its mapped category — the driver confirms/edits
-      // it in the log, and closing it clears the open defect. A
-      // defect photo files as paperwork on that draft, on the same
-      // blob path as receipts.
-      const draftEntryIds: number[] = [];
-      for (const d of args.defects) {
-        const category = categoryForDvirItem(d.item, d.category ?? null);
-        const ins = await db
-          .insert(schema.maintenanceLogEntries)
-          .values({
-            performedAt: now,
-            odometer: args.odometer,
-            category,
-            description: dvirDraftDescription(d.item),
-            shop: null,
-            cost: 0,
-            nextDueMiles: null,
-            nextDueAt: null,
-            notes: dvirDraftNotes(d.note, row.id, args.kind),
-            status: "draft",
-          })
-          .returning({ id: schema.maintenanceLogEntries.id });
-        const entry = ins[0];
-        if (!entry) continue;
-        draftEntryIds.push(entry.id);
-        await db.insert(schema.dvirDefectLinks).values({
-          dvirId: row.id,
-          item: d.item,
-          maintenanceEntryId: entry.id,
-        });
-        if (d.photoDataBase64 && d.photoMime) {
-          const blobKey = `dvir-defect-${row.id}-${entry.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-          await ctx.blobs.put(blobKey, base64ToBytes(d.photoDataBase64), { contentType: d.photoMime });
-          await db.insert(schema.maintenanceLogAttachments).values({
-            entryId: entry.id,
-            label: `Defect photo — ${d.item}`,
-            blobKey,
-            mime: d.photoMime,
-          });
-        }
-      }
-      await appendChain(ctx, {
-        refKind: "driver",
-        refId: null,
-        sessionId: null,
-        event: "dvir_signed",
-        payload: { dvirId: row.id, kind: args.kind, items: args.items.length, defects: args.defects.map((d) => ({ item: d.item, note: d.note, critical: d.critical })), criticalDefect: critical, signedName: args.signedName, odometer: args.odometer, lat: args.lat ?? null, lon: args.lon ?? null, safeToOperate, truckLabel, trailerLabel, draftEntryIds, at: now.toISOString() },
-      });
-      // SM Points daily table: a signed PRE-trip DVIR pays the +50
-      // "dvir" line; a signed POST-trip DVIR pays the +25
-      // "posttrip_dvir" line (owner addition 2026-10-24). Each pays at
-      // most once per driver-local day, inside the unchanged 500 cap.
-      {
-        const me = await myUsername(ctx);
-        await awardDailyTask(ctx, {
-          username: me,
-          task: args.kind === "pretrip" ? "dvir" : "posttrip_dvir",
-          reason: args.kind === "pretrip" ? "Pre-trip DVIR signed" : "Post-trip DVIR signed",
-          refSuffix: `-dvir${row.id}`,
-        });
-      }
+      // The insert itself is insertSignedDvir — the one path the
+      // live save and the offline sync (syncDvirCapture) share.
+      const r = await insertSignedDvir(ctx, args, { inspectedAt: new Date(), offline: null });
       ctx.invalidateQueries();
-      return { id: row.id, criticalDefect: critical, draftEntryIds };
+      return { id: r.id, criticalDefect: r.criticalDefect, draftEntryIds: r.draftEntryIds };
+    },
+  }),
+
+  // Offline DVIR sync (TMS queue item 7, migration 0128): a DVIR
+  // signed with no signal arrives here when the connection returns
+  // and lands through insertSignedDvir — the same insert, identity
+  // snapshot, defect drafts, chain seal, and points as a live save —
+  // with inspectedAt set to the moment the driver actually signed
+  // on the device, and the seal flagged as an offline capture.
+  // IDEMPOTENT by (driver, captureId): the offline_captures row
+  // stores the outcome, so a re-sync returns the original report id
+  // and drafts and never double-files an inspection. A capture the
+  // live path would refuse (a defect without a note) is refused
+  // here too and recorded as refused (terminal for the client).
+  syncDvirCapture: defineAction({
+    description: "Sync one DVIR captured offline: files it at its captured signing time through the same insert path as a live save, flagged as an offline capture. Idempotent per capture id.",
+    request: z.object({
+      captureId: z.string().min(1).max(80),
+      capturedAt: z.string().max(40),
+      kind: z.enum(["pretrip", "posttrip"]),
+      items: z.array(z.object({ item: z.string().max(80), ok: z.boolean() })).max(30),
+      defects: z.array(z.object({
+        item: z.string().max(80),
+        note: z.string().max(300),
+        critical: z.boolean(),
+        category: maintenanceLogCategory.nullable().optional(),
+        photoDataBase64: z.string().max(8_000_000).nullable().optional(),
+        photoMime: z.string().max(100).nullable().optional(),
+      })).max(20),
+      signedName: z.string().min(1).max(80),
+      odometer: z.number().nonnegative().max(10_000_000).nullable(),
+      lat: z.number().min(-90).max(90).nullable().optional(),
+      lon: z.number().min(-180).max(180).nullable().optional(),
+      safeToOperate: z.boolean().nullable().optional(),
+    }),
+    response: z.object({
+      status: z.enum(["sealed", "refused"]),
+      id: z.number().nullable(),
+      criticalDefect: z.boolean(),
+      draftEntryIds: z.array(z.number()),
+      hash: z.string().nullable(),
+      duplicate: z.boolean(),
+      error: z.string().nullable(),
+    }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const capturedMs = Date.parse(args.capturedAt);
+      if (Number.isNaN(capturedMs)) {
+        return { status: "refused" as const, id: null, criticalDefect: false, draftEntryIds: [], hash: null, duplicate: false, error: "That capture's timestamp couldn't be read — it wasn't filed." };
+      }
+      const prior = await db
+        .select()
+        .from(schema.offlineCaptures)
+        .where(
+          and(
+            eq(schema.offlineCaptures.username, me),
+            eq(schema.offlineCaptures.captureId, args.captureId),
+          ),
+        )
+        .limit(1);
+      const priorRow = prior[0];
+      if (priorRow) {
+        let stored: { id?: number; criticalDefect?: boolean; draftEntryIds?: number[]; error?: string } = {};
+        try {
+          stored = JSON.parse(priorRow.resultJson ?? "{}") as typeof stored;
+        } catch { /* an unreadable stored outcome reads as a plain refusal */ }
+        if (priorRow.chainHash && stored.id != null) {
+          return {
+            status: "sealed" as const,
+            id: stored.id,
+            criticalDefect: stored.criticalDefect ?? false,
+            draftEntryIds: stored.draftEntryIds ?? [],
+            hash: priorRow.chainHash,
+            duplicate: true,
+            error: null,
+          };
+        }
+        return {
+          status: "refused" as const,
+          id: null,
+          criticalDefect: false,
+          draftEntryIds: [],
+          hash: null,
+          duplicate: true,
+          error: stored.error ?? "That capture was refused when it first synced.",
+        };
+      }
+      const capturedAt = new Date(capturedMs);
+      try {
+        const r = await insertSignedDvir(
+          ctx,
+          {
+            kind: args.kind,
+            items: args.items,
+            defects: args.defects,
+            signedName: args.signedName,
+            odometer: args.odometer,
+            lat: args.lat,
+            lon: args.lon,
+            safeToOperate: args.safeToOperate,
+          },
+          { inspectedAt: capturedAt, offline: { captureId: args.captureId, capturedAt: capturedAt.toISOString() } },
+        );
+        await db.insert(schema.offlineCaptures).values({
+          username: me,
+          captureId: args.captureId,
+          kind: "dvir",
+          chainHash: r.chainHash,
+          resultJson: JSON.stringify({ id: r.id, criticalDefect: r.criticalDefect, draftEntryIds: r.draftEntryIds }),
+          capturedAt,
+          syncedAt: new Date(),
+        });
+        ctx.invalidateQueries();
+        return {
+          status: "sealed" as const,
+          id: r.id,
+          criticalDefect: r.criticalDefect,
+          draftEntryIds: r.draftEntryIds,
+          hash: r.chainHash,
+          duplicate: false,
+          error: null,
+        };
+      } catch (e) {
+        const error = e instanceof Error ? e.message : "That DVIR couldn't be filed.";
+        // Only the validation refusal (a defect without a note —
+        // raised before anything is written) is terminal. Anything
+        // else is an infrastructure failure mid-insert: rethrow so
+        // the client keeps the capture and retries it whole.
+        if (!error.startsWith("saveDvir: the defect on")) throw e;
+        await db.insert(schema.offlineCaptures).values({
+          username: me,
+          captureId: args.captureId,
+          kind: "dvir",
+          chainHash: null,
+          resultJson: JSON.stringify({ error }),
+          capturedAt,
+          syncedAt: new Date(),
+        });
+        return { status: "refused" as const, id: null, criticalDefect: false, draftEntryIds: [], hash: null, duplicate: false, error };
+      }
     },
   }),
 

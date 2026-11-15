@@ -19,6 +19,7 @@ var exports_schema_sqlite = {};
 __export(exports_schema_sqlite, {
   accountAdmin: () => accountAdmin,
   accountHolds: () => accountHolds,
+  accountIdentities: () => accountIdentities,
   accountInvites: () => accountInvites,
   accountLocks: () => accountLocks,
   accountRetainers: () => accountRetainers,
@@ -35,6 +36,7 @@ __export(exports_schema_sqlite, {
   authSessions: () => authSessions,
   betaAccess: () => betaAccess,
   betaCodes: () => betaCodes,
+  betaJoinRequests: () => betaJoinRequests,
   boardLikes: () => boardLikes,
   boardLoads: () => boardLoads,
   boardPosts: () => boardPosts,
@@ -49,6 +51,7 @@ __export(exports_schema_sqlite, {
   chainLog: () => chainLog,
   chatBlocks: () => chatBlocks,
   chatGroups: () => chatGroups,
+  chatMemberReads: () => chatMemberReads,
   chatMembers: () => chatMembers,
   chatMessages: () => chatMessages,
   chatReads: () => chatReads,
@@ -59,14 +62,19 @@ __export(exports_schema_sqlite, {
   companyDocs: () => companyDocs,
   companyMembers: () => companyMembers,
   companySetup: () => companySetup,
+  credentialAlertDismissals: () => credentialAlertDismissals,
   dailyLogs: () => dailyLogs,
+  detentionRecords: () => detentionRecords,
   dispatchFeeInvoices: () => dispatchFeeInvoices,
   dispatchFeePayments: () => dispatchFeePayments,
   docCopySettings: () => docCopySettings,
   docEmailDeliveries: () => docEmailDeliveries,
+  documentSends: () => documentSends,
   driverCodes: () => driverCodes,
+  driverFleetStatus: () => driverFleetStatus,
   driverPositions: () => driverPositions,
   driverWeighStations: () => driverWeighStations,
+  dvirDefectLinks: () => dvirDefectLinks,
   dvirReports: () => dvirReports,
   earningPoolBackingLedger: () => earningPoolBackingLedger,
   earningPoolLedger: () => earningPoolLedger,
@@ -94,17 +102,23 @@ __export(exports_schema_sqlite, {
   loadDocExceptions: () => loadDocExceptions,
   loadDocExtractions: () => loadDocExtractions,
   loadDocVerifications: () => loadDocVerifications,
+  loadInvoices: () => loadInvoices,
   loadPayments: () => loadPayments,
   loads: () => loads,
   lockerLedger: () => lockerLedger,
   loginSessions: () => loginSessions,
+  maintenanceLogAttachments: () => maintenanceLogAttachments,
+  maintenanceLogEntries: () => maintenanceLogEntries,
   maintenanceServices: () => maintenanceServices,
   marketPulseWeeks: () => marketPulseWeeks,
   moneyHolds: () => moneyHolds,
+  notifications: () => notifications,
+  offlineCaptures: () => offlineCaptures,
   onboardingHelpRequests: () => onboardingHelpRequests,
   onboardingState: () => onboardingState,
   ownerGiveawayRecipients: () => ownerGiveawayRecipients,
   ownerGiveaways: () => ownerGiveaways,
+  passkeyCredentials: () => passkeyCredentials,
   passportPrefs: () => passportPrefs,
   passwordResetTokens: () => passwordResetTokens,
   payEntries: () => payEntries,
@@ -120,9 +134,13 @@ __export(exports_schema_sqlite, {
   platformFeeEntries: () => platformFeeEntries,
   pointsConversions: () => pointsConversions,
   pointsLog: () => pointsLog,
+  pointsSafetyHolds: () => pointsSafetyHolds,
+  posterReferrals: () => posterReferrals,
   pretripInspections: () => pretripInspections,
   profile: () => profile,
+  pushDevices: () => pushDevices,
   receivableRegistry: () => receivableRegistry,
+  receiveLinks: () => receiveLinks,
   recentDestinations: () => recentDestinations,
   recordAccessLog: () => recordAccessLog,
   recoveryCodes: () => recoveryCodes,
@@ -137,6 +155,7 @@ __export(exports_schema_sqlite, {
   roadPlaceRetired: () => roadPlaceRetired,
   savedPlaces: () => savedPlaces,
   scaleTickets: () => scaleTickets,
+  sealedLanes: () => sealedLanes,
   securityAlerts: () => securityAlerts,
   securityEvents: () => securityEvents,
   securityPrefs: () => securityPrefs,
@@ -170,6 +189,7 @@ __export(exports_schema_sqlite, {
   tripQueue: () => tripQueue,
   trips: () => trips,
   vaultKeys: () => vaultKeys,
+  vehiclePhotos: () => vehiclePhotos,
   verifyCodes: () => verifyCodes,
   weighStationReports: () => weighStationReports,
   weighStationStatus: () => weighStationStatus,
@@ -183,6 +203,7 @@ var exports_schema_pg = {};
 __export(exports_schema_pg, {
   accountAdmin: () => accountAdmin2,
   accountHolds: () => accountHolds2,
+  accountIdentities: () => accountIdentities2,
   accountInvites: () => accountInvites2,
   accountLocks: () => accountLocks2,
   accountRetainers: () => accountRetainers2,
@@ -199,6 +220,7 @@ __export(exports_schema_pg, {
   authSessions: () => authSessions2,
   betaAccess: () => betaAccess2,
   betaCodes: () => betaCodes2,
+  betaJoinRequests: () => betaJoinRequests2,
   boardLikes: () => boardLikes2,
   boardLoads: () => boardLoads2,
   boardPosts: () => boardPosts2,
@@ -213,6 +235,7 @@ __export(exports_schema_pg, {
   chainLog: () => chainLog2,
   chatBlocks: () => chatBlocks2,
   chatGroups: () => chatGroups2,
+  chatMemberReads: () => chatMemberReads2,
   chatMembers: () => chatMembers2,
   chatMessages: () => chatMessages2,
   chatReads: () => chatReads2,
@@ -223,14 +246,19 @@ __export(exports_schema_pg, {
   companyDocs: () => companyDocs2,
   companyMembers: () => companyMembers2,
   companySetup: () => companySetup2,
+  credentialAlertDismissals: () => credentialAlertDismissals2,
   dailyLogs: () => dailyLogs2,
+  detentionRecords: () => detentionRecords2,
   dispatchFeeInvoices: () => dispatchFeeInvoices2,
   dispatchFeePayments: () => dispatchFeePayments2,
   docCopySettings: () => docCopySettings2,
   docEmailDeliveries: () => docEmailDeliveries2,
+  documentSends: () => documentSends2,
   driverCodes: () => driverCodes2,
+  driverFleetStatus: () => driverFleetStatus2,
   driverPositions: () => driverPositions2,
   driverWeighStations: () => driverWeighStations2,
+  dvirDefectLinks: () => dvirDefectLinks2,
   dvirReports: () => dvirReports2,
   earningPoolBackingLedger: () => earningPoolBackingLedger2,
   earningPoolLedger: () => earningPoolLedger2,
@@ -258,17 +286,23 @@ __export(exports_schema_pg, {
   loadDocExceptions: () => loadDocExceptions2,
   loadDocExtractions: () => loadDocExtractions2,
   loadDocVerifications: () => loadDocVerifications2,
+  loadInvoices: () => loadInvoices2,
   loadPayments: () => loadPayments2,
   loads: () => loads2,
   lockerLedger: () => lockerLedger2,
   loginSessions: () => loginSessions2,
+  maintenanceLogAttachments: () => maintenanceLogAttachments2,
+  maintenanceLogEntries: () => maintenanceLogEntries2,
   maintenanceServices: () => maintenanceServices2,
   marketPulseWeeks: () => marketPulseWeeks2,
   moneyHolds: () => moneyHolds2,
+  notifications: () => notifications2,
+  offlineCaptures: () => offlineCaptures2,
   onboardingHelpRequests: () => onboardingHelpRequests2,
   onboardingState: () => onboardingState2,
   ownerGiveawayRecipients: () => ownerGiveawayRecipients2,
   ownerGiveaways: () => ownerGiveaways2,
+  passkeyCredentials: () => passkeyCredentials2,
   passportPrefs: () => passportPrefs2,
   passwordResetTokens: () => passwordResetTokens2,
   payEntries: () => payEntries2,
@@ -284,9 +318,13 @@ __export(exports_schema_pg, {
   platformFeeEntries: () => platformFeeEntries2,
   pointsConversions: () => pointsConversions2,
   pointsLog: () => pointsLog2,
+  pointsSafetyHolds: () => pointsSafetyHolds2,
+  posterReferrals: () => posterReferrals2,
   pretripInspections: () => pretripInspections2,
   profile: () => profile2,
+  pushDevices: () => pushDevices2,
   receivableRegistry: () => receivableRegistry2,
+  receiveLinks: () => receiveLinks2,
   recentDestinations: () => recentDestinations2,
   recordAccessLog: () => recordAccessLog2,
   recoveryCodes: () => recoveryCodes2,
@@ -301,6 +339,7 @@ __export(exports_schema_pg, {
   roadPlaceRetired: () => roadPlaceRetired2,
   savedPlaces: () => savedPlaces2,
   scaleTickets: () => scaleTickets2,
+  sealedLanes: () => sealedLanes2,
   securityAlerts: () => securityAlerts2,
   securityEvents: () => securityEvents2,
   securityPrefs: () => securityPrefs2,
@@ -334,6 +373,7 @@ __export(exports_schema_pg, {
   tripQueue: () => tripQueue2,
   trips: () => trips2,
   vaultKeys: () => vaultKeys2,
+  vehiclePhotos: () => vehiclePhotos2,
   verifyCodes: () => verifyCodes2,
   weighStationReports: () => weighStationReports2,
   weighStationStatus: () => weighStationStatus2,
@@ -7135,6 +7175,41 @@ var pgTable = (name, columns, extraConfig) => {
   return pgTableWithSchema(name, columns, extraConfig, undefined);
 };
 
+// ../node_modules/drizzle-orm/pg-core/primary-keys.js
+function primaryKey(...config) {
+  if (config[0].columns) {
+    return new PrimaryKeyBuilder(config[0].columns, config[0].name);
+  }
+  return new PrimaryKeyBuilder(config);
+}
+
+class PrimaryKeyBuilder {
+  static [entityKind] = "PgPrimaryKeyBuilder";
+  columns;
+  name;
+  constructor(columns, name) {
+    this.columns = columns;
+    this.name = name;
+  }
+  build(table) {
+    return new PrimaryKey(table, this.columns, this.name);
+  }
+}
+
+class PrimaryKey {
+  constructor(table, columns, name) {
+    this.table = table;
+    this.columns = columns;
+    this.name = name;
+  }
+  static [entityKind] = "PgPrimaryKey";
+  columns;
+  name;
+  getName() {
+    return this.name ?? `${this.table[PgTable.Symbol.Name]}_${this.columns.map((column) => column.name).join("_")}_pk`;
+  }
+}
+
 // ../node_modules/drizzle-orm/sql/expressions/conditions.js
 function bindIfParam(value, column) {
   if (isDriverValueEncoder(column) && !isSQLWrapper(value) && !is(value, Param) && !is(value, Placeholder) && !is(value, Column) && !is(value, Table) && !is(value, View)) {
@@ -7144,6 +7219,9 @@ function bindIfParam(value, column) {
 }
 var eq = (left, right) => {
   return sql`${left} = ${bindIfParam(right, left)}`;
+};
+var ne = (left, right) => {
+  return sql`${left} <> ${bindIfParam(right, left)}`;
 };
 function and(...unfilteredConditions) {
   const conditions = unfilteredConditions.filter((c) => c !== undefined);
@@ -7730,6 +7808,41 @@ var sqliteTable = (name, columns, extraConfig) => {
   return sqliteTableBase(name, columns, extraConfig);
 };
 
+// ../node_modules/drizzle-orm/sqlite-core/primary-keys.js
+function primaryKey2(...config) {
+  if (config[0].columns) {
+    return new PrimaryKeyBuilder2(config[0].columns, config[0].name);
+  }
+  return new PrimaryKeyBuilder2(config);
+}
+
+class PrimaryKeyBuilder2 {
+  static [entityKind] = "SQLitePrimaryKeyBuilder";
+  columns;
+  name;
+  constructor(columns, name) {
+    this.columns = columns;
+    this.name = name;
+  }
+  build(table) {
+    return new PrimaryKey2(table, this.columns, this.name);
+  }
+}
+
+class PrimaryKey2 {
+  constructor(table, columns, name) {
+    this.table = table;
+    this.columns = columns;
+    this.name = name;
+  }
+  static [entityKind] = "SQLitePrimaryKey";
+  columns;
+  name;
+  getName() {
+    return this.name ?? `${this.table[SQLiteTable.Symbol.Name]}_${this.columns.map((column) => column.name).join("_")}_pk`;
+  }
+}
+
 // src/schema-sqlite.ts
 var profile = sqliteTable("profile", {
   accountId: integer3("account_id").unique(),
@@ -7762,6 +7875,30 @@ var profile = sqliteTable("profile", {
   driverCpm: real2("driver_cpm"),
   payBasis: text2("pay_basis").notNull().default("cpm"),
   driverPayPct: real2("driver_pay_pct"),
+  factoringPct: real2("factoring_pct").notNull().default(0),
+  dispatcherPct: real2("dispatcher_pct").notNull().default(0),
+  truckYear: integer3("truck_year"),
+  truckMake: text2("truck_make"),
+  truckModel: text2("truck_model"),
+  truckUnitNumber: text2("truck_unit_number"),
+  truckVin: text2("truck_vin"),
+  truckPlate: text2("truck_plate"),
+  truckEngine: text2("truck_engine"),
+  truckTransmission: text2("truck_transmission"),
+  trailerYear: integer3("trailer_year"),
+  trailerMake: text2("trailer_make"),
+  trailerModel: text2("trailer_model"),
+  trailerVin: text2("trailer_vin"),
+  trailerPlate: text2("trailer_plate"),
+  birthMonth: integer3("birth_month"),
+  birthDay: integer3("birth_day"),
+  bizName: text2("biz_name"),
+  bizAddress: text2("biz_address"),
+  bizPhone: text2("biz_phone"),
+  bizEmail: text2("biz_email"),
+  bizPaymentInstructions: text2("biz_payment_instructions"),
+  bizLogoBlobKey: text2("biz_logo_blob_key"),
+  bizLogoMime: text2("biz_logo_mime"),
   socialUsername: text2("social_username").notNull().default("driver"),
   plan: text2("plan").notNull().default("diamond"),
   ownerPrice: real2("owner_price"),
@@ -8052,6 +8189,12 @@ var chatReads = sqliteTable("chat_reads", {
   groupId: integer3("group_id").primaryKey(),
   lastReadId: integer3("last_read_id").notNull().default(0)
 });
+var chatMemberReads = sqliteTable("chat_member_reads", {
+  groupId: integer3("group_id").notNull(),
+  username: text2("username").notNull(),
+  lastReadId: integer3("last_read_id").notNull().default(0),
+  lastAlertedId: integer3("last_alerted_id").notNull().default(0)
+}, (t) => [primaryKey2({ columns: [t.groupId, t.username] })]);
 var chatBlocks = sqliteTable("chat_blocks", {
   username: text2("username").primaryKey(),
   createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
@@ -8083,6 +8226,7 @@ var socialUsers = sqliteTable("social_users", {
   groupPolicy: text2("group_policy").notNull().default("everyone"),
   showReputation: integer3("show_reputation", { mode: "boolean" }).notNull().default(false),
   showMilesPanel: integer3("show_miles_panel", { mode: "boolean" }).notNull().default(true),
+  showTruck: integer3("show_truck", { mode: "boolean" }).notNull().default(true),
   featuredBadge: text2("featured_badge"),
   dispatcherPoster: integer3("dispatcher_poster", { mode: "boolean" }).notNull().default(false),
   createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
@@ -8274,6 +8418,7 @@ var appSettings = sqliteTable("app_settings", {
   mapTiltMode: text2("map_tilt_mode").notNull().default("auto"),
   hillGradeAlerts: integer3("hill_grade_alerts", { mode: "boolean" }).notNull().default(true),
   winterWeatherAlerts: integer3("winter_weather_alerts", { mode: "boolean" }).notNull().default(true),
+  autoAddStops: integer3("auto_add_stops", { mode: "boolean" }).notNull().default(true),
   mapShowSignals: integer3("map_show_signals", { mode: "boolean" }).notNull().default(true),
   carModeEnabled: integer3("car_mode_enabled", { mode: "boolean" }).notNull().default(false),
   carModeAutoLaunch: integer3("car_mode_auto_launch", { mode: "boolean" }).notNull().default(true),
@@ -8444,6 +8589,7 @@ var loads = sqliteTable("loads", {
   commodity: text2("commodity"),
   hazmat: integer3("hazmat", { mode: "boolean" }).notNull().default(false),
   status: text2("status").notNull().default("booked"),
+  referenceNumber: text2("reference_number"),
   tripQueueId: integer3("trip_queue_id"),
   fuelDebrief: text2("fuel_debrief"),
   docSha256: text2("doc_sha256"),
@@ -8556,6 +8702,12 @@ var boardLoads = sqliteTable("board_loads", {
   overflowReason: text2("overflow_reason"),
   overflowFromBoardLoadId: integer3("overflow_from_board_load_id"),
   brokerPosterLoadId: integer3("broker_poster_load_id"),
+  referenceNumber: text2("reference_number"),
+  pickupApptAt: integer3("pickup_appt_at", { mode: "timestamp_ms" }),
+  deliveryApptAt: integer3("delivery_appt_at", { mode: "timestamp_ms" }),
+  declineReason: text2("decline_reason"),
+  declinedBy: text2("declined_by"),
+  declinedAt: integer3("declined_at", { mode: "timestamp_ms" }),
   createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
   updatedAt: integer3("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
 });
@@ -8571,6 +8723,7 @@ var brokerLinks = sqliteTable("broker_links", {
   scopeKey: text2("scope_key").notNull(),
   companyId: integer3("company_id"),
   ownerUsername: text2("owner_username").notNull(),
+  kind: text2("kind").notNull().default("broker"),
   brokerName: text2("broker_name").notNull(),
   brokerCompany: text2("broker_company"),
   brokerContact: text2("broker_contact"),
@@ -8590,6 +8743,10 @@ var brokerSubmissions = sqliteTable("broker_submissions", {
   brokerName: text2("broker_name").notNull(),
   brokerCompany: text2("broker_company"),
   brokerMc: text2("broker_mc"),
+  senderContact: text2("sender_contact"),
+  referenceNumber: text2("reference_number"),
+  pickupApptAt: integer3("pickup_appt_at", { mode: "timestamp_ms" }),
+  deliveryApptAt: integer3("delivery_appt_at", { mode: "timestamp_ms" }),
   shipper: text2("shipper"),
   pickupCity: text2("pickup_city"),
   pickupState: text2("pickup_state"),
@@ -8812,6 +8969,7 @@ var fuelPriceReports = sqliteTable("fuel_price_reports", {
   price: real2("price").notNull(),
   reportedAt: integer3("reported_at", { mode: "timestamp_ms" }).notNull(),
   grade: text2("grade").notNull().default("reported"),
+  reporter: text2("reporter"),
   createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
 });
 var eiaDieselSnapshots = sqliteTable("eia_diesel_snapshots", {
@@ -8925,6 +9083,11 @@ var dvirReports = sqliteTable("dvir_reports", {
   signedName: text2("signed_name").notNull(),
   status: text2("status").notNull().default("signed"),
   odometer: real2("odometer"),
+  lat: real2("lat"),
+  lon: real2("lon"),
+  truckLabel: text2("truck_label"),
+  trailerLabel: text2("trailer_label"),
+  safeToOperate: integer3("safe_to_operate", { mode: "boolean" }),
   createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
 });
 var eldConnections = sqliteTable("eld_connections", {
@@ -9150,6 +9313,21 @@ var driverPositions = sqliteTable("driver_positions", {
   lon: real2("lon").notNull(),
   updatedAt: integer3("updated_at", { mode: "timestamp_ms" }).notNull()
 });
+var driverFleetStatus = sqliteTable("driver_fleet_status", {
+  username: text2("username").primaryKey(),
+  loadId: integer3("load_id"),
+  loadStatus: text2("load_status"),
+  pickupCity: text2("pickup_city"),
+  pickupState: text2("pickup_state"),
+  deliveryCity: text2("delivery_city"),
+  deliveryState: text2("delivery_state"),
+  stopsJson: text2("stops_json").notNull().default("[]"),
+  routeLabel: text2("route_label"),
+  endLat: real2("end_lat"),
+  endLon: real2("end_lon"),
+  etaAt: integer3("eta_at", { mode: "timestamp_ms" }),
+  publishedAt: integer3("published_at", { mode: "timestamp_ms" }).notNull()
+});
 var securityPrefs = sqliteTable("security_prefs", {
   username: text2("username").primaryKey(),
   autoLockMinutes: integer3("auto_lock_minutes").notNull().default(0),
@@ -9356,6 +9534,16 @@ var docEmailDeliveries = sqliteTable("doc_email_deliveries", {
   createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
   sentAt: integer3("sent_at", { mode: "timestamp_ms" })
 });
+var receiveLinks = sqliteTable("receive_links", {
+  id: integer3("id").primaryKey({ autoIncrement: true }),
+  loadId: integer3("load_id").notNull(),
+  token: text2("token").notNull().unique(),
+  kind: text2("kind").notNull().default("action"),
+  status: text2("status").notNull().default("active"),
+  createdBy: text2("created_by").notNull(),
+  createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
+  revokedAt: integer3("revoked_at", { mode: "timestamp_ms" })
+});
 var payStubEmailDeliveries = sqliteTable("pay_stub_email_deliveries", {
   id: integer3("id").primaryKey({ autoIncrement: true }),
   payEntryId: integer3("pay_entry_id"),
@@ -9370,6 +9558,22 @@ var payStubEmailDeliveries = sqliteTable("pay_stub_email_deliveries", {
   detail: text2("detail"),
   providerId: text2("provider_id"),
   dedupeKey: text2("dedupe_key").notNull().unique(),
+  createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
+  sentAt: integer3("sent_at", { mode: "timestamp_ms" })
+});
+var documentSends = sqliteTable("document_sends", {
+  profileId: integer3("profile_id"),
+  id: integer3("id").primaryKey({ autoIncrement: true }),
+  username: text2("username").notNull(),
+  docRef: text2("doc_ref").notNull(),
+  docKind: text2("doc_kind").notNull(),
+  docTitle: text2("doc_title").notNull(),
+  toEmail: text2("to_email").notNull(),
+  replyTo: text2("reply_to"),
+  subject: text2("subject").notNull(),
+  status: text2("status").notNull(),
+  providerId: text2("provider_id"),
+  detail: text2("detail"),
   createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
   sentAt: integer3("sent_at", { mode: "timestamp_ms" })
 });
@@ -9693,6 +9897,99 @@ var maintenanceServices = sqliteTable("maintenance_services", {
   note: text2("note"),
   updatedAt: integer3("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
 });
+var maintenanceLogEntries = sqliteTable("maintenance_log_entries", {
+  profileId: integer3("profile_id"),
+  id: integer3("id").primaryKey({ autoIncrement: true }),
+  performedAt: integer3("performed_at", { mode: "timestamp_ms" }).notNull(),
+  odometer: real2("odometer"),
+  category: text2("category").notNull(),
+  description: text2("description").notNull(),
+  shop: text2("shop"),
+  cost: real2("cost").notNull().default(0),
+  nextDueMiles: real2("next_due_miles"),
+  nextDueAt: integer3("next_due_at", { mode: "timestamp_ms" }),
+  status: text2("status").notNull().default("logged"),
+  notes: text2("notes"),
+  createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
+  updatedAt: integer3("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
+});
+var maintenanceLogAttachments = sqliteTable("maintenance_log_attachments", {
+  profileId: integer3("profile_id"),
+  id: integer3("id").primaryKey({ autoIncrement: true }),
+  entryId: integer3("entry_id").notNull(),
+  label: text2("label").notNull(),
+  blobKey: text2("blob_key"),
+  mime: text2("mime"),
+  createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
+});
+var vehiclePhotos = sqliteTable("vehicle_photos", {
+  profileId: integer3("profile_id"),
+  id: integer3("id").primaryKey({ autoIncrement: true }),
+  kind: text2("kind").notNull(),
+  blobKey: text2("blob_key"),
+  mime: text2("mime"),
+  sortOrder: integer3("sort_order").notNull().default(0),
+  createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
+});
+var posterReferrals = sqliteTable("poster_referrals", {
+  id: integer3("id").primaryKey({ autoIncrement: true }),
+  referrerUsername: text2("referrer_username").notNull(),
+  kind: text2("kind").notNull(),
+  accountId: integer3("account_id").notNull(),
+  status: text2("status").notNull().default("pending"),
+  createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
+  landedAt: integer3("landed_at", { mode: "timestamp_ms" })
+});
+var sealedLanes = sqliteTable("sealed_lanes", {
+  laneKey: text2("lane_key").primaryKey(),
+  firstUsername: text2("first_username").notNull(),
+  firstLoadId: integer3("first_load_id").notNull(),
+  firstSealedAt: integer3("first_sealed_at", { mode: "timestamp_ms" }).notNull()
+});
+var pointsSafetyHolds = sqliteTable("points_safety_holds", {
+  id: integer3("id").primaryKey({ autoIncrement: true }),
+  username: text2("username").notNull(),
+  kind: text2("kind").notNull(),
+  detail: text2("detail").notNull(),
+  status: text2("status").notNull().default("open"),
+  createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
+  updatedAt: integer3("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
+});
+var credentialAlertDismissals = sqliteTable("credential_alert_dismissals", {
+  id: integer3("id").primaryKey({ autoIncrement: true }),
+  username: text2("username").notNull(),
+  credentialKey: text2("credential_key").notNull(),
+  threshold: integer3("threshold").notNull(),
+  expiresOn: text2("expires_on").notNull(),
+  dismissedAt: integer3("dismissed_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
+});
+var loadInvoices = sqliteTable("load_invoices", {
+  profileId: integer3("profile_id"),
+  id: integer3("id").primaryKey({ autoIncrement: true }),
+  loadId: integer3("load_id").notNull().unique(),
+  number: text2("number").notNull(),
+  status: text2("status").notNull().default("draft"),
+  billToName: text2("bill_to_name").notNull(),
+  billToCompany: text2("bill_to_company"),
+  shipper: text2("shipper"),
+  pickupCity: text2("pickup_city"),
+  pickupState: text2("pickup_state"),
+  deliveryCity: text2("delivery_city"),
+  deliveryState: text2("delivery_state"),
+  referenceNumber: text2("reference_number"),
+  commodity: text2("commodity"),
+  deliveredAt: integer3("delivered_at", { mode: "timestamp_ms" }).notNull(),
+  linesJson: text2("lines_json").notNull().default("[]"),
+  amount: real2("amount").notNull(),
+  dueDays: integer3("due_days").notNull().default(30),
+  issuedAt: integer3("issued_at", { mode: "timestamp_ms" }),
+  dueAt: integer3("due_at", { mode: "timestamp_ms" }),
+  paidAt: integer3("paid_at", { mode: "timestamp_ms" }),
+  notes: text2("notes"),
+  chainHash: text2("chain_hash"),
+  createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
+  updatedAt: integer3("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
+});
 var breakdownLogs = sqliteTable("breakdown_logs", {
   profileId: integer3("profile_id"),
   id: integer3("id").primaryKey({ autoIncrement: true }),
@@ -9784,6 +10081,97 @@ var authActivityDays = sqliteTable("auth_activity_days", {
   day: text2("day").notNull(),
   createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
 });
+var accountIdentities = sqliteTable("account_identities", {
+  id: integer3("id").primaryKey({ autoIncrement: true }),
+  accountId: integer3("account_id").notNull(),
+  provider: text2("provider").notNull(),
+  providerSubject: text2("provider_subject").notNull(),
+  email: text2("email").notNull(),
+  linkedAt: integer3("linked_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
+});
+var passkeyCredentials = sqliteTable("passkey_credentials", {
+  id: integer3("id").primaryKey({ autoIncrement: true }),
+  accountId: integer3("account_id").notNull(),
+  credentialId: text2("credential_id").notNull().unique(),
+  publicKey: text2("public_key").notNull(),
+  signCount: integer3("sign_count").notNull().default(0),
+  deviceLabel: text2("device_label").notNull().default(""),
+  transports: text2("transports"),
+  createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
+  lastUsedAt: integer3("last_used_at", { mode: "timestamp_ms" })
+});
+var betaJoinRequests = sqliteTable("beta_join_requests", {
+  id: integer3("id").primaryKey({ autoIncrement: true }),
+  name: text2("name").notNull(),
+  email: text2("email").notNull(),
+  role: text2("role").notNull(),
+  note: text2("note").notNull().default(""),
+  status: text2("status").notNull().default("pending"),
+  createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
+  decidedAt: integer3("decided_at", { mode: "timestamp_ms" }),
+  decidedBy: integer3("decided_by"),
+  inviteId: integer3("invite_id"),
+  mailQueueId: integer3("mail_queue_id")
+});
+var dvirDefectLinks = sqliteTable("dvir_defect_links", {
+  profileId: integer3("profile_id"),
+  id: integer3("id").primaryKey({ autoIncrement: true }),
+  dvirId: integer3("dvir_id").notNull(),
+  item: text2("item").notNull(),
+  maintenanceEntryId: integer3("maintenance_entry_id").notNull(),
+  createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
+});
+var detentionRecords = sqliteTable("detention_records", {
+  profileId: integer3("profile_id"),
+  id: integer3("id").primaryKey({ autoIncrement: true }),
+  loadId: integer3("load_id"),
+  site: text2("site").notNull(),
+  placeLabel: text2("place_label"),
+  apptAt: integer3("appt_at", { mode: "timestamp_ms" }),
+  graceMinutes: integer3("grace_minutes").notNull().default(120),
+  arrivedAt: integer3("arrived_at", { mode: "timestamp_ms" }).notNull(),
+  departedAt: integer3("departed_at", { mode: "timestamp_ms" }),
+  arriveLat: real2("arrive_lat"),
+  arriveLon: real2("arrive_lon"),
+  departLat: real2("depart_lat"),
+  departLon: real2("depart_lon"),
+  chainHash: text2("chain_hash"),
+  createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
+  updatedAt: integer3("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
+});
+var offlineCaptures = sqliteTable("offline_captures", {
+  username: text2("username").notNull(),
+  captureId: text2("capture_id").notNull(),
+  kind: text2("kind").notNull(),
+  chainHash: text2("chain_hash"),
+  resultJson: text2("result_json"),
+  capturedAt: integer3("captured_at", { mode: "timestamp_ms" }).notNull(),
+  syncedAt: integer3("synced_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
+}, (t) => [primaryKey2({ columns: [t.username, t.captureId] })]);
+var notifications = sqliteTable("notifications", {
+  id: integer3("id").primaryKey({ autoIncrement: true }),
+  username: text2("username").notNull(),
+  kind: text2("kind").notNull(),
+  title: text2("title").notNull(),
+  body: text2("body").notNull(),
+  dedupeKey: text2("dedupe_key"),
+  refKind: text2("ref_kind"),
+  refId: integer3("ref_id"),
+  count: integer3("count").notNull().default(1),
+  pushState: text2("push_state").notNull().default("not_configured"),
+  readAt: integer3("read_at", { mode: "timestamp_ms" }),
+  createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
+  updatedAt: integer3("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
+});
+var pushDevices = sqliteTable("push_devices", {
+  token: text2("token").primaryKey(),
+  username: text2("username").notNull(),
+  platform: text2("platform").notNull(),
+  enabled: integer3("enabled", { mode: "boolean" }).notNull().default(true),
+  createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
+  updatedAt: integer3("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
+  lastSeenAt: integer3("last_seen_at", { mode: "timestamp_ms" })
+});
 
 // src/schema-pg.ts
 var profile2 = pgTable("profile", {
@@ -9817,6 +10205,30 @@ var profile2 = pgTable("profile", {
   driverCpm: doublePrecision("driver_cpm"),
   payBasis: text("pay_basis").notNull().default("cpm"),
   driverPayPct: doublePrecision("driver_pay_pct"),
+  factoringPct: doublePrecision("factoring_pct").notNull().default(0),
+  dispatcherPct: doublePrecision("dispatcher_pct").notNull().default(0),
+  truckYear: integer2("truck_year"),
+  truckMake: text("truck_make"),
+  truckModel: text("truck_model"),
+  truckUnitNumber: text("truck_unit_number"),
+  truckVin: text("truck_vin"),
+  truckPlate: text("truck_plate"),
+  truckEngine: text("truck_engine"),
+  truckTransmission: text("truck_transmission"),
+  trailerYear: integer2("trailer_year"),
+  trailerMake: text("trailer_make"),
+  trailerModel: text("trailer_model"),
+  trailerVin: text("trailer_vin"),
+  trailerPlate: text("trailer_plate"),
+  birthMonth: integer2("birth_month"),
+  birthDay: integer2("birth_day"),
+  bizName: text("biz_name"),
+  bizAddress: text("biz_address"),
+  bizPhone: text("biz_phone"),
+  bizEmail: text("biz_email"),
+  bizPaymentInstructions: text("biz_payment_instructions"),
+  bizLogoBlobKey: text("biz_logo_blob_key"),
+  bizLogoMime: text("biz_logo_mime"),
   socialUsername: text("social_username").notNull().default("driver"),
   plan: text("plan").notNull().default("diamond"),
   ownerPrice: doublePrecision("owner_price"),
@@ -10107,6 +10519,12 @@ var chatReads2 = pgTable("chat_reads", {
   groupId: integer2("group_id").primaryKey(),
   lastReadId: integer2("last_read_id").notNull().default(0)
 });
+var chatMemberReads2 = pgTable("chat_member_reads", {
+  groupId: integer2("group_id").notNull(),
+  username: text("username").notNull(),
+  lastReadId: integer2("last_read_id").notNull().default(0),
+  lastAlertedId: integer2("last_alerted_id").notNull().default(0)
+}, (t) => [primaryKey({ columns: [t.groupId, t.username] })]);
 var chatBlocks2 = pgTable("chat_blocks", {
   username: text("username").primaryKey(),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
@@ -10138,6 +10556,7 @@ var socialUsers2 = pgTable("social_users", {
   groupPolicy: text("group_policy").notNull().default("everyone"),
   showReputation: boolean3("show_reputation").notNull().default(false),
   showMilesPanel: boolean3("show_miles_panel").notNull().default(true),
+  showTruck: boolean3("show_truck").notNull().default(true),
   featuredBadge: text("featured_badge"),
   dispatcherPoster: boolean3("dispatcher_poster").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
@@ -10329,6 +10748,7 @@ var appSettings2 = pgTable("app_settings", {
   mapTiltMode: text("map_tilt_mode").notNull().default("auto"),
   hillGradeAlerts: boolean3("hill_grade_alerts").notNull().default(true),
   winterWeatherAlerts: boolean3("winter_weather_alerts").notNull().default(true),
+  autoAddStops: boolean3("auto_add_stops").notNull().default(true),
   mapShowSignals: boolean3("map_show_signals").notNull().default(true),
   carModeEnabled: boolean3("car_mode_enabled").notNull().default(false),
   carModeAutoLaunch: boolean3("car_mode_auto_launch").notNull().default(true),
@@ -10499,6 +10919,7 @@ var loads2 = pgTable("loads", {
   commodity: text("commodity"),
   hazmat: boolean3("hazmat").notNull().default(false),
   status: text("status").notNull().default("booked"),
+  referenceNumber: text("reference_number"),
   tripQueueId: integer2("trip_queue_id"),
   fuelDebrief: text("fuel_debrief"),
   docSha256: text("doc_sha256"),
@@ -10611,6 +11032,12 @@ var boardLoads2 = pgTable("board_loads", {
   overflowReason: text("overflow_reason"),
   overflowFromBoardLoadId: integer2("overflow_from_board_load_id"),
   brokerPosterLoadId: integer2("broker_poster_load_id"),
+  referenceNumber: text("reference_number"),
+  pickupApptAt: timestamp("pickup_appt_at", { withTimezone: true, mode: "date" }),
+  deliveryApptAt: timestamp("delivery_appt_at", { withTimezone: true, mode: "date" }),
+  declineReason: text("decline_reason"),
+  declinedBy: text("declined_by"),
+  declinedAt: timestamp("declined_at", { withTimezone: true, mode: "date" }),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date),
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
 });
@@ -10626,6 +11053,7 @@ var brokerLinks2 = pgTable("broker_links", {
   scopeKey: text("scope_key").notNull(),
   companyId: integer2("company_id"),
   ownerUsername: text("owner_username").notNull(),
+  kind: text("kind").notNull().default("broker"),
   brokerName: text("broker_name").notNull(),
   brokerCompany: text("broker_company"),
   brokerContact: text("broker_contact"),
@@ -10645,6 +11073,10 @@ var brokerSubmissions2 = pgTable("broker_submissions", {
   brokerName: text("broker_name").notNull(),
   brokerCompany: text("broker_company"),
   brokerMc: text("broker_mc"),
+  senderContact: text("sender_contact"),
+  referenceNumber: text("reference_number"),
+  pickupApptAt: timestamp("pickup_appt_at", { withTimezone: true, mode: "date" }),
+  deliveryApptAt: timestamp("delivery_appt_at", { withTimezone: true, mode: "date" }),
   shipper: text("shipper"),
   pickupCity: text("pickup_city"),
   pickupState: text("pickup_state"),
@@ -10867,6 +11299,7 @@ var fuelPriceReports2 = pgTable("fuel_price_reports", {
   price: doublePrecision("price").notNull(),
   reportedAt: timestamp("reported_at", { withTimezone: true, mode: "date" }).notNull(),
   grade: text("grade").notNull().default("reported"),
+  reporter: text("reporter"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
 });
 var eiaDieselSnapshots2 = pgTable("eia_diesel_snapshots", {
@@ -10980,6 +11413,11 @@ var dvirReports2 = pgTable("dvir_reports", {
   signedName: text("signed_name").notNull(),
   status: text("status").notNull().default("signed"),
   odometer: doublePrecision("odometer"),
+  lat: doublePrecision("lat"),
+  lon: doublePrecision("lon"),
+  truckLabel: text("truck_label"),
+  trailerLabel: text("trailer_label"),
+  safeToOperate: boolean3("safe_to_operate"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
 });
 var eldConnections2 = pgTable("eld_connections", {
@@ -11205,6 +11643,21 @@ var driverPositions2 = pgTable("driver_positions", {
   lon: doublePrecision("lon").notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull()
 });
+var driverFleetStatus2 = pgTable("driver_fleet_status", {
+  username: text("username").primaryKey(),
+  loadId: integer2("load_id"),
+  loadStatus: text("load_status"),
+  pickupCity: text("pickup_city"),
+  pickupState: text("pickup_state"),
+  deliveryCity: text("delivery_city"),
+  deliveryState: text("delivery_state"),
+  stopsJson: text("stops_json").notNull().default("[]"),
+  routeLabel: text("route_label"),
+  endLat: doublePrecision("end_lat"),
+  endLon: doublePrecision("end_lon"),
+  etaAt: timestamp("eta_at", { withTimezone: true, mode: "date" }),
+  publishedAt: timestamp("published_at", { withTimezone: true, mode: "date" }).notNull()
+});
 var securityPrefs2 = pgTable("security_prefs", {
   username: text("username").primaryKey(),
   autoLockMinutes: integer2("auto_lock_minutes").notNull().default(0),
@@ -11411,6 +11864,16 @@ var docEmailDeliveries2 = pgTable("doc_email_deliveries", {
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date),
   sentAt: timestamp("sent_at", { withTimezone: true, mode: "date" })
 });
+var receiveLinks2 = pgTable("receive_links", {
+  id: serial("id").primaryKey(),
+  loadId: integer2("load_id").notNull(),
+  token: text("token").notNull().unique(),
+  kind: text("kind").notNull().default("action"),
+  status: text("status").notNull().default("active"),
+  createdBy: text("created_by").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date),
+  revokedAt: timestamp("revoked_at", { withTimezone: true, mode: "date" })
+});
 var payStubEmailDeliveries2 = pgTable("pay_stub_email_deliveries", {
   id: serial("id").primaryKey(),
   payEntryId: integer2("pay_entry_id"),
@@ -11425,6 +11888,22 @@ var payStubEmailDeliveries2 = pgTable("pay_stub_email_deliveries", {
   detail: text("detail"),
   providerId: text("provider_id"),
   dedupeKey: text("dedupe_key").notNull().unique(),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date),
+  sentAt: timestamp("sent_at", { withTimezone: true, mode: "date" })
+});
+var documentSends2 = pgTable("document_sends", {
+  profileId: integer2("profile_id"),
+  id: serial("id").primaryKey(),
+  username: text("username").notNull(),
+  docRef: text("doc_ref").notNull(),
+  docKind: text("doc_kind").notNull(),
+  docTitle: text("doc_title").notNull(),
+  toEmail: text("to_email").notNull(),
+  replyTo: text("reply_to"),
+  subject: text("subject").notNull(),
+  status: text("status").notNull(),
+  providerId: text("provider_id"),
+  detail: text("detail"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date),
   sentAt: timestamp("sent_at", { withTimezone: true, mode: "date" })
 });
@@ -11748,6 +12227,99 @@ var maintenanceServices2 = pgTable("maintenance_services", {
   note: text("note"),
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
 });
+var maintenanceLogEntries2 = pgTable("maintenance_log_entries", {
+  profileId: integer2("profile_id"),
+  id: serial("id").primaryKey(),
+  performedAt: timestamp("performed_at", { withTimezone: true, mode: "date" }).notNull(),
+  odometer: doublePrecision("odometer"),
+  category: text("category").notNull(),
+  description: text("description").notNull(),
+  shop: text("shop"),
+  cost: doublePrecision("cost").notNull().default(0),
+  nextDueMiles: doublePrecision("next_due_miles"),
+  nextDueAt: timestamp("next_due_at", { withTimezone: true, mode: "date" }),
+  status: text("status").notNull().default("logged"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
+});
+var maintenanceLogAttachments2 = pgTable("maintenance_log_attachments", {
+  profileId: integer2("profile_id"),
+  id: serial("id").primaryKey(),
+  entryId: integer2("entry_id").notNull(),
+  label: text("label").notNull(),
+  blobKey: text("blob_key"),
+  mime: text("mime"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
+});
+var vehiclePhotos2 = pgTable("vehicle_photos", {
+  profileId: integer2("profile_id"),
+  id: serial("id").primaryKey(),
+  kind: text("kind").notNull(),
+  blobKey: text("blob_key"),
+  mime: text("mime"),
+  sortOrder: integer2("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
+});
+var posterReferrals2 = pgTable("poster_referrals", {
+  id: serial("id").primaryKey(),
+  referrerUsername: text("referrer_username").notNull(),
+  kind: text("kind").notNull(),
+  accountId: integer2("account_id").notNull(),
+  status: text("status").notNull().default("pending"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date),
+  landedAt: timestamp("landed_at", { withTimezone: true, mode: "date" })
+});
+var sealedLanes2 = pgTable("sealed_lanes", {
+  laneKey: text("lane_key").primaryKey(),
+  firstUsername: text("first_username").notNull(),
+  firstLoadId: integer2("first_load_id").notNull(),
+  firstSealedAt: timestamp("first_sealed_at", { withTimezone: true, mode: "date" }).notNull()
+});
+var pointsSafetyHolds2 = pgTable("points_safety_holds", {
+  id: serial("id").primaryKey(),
+  username: text("username").notNull(),
+  kind: text("kind").notNull(),
+  detail: text("detail").notNull(),
+  status: text("status").notNull().default("open"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
+});
+var credentialAlertDismissals2 = pgTable("credential_alert_dismissals", {
+  id: serial("id").primaryKey(),
+  username: text("username").notNull(),
+  credentialKey: text("credential_key").notNull(),
+  threshold: integer2("threshold").notNull(),
+  expiresOn: text("expires_on").notNull(),
+  dismissedAt: timestamp("dismissed_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
+});
+var loadInvoices2 = pgTable("load_invoices", {
+  profileId: integer2("profile_id"),
+  id: serial("id").primaryKey(),
+  loadId: integer2("load_id").notNull().unique(),
+  number: text("number").notNull(),
+  status: text("status").notNull().default("draft"),
+  billToName: text("bill_to_name").notNull(),
+  billToCompany: text("bill_to_company"),
+  shipper: text("shipper"),
+  pickupCity: text("pickup_city"),
+  pickupState: text("pickup_state"),
+  deliveryCity: text("delivery_city"),
+  deliveryState: text("delivery_state"),
+  referenceNumber: text("reference_number"),
+  commodity: text("commodity"),
+  deliveredAt: timestamp("delivered_at", { withTimezone: true, mode: "date" }).notNull(),
+  linesJson: text("lines_json").notNull().default("[]"),
+  amount: doublePrecision("amount").notNull(),
+  dueDays: integer2("due_days").notNull().default(30),
+  issuedAt: timestamp("issued_at", { withTimezone: true, mode: "date" }),
+  dueAt: timestamp("due_at", { withTimezone: true, mode: "date" }),
+  paidAt: timestamp("paid_at", { withTimezone: true, mode: "date" }),
+  notes: text("notes"),
+  chainHash: text("chain_hash"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
+});
 var breakdownLogs2 = pgTable("breakdown_logs", {
   profileId: integer2("profile_id"),
   id: serial("id").primaryKey(),
@@ -11839,6 +12411,97 @@ var authActivityDays2 = pgTable("auth_activity_days", {
   day: text("day").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
 });
+var accountIdentities2 = pgTable("account_identities", {
+  id: serial("id").primaryKey(),
+  accountId: integer2("account_id").notNull(),
+  provider: text("provider").notNull(),
+  providerSubject: text("provider_subject").notNull(),
+  email: text("email").notNull(),
+  linkedAt: timestamp("linked_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
+});
+var passkeyCredentials2 = pgTable("passkey_credentials", {
+  id: serial("id").primaryKey(),
+  accountId: integer2("account_id").notNull(),
+  credentialId: text("credential_id").notNull().unique(),
+  publicKey: text("public_key").notNull(),
+  signCount: integer2("sign_count").notNull().default(0),
+  deviceLabel: text("device_label").notNull().default(""),
+  transports: text("transports"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date),
+  lastUsedAt: timestamp("last_used_at", { withTimezone: true, mode: "date" })
+});
+var betaJoinRequests2 = pgTable("beta_join_requests", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  email: text("email").notNull(),
+  role: text("role").notNull(),
+  note: text("note").notNull().default(""),
+  status: text("status").notNull().default("pending"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date),
+  decidedAt: timestamp("decided_at", { withTimezone: true, mode: "date" }),
+  decidedBy: integer2("decided_by"),
+  inviteId: integer2("invite_id"),
+  mailQueueId: integer2("mail_queue_id")
+});
+var dvirDefectLinks2 = pgTable("dvir_defect_links", {
+  profileId: integer2("profile_id"),
+  id: serial("id").primaryKey(),
+  dvirId: integer2("dvir_id").notNull(),
+  item: text("item").notNull(),
+  maintenanceEntryId: integer2("maintenance_entry_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
+});
+var detentionRecords2 = pgTable("detention_records", {
+  profileId: integer2("profile_id"),
+  id: serial("id").primaryKey(),
+  loadId: integer2("load_id"),
+  site: text("site").notNull(),
+  placeLabel: text("place_label"),
+  apptAt: timestamp("appt_at", { withTimezone: true, mode: "date" }),
+  graceMinutes: integer2("grace_minutes").notNull().default(120),
+  arrivedAt: timestamp("arrived_at", { withTimezone: true, mode: "date" }).notNull(),
+  departedAt: timestamp("departed_at", { withTimezone: true, mode: "date" }),
+  arriveLat: doublePrecision("arrive_lat"),
+  arriveLon: doublePrecision("arrive_lon"),
+  departLat: doublePrecision("depart_lat"),
+  departLon: doublePrecision("depart_lon"),
+  chainHash: text("chain_hash"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
+});
+var offlineCaptures2 = pgTable("offline_captures", {
+  username: text("username").notNull(),
+  captureId: text("capture_id").notNull(),
+  kind: text("kind").notNull(),
+  chainHash: text("chain_hash"),
+  resultJson: text("result_json"),
+  capturedAt: timestamp("captured_at", { withTimezone: true, mode: "date" }).notNull(),
+  syncedAt: timestamp("synced_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
+}, (t) => [primaryKey({ columns: [t.username, t.captureId] })]);
+var notifications2 = pgTable("notifications", {
+  id: serial("id").primaryKey(),
+  username: text("username").notNull(),
+  kind: text("kind").notNull(),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  dedupeKey: text("dedupe_key"),
+  refKind: text("ref_kind"),
+  refId: integer2("ref_id"),
+  count: integer2("count").notNull().default(1),
+  pushState: text("push_state").notNull().default("not_configured"),
+  readAt: timestamp("read_at", { withTimezone: true, mode: "date" }),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
+});
+var pushDevices2 = pgTable("push_devices", {
+  token: text("token").primaryKey(),
+  username: text("username").notNull(),
+  platform: text("platform").notNull(),
+  enabled: boolean3("enabled").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true, mode: "date" })
+});
 
 // src/schema.ts
 var impl = process.env.STONEMILES_DIALECT === "postgres" ? exports_schema_pg : exports_schema_sqlite;
@@ -11871,6 +12534,7 @@ var chatGroups3 = impl.chatGroups;
 var chatMembers3 = impl.chatMembers;
 var chatMessages3 = impl.chatMessages;
 var chatReads3 = impl.chatReads;
+var chatMemberReads3 = impl.chatMemberReads;
 var chatBlocks3 = impl.chatBlocks;
 var chatReports3 = impl.chatReports;
 var socialUsers3 = impl.socialUsers;
@@ -11956,6 +12620,7 @@ var stepupState3 = impl.stepupState;
 var recordAccessLog3 = impl.recordAccessLog;
 var trackPoints3 = impl.trackPoints;
 var driverPositions3 = impl.driverPositions;
+var driverFleetStatus3 = impl.driverFleetStatus;
 var securityPrefs3 = impl.securityPrefs;
 var moneyHolds3 = impl.moneyHolds;
 var ownerGiveaways3 = impl.ownerGiveaways;
@@ -11969,6 +12634,8 @@ var docCopySettings3 = impl.docCopySettings;
 var filedDocCopies3 = impl.filedDocCopies;
 var docEmailDeliveries3 = impl.docEmailDeliveries;
 var payStubEmailDeliveries3 = impl.payStubEmailDeliveries;
+var documentSends3 = impl.documentSends;
+var receiveLinks3 = impl.receiveLinks;
 var permits3 = impl.permits;
 var brokerAccounts3 = impl.brokerAccounts;
 var brokerPosterLoads3 = impl.brokerPosterLoads;
@@ -11993,7 +12660,20 @@ var passportPrefs3 = impl.passportPrefs;
 var loadPayments3 = impl.loadPayments;
 var claimEvents3 = impl.claimEvents;
 var maintenanceServices3 = impl.maintenanceServices;
+var maintenanceLogEntries3 = impl.maintenanceLogEntries;
+var maintenanceLogAttachments3 = impl.maintenanceLogAttachments;
+var vehiclePhotos3 = impl.vehiclePhotos;
+var posterReferrals3 = impl.posterReferrals;
+var sealedLanes3 = impl.sealedLanes;
+var pointsSafetyHolds3 = impl.pointsSafetyHolds;
+var credentialAlertDismissals3 = impl.credentialAlertDismissals;
+var loadInvoices3 = impl.loadInvoices;
+var dvirDefectLinks3 = impl.dvirDefectLinks;
+var detentionRecords3 = impl.detentionRecords;
 var breakdownLogs3 = impl.breakdownLogs;
+var offlineCaptures3 = impl.offlineCaptures;
+var notifications3 = impl.notifications;
+var pushDevices3 = impl.pushDevices;
 var accounts3 = impl.accounts;
 var authSessions3 = impl.authSessions;
 var passwordResetTokens3 = impl.passwordResetTokens;
@@ -12001,6 +12681,9 @@ var accountInvites3 = impl.accountInvites;
 var authAuditLog3 = impl.authAuditLog;
 var authMailQueue3 = impl.authMailQueue;
 var authActivityDays3 = impl.authActivityDays;
+var accountIdentities3 = impl.accountIdentities;
+var passkeyCredentials3 = impl.passkeyCredentials;
+var betaJoinRequests3 = impl.betaJoinRequests;
 
 // src/payBook.ts
 function normalizeDeductionLines(lines) {
@@ -12961,6 +13644,103 @@ function expenseTotalsForYear(expenses, year) {
   const byCategory = [...map.values()].map((c) => ({ ...c, total: Math.round(c.total * 100) / 100 })).sort((a, b) => b.total - a.total || a.category.localeCompare(b.category));
   return { byCategory, total: Math.round(total * 100) / 100, count };
 }
+var WORKSHEET_SECTIONS = [
+  {
+    key: "vehicle",
+    title: "Vehicle & operating expenses",
+    lines: [
+      { key: "maintenance_repairs", label: "Maintenance & repairs", categories: ["maintenance", "repairs"] },
+      { key: "insurance", label: "Insurance", categories: ["insurance"] },
+      { key: "licensing", label: "Licensing & fees", categories: ["licensing"] },
+      { key: "dot_testing", label: "DOT testing / physical", categories: ["dot_testing"] },
+      { key: "tolls", label: "Tolls", categories: ["tolls"] },
+      { key: "scale", label: "Scale tickets", categories: ["scale"] },
+      { key: "permits", label: "Permits", categories: ["permits"] },
+      { key: "parking", label: "Parking", categories: ["parking"] },
+      { key: "lumper", label: "Lumper fees", categories: ["lumper"] },
+      { key: "meals", label: "Meals", categories: ["meals"] },
+      { key: "fuel_expenses", label: "Fuel (logged as an expense)", categories: ["fuel"] },
+      { key: "other", label: "Other expenses", categories: ["other"] }
+    ]
+  },
+  {
+    key: "equipment",
+    title: "Equipment & supplies",
+    lines: [
+      { key: "supplies", label: "Supplies & equipment", categories: ["supplies"] },
+      { key: "software", label: "Software & satellite", categories: ["software"] }
+    ]
+  }
+];
+var round2 = (n) => Math.round(n * 100) / 100;
+function buildTaxWorksheet(input) {
+  const { year } = input;
+  const rows = [];
+  const w2 = { gross: 0, count: 0 };
+  const ten99 = { gross: 0, count: 0 };
+  for (const e of input.income) {
+    if (e.isForm)
+      continue;
+    if (!Number.isFinite(e.paidAtMs) || !Number.isFinite(e.gross))
+      continue;
+    if (new Date(e.paidAtMs).getUTCFullYear() !== year)
+      continue;
+    const lane = e.kind === "1099" ? "1099" : "w2";
+    rows.push({
+      paidAtMs: e.paidAtMs,
+      dateIso: new Date(e.paidAtMs).toISOString().slice(0, 10),
+      payer: e.payer,
+      lane,
+      miles: typeof e.miles === "number" && Number.isFinite(e.miles) ? e.miles : null,
+      gross: round2(e.gross)
+    });
+    const bucket = lane === "1099" ? ten99 : w2;
+    bucket.gross += e.gross;
+    bucket.count += 1;
+  }
+  rows.sort((a, b) => a.paidAtMs - b.paidAtMs);
+  w2.gross = round2(w2.gross);
+  ten99.gross = round2(ten99.gross);
+  const totals = expenseTotalsForYear(input.expenses, year);
+  const byCategory = new Map(totals.byCategory.map((c) => [c.category, c]));
+  const mapped = new Set;
+  const sections = WORKSHEET_SECTIONS.map((def) => {
+    const lines = def.lines.map((lineDef) => {
+      let total = 0;
+      let count = 0;
+      for (const cat of lineDef.categories) {
+        const c = byCategory.get(cat);
+        if (c) {
+          total += c.total;
+          count += c.count;
+          mapped.add(cat);
+        }
+      }
+      return { key: lineDef.key, label: lineDef.label, categories: lineDef.categories, total: round2(total), count };
+    });
+    return { key: def.key, title: def.title, lines, subtotal: round2(lines.reduce((s, l) => s + l.total, 0)) };
+  });
+  const unmapped = totals.byCategory.filter((c) => !mapped.has(c.category));
+  if (unmapped.length) {
+    const other = sections[0].lines.find((l) => l.key === "other");
+    for (const c of unmapped) {
+      other.total = round2(other.total + c.total);
+      other.count += c.count;
+      if (!other.categories.includes(c.category))
+        other.categories = [...other.categories, c.category];
+    }
+    sections[0].subtotal = round2(sections[0].lines.reduce((s, l) => s + l.total, 0));
+  }
+  return {
+    year,
+    incomeRows: rows.map(({ paidAtMs: _paidAtMs, ...r }) => r),
+    w2,
+    ten99,
+    sections,
+    expenseTotal: totals.total,
+    expenseCount: totals.count
+  };
+}
 
 // src/sealGrade.ts
 var RELEASE_GRADE_GEOFENCE_MI = 0.25;
@@ -13143,6 +13923,27 @@ function gateFor(invoices) {
     blocking,
     totalDue: roundCents(unpaid.reduce((sum, i) => sum + i.balanceDue, 0))
   };
+}
+
+// src/loadFees.ts
+var round22 = (n) => Math.round(n * 100) / 100;
+function clampPct(pct) {
+  if (pct == null || !Number.isFinite(pct))
+    return 0;
+  if (pct < 0)
+    return 0;
+  if (pct > 100)
+    return 100;
+  return pct;
+}
+function loadFeeBreakdown(grossRate, factoringPct, dispatcherPct) {
+  const fPct = clampPct(factoringPct);
+  const dPct = clampPct(dispatcherPct);
+  const factoringAmt = round22(grossRate * fPct / 100);
+  const dispatcherAmt = round22(grossRate * dPct / 100);
+  const totalFees = round22(factoringAmt + dispatcherAmt);
+  const netRate = round22(grossRate - totalFees);
+  return { factoringPct: fPct, dispatcherPct: dPct, factoringAmt, dispatcherAmt, totalFees, netRate };
 }
 
 // src/verifyAudit.ts
@@ -13971,6 +14772,1769 @@ function dailyTaskPoints(task, paidTier) {
   return table;
 }
 
+// src/pointsLanes.ts
+var LANE1_MILES_MILESTONES = [
+  { miles: 1e4, points: 250 },
+  { miles: 50000, points: 1000 },
+  { miles: 1e5, points: 2500 }
+];
+var LANE1_ONTIME_BLOCK_SIZE = 5;
+var LANE1_ONTIME_BLOCK_POINTS = 100;
+var LANE1_CLEAN_INSPECTION_POINTS = 25;
+var LANE1_HOS_CLEAN_WEEK_POINTS = 150;
+var LANE2_REPORT_POINTS = 20;
+var LANE2_DAILY_AWARD_CAP = 5;
+var LANE2_CORROBORATION_WINDOW_MS = 4 * 3600000;
+var LANE2_CORROBORATION_RADIUS_MI = 0.25;
+var LANE2_FUEL_AGREE_USD = 0.15;
+var LANE2_FUEL_CONTRADICT_USD = 0.5;
+var LANE3_POSTER_REFERRAL_POINTS = 500;
+var LANE3_FIRST_LANE_POINTS = 100;
+var LANE3_FOUNDING_TESTER_POINTS = 250;
+var LANE1_MILES_SOURCE = "lane1_miles_milestone";
+var LANE1_ONTIME_SOURCE = "lane1_ontime_streak";
+var LANE1_INSPECTION_SOURCE = "lane1_clean_inspection";
+var LANE1_HOS_SOURCE = "lane1_hos_week";
+var LANE2_INTEL_SOURCE = "lane2_intel_report";
+var LANE2_FUEL_SOURCE = "lane2_fuel_report";
+var LANE3_POSTER_SOURCE = "lane3_poster_referral";
+var LANE3_FIRST_LANE_SOURCE = "lane3_first_lane";
+var LANE3_FOUNDING_SOURCE = "lane3_founding_tester";
+function laneForSource(source) {
+  if (source.startsWith("lane1_"))
+    return "lane1";
+  if (source.startsWith("lane2_"))
+    return "lane2";
+  if (source.startsWith("lane3_"))
+    return "lane3";
+  return null;
+}
+function howToEarnLanes() {
+  return [
+    {
+      lane: "lane1",
+      title: "Drive well",
+      lines: [
+        ...LANE1_MILES_MILESTONES.map((m) => `${m.miles.toLocaleString("en-US")} lifetime sealed miles \u2014 +${m.points} pts (one time)`),
+        `Every ${LANE1_ONTIME_BLOCK_SIZE} sealed loads delivered on time in a row \u2014 +${LANE1_ONTIME_BLOCK_POINTS} pts`,
+        `A day logged with a clean pre-trip inspection (no defects) \u2014 +${LANE1_CLEAN_INSPECTION_POINTS} pts`,
+        `A full week with zero hours-of-service violations in your sealed log \u2014 +${LANE1_HOS_CLEAN_WEEK_POINTS} pts`
+      ]
+    },
+    {
+      lane: "lane2",
+      title: "Feed the map",
+      lines: [
+        `A road report (parking, scale open/closed, hazard, closure) another driver confirms \u2014 +${LANE2_REPORT_POINTS} pts`,
+        `A fuel price report another driver matches at the same station \u2014 +${LANE2_REPORT_POINTS} pts`,
+        "Unconfirmed reports earn nothing \u2014 a second driver has to back it up."
+      ]
+    },
+    {
+      lane: "lane3",
+      title: "Grow it",
+      lines: [
+        `Bring a broker or shipper to the load board \u2014 +${LANE3_POSTER_REFERRAL_POINTS} pts when their first load posts`,
+        `First driver ever to seal a load on a lane (city to city) \u2014 +${LANE3_FIRST_LANE_POINTS} pts`,
+        `Founding Testers: active on 10 of your first 14 days \u2014 +${LANE3_FOUNDING_TESTER_POINTS} pts`
+      ]
+    }
+  ];
+}
+function milesMilestonesCrossed(totalSealedMiles) {
+  if (!Number.isFinite(totalSealedMiles) || totalSealedMiles <= 0)
+    return [];
+  return LANE1_MILES_MILESTONES.filter((m) => totalSealedMiles >= m.miles);
+}
+function onTimeBlockAwards(loads) {
+  const ordered = [...loads].filter((l) => l.apptMs != null).sort((a, b) => a.sealMs - b.sealMs || a.loadId - b.loadId);
+  const out = [];
+  let runStart = null;
+  let runLen = 0;
+  const flush = () => {
+    if (runStart == null)
+      return;
+    const blocks = Math.floor(runLen / LANE1_ONTIME_BLOCK_SIZE);
+    for (let b = 1;b <= blocks; b++) {
+      out.push({
+        refKey: `lane1-ontime-${runStart}-${b}`,
+        runStartLoadId: runStart,
+        block: b,
+        points: LANE1_ONTIME_BLOCK_POINTS
+      });
+    }
+  };
+  for (const l of ordered) {
+    if (l.onTime) {
+      if (runStart == null)
+        runStart = l.loadId;
+      runLen++;
+    } else {
+      flush();
+      runStart = null;
+      runLen = 0;
+    }
+  }
+  flush();
+  return out;
+}
+var H = 3600000;
+function hosViolationsInWindow(events, startMs, endMs) {
+  const sorted = [...events].map((e) => ({ state: e.state, start: Date.parse(e.at) })).filter((e) => Number.isFinite(e.start)).sort((a, b) => a.start - b.start);
+  const violations = [];
+  if (sorted.length === 0)
+    return violations;
+  let resetAt = 0;
+  let offRun = 0;
+  let offRunStart = 0;
+  let drivingSinceReset = 0;
+  let windowStart = null;
+  let drivingSinceBreak = 0;
+  let nonDriveRun = 0;
+  const dutySegs = [];
+  for (let i = 0;i < sorted.length; i++) {
+    const segStart = sorted[i].start;
+    const segEnd = i + 1 < sorted.length ? sorted[i + 1].start : endMs;
+    if (segEnd <= segStart)
+      continue;
+    const state = sorted[i].state;
+    if (state === "off_duty" || state === "sleeper") {
+      if (offRun === 0)
+        offRunStart = segStart;
+      offRun += segEnd - segStart;
+      if (offRun >= 10 * H && resetAt < offRunStart + 10 * H) {
+        resetAt = offRunStart + 10 * H;
+        drivingSinceReset = 0;
+        windowStart = null;
+      }
+      nonDriveRun += segEnd - segStart;
+      if (nonDriveRun >= 0.5 * H)
+        drivingSinceBreak = 0;
+      continue;
+    }
+    offRun = 0;
+    nonDriveRun = 0;
+    const effStart = Math.max(segStart, resetAt);
+    if (state === "on_duty" || state === "driving") {
+      if (windowStart === null && segEnd > resetAt)
+        windowStart = effStart;
+      dutySegs.push({ start: effStart, end: segEnd });
+    }
+    if (state !== "driving")
+      continue;
+    const driveMs = Math.max(0, segEnd - effStart);
+    drivingSinceReset += driveMs;
+    drivingSinceBreak += driveMs;
+    const overlapsWindow = segEnd > startMs && segStart < endMs;
+    if (!overlapsWindow)
+      continue;
+    const judgeAt = Math.min(segEnd, endMs);
+    if (drivingSinceReset > 11 * H + 60000) {
+      violations.push({ kind: "drive", at: judgeAt });
+    }
+    if (windowStart !== null && judgeAt - windowStart > 14 * H + 60000) {
+      violations.push({ kind: "window", at: judgeAt });
+    }
+    if (drivingSinceBreak > 8 * H + 60000) {
+      violations.push({ kind: "break", at: judgeAt });
+    }
+    const cycleFrom = judgeAt - 8 * 24 * H;
+    let cycle = 0;
+    for (const d of dutySegs) {
+      const st = Math.max(d.start, cycleFrom);
+      if (d.end > st)
+        cycle += Math.min(d.end, judgeAt) - st;
+    }
+    if (cycle > 70 * H + 60000) {
+      violations.push({ kind: "cycle", at: judgeAt });
+    }
+  }
+  return violations;
+}
+var INTEL_OPPOSITES = {
+  parking_open: "parking_full",
+  parking_full: "parking_open",
+  weigh_open: "weigh_closed",
+  weigh_closed: "weigh_open"
+};
+function intelRelation(kindA, kindB) {
+  if (kindA === kindB)
+    return "consistent";
+  if (INTEL_OPPOSITES[kindA] === kindB)
+    return "contradicted";
+  return "unrelated";
+}
+function fuelRelation(priceA, priceB) {
+  const diff = Math.abs(priceA - priceB);
+  if (diff <= LANE2_FUEL_AGREE_USD)
+    return "consistent";
+  if (diff > LANE2_FUEL_CONTRADICT_USD)
+    return "contradicted";
+  return "unrelated";
+}
+function laneKeyFor(pickupCity, pickupState, deliveryCity, deliveryState) {
+  const norm = (s) => (s ?? "").trim().toUpperCase().replace(/\s+/g, " ");
+  const pc = norm(pickupCity);
+  const ps = norm(pickupState);
+  const dc = norm(deliveryCity);
+  const ds = norm(deliveryState);
+  if (!pc || !ps || !dc || !ds)
+    return null;
+  return `${pc},${ps}->${dc},${ds}`;
+}
+function laneLabelForKey(laneKey) {
+  return laneKey.replace("->", " \u2192 ");
+}
+
+// src/pointsLayer2.ts
+var LAYER2_BIRTHDAY_POINTS = 100;
+var LAYER2_ANNIVERSARY_POINTS = 150;
+var LAYER2_CALENDAR_GRACE_DAYS = 7;
+var LAYER2_APPRECIATION_WEEK_POINTS = 100;
+var LAYER2_HOLIDAY_POINTS = 50;
+var LAYER2_PERFECT_WEEK_POINTS = 150;
+var LAYER2_TOP_BAND_MIN_SCORE = 92;
+var LAYER2_SEASON_RANK_PRIZES = [
+  { rank: "Diamond", points: 300 },
+  { rank: "Platinum", points: 150 }
+];
+var LAYER2_NO_INCIDENT_QUARTER_POINTS = 300;
+var LAYER2_COMEBACK_POINTS = 200;
+var LAYER2_COMEBACK_LOW_MAX = 50;
+var LAYER2_COMEBACK_TARGET_MIN = 65;
+var LAYER2_RENEWAL_STREAKS = [
+  { months: 6, points: 250 },
+  { months: 12, points: 500 },
+  { months: 24, points: 1200 }
+];
+var LAYER2_REFERRAL_LADDER = [
+  { active: 5, points: 250 },
+  { active: 10, points: 500 },
+  { active: 25, points: 1500 }
+];
+var LAYER2_REFERRAL_ACTIVE_MIN_ACTIVITY_DAYS = 3;
+var LAYER2_RIG_RECORD_POINTS = 250;
+var LAYER2_MAINTENANCE_POINTS = 50;
+var LAYER2_MAINTENANCE_ANNUAL_AWARD_CAP = 24;
+var LAYER2_MAINTENANCE_DUE_EARLY_TOLERANCE_MI = 500;
+var LAYER2_MAINTENANCE_DUE_EARLY_TOLERANCE_DAYS = 14;
+var LAYER2_MAINTENANCE_ODOMETER_TOLERANCE_MI = 50;
+var LAYER2_HOLD_DUPLICATE_THRESHOLD = 3;
+var LAYER2_HOLD_ODOMETER_THRESHOLD = 2;
+var LAYER2_BIRTHDAY_SOURCE = "layer2_birthday";
+var LAYER2_ANNIVERSARY_SOURCE = "layer2_anniversary";
+var LAYER2_APPRECIATION_SOURCE = "layer2_appreciation_week";
+var LAYER2_HOLIDAY_SOURCE = "layer2_holiday";
+var LAYER2_PERFECT_WEEK_SOURCE = "layer2_perfect_week";
+var LAYER2_SEASON_RANK_SOURCE = "layer2_season_rank";
+var LAYER2_NO_INCIDENT_SOURCE = "layer2_no_incident_quarter";
+var LAYER2_COMEBACK_SOURCE = "layer2_comeback";
+var LAYER2_RENEWAL_SOURCE = "layer2_renewal_streak";
+var LAYER2_REFERRAL_LADDER_SOURCE = "layer2_referral_ladder";
+var LAYER2_RIG_RECORD_SOURCE = "layer2_rig_record";
+var LAYER2_MAINTENANCE_SOURCE = "layer2_maintenance";
+function isLayer2Source(source) {
+  return source.startsWith("layer2_");
+}
+function howToEarnLayer2() {
+  const streak = (s) => `${s.months} months \u2014 +${s.points.toLocaleString("en-US")} pts`;
+  const ladder = (s) => `${s.active} active referrals \u2014 +${s.points.toLocaleString("en-US")} pts`;
+  return [
+    {
+      section: "Calendar",
+      lines: [
+        `Your birthday \u2014 +${LAYER2_BIRTHDAY_POINTS} pts (month and day only \u2014 we never ask the year)`,
+        `Each year on the road with STONEMILES \u2014 +${LAYER2_ANNIVERSARY_POINTS} pts on your anniversary`,
+        `Driver Appreciation Week in September: be active that week \u2014 +${LAYER2_APPRECIATION_WEEK_POINTS} pts`,
+        `Christmas and Thanksgiving weeks: be active that week \u2014 +${LAYER2_HOLIDAY_POINTS} pts each`
+      ]
+    },
+    {
+      section: "Score",
+      lines: [
+        `A perfect-score week \u2014 your score holds the top band a full week \u2014 +${LAYER2_PERFECT_WEEK_POINTS} pts`,
+        `Finish a season at Platinum \u2014 +150 pts; at Diamond \u2014 +300 pts`,
+        `Three clean months in a row, no safety incidents on your sealed record \u2014 +${LAYER2_NO_INCIDENT_QUARTER_POINTS} pts`,
+        `The comeback: finish a season strong after a low one \u2014 +${LAYER2_COMEBACK_POINTS} pts`
+      ]
+    },
+    {
+      section: "Loyalty",
+      lines: [
+        `Stay subscribed: ${LAYER2_RENEWAL_STREAKS.map(streak).join("; ")}`,
+        `Referral ladder: ${LAYER2_REFERRAL_LADDER.map(ladder).join("; ")} \u2014 active means subscribed and really driving; signups alone don't count`
+      ]
+    },
+    {
+      section: "Set up right",
+      lines: [
+        `Complete rig record \u2014 truck and trailer filled in, photos up, CDL and medical card current \u2014 +${LAYER2_RIG_RECORD_POINTS} pts (one time)`,
+        `Maintenance logged when it was actually due, receipt attached \u2014 +${LAYER2_MAINTENANCE_POINTS} pts per service`,
+        "Early or extra services are fine to log \u2014 they just don't earn. The schedule decides, and the same service never earns twice."
+      ]
+    }
+  ];
+}
+var LAYER2_TZ = "America/Chicago";
+var DAY_MS3 = 86400000;
+function layer2DayKey(ms) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: LAYER2_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(new Date(ms));
+}
+function layer2DayParts(ms) {
+  const [y = 1970, m = 1, d = 1] = layer2DayKey(ms).split("-").map(Number);
+  return { year: y, month: m, day: d };
+}
+function layer2DayStartMs(ms) {
+  const key = layer2DayKey(ms);
+  const { year, month, day } = layer2DayParts(ms);
+  const probe = Date.UTC(year, month - 1, day, 12, 0, 0);
+  for (let deltaH = -14;deltaH <= 14; deltaH++) {
+    const cand = probe + deltaH * 3600000;
+    if (layer2DayKey(cand) === key && layer2DayKey(cand - 1) !== key)
+      return cand;
+  }
+  return probe - 5 * 3600000;
+}
+function ymdDayStartMs(year, month, day) {
+  return layer2DayStartMs(Date.UTC(year, month - 1, day, 12, 0, 0));
+}
+function weekdayOfDayStart(dayStartMs) {
+  const wd = new Intl.DateTimeFormat("en-US", {
+    timeZone: LAYER2_TZ,
+    weekday: "short"
+  }).format(new Date(dayStartMs + 12 * 3600000));
+  return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(wd);
+}
+function weekFromDayStart(dayStartMs) {
+  const wd = weekdayOfDayStart(dayStartMs);
+  const back = (wd + 6) % 7;
+  const startMs = dayStartMs - back * DAY_MS3;
+  const dayKeys = [];
+  for (let i = 0;i < 7; i++)
+    dayKeys.push(layer2DayKey(startMs + i * DAY_MS3 + 12 * 3600000));
+  return { startMs, endMs: startMs + 7 * DAY_MS3, mondayKey: dayKeys[0], dayKeys };
+}
+function calendarWeekOf(ms) {
+  return weekFromDayStart(layer2DayStartMs(ms));
+}
+function appreciationWeek(year) {
+  return weekFromDayStart(ymdDayStartMs(year, 9, 15));
+}
+function christmasWeek(year) {
+  return weekFromDayStart(ymdDayStartMs(year, 12, 25));
+}
+function thanksgivingWeek(year) {
+  const nov1 = ymdDayStartMs(year, 11, 1);
+  const wd = weekdayOfDayStart(nov1);
+  const firstThursdayDay = 1 + (4 - wd + 7) % 7;
+  const fourthThursday = ymdDayStartMs(year, 11, firstThursdayDay + 21);
+  return weekFromDayStart(fourthThursday);
+}
+function validBirthMonthDay(month, day) {
+  if (month == null || day == null)
+    return false;
+  if (!Number.isInteger(month) || !Number.isInteger(day))
+    return false;
+  if (month < 1 || month > 12 || day < 1)
+    return false;
+  const daysIn = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1];
+  return day <= daysIn;
+}
+function isLeapYear(y) {
+  return y % 4 === 0 && y % 100 !== 0 || y % 400 === 0;
+}
+function monthDayStartMs(year, month, day) {
+  const d = month === 2 && day === 29 && !isLeapYear(year) ? 28 : day;
+  return ymdDayStartMs(year, month, d);
+}
+function birthdayAwardFor(birth, nowMs) {
+  if (!birth || !validBirthMonthDay(birth.month, birth.day))
+    return null;
+  const { year } = layer2DayParts(nowMs);
+  for (const y of [year, year - 1]) {
+    const start = monthDayStartMs(y, birth.month, birth.day);
+    if (nowMs >= start && nowMs < start + (1 + LAYER2_CALENDAR_GRACE_DAYS) * DAY_MS3) {
+      return {
+        refKey: `layer2-birthday-${y}`,
+        source: LAYER2_BIRTHDAY_SOURCE,
+        points: LAYER2_BIRTHDAY_POINTS,
+        reason: `Happy birthday \u2014 +${LAYER2_BIRTHDAY_POINTS} SM Points for your birthday`
+      };
+    }
+  }
+  return null;
+}
+function anniversaryAwardFor(createdMs, nowMs) {
+  if (!Number.isFinite(createdMs) || createdMs <= 0 || nowMs <= createdMs)
+    return null;
+  const c = layer2DayParts(createdMs);
+  const { year } = layer2DayParts(nowMs);
+  for (const y of [year, year - 1]) {
+    const years = y - c.year;
+    if (years < 1)
+      continue;
+    const start = monthDayStartMs(y, c.month, c.day);
+    if (nowMs >= start && nowMs < start + (1 + LAYER2_CALENDAR_GRACE_DAYS) * DAY_MS3) {
+      return {
+        refKey: `layer2-anniversary-${years}`,
+        source: LAYER2_ANNIVERSARY_SOURCE,
+        points: LAYER2_ANNIVERSARY_POINTS,
+        reason: `Road anniversary \u2014 ${years} year${years === 1 ? "" : "s"} on the road with STONEMILES: +${LAYER2_ANNIVERSARY_POINTS} SM Points`
+      };
+    }
+  }
+  return null;
+}
+function calendarWeekAward(args) {
+  if (args.nowMs < args.week.endMs)
+    return null;
+  const active = args.activityMs.some((t) => t >= args.week.startMs && t < args.week.endMs) || args.week.dayKeys.some((k) => args.activityDayKeys.has(k));
+  if (!active)
+    return null;
+  if (args.kind === "appreciation") {
+    return {
+      refKey: `layer2-appreciation-${args.weekYear}`,
+      source: LAYER2_APPRECIATION_SOURCE,
+      points: LAYER2_APPRECIATION_WEEK_POINTS,
+      reason: `Driver Appreciation Week ${args.weekYear} \u2014 you were on the road: +${LAYER2_APPRECIATION_WEEK_POINTS} SM Points`
+    };
+  }
+  const label = args.kind === "christmas" ? "Christmas" : "Thanksgiving";
+  return {
+    refKey: `layer2-holiday-${args.kind}-${args.weekYear}`,
+    source: LAYER2_HOLIDAY_SOURCE,
+    points: LAYER2_HOLIDAY_POINTS,
+    reason: `${label} week ${args.weekYear} \u2014 you were on the road: +${LAYER2_HOLIDAY_POINTS} SM Points`
+  };
+}
+function windowOverallScore(i) {
+  if (i.trips === 0 && i.seals === 0 && i.overspeedAny === 0)
+    return null;
+  const safety = Math.max(0, Math.min(100, 100 - 3 * i.overspeedFinal7d));
+  if (i.trips === 0 && i.seals === 0)
+    return safety;
+  let reliability = 50 + 2 * i.seals + i.trips;
+  if (i.onTimeCounted > 0 && Math.round(i.onTime / i.onTimeCounted * 100) >= 90) {
+    reliability += 10;
+  }
+  return Math.min(safety, Math.min(100, reliability));
+}
+function rankForScore(score) {
+  return score >= 92 ? "Diamond" : score >= 80 ? "Platinum" : score >= 65 ? "Gold" : score >= 50 ? "Silver" : score >= 30 ? "Bronze" : "Rookie";
+}
+function seasonRankPrize(seasonNumber, overall) {
+  if (overall == null)
+    return null;
+  const rank = rankForScore(overall);
+  const prize = LAYER2_SEASON_RANK_PRIZES.find((p) => p.rank === rank);
+  if (!prize)
+    return null;
+  return {
+    refKey: `layer2-seasonrank-${seasonNumber}`,
+    source: LAYER2_SEASON_RANK_SOURCE,
+    points: prize.points,
+    reason: `Season ${seasonNumber} top finish \u2014 you ended at ${rank}: +${prize.points} SM Points`
+  };
+}
+function comebackAwards(seasons) {
+  const out = [];
+  let sawLow = false;
+  for (const s of [...seasons].sort((a, b) => a.seasonNumber - b.seasonNumber)) {
+    if (s.overall == null)
+      continue;
+    if (sawLow && s.overall >= LAYER2_COMEBACK_TARGET_MIN) {
+      out.push({
+        refKey: `layer2-comeback-${s.seasonNumber}`,
+        source: LAYER2_COMEBACK_SOURCE,
+        points: LAYER2_COMEBACK_POINTS,
+        reason: `The comeback \u2014 Season ${s.seasonNumber} finished strong after a low season: +${LAYER2_COMEBACK_POINTS} SM Points`
+      });
+    }
+    if (s.overall < LAYER2_COMEBACK_LOW_MAX)
+      sawLow = true;
+  }
+  return out;
+}
+function perfectWeekAward(mondayKey, overall) {
+  if (overall == null || overall < LAYER2_TOP_BAND_MIN_SCORE)
+    return null;
+  return {
+    refKey: `layer2-perfectweek-${mondayKey}`,
+    source: LAYER2_PERFECT_WEEK_SOURCE,
+    points: LAYER2_PERFECT_WEEK_POINTS,
+    reason: `Perfect-score week of ${mondayKey} \u2014 your score held the top band all week: +${LAYER2_PERFECT_WEEK_POINTS} SM Points`
+  };
+}
+function noIncidentQuarterAwards(months) {
+  const out = [];
+  let run = 0;
+  for (const m of months) {
+    run = m.clean ? run + 1 : 0;
+    if (run > 0 && run % 3 === 0) {
+      out.push({
+        refKey: `layer2-noincident-${m.key}`,
+        source: LAYER2_NO_INCIDENT_SOURCE,
+        points: LAYER2_NO_INCIDENT_QUARTER_POINTS,
+        reason: `No-incident quarter \u2014 three clean months through ${m.key}: +${LAYER2_NO_INCIDENT_QUARTER_POINTS} SM Points`
+      });
+    }
+  }
+  return out;
+}
+function monthKeyOf(ms) {
+  return layer2DayKey(ms).slice(0, 7);
+}
+function nextMonthKey(key) {
+  const [y = 1970, m = 1] = key.split("-").map(Number);
+  const ny = m === 12 ? y + 1 : y;
+  const nm = m === 12 ? 1 : m + 1;
+  return `${ny}-${String(nm).padStart(2, "0")}`;
+}
+function coveredMonthKeys(events) {
+  const out = new Set;
+  for (const e of events) {
+    let key = monthKeyOf(e.createdMs);
+    const n = e.period === "yearly" ? 12 : 1;
+    for (let i = 0;i < n; i++) {
+      out.add(key);
+      key = nextMonthKey(key);
+    }
+  }
+  return out;
+}
+function longestMonthRun(keys) {
+  let best = 0;
+  for (const key of keys) {
+    const [y = 1970, m = 1] = key.split("-").map(Number);
+    const prev = m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, "0")}`;
+    if (keys.has(prev))
+      continue;
+    let run = 0;
+    let cur = key;
+    while (keys.has(cur)) {
+      run++;
+      cur = nextMonthKey(cur);
+    }
+    if (run > best)
+      best = run;
+  }
+  return best;
+}
+function renewalStreakAwards(longestRun) {
+  return LAYER2_RENEWAL_STREAKS.filter((s) => longestRun >= s.months).map((s) => ({
+    refKey: `layer2-renewal-${s.months}`,
+    source: LAYER2_RENEWAL_SOURCE,
+    points: s.points,
+    reason: `Renewal streak \u2014 ${s.months} consecutive subscribed months: +${s.points} SM Points`
+  }));
+}
+function referralLadderAwards(activeCount) {
+  return LAYER2_REFERRAL_LADDER.filter((s) => activeCount >= s.active).map((s) => ({
+    refKey: `layer2-refladder-${s.active}`,
+    source: LAYER2_REFERRAL_LADDER_SOURCE,
+    points: s.points,
+    reason: `Referral ladder \u2014 ${s.active} active referrals: +${s.points} SM Points`
+  }));
+}
+function rigRecordComplete(a) {
+  const filled = (v) => v != null && (typeof v !== "string" || v.trim().length > 0);
+  return filled(a.truckYear) && filled(a.truckMake) && filled(a.truckModel) && filled(a.trailerYear) && filled(a.trailerMake) && filled(a.trailerModel) && a.truckPhotos >= 1 && a.trailerPhotos >= 1 && a.cdlCurrent && a.medicalCurrent;
+}
+function maintenanceSignature(e) {
+  return `${e.category}|${layer2DayKey(e.performedMs)}|${e.odometer ?? "null"}|${e.cost}`;
+}
+function addMonthsMs(ms, months) {
+  const p = layer2DayParts(ms);
+  const total = p.year * 12 + (p.month - 1) + months;
+  const y = Math.floor(total / 12);
+  const m = total % 12 + 1;
+  const d = Math.min(p.day, [31, isLeapYear(y) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1]);
+  return ymdDayStartMs(y, m, d) + (ms - layer2DayStartMs(ms));
+}
+function evaluateMaintenance(entries, services, sealedOdometerMax) {
+  const usable = entries.filter((e) => e.status !== "draft").sort((a, b) => a.performedMs - b.performedMs || a.id - b.id);
+  const seenSignatures = new Set;
+  const duplicateEntryIds = [];
+  const canonical = [];
+  for (const e of usable) {
+    const sig = maintenanceSignature(e);
+    if (seenSignatures.has(sig)) {
+      duplicateEntryIds.push(e.id);
+    } else {
+      seenSignatures.add(sig);
+      canonical.push(e);
+    }
+  }
+  const chains = new Map;
+  for (const s of services) {
+    chains.set(s.item, {
+      intervalMiles: s.intervalMiles,
+      nextDueOdo: s.lastDoneOdometer != null && s.intervalMiles > 0 ? s.lastDoneOdometer + s.intervalMiles : null,
+      nextDueAt: s.item === "dot_inspection" && s.lastDoneAtMs != null ? addMonthsMs(s.lastDoneAtMs, 12) : null
+    });
+  }
+  const awards = [];
+  const odometerContradictionIds = [];
+  const dueButUnpaid = [];
+  const awardsByYear = new Map;
+  let trustedMaxOdo = null;
+  for (const e of canonical) {
+    const contradictsSealed = e.odometer != null && sealedOdometerMax != null && e.odometer > sealedOdometerMax + LAYER2_MAINTENANCE_ODOMETER_TOLERANCE_MI;
+    const contradictsBackward = e.odometer != null && trustedMaxOdo != null && e.odometer < trustedMaxOdo - LAYER2_MAINTENANCE_ODOMETER_TOLERANCE_MI;
+    const contradicts = contradictsSealed || contradictsBackward;
+    if (contradicts)
+      odometerContradictionIds.push(e.id);
+    if (e.odometer != null && !contradictsSealed) {
+      trustedMaxOdo = trustedMaxOdo == null ? e.odometer : Math.max(trustedMaxOdo, e.odometer);
+    }
+    const chain = chains.get(e.category);
+    if (chain) {
+      const dueByOdo = chain.nextDueOdo != null && e.odometer != null && e.odometer >= chain.nextDueOdo - LAYER2_MAINTENANCE_DUE_EARLY_TOLERANCE_MI;
+      const dueByDate = chain.nextDueAt != null && e.performedMs >= chain.nextDueAt - LAYER2_MAINTENANCE_DUE_EARLY_TOLERANCE_DAYS * DAY_MS3;
+      if (dueByOdo || dueByDate) {
+        const cycleKey = chain.nextDueOdo != null ? `m${Math.round(chain.nextDueOdo)}` : chain.nextDueAt != null ? `d${chain.nextDueAt}` : "open";
+        const odoBad = e.odometer == null || contradicts;
+        if (odoBad) {
+          dueButUnpaid.push({ entryId: e.id, why: "odometer" });
+        } else if (!e.hasReceipt) {
+          dueButUnpaid.push({ entryId: e.id, why: "no_receipt" });
+        } else {
+          const year = layer2DayParts(e.performedMs).year;
+          const used = awardsByYear.get(year) ?? 0;
+          if (used < LAYER2_MAINTENANCE_ANNUAL_AWARD_CAP) {
+            awardsByYear.set(year, used + 1);
+            awards.push({
+              entryId: e.id,
+              award: {
+                refKey: `layer2-maint-${e.category}-${cycleKey}`,
+                source: LAYER2_MAINTENANCE_SOURCE,
+                points: LAYER2_MAINTENANCE_POINTS,
+                reason: `Maintenance discipline \u2014 ${e.category.replace(/_/g, " ")} logged when it was due, receipt on file: +${LAYER2_MAINTENANCE_POINTS} SM Points`
+              }
+            });
+          }
+        }
+        if (!odoBad) {
+          chain.nextDueOdo = e.nextDueMiles ?? (chain.intervalMiles > 0 && e.odometer != null ? e.odometer + chain.intervalMiles : chain.nextDueOdo);
+          chain.nextDueAt = e.nextDueAtMs ?? (e.category === "dot_inspection" ? addMonthsMs(e.performedMs, 12) : null);
+        }
+      }
+    }
+  }
+  return {
+    awards,
+    duplicateEntryIds,
+    duplicateCopies: duplicateEntryIds.length,
+    odometerContradictionIds,
+    dueButUnpaid
+  };
+}
+
+// src/detention.ts
+var DETENTION_DEFAULT_GRACE_MINUTES = 120;
+var DETENTION_GRACE_MIN_MINUTES = 0;
+var DETENTION_GRACE_MAX_MINUTES = 720;
+function detentionTimes(arrivedMs, departedMs, graceMinutes) {
+  if (departedMs == null || !Number.isFinite(departedMs)) {
+    return { waitMinutes: null, billableMinutes: null };
+  }
+  const wait = Math.max(0, Math.round((departedMs - arrivedMs) / 60000));
+  const billable = Math.max(0, wait - Math.max(0, Math.round(graceMinutes)));
+  return { waitMinutes: wait, billableMinutes: billable };
+}
+function formatDurationMinutes(totalMinutes) {
+  const m = Math.max(0, Math.round(totalMinutes));
+  const h = Math.floor(m / 60);
+  const rem = m % 60;
+  if (h === 0)
+    return `${rem} min`;
+  if (rem === 0)
+    return `${h} h`;
+  return `${h} h ${rem} min`;
+}
+function detentionDelayMs(windows, apptMs, sealMs) {
+  let total = 0;
+  for (const w of windows) {
+    const start = Math.max(w.arrivedMs, apptMs);
+    const end = Math.min(w.departedMs, sealMs);
+    if (end > start)
+      total += end - start;
+  }
+  return Math.min(total, Math.max(0, sealMs - apptMs));
+}
+var SITE_LABEL = {
+  pickup: "Pickup",
+  delivery: "Delivery",
+  stop: "Stop"
+};
+function detentionProofText(r) {
+  const arrivedMs = Date.parse(r.arrivedAtIso);
+  const departedMs = Date.parse(r.departedAtIso);
+  const { waitMinutes, billableMinutes } = detentionTimes(arrivedMs, departedMs, r.graceMinutes);
+  const when = (iso) => new Date(iso).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "UTC"
+  }) + " UTC";
+  const lines = [
+    "STONEMILES \u2014 DETENTION TIME RECORD",
+    "Sealed arrival / departure stamps from the driver's own record.",
+    "",
+    `Place: ${r.place}`,
+    `Site: ${SITE_LABEL[r.site] ?? "Stop"}`,
+    ...r.apptAtIso ? [`Appointment: ${when(r.apptAtIso)}`] : [],
+    `Arrived: ${when(r.arrivedAtIso)}`,
+    `Departed: ${when(r.departedAtIso)}`,
+    `Total wait: ${waitMinutes != null ? formatDurationMinutes(waitMinutes) : "\u2014"}`,
+    `Free time allowed: ${formatDurationMinutes(r.graceMinutes)}`,
+    `Time past free time: ${billableMinutes != null ? formatDurationMinutes(billableMinutes) : "\u2014"}`,
+    "",
+    "This record proves time only. Detention pay, if any, is priced by the",
+    "driver's agreement with the broker or shipper \u2014 no rate is stated here.",
+    ...r.chainHash ? [`Seal (chain hash): ${r.chainHash}`] : []
+  ];
+  return lines.join(`
+`);
+}
+
+// src/dvir.ts
+var DVIR_ITEM_CATEGORIES = {
+  Brakes: "brakes",
+  "Trailer brakes & lights": "brakes",
+  "Tires & wheels": "tires",
+  "Lights & reflectors": "electrical",
+  Steering: "suspension",
+  Horn: "electrical",
+  Mirrors: "other",
+  "Coupling (fifth wheel / kingpin)": "other",
+  "Load securement": "other",
+  "Emergency equipment": "other",
+  "Fluids & leaks": "engine"
+};
+var ALL_CATEGORIES = [
+  "oil",
+  "tires",
+  "brakes",
+  "dot_inspection",
+  "engine",
+  "transmission",
+  "suspension",
+  "electrical",
+  "ac",
+  "other"
+];
+function categoryForDvirItem(item, explicit) {
+  if (explicit && ALL_CATEGORIES.includes(explicit)) {
+    return explicit;
+  }
+  return DVIR_ITEM_CATEGORIES[item] ?? "other";
+}
+function dvirDraftDescription(item) {
+  return `DVIR defect \u2014 ${item}`;
+}
+function dvirDraftNotes(note, dvirId, kind) {
+  const src = `From the signed ${kind === "posttrip" ? "post-trip" : "pre-trip"} DVIR #${dvirId} \u2014 drafted automatically; confirm or edit this entry, then mark it closed when the repair is done.`;
+  const n = note.trim();
+  return n ? `${n}
+${src}` : src;
+}
+
+// src/credentialAlerts.ts
+var CREDENTIAL_LABELS = {
+  cdl: "CDL",
+  medical: "Medical card",
+  twic: "TWIC"
+};
+var DAY_MS4 = 86400000;
+function expiryInstantMs(expiresOn) {
+  return Date.parse(`${expiresOn}T12:00:00.000Z`);
+}
+function credentialDaysLeft(expiresOn, nowMs) {
+  return Math.ceil((expiryInstantMs(expiresOn) - nowMs) / DAY_MS4);
+}
+function credentialThresholdFor(daysLeft) {
+  if (daysLeft == null)
+    return null;
+  if (daysLeft < 0)
+    return 0;
+  if (daysLeft <= 7)
+    return 7;
+  if (daysLeft <= 30)
+    return 30;
+  if (daysLeft <= 60)
+    return 60;
+  return null;
+}
+function dismissalMatches(dismissal, status) {
+  return status.threshold != null && status.expiresOn != null && dismissal.credentialKey === status.key && dismissal.threshold === status.threshold && dismissal.expiresOn === status.expiresOn;
+}
+function buildCredentialStatuses(credentials, dismissals, nowMs) {
+  return credentials.map((c) => {
+    const daysLeft = c.expiresOn != null ? credentialDaysLeft(c.expiresOn, nowMs) : null;
+    const threshold = credentialThresholdFor(daysLeft);
+    const base = { key: c.key, threshold, expiresOn: c.expiresOn };
+    return {
+      key: c.key,
+      label: c.label,
+      expiresOn: c.expiresOn,
+      daysLeft,
+      threshold,
+      dismissed: threshold != null && dismissals.some((d) => dismissalMatches(d, base))
+    };
+  });
+}
+function activeCredentialAlerts(statuses) {
+  return statuses.filter((s) => s.threshold != null && !s.dismissed).sort((a, b) => (a.daysLeft ?? Infinity) - (b.daysLeft ?? Infinity));
+}
+
+// src/settlement.ts
+var DEFAULT_DRIVER_CPM = 0.55;
+var round23 = (n) => Math.round(n * 100) / 100;
+var money = (n) => n.toLocaleString("en-US", { style: "currency", currency: "USD" });
+function settlementLineFor(setting, load) {
+  const gross = load.rate != null ? round23(load.rate + (load.extraCharges ?? 0)) : null;
+  const miles = load.loadedMiles ?? null;
+  if (setting.payBasis === "percent") {
+    if (setting.driverPayPct == null) {
+      return {
+        gross,
+        miles,
+        pay: null,
+        cpmUsed: null,
+        cpmDefaulted: false,
+        basisNote: "Can't figure this one yet \u2014 set your percent in Settings \u2192 My pay and it figures itself."
+      };
+    }
+    if (gross == null) {
+      return {
+        gross,
+        miles,
+        pay: null,
+        cpmUsed: null,
+        cpmDefaulted: false,
+        basisNote: "Can't figure this one yet \u2014 this load has no rate on file, and percent pay only runs off a real rate."
+      };
+    }
+    return {
+      gross,
+      miles,
+      pay: round23(gross * setting.driverPayPct / 100),
+      cpmUsed: null,
+      cpmDefaulted: false,
+      basisNote: `${setting.driverPayPct}% of the load's pay (${money(gross)})`
+    };
+  }
+  const cpmDefaulted = setting.driverCpm == null;
+  const cpmUsed = setting.driverCpm ?? DEFAULT_DRIVER_CPM;
+  if (miles == null) {
+    return {
+      gross,
+      miles,
+      pay: null,
+      cpmUsed,
+      cpmDefaulted,
+      basisNote: "Can't figure this one yet \u2014 this load has no loaded miles on file, and CPM pay runs off the loaded miles."
+    };
+  }
+  return {
+    gross,
+    miles,
+    pay: round23(cpmUsed * miles),
+    cpmUsed,
+    cpmDefaulted,
+    basisNote: cpmDefaulted ? `Standard ${money(DEFAULT_DRIVER_CPM)}/mi \xD7 ${miles.toLocaleString("en-US")} loaded mi \u2014 your own CPM isn't set (Settings \u2192 My pay)` : `${money(cpmUsed)}/mi \xD7 ${miles.toLocaleString("en-US")} loaded mi`
+  };
+}
+function settlementTotals(lines) {
+  let totalPay = 0;
+  let totalGross = 0;
+  let figured = 0;
+  for (const l of lines) {
+    if (l.pay != null) {
+      totalPay += l.pay;
+      figured++;
+    }
+    if (l.gross != null)
+      totalGross += l.gross;
+  }
+  return {
+    totalPay: round23(totalPay),
+    totalGross: round23(totalGross),
+    figured,
+    unfigured: lines.length - figured
+  };
+}
+
+// src/invoicing.ts
+var round24 = (n) => Math.round(n * 100) / 100;
+var CLAIM_KIND_LABELS = {
+  tonu: "TONU (truck ordered, not used)",
+  layover: "Layover",
+  driver_assist: "Driver assist"
+};
+function claimKindLabel(kind) {
+  return CLAIM_KIND_LABELS[kind] ?? kind;
+}
+function invoiceLinesFor(load, claims) {
+  const freight = load.rate != null ? round24(load.rate + (load.extraCharges ?? 0)) : null;
+  const lines = [];
+  if (freight != null) {
+    lines.push({ label: "Freight", amount: round24(load.rate) });
+    if ((load.extraCharges ?? 0) > 0) {
+      lines.push({
+        label: `Additional charges${load.extraChargesNote ? ` \u2014 ${load.extraChargesNote}` : ""}`,
+        amount: round24(load.extraCharges)
+      });
+    }
+  }
+  const byKind = new Map;
+  for (const c of claims) {
+    if (!Number.isFinite(c.amount))
+      continue;
+    byKind.set(c.kind, round24((byKind.get(c.kind) ?? 0) + c.amount));
+  }
+  let claimsTotal = 0;
+  for (const [kind, amt] of byKind) {
+    if (amt === 0)
+      continue;
+    lines.push({ label: claimKindLabel(kind), amount: amt });
+    claimsTotal += amt;
+  }
+  claimsTotal = round24(claimsTotal);
+  const amount = freight != null ? round24(freight + claimsTotal) : null;
+  return { lines, freight, claimsTotal, amount };
+}
+function formatInvoiceNumber(year, seq) {
+  return `INV-${year}-${String(Math.max(1, Math.floor(seq))).padStart(4, "0")}`;
+}
+function invoiceDisplayStatus(inv, nowMs) {
+  if (inv.status === "paid")
+    return "paid";
+  if (inv.status === "issued" && inv.dueAtMs != null && inv.dueAtMs < nowMs)
+    return "overdue";
+  return inv.status === "issued" ? "issued" : "draft";
+}
+var DEFAULT_DUE_DAYS = 30;
+var MONTH_NAMES = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December"
+];
+function plPeriodRange(kind, year, index) {
+  const y = Math.min(2100, Math.max(2020, Math.floor(year) || 2020));
+  if (kind === "month") {
+    const m = Math.min(12, Math.max(1, Math.floor(index) || 1));
+    return {
+      kind,
+      year: y,
+      index: m,
+      startMs: Date.UTC(y, m - 1, 1),
+      endMs: Date.UTC(y, m, 1),
+      key: `month:${y}:${m}`,
+      label: `${MONTH_NAMES[m - 1]} ${y}`
+    };
+  }
+  if (kind === "quarter") {
+    const q = Math.min(4, Math.max(1, Math.floor(index) || 1));
+    return {
+      kind,
+      year: y,
+      index: q,
+      startMs: Date.UTC(y, (q - 1) * 3, 1),
+      endMs: Date.UTC(y, q * 3, 1),
+      key: `quarter:${y}:${q}`,
+      label: `Q${q} ${y}`
+    };
+  }
+  return {
+    kind: "year",
+    year: y,
+    index: 1,
+    startMs: Date.UTC(y, 0, 1),
+    endMs: Date.UTC(y + 1, 0, 1),
+    key: `year:${y}:1`,
+    label: `${y}`
+  };
+}
+var PL_EXPENSE_LABELS = {
+  fuel: "Fuel (logged as an expense)",
+  maintenance: "Maintenance (expense tracker)",
+  repairs: "Repairs (expense tracker)",
+  tolls: "Tolls",
+  lumper: "Lumper fees",
+  insurance: "Insurance",
+  scale: "Scale tickets",
+  parking: "Parking",
+  permits: "Permits",
+  meals: "Meals",
+  supplies: "Supplies & equipment",
+  dot_testing: "DOT testing / physical",
+  licensing: "Licensing & fees",
+  software: "Software & satellite",
+  other: "Other expenses"
+};
+var inPeriod = (ms, p) => Number.isFinite(ms) && ms >= p.startMs && ms < p.endMs;
+function buildProfitLoss(input) {
+  const { period } = input;
+  const loadsIn = input.loads.filter((l) => inPeriod(l.deliveredAtMs, period));
+  let incomeFreight = 0;
+  let incomeClaims = 0;
+  let unfiguredLoads = 0;
+  const incomeByLoad = new Map;
+  for (const l of loadsIn) {
+    incomeClaims += l.claimsTotal;
+    if (l.gross == null) {
+      unfiguredLoads++;
+      incomeByLoad.set(l.loadId, null);
+    } else {
+      incomeFreight += l.gross;
+      incomeByLoad.set(l.loadId, round24(l.gross + l.claimsTotal));
+    }
+  }
+  incomeFreight = round24(incomeFreight);
+  incomeClaims = round24(incomeClaims);
+  const taggedByLoad = new Map;
+  const byCategory = new Map;
+  let unassignedExpenses = 0;
+  let expenseTotal = 0;
+  for (const e of input.expenses) {
+    if (!inPeriod(e.spentAtMs, period) || !Number.isFinite(e.amount))
+      continue;
+    expenseTotal += e.amount;
+    byCategory.set(e.category, round24((byCategory.get(e.category) ?? 0) + e.amount));
+    if (e.loadId != null && loadsIn.some((l) => l.loadId === e.loadId)) {
+      taggedByLoad.set(e.loadId, round24((taggedByLoad.get(e.loadId) ?? 0) + e.amount));
+    } else {
+      unassignedExpenses += e.amount;
+    }
+  }
+  expenseTotal = round24(expenseTotal);
+  unassignedExpenses = round24(unassignedExpenses);
+  const fuelTotal = round24(input.fuelPurchases.filter((f) => inPeriod(f.purchasedAtMs, period)).reduce((s, f) => s + (Number.isFinite(f.total) ? f.total : 0), 0));
+  const maintTotal = round24(input.maintenance.filter((m) => inPeriod(m.performedAtMs, period)).reduce((s, m) => s + (Number.isFinite(m.cost) ? m.cost : 0), 0));
+  const costLines = [];
+  if (fuelTotal > 0)
+    costLines.push({ key: "fuel_purchases", label: "Fuel purchases", amount: fuelTotal });
+  const catLines = [...byCategory.entries()].map(([category, amount]) => ({ key: `expense:${category}`, label: PL_EXPENSE_LABELS[category] ?? category, amount: round24(amount) })).sort((a, b) => b.amount - a.amount || a.label.localeCompare(b.label));
+  costLines.push(...catLines);
+  if (maintTotal > 0)
+    costLines.push({ key: "maintenance_log", label: "Maintenance log", amount: maintTotal });
+  const costsTotal = round24(costLines.reduce((s, l) => s + l.amount, 0));
+  const incomeTotal = round24(incomeFreight + incomeClaims);
+  const perLoad = loadsIn.map((l) => {
+    const income = incomeByLoad.get(l.loadId) ?? null;
+    const costs = taggedByLoad.get(l.loadId) ?? 0;
+    return { loadId: l.loadId, income, costs, net: income != null ? round24(income - costs) : null };
+  }).sort((a, b) => a.loadId - b.loadId);
+  return {
+    period,
+    incomeFreight,
+    incomeClaims,
+    incomeTotal,
+    unfiguredLoads,
+    costLines,
+    costsTotal,
+    net: round24(incomeTotal - costsTotal),
+    perLoad,
+    unassignedExpenses
+  };
+}
+
+// src/fleetVisibility.ts
+var round1 = (n) => Math.round(n * 10) / 10;
+function haversineMi(a, b) {
+  const R = 3958.8;
+  const dLat = (b.lat - a.lat) * Math.PI / 180;
+  const dLon = (b.lon - a.lon) * Math.PI / 180;
+  const s = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * Math.PI / 180) * Math.cos(b.lat * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(s));
+}
+var LIVE_WITHIN_MIN = 15;
+var RECENT_WITHIN_MIN = 120;
+function freshnessFor(updatedAt, now) {
+  if (!updatedAt)
+    return { bucket: "none", ageMinutes: null, label: "No location reported yet" };
+  const ageMin = Math.max(0, Math.floor((now.getTime() - updatedAt.getTime()) / 60000));
+  const label = ageMin < 1 ? "updated just now" : ageMin < 60 ? `updated ${ageMin} min ago` : ageMin < 60 * 24 ? `updated ${Math.floor(ageMin / 60)} h ${ageMin % 60} min ago` : `updated ${Math.floor(ageMin / (60 * 24))} d ago`;
+  const bucket = ageMin < LIVE_WITHIN_MIN ? "live" : ageMin < RECENT_WITHIN_MIN ? "recent" : "stale";
+  return { bucket, ageMinutes: ageMin, label };
+}
+var SNAPSHOT_FRESH_MS = 30 * 60 * 1000;
+function snapshotFreshFor(publishedAt, now) {
+  if (!publishedAt)
+    return false;
+  return now.getTime() - publishedAt.getTime() <= SNAPSHOT_FRESH_MS;
+}
+function plainLoadStatus(status) {
+  switch (status) {
+    case "booked":
+      return "Booked \u2014 waiting for pickup";
+    case "picked_up":
+      return "Picked up \u2014 on the road";
+    case "sealed":
+      return "Delivered";
+    default:
+      return "In progress";
+  }
+}
+function laneLabel(pickupCity, pickupState, deliveryCity, deliveryState) {
+  const side = (city, state, fallback) => [city, state].filter(Boolean).join(", ") || fallback;
+  return `${side(pickupCity, pickupState, "Pickup")} \u2192 ${side(deliveryCity, deliveryState, "Delivery")}`;
+}
+function cleanStops(input) {
+  if (!input)
+    return [];
+  return input.map((s) => typeof s === "string" ? s.trim().slice(0, 80) : "").filter(Boolean).slice(0, 20);
+}
+function rankAssignCandidates(candidates, pickup) {
+  const ranked = candidates.map((c) => {
+    const deadheadNowMi = pickup && c.currentPos ? round1(haversineMi(c.currentPos, pickup)) : null;
+    const deadheadEndMi = pickup && c.routeEnd ? round1(haversineMi(c.routeEnd, pickup)) : null;
+    const fromRouteEnd = c.hasActiveLoad && c.routeEnd != null;
+    const effectiveMi = fromRouteEnd ? deadheadEndMi : deadheadNowMi;
+    const basis = fromRouteEnd ? "route_end" : c.currentPos != null ? "current" : "unknown";
+    const basisLabel = fromRouteEnd ? "Finishing a load \u2014 ranked from its route end" : c.currentPos != null ? c.hasActiveLoad ? "On a load, route end unknown \u2014 ranked from current position" : "Empty \u2014 ranked from current position" : "Position unknown \u2014 cannot rank by deadhead";
+    return { ...c, deadheadNowMi, deadheadEndMi, effectiveMi, basis, basisLabel };
+  });
+  ranked.sort((a, b) => {
+    if (a.effectiveMi == null && b.effectiveMi == null)
+      return a.username.localeCompare(b.username);
+    if (a.effectiveMi == null)
+      return 1;
+    if (b.effectiveMi == null)
+      return -1;
+    if (a.effectiveMi !== b.effectiveMi)
+      return a.effectiveMi - b.effectiveMi;
+    return a.username.localeCompare(b.username);
+  });
+  return ranked;
+}
+function trackShareStateFor(args) {
+  if (args.linkStatus === "revoked")
+    return "revoked";
+  if (args.delivered)
+    return "delivered";
+  return "live";
+}
+
+// src/recordsBundle.ts
+var money2 = (n) => n.toLocaleString("en-US", { style: "currency", currency: "USD" });
+var MONTHS2 = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function bundleDate(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime()))
+    return iso.slice(0, 10);
+  return `${MONTHS2[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`;
+}
+function bundleDateTime(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime()))
+    return iso;
+  let h = d.getUTCHours();
+  const ampm = h >= 12 ? "PM" : "AM";
+  h = h % 12 === 0 ? 12 : h % 12;
+  const m = String(d.getUTCMinutes()).padStart(2, "0");
+  return `${bundleDate(iso)}, ${h}:${m} ${ampm} UTC`;
+}
+var BUNDLE_CAPS = { loads: 300, hosDays: 400, dvirs: 200, maintenance: 300 };
+function capped(rows, cap) {
+  if (rows.length <= cap)
+    return { shown: rows, moreLine: null };
+  return {
+    shown: rows.slice(0, cap),
+    moreLine: `\u2026and ${rows.length - cap} more on file \u2014 this bundle prints the newest ${cap}. The full record stays in the app.`
+  };
+}
+function buildRecordsBundle(input) {
+  const sections = [];
+  const cover = [
+    `Driver: ${input.driverLabel}`,
+    `Generated: ${bundleDateTime(input.generatedAtIso)}`,
+    `Contents: ${input.loads.length} load(s) \xB7 ${input.hosDays.length} HOS day(s) \xB7 ${input.dvirs.length} inspection report(s) \xB7 ${input.maintenance.length} maintenance entr${input.maintenance.length === 1 ? "y" : "ies"} \xB7 truck & trailer record \xB7 IFTA ${input.ifta ? String(input.ifta.year) : ""} year to date \xB7 ${input.credentials.length} credential(s) on file`,
+    input.chainHead ? `Sealed chain head: ${input.chainHead}${input.chainIntact != null ? ` \u2014 chain walk ${input.chainIntact ? `verified intact (${input.chainChecked ?? 0} records checked)` : "DID NOT VERIFY \u2014 treat this bundle with care and check the chain in the app"}` : ""}` : "Sealed chain head: not available for this bundle.",
+    "This bundle is drawn only from your own STONEMILES records. It is a records export for audits, tax prep, and your own files \u2014 not a filing and not tax advice."
+  ];
+  sections.push({ heading: "About this bundle", lines: cover });
+  {
+    const { shown, moreLine } = capped(input.loads, BUNDLE_CAPS.loads);
+    const lines = [];
+    if (input.loads.length === 0) {
+      lines.push("No loads on file yet \u2014 loads you book and run in STONEMILES list here.");
+    }
+    for (const l of shown) {
+      const bits = [`Load #${l.id} \u2014 ${l.lane}`];
+      if (l.shipper)
+        bits.push(l.shipper);
+      if (l.referenceNumber)
+        bits.push(`Ref ${l.referenceNumber}`);
+      if (l.commodity)
+        bits.push(l.commodity);
+      bits.push(l.sealed ? `Delivered \u2014 POD sealed${l.deliveredAtIso ? ` ${bundleDate(l.deliveredAtIso)}` : ""}` : `Status: ${l.status}`);
+      if (l.rate != null) {
+        const total = Math.round((l.rate + (l.extraCharges ?? 0)) * 100) / 100;
+        bits.push(l.extraCharges ? `${money2(total)} (rate ${money2(l.rate)} + ${money2(l.extraCharges)} additional charges)` : money2(total));
+      } else {
+        bits.push("No rate on file");
+      }
+      if (l.loadedMiles != null)
+        bits.push(`${Math.round(l.loadedMiles)} loaded mi`);
+      lines.push(bits.join(" \xB7 "));
+    }
+    if (moreLine)
+      lines.push(moreLine);
+    sections.push({ heading: "Loads", lines });
+  }
+  {
+    const { shown, moreLine } = capped(input.hosDays, BUNDLE_CAPS.hosDays);
+    const lines = [];
+    if (input.hosDays.length === 0) {
+      lines.push("No HOS daily logs on file yet \u2014 days you open in the app list here.");
+    }
+    for (const d of shown) {
+      const bits = [
+        d.logDate,
+        d.status === "open" ? "Open" : d.status === "auto_closed" ? "Auto-closed" : "Closed",
+        d.totalMiles != null ? `${Math.round(d.totalMiles * 10) / 10} mi` : "Miles not recorded",
+        `${d.loadsDelivered} load(s) delivered`,
+        `Pre-trip: ${d.pretripResult ?? "not recorded"}`
+      ];
+      if (d.criticalDefect)
+        bits.push("CRITICAL DEFECT flagged");
+      lines.push(bits.join(" \xB7 "));
+    }
+    if (moreLine)
+      lines.push(moreLine);
+    sections.push({ heading: "Hours of service \u2014 daily logs", lines });
+  }
+  {
+    const { shown, moreLine } = capped(input.dvirs, BUNDLE_CAPS.dvirs);
+    const lines = [];
+    if (input.dvirs.length === 0) {
+      lines.push("No inspection reports on file yet \u2014 signed pre-trip and post-trip reports list here.");
+    }
+    for (const r of shown) {
+      const bits = [
+        bundleDateTime(r.inspectedAtIso),
+        r.kind === "posttrip" ? "Post-trip" : "Pre-trip",
+        r.status === "defects_reported" ? `${r.defectCount} defect(s) reported` : r.status === "cleared" ? "Defects cleared" : "Signed \u2014 no defects",
+        `Signed: ${r.signedName}`
+      ];
+      if (r.odometer != null)
+        bits.push(`Odometer ${Math.round(r.odometer).toLocaleString("en-US")}`);
+      if (r.truckLabel)
+        bits.push(`Truck: ${r.truckLabel}`);
+      if (r.trailerLabel)
+        bits.push(`Trailer: ${r.trailerLabel}`);
+      lines.push(bits.join(" \xB7 "));
+    }
+    if (moreLine)
+      lines.push(moreLine);
+    sections.push({ heading: "Inspection reports (DVIR)", lines });
+  }
+  {
+    const t = input.truck;
+    const lines = [];
+    const truckLine = t ? [t.truckYear, t.truckMake, t.truckModel].filter(Boolean).join(" ") : "";
+    if (!t || !truckLine && !t.trailerMake && !t.trailerYear) {
+      lines.push("No truck or trailer record on file yet \u2014 fill in My Truck / My Trailer in Settings and it prints here.");
+    } else {
+      if (truckLine)
+        lines.push(`Truck: ${truckLine}`);
+      if (t.truckUnitNumber)
+        lines.push(`Unit #: ${t.truckUnitNumber}`);
+      if (t.truckVin)
+        lines.push(`Truck VIN: ${t.truckVin}`);
+      if (t.truckPlate)
+        lines.push(`Truck plate: ${t.truckPlate}`);
+      if (t.truckEngine)
+        lines.push(`Engine: ${t.truckEngine}`);
+      if (t.truckTransmission)
+        lines.push(`Transmission: ${t.truckTransmission}`);
+      const dims = [];
+      if (t.heightFt != null)
+        dims.push(`Height ${t.heightFt} ft${t.heightIn != null ? ` ${t.heightIn} in` : ""}`);
+      if (t.weightLbs != null)
+        dims.push(`Weight ${t.weightLbs.toLocaleString("en-US")} lbs`);
+      if (t.lengthFt != null)
+        dims.push(`Length ${t.lengthFt} ft`);
+      if (dims.length)
+        lines.push(dims.join(" \xB7 "));
+      const trailerLine = [t.trailerYear, t.trailerMake, t.trailerModel, t.trailerType].filter(Boolean).join(" ");
+      if (trailerLine)
+        lines.push(`Trailer: ${trailerLine}`);
+      if (t.trailerVin)
+        lines.push(`Trailer VIN: ${t.trailerVin}`);
+      if (t.trailerPlate)
+        lines.push(`Trailer plate: ${t.trailerPlate}`);
+    }
+    sections.push({ heading: "Truck & trailer record", lines });
+  }
+  {
+    const { shown, moreLine } = capped(input.maintenance, BUNDLE_CAPS.maintenance);
+    const lines = [];
+    if (input.maintenance.length === 0) {
+      lines.push("No maintenance entries on file yet \u2014 services and repairs you log list here.");
+    }
+    let total = 0;
+    for (const m of shown) {
+      total = Math.round((total + (m.cost ?? 0)) * 100) / 100;
+      const bits = [
+        bundleDate(m.performedAtIso),
+        m.category,
+        m.description,
+        m.status === "draft" ? "DRAFT \u2014 from a DVIR defect, not yet confirmed" : m.status === "closed" ? "Closed" : "Logged",
+        money2(m.cost ?? 0)
+      ];
+      if (m.shop)
+        bits.push(m.shop);
+      if (m.odometer != null)
+        bits.push(`at ${Math.round(m.odometer).toLocaleString("en-US")} mi`);
+      lines.push(bits.join(" \xB7 "));
+    }
+    if (input.maintenance.length > 0)
+      lines.push(`Total maintenance cost on file: ${money2(total)}`);
+    if (moreLine)
+      lines.push(moreLine);
+    sections.push({ heading: "Maintenance log", lines });
+  }
+  {
+    const lines = [];
+    if (!input.ifta || input.ifta.rows.length === 0) {
+      lines.push("No IFTA data on file yet \u2014 sealed trip miles by state and logged fuel build these lines automatically.");
+    } else {
+      lines.push(`Year: ${input.ifta.year} (year to date, all four quarters combined)`);
+      for (const r of input.ifta.rows) {
+        lines.push(`${r.state}: ${Math.round(r.miles * 10) / 10} mi \xB7 ${Math.round(r.gallonsBought * 100) / 100} gal bought`);
+      }
+      lines.push(`Totals: ${Math.round(input.ifta.totalMiles * 10) / 10} mi \xB7 ${Math.round(input.ifta.totalGallons * 100) / 100} gal bought`);
+      lines.push("Miles from sealed trip sheets; fuel from your logged purchases. Estimate for planning and audit support only \u2014 not a filing and not tax advice. File from the quarterly IFTA exports in the Library.");
+    }
+    sections.push({ heading: "IFTA data", lines });
+  }
+  {
+    const lines = [];
+    if (input.credentials.length === 0) {
+      lines.push("No credentials on file yet \u2014 add your CDL, medical card, and TWIC in the Document Expiry Wallet and they list here.");
+    }
+    for (const c of input.credentials) {
+      const bits = [c.label];
+      if (c.detail)
+        bits.push(c.detail);
+      bits.push(c.expiresIso ? `Expires ${bundleDate(c.expiresIso)}` : "No expiry date on file");
+      if (c.last4)
+        bits.push(`Document \xB7\xB7\xB7\xB7${c.last4}`);
+      lines.push(bits.join(" \xB7 "));
+    }
+    sections.push({ heading: "Credentials on file", lines });
+  }
+  return {
+    title: "Full records bundle",
+    subtitle: `${input.driverLabel} \u2014 loads, HOS logs, inspections, maintenance, truck record, IFTA, credentials`,
+    sections,
+    counts: {
+      loads: input.loads.length,
+      hosDays: input.hosDays.length,
+      dvirs: input.dvirs.length,
+      maintenance: input.maintenance.length,
+      credentials: input.credentials.length
+    }
+  };
+}
+
+// src/notifications.ts
+function dedupePolicyFor(kind) {
+  switch (kind) {
+    case "dm":
+    case "hos":
+      return "until_read";
+    case "credential":
+      return "ever";
+    case "load_offer":
+    case "system":
+      return "unique";
+  }
+}
+function previewText(body, max = 140) {
+  const flat = body.replace(/\s+/g, " ").trim();
+  if (flat.length <= max)
+    return flat;
+  const cut = flat.slice(0, max);
+  const lastSpace = cut.lastIndexOf(" ");
+  return `${(lastSpace > max * 0.5 ? cut.slice(0, lastSpace) : cut).trimEnd()}\u2026`;
+}
+function dmNotification(args) {
+  const preview = args.kind === "text" || args.kind === "" ? previewText(args.body) : args.kind === "load" ? "Shared a load" : args.kind === "route" ? "Shared a route" : args.kind === "location" ? "Shared a location" : previewText(args.body);
+  if (args.groupLabel == null) {
+    return { title: args.senderName, body: preview };
+  }
+  return { title: args.groupLabel, body: `${args.senderName}: ${preview}` };
+}
+function loadOfferNotification(args) {
+  const who = args.brokerName || args.brokerCompany ? `${args.brokerName ?? ""}${args.brokerCompany ? `${args.brokerName ? " \xB7 " : ""}${args.brokerCompany}` : ""}` : "A broker / shipper";
+  const lane = args.pickupLabel || args.deliveryLabel ? `${args.pickupLabel ?? "\u2014"} \u2192 ${args.deliveryLabel ?? "\u2014"}` : "Lane details in the desk";
+  return {
+    title: "New load offer in your desk inbox",
+    body: `${who} \u2014 ${lane}. Open the desk to review it.`
+  };
+}
+function credentialNotification(args) {
+  if (args.threshold === 0) {
+    return {
+      title: `${args.label} expired`,
+      body: `Your ${args.label} expired${args.expiresOn ? ` on ${args.expiresOn}` : ""} \u2014 renew it before you roll; an expired credential can park the truck.`
+    };
+  }
+  const days = args.daysLeft ?? args.threshold;
+  return {
+    title: `${args.label} expires in ${days} day${days === 1 ? "" : "s"}`,
+    body: `Your ${args.label} expires${args.expiresOn ? ` on ${args.expiresOn}` : ""} \u2014 ${days} day${days === 1 ? "" : "s"} left. Renew early so it never lapses on the road.`
+  };
+}
+var HOS_CLOCK_LABELS = {
+  drive: "drive clock",
+  window: "shift window",
+  cycle: "cycle clock",
+  break: "rest-break clock"
+};
+function hosNotification(args) {
+  const label = HOS_CLOCK_LABELS[args.clock] ?? "hours-of-service clock";
+  if (args.thresholdMin <= 0) {
+    return {
+      title: "Hours of service \u2014 at your limit",
+      body: `You are AT your ${label}. Stop as soon as it is safe.`
+    };
+  }
+  return {
+    title: "Hours of service warning",
+    body: `${args.thresholdMin} minutes left before your ${label}.`
+  };
+}
+function pushSenderFromEnv(_env) {
+  return null;
+}
+function pushStateFor(args) {
+  if (args.enabledDeviceCount === 0)
+    return "no_devices";
+  if (!args.senderConfigured)
+    return "not_configured";
+  if (args.sendOk == null)
+    return "not_configured";
+  return args.sendOk ? "sent" : "failed";
+}
+function pushStatusLine(args) {
+  if (args.senderConfigured) {
+    return args.enabledDeviceCount > 0 ? `Phone push is on for ${args.enabledDeviceCount} device${args.enabledDeviceCount === 1 ? "" : "s"}.` : "Phone push is ready \u2014 no device has registered yet. Devices register from the Android app.";
+  }
+  return args.enabledDeviceCount > 0 ? "Phone push arrives with the Android app \u2014 your registered device(s) will start receiving these alerts then. Until then, everything lands here in the app." : "Phone push arrives with the Android app. Until then, every alert lands here in the app \u2014 nothing is emailed.";
+}
+
+// src/eldSync.ts
+var ELD_SYNC_FEEDS = [
+  "hos_clocks",
+  "hos_logs",
+  "dvirs",
+  "vehicle_stats",
+  "ifta",
+  "identity"
+];
+var DUTY_STATES = new Set(["off_duty", "sleeper", "on_duty", "driving"]);
+function isRecord(v) {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+function isFiniteNonNegative(v) {
+  return typeof v === "number" && Number.isFinite(v) && v >= 0;
+}
+function validateHosClocks(p) {
+  const errors = [];
+  const out = {};
+  for (const key of ["driveRemainH", "windowRemainH", "cycleRemainH", "breakRemainH"]) {
+    if (isFiniteNonNegative(p[key]))
+      out[key] = p[key];
+    else
+      errors.push(`${key} must be a finite number \u2265 0`);
+  }
+  if (errors.length > 0)
+    return { ok: false, errors };
+  return { ok: true, normalized: { ...p, ...out } };
+}
+function validateHosLogs(p) {
+  if (!Array.isArray(p.logs))
+    return { ok: false, errors: ["logs must be an array"] };
+  if (p.logs.length > 500)
+    return { ok: false, errors: ["logs is capped at 500 entries per sync"] };
+  const errors = [];
+  p.logs.forEach((entry, i) => {
+    if (!isRecord(entry)) {
+      errors.push(`logs[${i}] must be an object`);
+      return;
+    }
+    if (typeof entry.state !== "string" || !DUTY_STATES.has(entry.state)) {
+      errors.push(`logs[${i}].state must be one of ${[...DUTY_STATES].join(", ")}`);
+    }
+    if (typeof entry.at !== "string" || Number.isNaN(Date.parse(entry.at))) {
+      errors.push(`logs[${i}].at must be an ISO timestamp`);
+    }
+    if (entry.location !== undefined && entry.location !== null && typeof entry.location !== "string") {
+      errors.push(`logs[${i}].location must be a string when present`);
+    }
+  });
+  return errors.length > 0 ? { ok: false, errors } : { ok: true, normalized: p };
+}
+function validateDvirs(p) {
+  if (!Array.isArray(p.dvirs))
+    return { ok: false, errors: ["dvirs must be an array"] };
+  if (p.dvirs.length > 200)
+    return { ok: false, errors: ["dvirs is capped at 200 entries per sync"] };
+  const errors = [];
+  p.dvirs.forEach((entry, i) => {
+    if (!isRecord(entry)) {
+      errors.push(`dvirs[${i}] must be an object`);
+      return;
+    }
+    if (entry.inspectedAt !== undefined && (typeof entry.inspectedAt !== "string" || Number.isNaN(Date.parse(entry.inspectedAt)))) {
+      errors.push(`dvirs[${i}].inspectedAt must be an ISO timestamp when present`);
+    }
+    if (entry.defects !== undefined) {
+      if (!Array.isArray(entry.defects)) {
+        errors.push(`dvirs[${i}].defects must be an array when present`);
+      } else {
+        entry.defects.forEach((d, j) => {
+          if (!isRecord(d) || typeof d.item !== "string" || d.item.trim() === "") {
+            errors.push(`dvirs[${i}].defects[${j}] needs an item name`);
+          }
+        });
+      }
+    }
+  });
+  return errors.length > 0 ? { ok: false, errors } : { ok: true, normalized: p };
+}
+function validateVehicleStats(p) {
+  const errors = [];
+  let readings = 0;
+  if (p.odometerMi !== undefined) {
+    if (isFiniteNonNegative(p.odometerMi))
+      readings++;
+    else
+      errors.push("odometerMi must be a finite number \u2265 0");
+  }
+  if (p.engineHours !== undefined) {
+    if (isFiniteNonNegative(p.engineHours))
+      readings++;
+    else
+      errors.push("engineHours must be a finite number \u2265 0");
+  }
+  if (p.lat !== undefined || p.lon !== undefined) {
+    const latOk = typeof p.lat === "number" && p.lat >= -90 && p.lat <= 90;
+    const lonOk = typeof p.lon === "number" && p.lon >= -180 && p.lon <= 180;
+    if (latOk && lonOk)
+      readings++;
+    else
+      errors.push("lat/lon must be a valid coordinate pair");
+  }
+  if (errors.length === 0 && readings === 0) {
+    errors.push("vehicle_stats carries no reading (odometerMi, engineHours, or lat/lon)");
+  }
+  return errors.length > 0 ? { ok: false, errors } : { ok: true, normalized: p };
+}
+function validateIfta(p) {
+  if (!Array.isArray(p.states))
+    return { ok: false, errors: ["states must be an array"] };
+  const errors = [];
+  p.states.forEach((entry, i) => {
+    if (!isRecord(entry)) {
+      errors.push(`states[${i}] must be an object`);
+      return;
+    }
+    if (typeof entry.state !== "string" || !/^[A-Z]{2}$/.test(entry.state)) {
+      errors.push(`states[${i}].state must be a 2-letter state code`);
+    }
+    if (!isFiniteNonNegative(entry.miles)) {
+      errors.push(`states[${i}].miles must be a finite number \u2265 0`);
+    }
+  });
+  return errors.length > 0 ? { ok: false, errors } : { ok: true, normalized: p };
+}
+var IDENTITY_STRING_FIELDS = {
+  driver: ["driverId", "name", "cdlNumber", "cdlState", "cdlClass", "cdlEndorsements", "homeTerminal"],
+  truck: ["unitNumber", "vin", "make", "model", "plate"]
+};
+function validateIdentity(p) {
+  const errors = [];
+  const normalized = {
+    driver: {},
+    truck: {}
+  };
+  for (const side of ["driver", "truck"]) {
+    const raw = p[side];
+    if (raw !== undefined && !isRecord(raw)) {
+      errors.push(`${side} must be an object when present`);
+      continue;
+    }
+    const src = isRecord(raw) ? raw : {};
+    for (const field of IDENTITY_STRING_FIELDS[side]) {
+      const v = src[field];
+      if (v === undefined || v === null)
+        normalized[side][field] = null;
+      else if (typeof v === "string")
+        normalized[side][field] = v;
+      else
+        errors.push(`${side}.${field} must be a string`);
+    }
+  }
+  const year = isRecord(p.truck) ? p.truck.year : undefined;
+  if (year === undefined || year === null)
+    normalized.truck.year = null;
+  else if (typeof year === "number" && Number.isInteger(year) && year >= 1950 && year <= 2100)
+    normalized.truck.year = year;
+  else
+    errors.push("truck.year must be a whole year when present");
+  const odo = isRecord(p.truck) ? p.truck.odometerMi : undefined;
+  if (odo === undefined || odo === null)
+    normalized.truck.odometerMi = null;
+  else if (isFiniteNonNegative(odo))
+    normalized.truck.odometerMi = odo;
+  else
+    errors.push("truck.odometerMi must be a finite number \u2265 0 when present");
+  if (errors.length > 0)
+    return { ok: false, errors };
+  return { ok: true, normalized };
+}
+function validateEldFeedPayload(feed, payload) {
+  if (!ELD_SYNC_FEEDS.includes(feed)) {
+    return { ok: false, errors: [`unknown feed "${feed}"`] };
+  }
+  if (!isRecord(payload))
+    return { ok: false, errors: ["payload must be a JSON object"] };
+  switch (feed) {
+    case "hos_clocks":
+      return validateHosClocks(payload);
+    case "hos_logs":
+      return validateHosLogs(payload);
+    case "dvirs":
+      return validateDvirs(payload);
+    case "vehicle_stats":
+      return validateVehicleStats(payload);
+    case "ifta":
+      return validateIfta(payload);
+    case "identity":
+      return validateIdentity(payload);
+  }
+}
+function snapshotIsSimulated(payloadJson) {
+  try {
+    const p = JSON.parse(payloadJson);
+    return isRecord(p) && p.simulated === true;
+  } catch {
+    return false;
+  }
+}
+function simulatedEldPayloads(now) {
+  const iso = (d) => d.toISOString();
+  const hoursAgo = (h) => new Date(now.getTime() - h * 3600000);
+  return [
+    {
+      feed: "hos_clocks",
+      payload: {
+        simulated: true,
+        driveRemainH: 7.5,
+        windowRemainH: 9.25,
+        cycleRemainH: 42,
+        breakRemainH: 3.5
+      }
+    },
+    {
+      feed: "hos_logs",
+      payload: {
+        simulated: true,
+        logs: [
+          { state: "sleeper", at: iso(hoursAgo(10)), location: "Simulated rest stop" },
+          { state: "on_duty", at: iso(hoursAgo(2)), location: "Simulated yard" },
+          { state: "driving", at: iso(hoursAgo(1.75)) }
+        ]
+      }
+    },
+    {
+      feed: "dvirs",
+      payload: {
+        simulated: true,
+        dvirs: [
+          {
+            id: 9001,
+            inspectedAt: iso(hoursAgo(2)),
+            vehicle: "Simulated unit",
+            status: "no_defects",
+            defects: []
+          }
+        ]
+      }
+    },
+    {
+      feed: "vehicle_stats",
+      payload: { simulated: true, odometerMi: 512340.5, engineHours: 14822.25, lat: 30.69, lon: -88.04 }
+    },
+    {
+      feed: "ifta",
+      payload: {
+        simulated: true,
+        states: [
+          { state: "AL", miles: 412.5 },
+          { state: "FL", miles: 188.25 },
+          { state: "GA", miles: 96 }
+        ]
+      }
+    },
+    {
+      feed: "identity",
+      payload: {
+        simulated: true,
+        driver: {
+          driverId: "SIM-DRIVER-1",
+          name: "Simulated Driver",
+          cdlNumber: "SIM0000000",
+          cdlState: "AL",
+          cdlClass: "A",
+          cdlEndorsements: "None (simulated)",
+          homeTerminal: "Simulated Terminal"
+        },
+        truck: {
+          unitNumber: "SIM-1",
+          vin: "1SIMULATED0000000",
+          make: "Simulated",
+          model: "Test Rig",
+          year: 2024,
+          plate: "SIM-000",
+          odometerMi: 512340.5
+        }
+      }
+    }
+  ];
+}
+function summarizeEldSync(results) {
+  const accepted = results.filter((r) => r.ok).length;
+  return {
+    accepted,
+    rejected: results.length - accepted,
+    lines: results.map((r) => r.ok ? `${r.feed}: received` : `${r.feed}: rejected \u2014 ${r.errors.join("; ")}`)
+  };
+}
+
 // src/pointsRetention.ts
 var FREE_TIER_CONVERSION_REFUSAL = "Converting is a paid-plan feature. You're on the free Basic plan, so your SM Points stay right where they are \u2014 yours, still stacking, and they never expire. The moment you upgrade to any paid plan, converting unlocks and your full retained balance converts under the normal rules (10,000-point minimum, 1,000-point blocks, $0.25 of value per 1,000 points). Nothing was requested, nothing queued, and your balance is untouched.";
 var FREE_TIER_CASHOUT_REFUSAL = "Cashing out is a paid-plan feature. You're on the free Basic plan, so nothing was requested and no money moved \u2014 your balance stays exactly where it is. Cash-out unlocks when you upgrade to any paid plan (and activates for everyone at go-live with the licensed payout provider).";
@@ -14322,6 +16886,598 @@ var DISPATCH_PRIVATE_BOARD_GATE_ERROR = "Your company board is a Fleet Owner sur
 function platformQueueCompanyId(args) {
   const candidates = args.companies.filter((c) => c.id !== args.dispatchCompanyId && normalizeCompanyKind(c.kind) === "fleet").sort((a, b) => a.id - b.id);
   return candidates[0]?.id ?? null;
+}
+
+// src/boardAssignment.ts
+function assignmentPhaseFor(args) {
+  if (args.status === "assigned")
+    return "pending";
+  if (args.status === "taken" && args.claimMethod === "assign")
+    return "accepted";
+  return "none";
+}
+var sameUser = (a, b) => (a ?? "").trim().toLowerCase() === (b ?? "").trim().toLowerCase();
+function canRespondToAssignment(args) {
+  return args.status === "assigned" && sameUser(args.claimedBy, args.username);
+}
+function assignDecisionFor(args) {
+  if (args.status === "open")
+    return { kind: "assign" };
+  if (args.status === "assigned") {
+    if (sameUser(args.claimedBy, args.targetUsername)) {
+      return {
+        kind: "refuse",
+        error: `@${args.targetUsername} already has this assignment \u2014 it's waiting on them to accept or decline.`
+      };
+    }
+    return { kind: "reassign", from: args.claimedBy ?? "" };
+  }
+  return { kind: "refuse", error: "That load is no longer open." };
+}
+function validateDeclineReason(input) {
+  const reason = (input ?? "").trim().slice(0, 300);
+  if (!reason) {
+    return {
+      ok: false,
+      error: "Give the desk a reason \u2014 a decline always carries words back, so they know how to cover the load."
+    };
+  }
+  return { ok: true, reason };
+}
+function cleanReferenceNumber(input) {
+  const t = (input ?? "").trim().slice(0, 80);
+  return t ? t : null;
+}
+
+// src/pdfDoc.ts
+var BODY_CHARS = 96;
+var HEADING_CHARS = 84;
+var TITLE_CHARS = 56;
+var PAGE_W = 612;
+var PAGE_H = 792;
+var MARGIN = 54;
+var TOP_Y = PAGE_H - 58;
+var BOTTOM_Y = 74;
+function pdfText(s) {
+  return s.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)").replace(/\u2014/g, "-").replace(/\u2013/g, "-").replace(/\u2022/g, "-").replace(/\u00B7/g, "-").replace(/\u2026/g, "...").replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"').replace(/[^\x20-\x7E]/g, "");
+}
+function wrapPdfText(text, maxChars) {
+  const budget = Math.max(8, maxChars);
+  const out = [];
+  for (const rawLine of text.split(`
+`)) {
+    const line = rawLine.replace(/\s+/g, " ").trim();
+    if (!line) {
+      out.push("");
+      continue;
+    }
+    let rest = line;
+    while (rest.length > budget) {
+      let cut = rest.lastIndexOf(" ", budget);
+      if (cut <= 0)
+        cut = budget;
+      out.push(rest.slice(0, cut).trimEnd());
+      rest = rest.slice(cut).trimStart();
+    }
+    if (rest)
+      out.push(rest);
+  }
+  return out;
+}
+function jpegDimensions(bytes) {
+  if (bytes.length < 4 || bytes[0] !== 255 || bytes[1] !== 216)
+    return null;
+  let i = 2;
+  while (i + 9 < bytes.length) {
+    if (bytes[i] !== 255)
+      return null;
+    const marker = bytes[i + 1];
+    if (marker === 192 || marker === 194) {
+      const height = bytes[i + 5] << 8 | bytes[i + 6];
+      const width = bytes[i + 7] << 8 | bytes[i + 8];
+      return { width, height };
+    }
+    const len = bytes[i + 2] << 8 | bytes[i + 3];
+    if (len < 2)
+      return null;
+    i += 2 + len;
+  }
+  return null;
+}
+var QR_BOX_PT = 132;
+function layout(input) {
+  const items = [];
+  for (const t of wrapPdfText(input.title, TITLE_CHARS))
+    items.push({ kind: "title", text: t });
+  if (input.subtitle) {
+    items.push({ kind: "gap", size: 2 });
+    for (const t of wrapPdfText(input.subtitle, BODY_CHARS))
+      items.push({ kind: "subtitle", text: t });
+  }
+  items.push({ kind: "gap", size: 4 });
+  items.push({ kind: "rule" });
+  items.push({ kind: "gap", size: 8 });
+  if (input.qr) {
+    items.push({ kind: "qr", modules: input.qr.modules });
+    items.push({ kind: "gap", size: 6 });
+  }
+  if (input.image) {
+    items.push({ kind: "image", widthPt: input.image.widthPt, heightPt: input.image.heightPt });
+    items.push({ kind: "gap", size: 6 });
+  }
+  input.sections.forEach((sec, i) => {
+    if (i > 0)
+      items.push({ kind: "gap", size: 8 });
+    if (sec.heading) {
+      for (const t of wrapPdfText(sec.heading, HEADING_CHARS))
+        items.push({ kind: "heading", text: t });
+      items.push({ kind: "gap", size: 2 });
+    }
+    for (const line of sec.lines) {
+      for (const t of wrapPdfText(line, BODY_CHARS))
+        items.push({ kind: "line", text: t });
+    }
+  });
+  const height = (it) => it.kind === "title" ? 19 : it.kind === "heading" ? 15 : it.kind === "rule" ? 2 : it.kind === "qr" ? QR_BOX_PT : it.kind === "image" ? it.heightPt : it.kind === "gap" ? it.size : 13.5;
+  const pages = [];
+  let page = [];
+  let y = TOP_Y;
+  for (const it of items) {
+    const h = height(it);
+    if (y - h < BOTTOM_Y && page.length > 0) {
+      pages.push(page);
+      page = [];
+      y = TOP_Y;
+    }
+    page.push(it);
+    y -= h;
+  }
+  if (page.length > 0 || pages.length === 0)
+    pages.push(page);
+  return pages;
+}
+function contentStream(page, footer, pageNo, pageCount) {
+  const ops = [];
+  let y = TOP_Y;
+  const text = (font, size, gray, x, baseline, s) => {
+    ops.push(`BT /${font} ${size} Tf ${gray} g 1 0 0 1 ${x} ${baseline} Tm (${pdfText(s)}) Tj ET`);
+  };
+  for (const it of page) {
+    if (it.kind === "title") {
+      text("F2", 15, 0, MARGIN, y - 12, it.text);
+      y -= 19;
+    } else if (it.kind === "subtitle") {
+      text("F1", 9.5, 0.35, MARGIN, y - 9, it.text);
+      y -= 13.5;
+    } else if (it.kind === "heading") {
+      text("F2", 11, 0, MARGIN, y - 10, it.text);
+      y -= 15;
+    } else if (it.kind === "line") {
+      text("F1", 10, 0.08, MARGIN, y - 9, it.text);
+      y -= 13.5;
+    } else if (it.kind === "rule") {
+      ops.push(`0.75 g 0.75 w ${MARGIN} ${y} m ${PAGE_W - MARGIN} ${y} l S`);
+      y -= 2;
+    } else if (it.kind === "qr") {
+      const n = it.modules.length;
+      const cell = QR_BOX_PT / (n + 8);
+      const x0 = MARGIN;
+      const top = y;
+      ops.push(`1 g ${x0} ${top - QR_BOX_PT} ${QR_BOX_PT} ${QR_BOX_PT} re f`);
+      ops.push("0 g");
+      const rects = [];
+      for (let r = 0;r < n; r++) {
+        for (let c = 0;c < n; c++) {
+          if (!it.modules[r][c])
+            continue;
+          const rx = x0 + (c + 4) * cell;
+          const ry = top - (r + 5) * cell;
+          rects.push(`${rx.toFixed(2)} ${ry.toFixed(2)} ${cell.toFixed(2)} ${cell.toFixed(2)} re`);
+        }
+      }
+      if (rects.length)
+        ops.push(`${rects.join(" ")} f`);
+      y -= QR_BOX_PT;
+    } else if (it.kind === "image") {
+      ops.push(`q ${it.widthPt} 0 0 ${it.heightPt} ${MARGIN} ${y - it.heightPt} cm /Im1 Do Q`);
+      y -= it.heightPt;
+    } else {
+      y -= it.size;
+    }
+  }
+  ops.push(`0.75 g 0.5 w ${MARGIN} 52 m ${PAGE_W - MARGIN} 52 l S`);
+  text("F1", 8, 0.45, MARGIN, 40, footer);
+  const pg = `Page ${pageNo} of ${pageCount}`;
+  text("F1", 8, 0.45, PAGE_W - MARGIN - pg.length * 4, 40, pg);
+  return ops.join(`
+`);
+}
+function buildPdf(input) {
+  const pages = layout(input);
+  const objects = [];
+  const imageObjNum = input.image ? 5 + pages.length * 2 : 0;
+  objects.push({ text: "<< /Type /Catalog /Pages 2 0 R >>" });
+  const kids = pages.map((_, i) => `${5 + i * 2} 0 R`).join(" ");
+  objects.push({ text: `<< /Type /Pages /Kids [${kids}] /Count ${pages.length} >>` });
+  objects.push({ text: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>" });
+  objects.push({ text: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>" });
+  pages.forEach((page, i) => {
+    const content = contentStream(page, input.footer, i + 1, pages.length);
+    const hasImage = page.some((it) => it.kind === "image");
+    objects.push({
+      text: `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_W} ${PAGE_H}] ` + `/Resources << /Font << /F1 3 0 R /F2 4 0 R >>${hasImage ? ` /XObject << /Im1 ${imageObjNum} 0 R >>` : ""} >> /Contents ${6 + i * 2} 0 R >>`
+    });
+    objects.push({ text: `<< /Length ${content.length} >>
+stream
+${content}
+endstream` });
+  });
+  if (input.image) {
+    const dims = jpegDimensions(input.image.jpegBytes);
+    objects.push({
+      dict: `<< /Type /XObject /Subtype /Image /Width ${dims?.width ?? 600} /Height ${dims?.height ?? 200} ` + `/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${input.image.jpegBytes.length} >>`,
+      stream: input.image.jpegBytes
+    });
+  }
+  const enc = new TextEncoder;
+  const chunks = [];
+  let length = 0;
+  const push = (u) => {
+    chunks.push(u);
+    length += u.length;
+  };
+  const pushText = (s) => push(enc.encode(s));
+  pushText(`%PDF-1.4
+`);
+  const offsets = [];
+  objects.forEach((obj, i) => {
+    offsets.push(length);
+    if ("text" in obj) {
+      pushText(`${i + 1} 0 obj
+${obj.text}
+endobj
+`);
+    } else {
+      pushText(`${i + 1} 0 obj
+${obj.dict}
+stream
+`);
+      push(obj.stream);
+      pushText(`
+endstream
+endobj
+`);
+    }
+  });
+  const xrefAt = length;
+  let tail = `xref
+0 ${objects.length + 1}
+0000000000 65535 f 
+`;
+  for (const off of offsets)
+    tail += `${String(off).padStart(10, "0")} 00000 n 
+`;
+  tail += `trailer
+<< /Size ${objects.length + 1} /Root 1 0 R >>
+startxref
+${xrefAt}
+%%EOF`;
+  pushText(tail);
+  const out = new Uint8Array(length);
+  let at = 0;
+  for (const u of chunks) {
+    out.set(u, at);
+    at += u.length;
+  }
+  return out;
+}
+
+// src/qrCode.ts
+var BLOCKS_M = {
+  1: [10, [[1, 16]]],
+  2: [16, [[1, 28]]],
+  3: [26, [[1, 44]]],
+  4: [18, [[2, 32]]],
+  5: [24, [[2, 43]]],
+  6: [16, [[4, 27]]]
+};
+var TOTAL_CODEWORDS = { 1: 26, 2: 44, 3: 70, 4: 100, 5: 134, 6: 172 };
+var REMAINDER_BITS = { 1: 0, 2: 7, 3: 7, 4: 7, 5: 7, 6: 7 };
+var ALIGNMENT_CENTERS = {
+  1: [],
+  2: [6, 18],
+  3: [6, 22],
+  4: [6, 26],
+  5: [6, 30],
+  6: [6, 34]
+};
+function dataCapacityM(version) {
+  const [, groups] = BLOCKS_M[version];
+  return groups.reduce((s, [count, per]) => s + count * per, 0);
+}
+var GF_EXP = new Array(512);
+var GF_LOG = new Array(256);
+{
+  let x = 1;
+  for (let i = 0;i < 255; i++) {
+    GF_EXP[i] = x;
+    GF_LOG[x] = i;
+    x <<= 1;
+    if (x & 256)
+      x ^= 285;
+  }
+  for (let i = 255;i < 512; i++)
+    GF_EXP[i] = GF_EXP[i - 255];
+}
+function gfMul(a, b) {
+  return a === 0 || b === 0 ? 0 : GF_EXP[GF_LOG[a] + GF_LOG[b]];
+}
+function rsGeneratorPoly(degree) {
+  let poly = [1];
+  for (let i = 0;i < degree; i++) {
+    const next = new Array(poly.length + 1).fill(0);
+    for (let j = 0;j < poly.length; j++) {
+      next[j] = (next[j] ?? 0) ^ gfMul(poly[j], GF_EXP[i]);
+      next[j + 1] = (next[j + 1] ?? 0) ^ poly[j];
+    }
+    poly = next;
+  }
+  return poly;
+}
+function rsRemainder(data, degree) {
+  const gen = rsGeneratorPoly(degree);
+  const res = new Array(degree).fill(0);
+  for (const b of data) {
+    const factor = b ^ res.shift();
+    res.push(0);
+    for (let i = 0;i < degree; i++)
+      res[i] = (res[i] ?? 0) ^ gfMul(gen[i + 1], factor);
+  }
+  return res;
+}
+function encodeDataCodewords(bytes, version) {
+  const capacity = dataCapacityM(version);
+  const bits = [];
+  const push = (value, length) => {
+    for (let i = length - 1;i >= 0; i--)
+      bits.push(value >>> i & 1);
+  };
+  push(4, 4);
+  push(bytes.length, 8);
+  for (const b of bytes)
+    push(b, 8);
+  const capBits = capacity * 8;
+  push(0, Math.min(4, capBits - bits.length));
+  while (bits.length % 8 !== 0)
+    bits.push(0);
+  const out = [];
+  for (let i = 0;i < bits.length; i += 8) {
+    let v = 0;
+    for (let j = 0;j < 8; j++)
+      v = v << 1 | bits[i + j];
+    out.push(v);
+  }
+  for (let pad = 236;out.length < capacity; pad = pad === 236 ? 17 : 236)
+    out.push(pad);
+  return out;
+}
+function interleaveWithEcc(data, version) {
+  const [ecPerBlock, groups] = BLOCKS_M[version];
+  const blocks = [];
+  const eccs = [];
+  let offset = 0;
+  for (const [count, per] of groups) {
+    for (let i = 0;i < count; i++) {
+      const block = data.slice(offset, offset + per);
+      offset += per;
+      blocks.push(block);
+      eccs.push(rsRemainder(block, ecPerBlock));
+    }
+  }
+  const out = [];
+  const maxData = Math.max(...blocks.map((b) => b.length));
+  for (let i = 0;i < maxData; i++)
+    for (const b of blocks)
+      if (i < b.length)
+        out.push(b[i]);
+  for (let i = 0;i < ecPerBlock; i++)
+    for (const e of eccs)
+      out.push(e[i]);
+  return out;
+}
+function formatBits(ecLevelBits, mask) {
+  const data = ecLevelBits << 3 | mask;
+  let rem = data;
+  for (let i = 0;i < 10; i++)
+    rem = rem << 1 ^ (rem >>> 9) * 1335;
+  return (data << 10 | rem) ^ 21522;
+}
+var EC_BITS_M = 0;
+var MASK_FORMULAS = [
+  (r, c) => (r + c) % 2 === 0,
+  (r) => r % 2 === 0,
+  (_r, c) => c % 3 === 0,
+  (r, c) => (r + c) % 3 === 0,
+  (r, c) => (Math.floor(r / 2) + Math.floor(c / 3)) % 2 === 0,
+  (r, c) => r * c % 2 + r * c % 3 === 0,
+  (r, c) => (r * c % 2 + r * c % 3) % 2 === 0,
+  (r, c) => ((r + c) % 2 + r * c % 3) % 2 === 0
+];
+function buildMatrix(version, codewords) {
+  const size = version * 4 + 17;
+  const modules = Array.from({ length: size }, () => new Array(size).fill(false));
+  const isFunction = Array.from({ length: size }, () => new Array(size).fill(false));
+  const setF = (r, c, dark) => {
+    if (r < 0 || c < 0 || r >= size || c >= size)
+      return;
+    modules[r][c] = dark;
+    isFunction[r][c] = true;
+  };
+  for (let i = 0;i < size; i++) {
+    setF(6, i, i % 2 === 0);
+    setF(i, 6, i % 2 === 0);
+  }
+  const finder = (cr, cc) => {
+    for (let dr = -4;dr <= 4; dr++) {
+      for (let dc = -4;dc <= 4; dc++) {
+        const dist = Math.max(Math.abs(dr), Math.abs(dc));
+        setF(cr + dr, cc + dc, dist !== 2 && dist !== 4);
+      }
+    }
+  };
+  finder(3, 3);
+  finder(3, size - 4);
+  finder(size - 4, 3);
+  const centers = ALIGNMENT_CENTERS[version];
+  for (const r of centers) {
+    for (const c of centers) {
+      const overlapsFinder = r <= 8 && c <= 8 || r <= 8 && c >= size - 9 || r >= size - 9 && c <= 8;
+      if (overlapsFinder)
+        continue;
+      for (let dr = -2;dr <= 2; dr++)
+        for (let dc = -2;dc <= 2; dc++)
+          setF(r + dr, c + dc, Math.max(Math.abs(dr), Math.abs(dc)) !== 1);
+    }
+  }
+  for (let i = 0;i <= 5; i++) {
+    setF(8, i, false);
+    setF(i, 8, false);
+  }
+  setF(8, 7, false);
+  setF(8, 8, false);
+  setF(7, 8, false);
+  for (let i = 0;i < 8; i++)
+    setF(8, size - 1 - i, false);
+  for (let i = 0;i < 7; i++)
+    setF(size - 1 - i, 8, false);
+  setF(size - 8, 8, true);
+  let bitsIdx = 0;
+  const totalBits = codewords.length * 8 + REMAINDER_BITS[version];
+  const bitAt = (i) => i < codewords.length * 8 ? codewords[i >>> 3] >>> 7 - (i & 7) & 1 : 0;
+  for (let right = size - 1;right >= 1; right -= 2) {
+    if (right === 6)
+      right = 5;
+    for (let vert = 0;vert < size; vert++) {
+      for (let j = 0;j < 2; j++) {
+        const c = right - j;
+        const upward = (right + 1 & 2) === 0;
+        const r = upward ? size - 1 - vert : vert;
+        if (!isFunction[r][c] && bitsIdx < totalBits) {
+          modules[r][c] = bitAt(bitsIdx) === 1;
+          bitsIdx++;
+        }
+      }
+    }
+  }
+  return { modules, isFunction };
+}
+function applyMask(modules, isFunction, mask) {
+  const out = modules.map((row) => [...row]);
+  const formula = MASK_FORMULAS[mask];
+  for (let r = 0;r < out.length; r++)
+    for (let c = 0;c < out.length; c++)
+      if (!isFunction[r][c] && formula(r, c))
+        out[r][c] = !out[r][c];
+  return out;
+}
+function drawFormat(modules, mask) {
+  const size = modules.length;
+  const bits = formatBits(EC_BITS_M, mask);
+  const get = (i) => (bits >>> i & 1) === 1;
+  for (let i = 0;i <= 5; i++)
+    modules[8][i] = get(i);
+  modules[8][7] = get(6);
+  modules[8][8] = get(7);
+  modules[7][8] = get(8);
+  for (let i = 9;i < 15; i++)
+    modules[14 - i][8] = get(i);
+  for (let i = 0;i < 8; i++)
+    modules[8][size - 1 - i] = get(i);
+  for (let i = 8;i < 15; i++)
+    modules[size - 15 + i][8] = get(i);
+  modules[size - 8][8] = true;
+}
+function penaltyScore(m) {
+  const size = m.length;
+  let score = 0;
+  const runPenalty = (line) => {
+    let s = 0;
+    let runColor = line[0];
+    let runLen = 1;
+    for (let i = 1;i <= line.length; i++) {
+      if (i < line.length && line[i] === runColor) {
+        runLen++;
+      } else {
+        if (runLen >= 5)
+          s += 3 + (runLen - 5);
+        runColor = line[i];
+        runLen = 1;
+      }
+    }
+    return s;
+  };
+  for (let r = 0;r < size; r++)
+    score += runPenalty(m[r]);
+  for (let c = 0;c < size; c++)
+    score += runPenalty(m.map((row) => row[c]));
+  for (let r = 0;r < size - 1; r++)
+    for (let c = 0;c < size - 1; c++)
+      if (m[r][c] === m[r][c + 1] && m[r][c] === m[r + 1][c] && m[r][c] === m[r + 1][c + 1])
+        score += 3;
+  const patterns = [
+    [true, false, true, true, true, false, true, false, false, false, false],
+    [false, false, false, false, true, false, true, true, true, false, true]
+  ];
+  const checkPatterns = (line) => {
+    let s = 0;
+    for (let i = 0;i + 11 <= line.length; i++)
+      for (const p of patterns)
+        if (p.every((v, j) => line[i + j] === v))
+          s += 40;
+    return s;
+  };
+  for (let r = 0;r < size; r++)
+    score += checkPatterns(m[r]);
+  for (let c = 0;c < size; c++)
+    score += checkPatterns(m.map((row) => row[c]));
+  let dark = 0;
+  for (const row of m)
+    for (const v of row)
+      if (v)
+        dark++;
+  const total = size * size;
+  const k = Math.floor(Math.abs(dark * 20 - total * 10) / total);
+  score += k * 10;
+  return score;
+}
+function encodeQr(text) {
+  const bytes = new TextEncoder().encode(text);
+  let version = 0;
+  for (let v = 1;v <= 6; v++) {
+    if (bytes.length + 2 <= dataCapacityM(v)) {
+      version = v;
+      break;
+    }
+  }
+  if (version === 0)
+    throw new Error(`qrCode: ${bytes.length} bytes exceeds version 6-M capacity`);
+  const data = encodeDataCodewords(bytes, version);
+  const codewords = interleaveWithEcc(data, version);
+  if (codewords.length !== TOTAL_CODEWORDS[version])
+    throw new Error("qrCode: internal codeword count mismatch");
+  const { modules, isFunction } = buildMatrix(version, codewords);
+  let best = null;
+  let bestScore = Number.POSITIVE_INFINITY;
+  for (let mask = 0;mask < 8; mask++) {
+    const candidate = applyMask(modules, isFunction, mask);
+    drawFormat(candidate, mask);
+    const score = penaltyScore(candidate);
+    if (score < bestScore) {
+      bestScore = score;
+      best = candidate;
+    }
+  }
+  return { version, size: modules.length, modules: best };
 }
 
 // src/platformFee.ts
@@ -14807,7 +17963,7 @@ function applyGone(zone, voter, nowMs) {
     goneCount
   };
 }
-function haversineMi(lat1, lon1, lat2, lon2) {
+function haversineMi2(lat1, lon1, lat2, lon2) {
   const R = 3958.8;
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLon = (lon2 - lon1) * Math.PI / 180;
@@ -14815,7 +17971,7 @@ function haversineMi(lat1, lon1, lat2, lon2) {
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
 }
 function voteInRange(zone, lat, lon) {
-  return haversineMi(lat, lon, zone.lat, zone.lon) <= WORK_ZONE_VOTE_RADIUS_MI;
+  return haversineMi2(lat, lon, zone.lat, zone.lon) <= WORK_ZONE_VOTE_RADIUS_MI;
 }
 
 // src/hazardReport.ts
@@ -14887,7 +18043,7 @@ var WZDX_FEEDS = [
 ];
 var WZDX_CACHE_MS = 10 * 60000;
 var WZDX_NEAR_RADIUS_MI = 60;
-function haversineMi2(lat1, lon1, lat2, lon2) {
+function haversineMi3(lat1, lon1, lat2, lon2) {
   const R = 3958.8;
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLon = (lon2 - lon1) * Math.PI / 180;
@@ -15001,7 +18157,7 @@ async function dotWorkZonesNear(lat, lon) {
     if (entry && (fetchedAtMs == null || entry.fetchedAtMs < fetchedAtMs))
       fetchedAtMs = entry.fetchedAtMs;
     for (const z of zs) {
-      const distanceMi = haversineMi2(lat, lon, z.lat, z.lon);
+      const distanceMi = haversineMi3(lat, lon, z.lat, z.lon);
       if (distanceMi <= WZDX_NEAR_RADIUS_MI)
         zones.push({ ...z, distanceMi });
     }
@@ -15032,7 +18188,7 @@ function weighReportVerified(distanceMi) {
 function weighStatusAgeMin(updatedAtMs, nowMs) {
   return Math.max(0, Math.floor((nowMs - updatedAtMs) / 60000));
 }
-function haversineMi3(a, b) {
+function haversineMi4(a, b) {
   const R = 3958.8;
   const dLat = (b.lat - a.lat) * Math.PI / 180;
   const dLon = (b.lon - a.lon) * Math.PI / 180;
@@ -15042,7 +18198,7 @@ function haversineMi3(a, b) {
 function planStationHereReport(candidates, tap) {
   let best = null;
   for (const c of candidates) {
-    const d = haversineMi3(tap, c);
+    const d = haversineMi4(tap, c);
     if (d <= WEIGH_DEDUPE_MI && (!best || d < best.distanceMi)) {
       best = { stationId: c.stationId, distanceMi: d };
     }
@@ -15613,7 +18769,7 @@ var EIA_SEED = {
   source: "EIA weekly on-highway diesel averages via the Oct 22, 2026 research snapshot (seed \u2014 awaiting the first live weekly refresh)",
   fetchedAt: new Date("2026-10-22T12:00:00Z")
 };
-var MONTHS2 = [
+var MONTHS3 = [
   "Jan",
   "Feb",
   "Mar",
@@ -15629,7 +18785,7 @@ var MONTHS2 = [
 ];
 function eiaWeekLabel(weekOfIso) {
   const [y = 1970, m = 1, d = 1] = weekOfIso.split("-").map(Number);
-  return `week of ${MONTHS2[(m - 1 + 12) % 12]} ${d}, ${y}`;
+  return `week of ${MONTHS3[(m - 1 + 12) % 12]} ${d}, ${y}`;
 }
 function parseEiaDieselPage(html, seriesId) {
   if (!html || !seriesId)
@@ -15787,7 +18943,7 @@ function orderedEquipment(rec) {
     ...rec[key]
   }));
 }
-var MONTHS3 = [
+var MONTHS4 = [
   "Jan",
   "Feb",
   "Mar",
@@ -15803,7 +18959,7 @@ var MONTHS3 = [
 ];
 function marketPulseEndingShort(weekEndingIso) {
   const [, m = 1, d = 1] = weekEndingIso.split("-").map(Number);
-  return `${MONTHS3[(m - 1 + 12) % 12]} ${d}`;
+  return `${MONTHS4[(m - 1 + 12) % 12]} ${d}`;
 }
 function marketPulseWeekLabel(weekEndingIso, weekNumber) {
   const [y = 1970] = weekEndingIso.split("-").map(Number);
@@ -16290,6 +19446,7 @@ var privileged = definePrivilegedContracts({
   sendDocEmail: {
     request: object({
       to: string2(),
+      replyTo: string2().nullable().default(null),
       subject: string2(),
       text: string2(),
       attachmentBase64: string2().nullable(),
@@ -16471,6 +19628,250 @@ async function appendChain(ctx, args) {
 }
 async function sha256(text) {
   return sha256Bytes(new TextEncoder().encode(text));
+}
+async function recordNotification(ctx, args) {
+  const db = ctx.db();
+  const policy = dedupePolicyFor(args.kind);
+  const now = new Date;
+  if (args.dedupeKey && policy !== "unique") {
+    const existing = await db.select().from(notifications3).where(and(eq(notifications3.username, args.username), eq(notifications3.dedupeKey, args.dedupeKey))).orderBy(desc(notifications3.id));
+    if (policy === "ever") {
+      if (existing.length > 0)
+        return;
+    } else {
+      const unread = existing.find((n) => n.readAt == null);
+      if (unread) {
+        await db.update(notifications3).set({
+          title: args.title,
+          body: args.body,
+          count: unread.count + 1,
+          refKind: args.refKind ?? unread.refKind,
+          refId: args.refId ?? unread.refId,
+          updatedAt: now
+        }).where(eq(notifications3.id, unread.id));
+        return;
+      }
+    }
+  }
+  const devices = await db.select({ token: pushDevices3.token, enabled: pushDevices3.enabled }).from(pushDevices3).where(eq(pushDevices3.username, args.username));
+  const enabledTokens = devices.filter((d) => d.enabled).map((d) => d.token);
+  const sender = pushSenderFromEnv(process.env);
+  let sendOk = null;
+  if (sender && enabledTokens.length > 0) {
+    try {
+      sendOk = (await sender.send(enabledTokens, { title: args.title, body: args.body, kind: args.kind })).ok;
+    } catch {
+      sendOk = false;
+    }
+  }
+  const pushState = pushStateFor({
+    enabledDeviceCount: enabledTokens.length,
+    senderConfigured: sender != null,
+    sendOk
+  });
+  await db.insert(notifications3).values({
+    username: args.username,
+    kind: args.kind,
+    title: args.title,
+    body: args.body,
+    dedupeKey: args.dedupeKey ?? null,
+    refKind: args.refKind ?? null,
+    refId: args.refId ?? null,
+    count: 1,
+    pushState,
+    createdAt: now,
+    updatedAt: now
+  });
+}
+async function recordNotificationSafe(ctx, args) {
+  try {
+    await recordNotification(ctx, args);
+  } catch {}
+}
+function dutyAutoSwapPairingOk(state, autoStage) {
+  return autoStage === "off_duty_2min" && state === "off_duty" || autoStage === "sleeper_10min" && state === "sleeper";
+}
+async function sealDutyChange(ctx, me, args) {
+  return appendChain(ctx, {
+    refKind: "driver",
+    refId: null,
+    sessionId: null,
+    event: "duty_change",
+    payload: {
+      state: args.state,
+      at: args.at.toISOString(),
+      location: args.location,
+      username: me,
+      source: args.source,
+      autoStage: args.autoStage,
+      stillSince: args.stillSince,
+      ...args.offline ? { offlineCapture: true, captureId: args.offline.captureId, capturedAt: args.offline.capturedAt } : {}
+    }
+  });
+}
+async function insertSignedDvir(ctx, args, opts) {
+  const db = ctx.db();
+  for (const d of args.defects) {
+    if (!d.note.trim()) {
+      throw new Error(`saveDvir: the defect on "${d.item}" needs a note \u2014 say what's wrong before signing.`);
+    }
+  }
+  const critical = args.defects.some((d) => d.critical);
+  const prof = await db.select().from(profile3).where(eq(profile3.id, myProfileId(ctx))).limit(1);
+  const p = prof[0];
+  const truckName = [p?.truckYear ?? null, p?.truckMake ?? null, p?.truckModel ?? null].filter(Boolean).join(" ");
+  const truckLabel = truckName ? p?.truckUnitNumber ? `${truckName} \xB7 Unit ${p.truckUnitNumber}` : truckName : null;
+  const trailerName = [p?.trailerYear ?? null, p?.trailerMake ?? null, p?.trailerModel ?? null].filter(Boolean).join(" ");
+  const trailerTypeLabel = p?.trailerType ? p.trailerType.replace(/_/g, " ") : null;
+  const trailerLabel = [trailerName || null, trailerTypeLabel].filter(Boolean).join(" \xB7 ") || null;
+  const safeToOperate = args.safeToOperate ?? !critical;
+  const now = opts.inspectedAt;
+  const res = await db.insert(dvirReports3).values({
+    inspectedAt: now,
+    kind: args.kind,
+    itemsJson: JSON.stringify(args.items),
+    defectsJson: JSON.stringify(args.defects.map((d) => ({ item: d.item, note: d.note, critical: d.critical }))),
+    signedName: args.signedName,
+    status: args.defects.length > 0 ? "defects_reported" : "signed",
+    odometer: args.odometer,
+    lat: args.lat ?? null,
+    lon: args.lon ?? null,
+    truckLabel,
+    trailerLabel,
+    safeToOperate
+  }).returning({ id: dvirReports3.id });
+  const row = res[0];
+  if (!row)
+    throw new Error("saveDvir: insert returned no rows");
+  const draftEntryIds = [];
+  for (const d of args.defects) {
+    const category = categoryForDvirItem(d.item, d.category ?? null);
+    const ins = await db.insert(maintenanceLogEntries3).values({
+      performedAt: now,
+      odometer: args.odometer,
+      category,
+      description: dvirDraftDescription(d.item),
+      shop: null,
+      cost: 0,
+      nextDueMiles: null,
+      nextDueAt: null,
+      notes: dvirDraftNotes(d.note, row.id, args.kind),
+      status: "draft"
+    }).returning({ id: maintenanceLogEntries3.id });
+    const entry = ins[0];
+    if (!entry)
+      continue;
+    draftEntryIds.push(entry.id);
+    await db.insert(dvirDefectLinks3).values({
+      dvirId: row.id,
+      item: d.item,
+      maintenanceEntryId: entry.id
+    });
+    if (d.photoDataBase64 && d.photoMime) {
+      const blobKey = `dvir-defect-${row.id}-${entry.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      await ctx.blobs.put(blobKey, base64ToBytes(d.photoDataBase64), { contentType: d.photoMime });
+      await db.insert(maintenanceLogAttachments3).values({
+        entryId: entry.id,
+        label: `Defect photo \u2014 ${d.item}`,
+        blobKey,
+        mime: d.photoMime
+      });
+    }
+  }
+  const chainHash = await appendChain(ctx, {
+    refKind: "driver",
+    refId: null,
+    sessionId: null,
+    event: "dvir_signed",
+    payload: {
+      dvirId: row.id,
+      kind: args.kind,
+      items: args.items.length,
+      defects: args.defects.map((d) => ({ item: d.item, note: d.note, critical: d.critical })),
+      criticalDefect: critical,
+      signedName: args.signedName,
+      odometer: args.odometer,
+      lat: args.lat ?? null,
+      lon: args.lon ?? null,
+      safeToOperate,
+      truckLabel,
+      trailerLabel,
+      draftEntryIds,
+      at: now.toISOString(),
+      ...opts.offline ? { offlineCapture: true, captureId: opts.offline.captureId, capturedAt: opts.offline.capturedAt } : {}
+    }
+  });
+  {
+    const me = await myUsername(ctx);
+    await awardDailyTask(ctx, {
+      username: me,
+      task: args.kind === "pretrip" ? "dvir" : "posttrip_dvir",
+      reason: args.kind === "pretrip" ? "Pre-trip DVIR signed" : "Post-trip DVIR signed",
+      refSuffix: `-dvir${row.id}`
+    });
+  }
+  return { id: row.id, criticalDefect: critical, draftEntryIds, chainHash };
+}
+async function applyEldSyncBatch(ctx, conn, batch, source) {
+  const db = ctx.db();
+  const results = [];
+  for (const item of batch) {
+    const v = validateEldFeedPayload(item.feed, item.payload);
+    if (!v.ok) {
+      results.push({ feed: item.feed, ok: false, errors: v.errors });
+      continue;
+    }
+    await db.insert(eldSnapshots3).values({
+      connectionId: conn.id,
+      feed: item.feed,
+      payloadJson: JSON.stringify(item.payload)
+    });
+    if (item.feed === "identity") {
+      const n = v.normalized;
+      await db.insert(eldIdentity3).values({
+        connectionId: conn.id,
+        provider: conn.provider,
+        driverJson: JSON.stringify(n.driver),
+        truckJson: JSON.stringify(n.truck)
+      });
+    }
+    results.push({ feed: item.feed, ok: true, errors: [] });
+  }
+  const summary = summarizeEldSync(results);
+  try {
+    const stored = JSON.parse(conn.feedsJson);
+    if (Array.isArray(stored)) {
+      for (const r of results) {
+        const entry = stored.find((s) => s.feed === r.feed);
+        if (!entry)
+          continue;
+        if (r.ok) {
+          entry.state = "received";
+          entry.detail = source === "test_harness" ? "Test sync \u2014 simulated device data received through the sync pipeline. Live sync awaits a real ELD device." : `Last received ${new Date().toLocaleString()} from the provider.`;
+        } else {
+          entry.detail = `Last sync rejected this feed: ${r.errors.join("; ")}`;
+        }
+      }
+      await db.update(eldConnections3).set({ feedsJson: JSON.stringify(stored), updatedAt: new Date }).where(eq(eldConnections3.id, conn.id));
+    }
+  } catch {}
+  const chainHash = await appendChain(ctx, {
+    refKind: "driver",
+    refId: null,
+    sessionId: null,
+    event: "eld_sync_received",
+    payload: {
+      connectionId: conn.id,
+      provider: conn.provider,
+      source,
+      simulated: source === "test_harness",
+      accepted: summary.accepted,
+      rejected: summary.rejected,
+      feeds: results.map((r) => r.feed),
+      at: new Date().toISOString()
+    }
+  });
+  return { results, ...summary, chainHash };
 }
 async function logSiEvent(ctx, args) {
   const db = ctx.db();
@@ -16918,6 +20319,411 @@ function docCopyEmailText(args) {
   ].join(`
 `);
 }
+var APP_PUBLIC_ORIGIN = process.env.STONEMILES_PUBLIC_ORIGIN ?? "https://app.stonervision.io";
+function receiveUrlFor(token) {
+  return `${APP_PUBLIC_ORIGIN}/receive/${token}`;
+}
+function copyUrlFor(token) {
+  return `${APP_PUBLIC_ORIGIN}/pod/${token}`;
+}
+function trackUrlFor(token) {
+  return `${APP_PUBLIC_ORIGIN}/track/${token}`;
+}
+function newReceiveToken(kind) {
+  return `${kind === "copy" ? "cpy" : kind === "track" ? "trk" : "rcv"}_${Buffer.from(randomBytes(16)).toString("hex")}`;
+}
+function deliveryPathLabel(path) {
+  switch (path) {
+    case "receive_link":
+      return "Receiver confirmed on the receive link";
+    case "phone_signature":
+      return "Receiver signed on the driver's phone";
+    case "paper_bol":
+      return "Signed paper BOL \u2014 photo on file";
+    case "driver_pod":
+      return "Driver POD seal (standing close)";
+    default:
+      return path;
+  }
+}
+function maskEmailForLog(email) {
+  const at = email.indexOf("@");
+  if (at < 1)
+    return "***";
+  return `${email.slice(0, 1)}***${email.slice(at)}`;
+}
+async function driverUsernameForLoad(ctx, load) {
+  if (load.profileId == null)
+    return null;
+  const db = ctx.db();
+  const rows = await db.select().from(profile3).where(eq(profile3.id, load.profileId)).limit(1);
+  return rows[0]?.socialUsername ?? null;
+}
+var receiveFailures = new Map;
+var RECEIVE_FAIL_WINDOW_MS = 10 * 60 * 1000;
+var RECEIVE_FAIL_MAX = 12;
+function receiveThrottleBlocked(token) {
+  const rec = receiveFailures.get(token);
+  if (!rec)
+    return false;
+  if (Date.now() - rec.firstAt > RECEIVE_FAIL_WINDOW_MS) {
+    receiveFailures.delete(token);
+    return false;
+  }
+  return rec.count >= RECEIVE_FAIL_MAX;
+}
+function receiveThrottleFail(token) {
+  const now = Date.now();
+  const rec = receiveFailures.get(token);
+  if (!rec || now - rec.firstAt > RECEIVE_FAIL_WINDOW_MS)
+    receiveFailures.set(token, { count: 1, firstAt: now });
+  else
+    rec.count++;
+}
+function receiveThrottleOk(token) {
+  receiveFailures.delete(token);
+}
+async function ensureReceiveLink(ctx, loadId, createdBy) {
+  const db = ctx.db();
+  const rows = await db.select().from(receiveLinks3).where(and(eq(receiveLinks3.loadId, loadId), eq(receiveLinks3.kind, "action"))).orderBy(desc(receiveLinks3.id));
+  const live = rows.find((r) => r.status === "active" || r.status === "used");
+  if (live)
+    return live;
+  const ins = await db.insert(receiveLinks3).values({ loadId, token: newReceiveToken("action"), kind: "action", status: "active", createdBy }).returning();
+  return ins[0];
+}
+async function ensureCopyLink(ctx, loadId, createdBy) {
+  const db = ctx.db();
+  const rows = await db.select().from(receiveLinks3).where(and(eq(receiveLinks3.loadId, loadId), eq(receiveLinks3.kind, "copy"), eq(receiveLinks3.status, "active"))).orderBy(desc(receiveLinks3.id));
+  if (rows[0])
+    return rows[0];
+  const ins = await db.insert(receiveLinks3).values({ loadId, token: newReceiveToken("copy"), kind: "copy", status: "active", createdBy }).returning();
+  return ins[0];
+}
+async function ensureTrackLink(ctx, loadId, createdBy) {
+  const db = ctx.db();
+  const rows = await db.select().from(receiveLinks3).where(and(eq(receiveLinks3.loadId, loadId), eq(receiveLinks3.kind, "track"), eq(receiveLinks3.status, "active"))).orderBy(desc(receiveLinks3.id));
+  if (rows[0])
+    return { row: rows[0], created: false };
+  const ins = await db.insert(receiveLinks3).values({ loadId, token: newReceiveToken("track"), kind: "track", status: "active", createdBy }).returning();
+  return { row: ins[0], created: true };
+}
+async function fleetStatusFor(ctx, username) {
+  const db = ctx.db();
+  const rows = await db.select().from(driverFleetStatus3).where(eq(driverFleetStatus3.username, username)).limit(1);
+  return rows[0] ?? null;
+}
+function snapshotStops(row) {
+  if (!row)
+    return [];
+  try {
+    const parsed = JSON.parse(row.stopsJson);
+    return Array.isArray(parsed) ? cleanStops(parsed.filter((s) => typeof s === "string")) : [];
+  } catch {
+    return [];
+  }
+}
+async function snapshotActiveLoad(ctx, row) {
+  if (!row || row.loadId == null)
+    return false;
+  const confirmation = await deliveryConfirmationFor(ctx, row.loadId);
+  return confirmation == null;
+}
+function fleetPositionGate(args) {
+  const activeTrip = args.snapshotActive || args.isMe && args.duty.tripActive;
+  const onDuty = args.isMe && args.duty.onDuty;
+  const visible = args.hasPos && (activeTrip || onDuty || args.snapshotFresh);
+  return {
+    visible,
+    label: visible ? activeTrip ? "On an active trip \u2014 location shared" : onDuty ? "On duty \u2014 location shared" : "Shared with the fleet \u2014 driver's app is reporting" : !args.hasPos ? "No live location reported" : "Off duty \u2014 location private"
+  };
+}
+async function resolveReceiveToken(ctx, token) {
+  const db = ctx.db();
+  const links = await db.select().from(receiveLinks3).where(eq(receiveLinks3.token, token)).limit(1);
+  const link = links[0];
+  if (!link || link.status === "revoked")
+    return null;
+  const loads = await db.select().from(loads3).where(eq(loads3.id, link.loadId)).limit(1);
+  if (!loads[0])
+    return null;
+  return { link, load: loads[0] };
+}
+async function deliveryConfirmationFor(ctx, loadId) {
+  const db = ctx.db();
+  const rows = await db.select().from(chainLog3).where(and(eq(chainLog3.refKind, "load"), eq(chainLog3.refId, loadId))).orderBy(asc(chainLog3.id));
+  let sealHash = null;
+  for (const r of rows)
+    if (r.event === "pod_seal")
+      sealHash = r.hash;
+  for (const r of rows) {
+    if (r.event !== "delivery_confirmed")
+      continue;
+    try {
+      const p = JSON.parse(r.payload);
+      return {
+        path: typeof p.path === "string" ? p.path : "receive_link",
+        receiverName: typeof p.receiverName === "string" ? p.receiverName : null,
+        exceptionNotes: typeof p.exceptionNotes === "string" ? p.exceptionNotes : null,
+        at: typeof p.at === "string" ? p.at : null,
+        docBlobKey: typeof p.docBlobKey === "string" ? p.docBlobKey : null,
+        docMime: typeof p.docMime === "string" ? p.docMime : null,
+        docSha256: typeof p.docSha256 === "string" ? p.docSha256 : null,
+        sealHash
+      };
+    } catch {
+      return { path: "receive_link", receiverName: null, exceptionNotes: null, at: null, docBlobKey: null, docMime: null, docSha256: null, sealHash };
+    }
+  }
+  if (sealHash) {
+    const seal = rows.find((r) => r.event === "pod_seal" && r.hash === sealHash);
+    let receiverName = null;
+    let exceptionNotes = null;
+    let at = null;
+    try {
+      const p = JSON.parse(seal?.payload ?? "{}");
+      if (typeof p.receiverName === "string")
+        receiverName = p.receiverName;
+      if (typeof p.exceptionNotes === "string")
+        exceptionNotes = p.exceptionNotes;
+      if (typeof p.at === "string")
+        at = p.at;
+    } catch {}
+    return { path: "driver_pod", receiverName, exceptionNotes, at, docBlobKey: null, docMime: null, docSha256: null, sealHash };
+  }
+  return null;
+}
+async function completeDeliveryConfirmation(ctx, opts) {
+  const { load } = opts;
+  const existing = await deliveryConfirmationFor(ctx, load.id);
+  if (existing)
+    return { already: true, sealHash: existing.sealHash };
+  const at = new Date;
+  let docBlobKey = null;
+  let docSha256 = null;
+  if (opts.doc) {
+    const bytes = base64ToBytes(opts.doc.base64);
+    docSha256 = await sha256Bytes(new Uint8Array(bytes));
+    docBlobKey = `delivery-doc-${load.id}-${docSha256.slice(0, 16)}`;
+    await ctx.blobs.put(docBlobKey, bytes, { contentType: opts.doc.mime });
+  }
+  await appendChain(ctx, {
+    refKind: "load",
+    refId: load.id,
+    sessionId: null,
+    event: "delivery_confirmed",
+    payload: {
+      loadId: load.id,
+      path: opts.path,
+      receiverName: opts.receiverName,
+      exceptionNotes: opts.exceptionNotes,
+      docBlobKey,
+      docMime: opts.doc?.mime ?? null,
+      docSha256,
+      at: at.toISOString()
+    }
+  });
+  const pickupNow = pickupStateFor(load);
+  const gradeResult = await sealGradeForLoad(ctx, load, null);
+  const sealHash = await appendChain(ctx, {
+    refKind: "load",
+    refId: load.id,
+    sessionId: null,
+    event: "pod_seal",
+    payload: {
+      loadId: load.id,
+      lat: null,
+      lon: null,
+      at: at.toISOString(),
+      autoSealed: false,
+      confirmationPath: opts.path,
+      receiverName: opts.receiverName,
+      exceptionNotes: opts.exceptionNotes,
+      docSha256,
+      pickupSealed: pickupNow.sealed,
+      pickupSealedAt: pickupNow.sealedAt,
+      pickupPhotosMissing: pickupNow.missing,
+      pickupNote: pickupNow.missing ? "Pickup photos missing \u2014 the load photo and/or BOL pickup photo was never camera-sealed for this load." : "Pickup proof sealed \u2014 load photo + BOL on file from pickup.",
+      pickupLoadSha256: load.pickupLoadSha256 ?? null,
+      pickupBolSha256: load.pickupBolSha256 ?? null,
+      equipmentType: load.equipmentType ?? null,
+      trailerNumber: load.trailerNumber ?? null,
+      sealEntered: load.sealEntered ?? null,
+      sealBol: load.sealBol ?? null,
+      sealStatus: load.sealStatus ?? null,
+      sealNote: load.sealStatus === "mismatch" ? "SEAL MISMATCH on the pickup record \u2014 the entered seal number did not match the BOL seal number. Flagged plainly, never passed over." : null,
+      geofence: "unavailable",
+      geofenceMiles: null,
+      sealGrade: gradeResult.grade,
+      gradeCriteria: gradeResult.criteria
+    }
+  });
+  await recordSealedLane(ctx, { load, sealedAt: at, username: opts.actorUsername });
+  try {
+    await assemblePaymentPacket(ctx, load, sealHash);
+  } catch (e) {
+    await appendChain(ctx, {
+      refKind: "load",
+      refId: load.id,
+      sessionId: null,
+      event: "payment_packet_error",
+      payload: { loadId: load.id, podSealHash: sealHash, error: e instanceof Error ? e.message : String(e), at: new Date().toISOString() }
+    });
+  }
+  const copyBlobKey = docBlobKey ?? load.pickupBolBlobKey ?? load.docBlobKey ?? null;
+  const copySha = docSha256 ?? load.pickupBolSha256 ?? load.docSha256 ?? sealHash;
+  const copyMime = opts.doc?.mime ?? load.pickupBolMime ?? load.docMime ?? null;
+  const copyLabel = `Proof of delivery (POD) \u2014 ${deliveryPathLabel(opts.path).toLowerCase()} \u2014 Load #${load.id}`;
+  try {
+    await fileConfirmedDocCopy(ctx, {
+      loadId: load.id,
+      docKind: "pod",
+      label: copyLabel,
+      blobKey: copyBlobKey,
+      ownsBlob: docBlobKey != null,
+      mime: copyMime,
+      sha256: copySha,
+      source: "pod_seal",
+      dedupeKey: `load:${load.id}:pod:${sealHash}`,
+      attachmentBase64: opts.doc?.base64 ?? null,
+      attachmentFilename: opts.doc ? `pod-load-${load.id}${opts.doc.mime === "image/png" ? ".png" : ".jpg"}` : null,
+      summaryLines: [
+        `Received by: ${opts.receiverName}`,
+        `Close path: ${deliveryPathLabel(opts.path)}`,
+        ...opts.exceptionNotes ? [`\u26A0 EXCEPTIONS REPORTED: ${opts.exceptionNotes}`] : []
+      ]
+    });
+  } catch {
+    try {
+      const db = ctx.db();
+      const dedupeKey = `load:${load.id}:pod:${sealHash}`;
+      const dupe = await db.select().from(filedDocCopies3).where(eq(filedDocCopies3.dedupeKey, dedupeKey)).limit(1);
+      if (!dupe[0]) {
+        await db.insert(filedDocCopies3).values({
+          profileId: load.profileId ?? null,
+          loadId: load.id,
+          docKind: "pod",
+          label: copyLabel,
+          blobKey: copyBlobKey,
+          ownsBlob: docBlobKey != null,
+          mime: copyMime,
+          sha256: copySha,
+          source: "pod_seal",
+          filedBy: opts.actorUsername,
+          dedupeKey
+        });
+      }
+    } catch {}
+  }
+  ctx.invalidateQueries();
+  return { already: false, sealHash };
+}
+async function buildSignedPodPdf(ctx, load, confirmation) {
+  const title = `Signed proof of delivery \u2014 Load #${load.id}`;
+  const lane = (c, s) => [c, s].filter(Boolean).join(", ");
+  let image = null;
+  if (confirmation.docMime === "image/jpeg" && confirmation.docBlobKey) {
+    const got = await readBlobBytes(ctx, confirmation.docBlobKey);
+    if (got) {
+      const dims = jpegDimensions(got.bytes);
+      const widthPt = 240;
+      const heightPt = dims ? Math.min(170, Math.round(widthPt * dims.height / Math.max(1, dims.width))) : 80;
+      image = { jpegBytes: got.bytes, widthPt, heightPt };
+    }
+  }
+  const bytes = buildPdf({
+    title,
+    subtitle: `${lane(load.pickupCity, load.pickupState) || "Pickup"} \u2192 ${lane(load.deliveryCity, load.deliveryState) || "Delivery"}${load.shipper ? ` \xB7 Shipper: ${load.shipper}` : ""}`,
+    image,
+    sections: [
+      {
+        heading: "Delivery",
+        lines: [
+          ...load.commodity ? [`Commodity: ${load.commodity}`] : [],
+          ...load.weightLbs != null ? [`Weight: ${load.weightLbs.toLocaleString("en-US")} lbs`] : [],
+          ...load.referenceNumber ? [`Reference #: ${load.referenceNumber}`] : [],
+          ...load.deliveryText ? [`Delivery window: ${load.deliveryText}`] : []
+        ]
+      },
+      {
+        heading: "Confirmation",
+        lines: [
+          `Received by: ${confirmation.receiverName ?? "(name on the sealed record)"}`,
+          `How it closed: ${deliveryPathLabel(confirmation.path)}`,
+          ...confirmation.at ? [`Confirmed at: ${confirmation.at}`] : [],
+          confirmation.exceptionNotes ? `\u26A0 EXCEPTIONS REPORTED: ${confirmation.exceptionNotes}` : "Exceptions: none reported.",
+          ...confirmation.docSha256 ? [`Confirmation document SHA-256: ${confirmation.docSha256}`] : [],
+          ...confirmation.sealHash ? [`POD seal hash: ${confirmation.sealHash}`] : [],
+          "This copy comes from the load's sealed, hash-chained record."
+        ]
+      }
+    ],
+    footer: "STONEMILES by Stonervision \u2014 signed proof of delivery"
+  });
+  return { bytes, title };
+}
+async function buildBolPdf(ctx, scope, actorUsername) {
+  const { load, board } = scope;
+  const link = await ensureReceiveLink(ctx, load.id, actorUsername);
+  const url = receiveUrlFor(link.token);
+  let qr = null;
+  try {
+    qr = { modules: encodeQr(url).modules };
+  } catch {}
+  const lane = (c, s) => [c, s].filter(Boolean).join(", ");
+  const db = ctx.db();
+  const driverUsername = await driverUsernameForLoad(ctx, load);
+  const driver = await db.select().from(socialUsers3).where(eq(socialUsers3.username, driverUsername ?? "")).limit(1);
+  const driverName = driver[0]?.displayName?.trim() || driverUsername || "";
+  const title = `Bill of lading \u2014 Load #${load.id}`;
+  const bytes = buildPdf({
+    title,
+    subtitle: `${lane(load.pickupCity, load.pickupState) || "Pickup"} \u2192 ${lane(load.deliveryCity, load.deliveryState) || "Delivery"}`,
+    qr,
+    sections: [
+      {
+        heading: "RECEIVE THIS DELIVERY",
+        lines: [
+          "Receiver \u2014 scan the code above or open this link on your phone:",
+          url,
+          "Confirm received with your name (that is your signature). No account needed.",
+          "Or sign the paper copy below and the driver will photograph it."
+        ]
+      },
+      {
+        heading: "Load",
+        lines: [
+          ...load.shipper ? [`Shipper: ${load.shipper}`] : [],
+          ...board?.brokerCompany || load.brokerCompany ? [`Broker: ${board?.brokerCompany ?? load.brokerCompany}`] : [],
+          ...load.commodity ? [`Commodity: ${load.commodity}`] : [],
+          ...load.weightLbs != null ? [`Weight: ${load.weightLbs.toLocaleString("en-US")} lbs`] : [],
+          ...load.referenceNumber ? [`Reference #: ${load.referenceNumber}`] : [],
+          ...load.pickupText ? [`Pickup: ${load.pickupText}`] : [],
+          ...load.deliveryText ? [`Delivery window: ${load.deliveryText}`] : [],
+          ...load.dockApptAt ? [`Dock appointment: ${load.dockApptAt.toISOString()}`] : [],
+          ...load.equipmentType ? [`Equipment: ${load.equipmentType}`] : []
+        ]
+      },
+      {
+        heading: "Carrier",
+        lines: [
+          `Fleet: ${driver[0]?.company ?? "STONEMILES carrier"}`,
+          `Driver: ${driverName}`
+        ]
+      },
+      {
+        heading: "Signatures",
+        lines: [
+          "Received by (print): ________________________________",
+          "Signature: ________________________________   Date/Time: ________________",
+          "Exceptions (damage / shortage): ______________________________________________"
+        ]
+      }
+    ],
+    footer: "STONEMILES by Stonervision \u2014 bill of lading"
+  });
+  return { bytes, title };
+}
 async function fileConfirmedDocCopy(ctx, args) {
   const db = ctx.db();
   const me = await myUsername(ctx);
@@ -16960,6 +20766,7 @@ async function fileConfirmedDocCopy(ctx, args) {
       try {
         const res = await ctx.executePrivileged(privileged.sendDocEmail, {
           to: r.email,
+          replyTo: null,
           subject: `STONEMILES \u2014 ${args.label}`,
           text: docCopyEmailText({
             label: args.label,
@@ -17073,6 +20880,7 @@ async function maybeEmailPayStubCopy(ctx, args) {
       try {
         const res = await ctx.executePrivileged(privileged.sendDocEmail, {
           to: r.email,
+          replyTo: null,
           subject: `STONEMILES \u2014 ${label}`,
           text: payStubEmailText({
             label,
@@ -17271,6 +21079,574 @@ async function pointsBalance(ctx, username) {
   const db = ctx.db();
   const rows = await db.select().from(pointsLog3).where(eq(pointsLog3.username, username));
   return pointsBalanceFromLedger(rows);
+}
+async function laneEligibleFor(ctx, username) {
+  if (await isCompedFleetDriver(ctx, username))
+    return false;
+  if (username === await myUsername(ctx))
+    return isGoldPlan(await myPlan(ctx));
+  const db = ctx.db();
+  const rows = await db.select().from(profile3).where(eq(profile3.socialUsername, username)).limit(1);
+  return isGoldPlan(normalizePlan(rows[0]?.plan));
+}
+async function reverseLaneAward(ctx, username, refKey, note) {
+  const db = ctx.db();
+  const rows = await db.select().from(pointsLog3).where(eq(pointsLog3.username, username));
+  const award = rows.find((r) => r.refKey === refKey && r.amount > 0);
+  if (!award)
+    return false;
+  if (rows.some((r) => r.refKey === `clawback:${refKey}`))
+    return false;
+  await awardPoints(ctx, {
+    username,
+    amount: -award.amount,
+    reason: `Reversal \u2014 ${note} (was: ${award.reason})`,
+    source: "clawback",
+    refKey: `clawback:${refKey}`
+  });
+  return true;
+}
+async function awardLane2Report(ctx, args) {
+  if (!await laneEligibleFor(ctx, args.reporter))
+    return false;
+  const db = ctx.db();
+  const rows = await db.select().from(pointsLog3).where(eq(pointsLog3.username, args.reporter));
+  const todayKey = localDayKey(new Date);
+  const todayCount = rows.filter((r) => r.amount > 0 && (r.source === LANE2_INTEL_SOURCE || r.source === LANE2_FUEL_SOURCE) && localDayKey(r.createdAt) === todayKey).length;
+  if (todayCount >= LANE2_DAILY_AWARD_CAP)
+    return false;
+  return awardPoints(ctx, {
+    username: args.reporter,
+    amount: LANE2_REPORT_POINTS,
+    reason: args.reason,
+    source: args.source,
+    refKey: args.refKey
+  });
+}
+async function recordSealedLane(ctx, args) {
+  const key = laneKeyFor(args.load.pickupCity, args.load.pickupState, args.load.deliveryCity, args.load.deliveryState);
+  if (!key)
+    return;
+  try {
+    const db = ctx.db();
+    await db.insert(sealedLanes3).values({
+      laneKey: key,
+      firstUsername: args.username,
+      firstLoadId: args.load.id,
+      firstSealedAt: args.sealedAt
+    }).onConflictDoNothing();
+  } catch {}
+}
+async function recordPosterReferral(ctx, args) {
+  const code = args.referralCode?.trim();
+  if (!code)
+    return null;
+  try {
+    const db = ctx.db();
+    const rows = await db.select().from(referralCodes3).where(eq(referralCodes3.code, code)).limit(1);
+    const referrer = rows[0]?.username ?? null;
+    if (!referrer || referrer === args.deskUsername)
+      return null;
+    await db.insert(posterReferrals3).values({
+      referrerUsername: referrer,
+      kind: args.kind,
+      accountId: args.accountId,
+      status: "pending"
+    });
+    return referrer;
+  } catch {
+    return null;
+  }
+}
+async function evaluatePointsLanes(ctx, me) {
+  const db = ctx.db();
+  if (!await laneEligibleFor(ctx, me))
+    return;
+  const dayMs = 86400000;
+  const trips = await db.select().from(trips3);
+  const totalMiles = trips.reduce((s, t) => s + (t.totalMiles || 0), 0);
+  for (const m of milesMilestonesCrossed(totalMiles)) {
+    await awardPoints(ctx, {
+      username: me,
+      amount: m.points,
+      reason: `Sealed miles milestone \u2014 ${m.miles.toLocaleString("en-US")} lifetime sealed miles`,
+      source: LANE1_MILES_SOURCE,
+      refKey: `lane1-miles-${m.miles}`
+    });
+  }
+  const loads = await db.select().from(loads3);
+  const loadById = new Map(loads.map((l) => [l.id, l]));
+  const chain = await db.select().from(chainLog3).orderBy(asc(chainLog3.id));
+  const sealMs = new Map;
+  for (const r of chain) {
+    if (r.refId == null)
+      continue;
+    if (r.event === "pod_seal") {
+      try {
+        const p = JSON.parse(r.payload);
+        if (p.at)
+          sealMs.set(r.refId, Date.parse(p.at));
+      } catch {}
+    }
+    if (r.event === "pod_seal_void")
+      sealMs.delete(r.refId);
+  }
+  const apptOf = (load) => {
+    if (load.deliveryText) {
+      const p = Date.parse(load.deliveryText);
+      if (Number.isFinite(p))
+        return p;
+    }
+    return load.dockApptAt ? load.dockApptAt.getTime() : null;
+  };
+  const detentionRows = await db.select().from(detentionRecords3);
+  const detentionByLoad = new Map;
+  for (const r of detentionRows) {
+    if (r.loadId == null || r.site !== "delivery" || r.departedAt == null)
+      continue;
+    const list = detentionByLoad.get(r.loadId) ?? [];
+    list.push({ arrivedMs: r.arrivedAt.getTime(), departedMs: r.departedAt.getTime() });
+    detentionByLoad.set(r.loadId, list);
+  }
+  const timings = [];
+  for (const [loadId, ms] of sealMs) {
+    const load = loadById.get(loadId);
+    if (!load)
+      continue;
+    const apptMs = apptOf(load);
+    const delayMs = apptMs != null ? detentionDelayMs(detentionByLoad.get(loadId) ?? [], apptMs, ms) : 0;
+    timings.push({
+      loadId,
+      sealMs: ms,
+      apptMs,
+      onTime: apptMs != null && ms - delayMs <= apptMs + 60 * 60000
+    });
+  }
+  const blocks = onTimeBlockAwards(timings);
+  const justified = new Set(blocks.map((b) => b.refKey));
+  for (const b of blocks) {
+    await awardPoints(ctx, {
+      username: me,
+      amount: b.points,
+      reason: `On-time streak \u2014 5 sealed loads delivered on time in a row (streak block ${b.block})`,
+      source: LANE1_ONTIME_SOURCE,
+      refKey: b.refKey
+    });
+  }
+  const myLedger = await db.select().from(pointsLog3).where(eq(pointsLog3.username, me));
+  for (const r of myLedger) {
+    if (r.source === LANE1_ONTIME_SOURCE && r.refKey && !justified.has(r.refKey)) {
+      await reverseLaneAward(ctx, me, r.refKey, "a seal in that on-time streak was voided, so the streak no longer holds");
+    }
+  }
+  const logs = await db.select().from(dailyLogs3).where(eq(dailyLogs3.username, me));
+  for (const l of logs) {
+    if (l.status === "open" || !l.pretrip)
+      continue;
+    let clean = false;
+    try {
+      const p = JSON.parse(l.pretrip);
+      clean = p.result === "pass" && Array.isArray(p.defects) && p.defects.length === 0;
+    } catch {
+      clean = false;
+    }
+    if (!clean)
+      continue;
+    await awardPoints(ctx, {
+      username: me,
+      amount: LANE1_CLEAN_INSPECTION_POINTS,
+      reason: `Clean inspection logged \u2014 pre-trip passed with no defects (${l.logDate})`,
+      source: LANE1_INSPECTION_SOURCE,
+      refKey: `lane1-inspection-${l.id}`
+    });
+  }
+  const eff = await effectiveDutyTimeline(ctx);
+  const myEvents = eff.events.filter((e) => e.username == null || e.username === me).map((e) => ({ state: e.state, at: e.at }));
+  const weekdayFmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: DRIVER_TZ,
+    weekday: "short"
+  });
+  const mondayOf = (t) => {
+    let start = localDayStartMs(new Date(t));
+    for (let i = 0;i < 7; i++) {
+      if (weekdayFmt.format(new Date(start + 12 * 3600000)) === "Mon")
+        break;
+      start = localDayStartMs(new Date(start - 12 * 3600000));
+    }
+    return start;
+  };
+  const thisMonday = mondayOf(Date.now());
+  for (let w = 1;w <= 8; w++) {
+    const ws = mondayOf(thisMonday - w * 7 * dayMs + 12 * 3600000);
+    const we = localDayStartMs(new Date(ws + 7 * dayMs + 12 * 3600000));
+    const weekKeys = new Set;
+    for (let d = 0;d < 7; d++)
+      weekKeys.add(localDayKey(new Date(ws + d * dayMs + 12 * 3600000)));
+    if (!logs.some((l) => l.status !== "open" && weekKeys.has(l.logDate)))
+      continue;
+    if (!myEvents.some((e) => {
+      const t = Date.parse(e.at);
+      return t >= ws && t < we;
+    }))
+      continue;
+    if (hosViolationsInWindow(myEvents, ws, we).length > 0)
+      continue;
+    await awardPoints(ctx, {
+      username: me,
+      amount: LANE1_HOS_CLEAN_WEEK_POINTS,
+      reason: `Clean HOS week \u2014 week of ${new Date(ws + 12 * 3600000).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: DRIVER_TZ })}: sealed duty log, zero violations`,
+      source: LANE1_HOS_SOURCE,
+      refKey: `lane1-hosweek-${localDayKey(new Date(ws + 12 * 3600000))}`
+    });
+  }
+  const refs = await db.select().from(posterReferrals3).where(eq(posterReferrals3.referrerUsername, me));
+  for (const ref of refs) {
+    if (ref.status !== "pending")
+      continue;
+    let landed = false;
+    if (ref.kind === "broker") {
+      const rows = await db.select().from(brokerPosterLoads3).where(eq(brokerPosterLoads3.brokerId, ref.accountId));
+      landed = rows.some((r) => r.boardLoadId != null);
+    } else {
+      const rows = await db.select().from(shipperLoads3).where(eq(shipperLoads3.shipperId, ref.accountId));
+      landed = rows.some((r) => r.boardLoadId != null);
+    }
+    if (!landed)
+      continue;
+    const awarded = await awardPoints(ctx, {
+      username: me,
+      amount: LANE3_POSTER_REFERRAL_POINTS,
+      reason: `You brought a ${ref.kind} to the load board \u2014 their first load posted`,
+      source: LANE3_POSTER_SOURCE,
+      refKey: `lane3-poster-${ref.id}`
+    });
+    if (awarded) {
+      await db.update(posterReferrals3).set({ status: "landed", landedAt: new Date }).where(eq(posterReferrals3.id, ref.id));
+    }
+  }
+  const sealedLoads = [...sealMs.entries()].map(([loadId, ms]) => ({ load: loadById.get(loadId), ms })).filter((x) => x.load != null).sort((a, b) => a.ms - b.ms);
+  for (const { load, ms } of sealedLoads) {
+    const key = laneKeyFor(load.pickupCity, load.pickupState, load.deliveryCity, load.deliveryState);
+    if (!key)
+      continue;
+    await db.insert(sealedLanes3).values({ laneKey: key, firstUsername: me, firstLoadId: load.id, firstSealedAt: new Date(ms) }).onConflictDoNothing();
+    const reg = await db.select().from(sealedLanes3).where(eq(sealedLanes3.laneKey, key)).limit(1);
+    if (reg[0] && reg[0].firstUsername === me && reg[0].firstLoadId === load.id) {
+      await awardPoints(ctx, {
+        username: me,
+        amount: LANE3_FIRST_LANE_POINTS,
+        reason: `First sealed load on a new lane \u2014 ${laneLabelForKey(key)}`,
+        source: LANE3_FIRST_LANE_SOURCE,
+        refKey: `lane3-firstlane-${load.id}`
+      });
+    }
+  }
+  const viewer = viewerOf(ctx);
+  if (viewer) {
+    const invites = await db.select().from(accountInvites3).where(and(eq(accountInvites3.kind, "tester"), eq(accountInvites3.acceptedAccountId, viewer.accountId)));
+    const inv = invites.find((i) => i.acceptedAt);
+    if (inv?.acceptedAt) {
+      const acceptedAt = inv.acceptedAt;
+      if (Date.now() >= acceptedAt.getTime() + 14 * dayMs) {
+        const days = await db.select().from(authActivityDays3).where(eq(authActivityDays3.accountId, viewer.accountId));
+        const windowDays = new Set;
+        for (let i = 0;i < 14; i++) {
+          windowDays.add(new Date(acceptedAt.getTime() + i * dayMs).toISOString().slice(0, 10));
+        }
+        const active = days.filter((d) => windowDays.has(d.day)).length;
+        if (active >= 10) {
+          await awardPoints(ctx, {
+            username: me,
+            amount: LANE3_FOUNDING_TESTER_POINTS,
+            reason: `Founding Tester \u2014 active on ${active} of your first 14 days`,
+            source: LANE3_FOUNDING_SOURCE,
+            refKey: `lane3-founding-${viewer.accountId}`
+          });
+        }
+      }
+    }
+  }
+}
+async function openPointsSafetyHold(ctx, username, kind, detail) {
+  const db = ctx.db();
+  const rows = await db.select().from(pointsSafetyHolds3).where(and(eq(pointsSafetyHolds3.username, username), eq(pointsSafetyHolds3.kind, kind)));
+  if (rows.length > 0)
+    return;
+  await db.insert(pointsSafetyHolds3).values({ username, kind, detail, status: "open" });
+  await appendChain(ctx, {
+    refKind: "driver",
+    refId: null,
+    sessionId: null,
+    event: "points_safety_hold_opened",
+    payload: { username, kind, detail, at: new Date().toISOString() }
+  });
+}
+async function evaluatePointsLayer2(ctx, me) {
+  const db = ctx.db();
+  if (!await laneEligibleFor(ctx, me))
+    return;
+  const now = Date.now();
+  const dayMs = 86400000;
+  const pay = async (a) => {
+    await awardPoints(ctx, {
+      username: me,
+      amount: a.points,
+      reason: a.reason,
+      source: a.source,
+      refKey: a.refKey
+    });
+  };
+  const profileRows = await db.select().from(profile3).where(eq(profile3.id, myProfileId(ctx))).limit(1);
+  const prof = profileRows[0];
+  const viewer = viewerOf(ctx);
+  if (prof && prof.birthMonth != null && prof.birthDay != null) {
+    const b = birthdayAwardFor({ month: prof.birthMonth, day: prof.birthDay }, now);
+    if (b)
+      await pay(b);
+  }
+  if (viewer) {
+    const acctRows = await db.select().from(accounts3).where(eq(accounts3.id, viewer.accountId)).limit(1);
+    const created = acctRows[0]?.createdAt;
+    if (created) {
+      const a = anniversaryAwardFor(created.getTime(), now);
+      if (a)
+        await pay(a);
+    }
+  }
+  const trips = await db.select().from(trips3);
+  const loads = await db.select().from(loads3);
+  const loadById = new Map(loads.map((l) => [l.id, l]));
+  const chain = await db.select().from(chainLog3).orderBy(asc(chainLog3.id));
+  const sealMs = new Map;
+  const overspeedTimes = [];
+  for (const r of chain) {
+    if (r.event === "overspeed")
+      overspeedTimes.push(r.createdAt.getTime());
+    if (r.refId == null)
+      continue;
+    if (r.event === "pod_seal") {
+      try {
+        const p = JSON.parse(r.payload);
+        if (p.at)
+          sealMs.set(r.refId, Date.parse(p.at));
+      } catch {}
+    }
+    if (r.event === "pod_seal_void")
+      sealMs.delete(r.refId);
+  }
+  const mySeals = [...sealMs.entries()].filter(([id]) => loadById.has(id));
+  const scoreInputs = (s, e) => {
+    const wTrips = trips.filter((t) => t.startedAt.getTime() >= s && t.startedAt.getTime() < e);
+    const wSeals = mySeals.filter(([, ms]) => ms >= s && ms < e);
+    let counted = 0;
+    let onTime = 0;
+    for (const [loadId, ms] of wSeals) {
+      const load = loadById.get(loadId);
+      if (!load?.deliveryText)
+        continue;
+      const appt = Date.parse(load.deliveryText);
+      if (!Number.isFinite(appt))
+        continue;
+      counted++;
+      if (ms <= appt + 60 * 60000)
+        onTime++;
+    }
+    return {
+      trips: wTrips.length,
+      seals: wSeals.length,
+      onTimeCounted: counted,
+      onTime,
+      overspeedFinal7d: overspeedTimes.filter((t) => t >= e - 7 * dayMs && t < e).length,
+      overspeedAny: overspeedTimes.filter((t) => t >= s && t < e).length
+    };
+  };
+  const activityMs = [
+    ...trips.map((t) => t.startedAt.getTime()),
+    ...mySeals.map(([, ms]) => ms)
+  ];
+  let activityDayKeys = new Set;
+  if (viewer) {
+    const days = await db.select().from(authActivityDays3).where(eq(authActivityDays3.accountId, viewer.accountId));
+    activityDayKeys = new Set(days.map((d) => d.day));
+  }
+  const yearNow = Number(layer2DayKey(now).slice(0, 4));
+  for (const y of [yearNow - 1, yearNow]) {
+    const weeks = [
+      { kind: "appreciation", week: appreciationWeek(y) },
+      { kind: "christmas", week: christmasWeek(y) },
+      { kind: "thanksgiving", week: thanksgivingWeek(y) }
+    ];
+    for (const c of weeks) {
+      const a = calendarWeekAward({
+        kind: c.kind,
+        week: c.week,
+        weekYear: y,
+        activityMs,
+        activityDayKeys,
+        nowMs: now
+      });
+      if (a)
+        await pay(a);
+    }
+  }
+  const seasonIdx = Math.max(0, Math.floor((now - SEASON_EPOCH) / SEASON_MS));
+  const seasonScores = [];
+  for (let idx = 0;idx < seasonIdx; idx++) {
+    const s = SEASON_EPOCH + idx * SEASON_MS;
+    const overall = windowOverallScore(scoreInputs(s, s + SEASON_MS));
+    seasonScores.push({ seasonNumber: idx + 1, overall });
+    const prize = seasonRankPrize(idx + 1, overall);
+    if (prize)
+      await pay(prize);
+  }
+  for (const a of comebackAwards(seasonScores))
+    await pay(a);
+  const thisWeek = calendarWeekOf(now);
+  for (let w = 1;w <= 52; w++) {
+    const start = thisWeek.startMs - w * 7 * dayMs;
+    const overall = windowOverallScore(scoreInputs(start, start + 7 * dayMs));
+    const a = perfectWeekAward(layer2DayKey(start + 12 * 3600000), overall);
+    if (a)
+      await pay(a);
+  }
+  const firstActivity = Math.min(...activityMs, ...overspeedTimes, Number.POSITIVE_INFINITY);
+  if (Number.isFinite(firstActivity)) {
+    const months = [];
+    let cursor = monthKeyOf(firstActivity);
+    const currentMonth = monthKeyOf(now);
+    for (let guard = 0;guard < 120 && cursor < currentMonth; guard++) {
+      const [y = 1970, m = 1] = cursor.split("-").map(Number);
+      const mStart = localDayStartMs(new Date(Date.UTC(y, m - 1, 1, 12, 0, 0)));
+      const mEnd = localDayStartMs(new Date(Date.UTC(m === 12 ? y + 1 : y, m === 12 ? 0 : m, 1, 12, 0, 0)));
+      const tripsIn = trips.some((t) => t.startedAt.getTime() >= mStart && t.startedAt.getTime() < mEnd);
+      const overIn = overspeedTimes.some((t) => t >= mStart && t < mEnd);
+      months.push({ key: cursor, clean: tripsIn && !overIn });
+      cursor = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, "0")}`;
+    }
+    for (const a of noIncidentQuarterAwards(months))
+      await pay(a);
+  }
+  const subEvents = await db.select().from(subscriptionEvents3).where(eq(subscriptionEvents3.username, me));
+  const covered = coveredMonthKeys(subEvents.filter((e) => !e.reversed).map((e) => ({
+    createdMs: e.createdAt.getTime(),
+    period: e.period === "yearly" ? "yearly" : "monthly"
+  })));
+  const renewalJustified = new Set;
+  for (const a of renewalStreakAwards(longestMonthRun(covered))) {
+    renewalJustified.add(a.refKey);
+    await pay(a);
+  }
+  const rewards = await db.select().from(referralRewards3).where(eq(referralRewards3.referrerUsername, me));
+  const myLedger = await db.select().from(pointsLog3).where(eq(pointsLog3.username, me));
+  const clawedReferred = new Set;
+  for (const r of myLedger) {
+    if (r.refKey?.startsWith("clawback-referral-points:")) {
+      clawedReferred.add(r.refKey.slice("clawback-referral-points:".length).toLowerCase());
+    }
+  }
+  let activeRefs = 0;
+  for (const rw of rewards) {
+    if (clawedReferred.has(rw.referredUsername.toLowerCase()))
+      continue;
+    const profRows = await db.select().from(profile3).where(eq(profile3.socialUsername, rw.referredUsername)).limit(1);
+    const acctId = profRows[0]?.accountId;
+    if (acctId == null)
+      continue;
+    const days = await db.select().from(authActivityDays3).where(eq(authActivityDays3.accountId, acctId));
+    if (new Set(days.map((d) => d.day)).size >= LAYER2_REFERRAL_ACTIVE_MIN_ACTIVITY_DAYS) {
+      activeRefs++;
+    }
+  }
+  const ladderJustified = new Set;
+  for (const a of referralLadderAwards(activeRefs)) {
+    ladderJustified.add(a.refKey);
+    await pay(a);
+  }
+  for (const r of myLedger) {
+    if (!r.refKey || r.amount <= 0)
+      continue;
+    if (r.source === LAYER2_RENEWAL_SOURCE && !renewalJustified.has(r.refKey)) {
+      await reverseLaneAward(ctx, me, r.refKey, "the subscription streak behind it no longer holds");
+    }
+    if (r.source === LAYER2_REFERRAL_LADDER_SOURCE && !ladderJustified.has(r.refKey)) {
+      await reverseLaneAward(ctx, me, r.refKey, "the active referral count dropped below the ladder rung");
+    }
+  }
+  if (prof) {
+    const photos = await db.select().from(vehiclePhotos3);
+    const docs = await db.select().from(personalDocs3);
+    const docCurrent = (kind) => docs.some((d) => d.kind === kind && (d.expiresAt == null || d.expiresAt.getTime() > now));
+    if (rigRecordComplete({
+      truckYear: prof.truckYear,
+      truckMake: prof.truckMake,
+      truckModel: prof.truckModel,
+      trailerYear: prof.trailerYear,
+      trailerMake: prof.trailerMake,
+      trailerModel: prof.trailerModel,
+      truckPhotos: photos.filter((p) => p.kind === "truck").length,
+      trailerPhotos: photos.filter((p) => p.kind === "trailer").length,
+      cdlCurrent: docCurrent("cdl"),
+      medicalCurrent: docCurrent("medical")
+    })) {
+      await pay({
+        refKey: "layer2-rigrecord",
+        source: LAYER2_RIG_RECORD_SOURCE,
+        points: LAYER2_RIG_RECORD_POINTS,
+        reason: `Complete rig record \u2014 truck and trailer filled in, photos up, CDL and medical card current: +${LAYER2_RIG_RECORD_POINTS} SM Points`
+      });
+    }
+  }
+  const holds = await db.select().from(pointsSafetyHolds3).where(and(eq(pointsSafetyHolds3.username, me), eq(pointsSafetyHolds3.status, "open")));
+  const maintHeld = holds.some((h) => h.kind.startsWith("maintenance"));
+  const services = await db.select().from(maintenanceServices3);
+  const entries = await db.select().from(maintenanceLogEntries3);
+  const attachments = await db.select().from(maintenanceLogAttachments3);
+  const attachCount = new Map;
+  for (const a of attachments)
+    attachCount.set(a.entryId, (attachCount.get(a.entryId) ?? 0) + 1);
+  const fuel = await db.select().from(fuelPurchases3);
+  const dvirs = await db.select().from(dvirReports3);
+  const dailyLogs = await db.select().from(dailyLogs3).where(eq(dailyLogs3.username, me));
+  let sealedOdo = null;
+  const considerOdo = (v) => {
+    if (v != null && Number.isFinite(v) && v > 0 && (sealedOdo == null || v > sealedOdo)) {
+      sealedOdo = v;
+    }
+  };
+  for (const f of fuel)
+    considerOdo(f.odometer);
+  for (const d of dvirs)
+    considerOdo(d.odometer);
+  for (const l of dailyLogs) {
+    considerOdo(l.finishMiles);
+    considerOdo(l.startMiles);
+  }
+  const evaluation = evaluateMaintenance(entries.map((e) => ({
+    id: e.id,
+    category: e.category,
+    performedMs: e.performedAt.getTime(),
+    odometer: e.odometer,
+    cost: e.cost,
+    nextDueMiles: e.nextDueMiles,
+    nextDueAtMs: e.nextDueAt ? e.nextDueAt.getTime() : null,
+    hasReceipt: (attachCount.get(e.id) ?? 0) > 0,
+    status: e.status
+  })), services.map((s) => ({
+    item: s.item,
+    intervalMiles: s.intervalMiles,
+    lastDoneOdometer: s.lastDoneOdometer,
+    lastDoneAtMs: s.lastDoneAt ? s.lastDoneAt.getTime() : null
+  })), sealedOdo);
+  if (evaluation.duplicateCopies >= LAYER2_HOLD_DUPLICATE_THRESHOLD) {
+    await openPointsSafetyHold(ctx, me, "maintenance_duplicates", `${evaluation.duplicateCopies} near-duplicate maintenance entries (the same service, day, odometer, and cost logged more than once) \u2014 maintenance points withheld pending owner review`);
+  }
+  if (evaluation.odometerContradictionIds.length >= LAYER2_HOLD_ODOMETER_THRESHOLD) {
+    await openPointsSafetyHold(ctx, me, "maintenance_odometer", `${evaluation.odometerContradictionIds.length} maintenance entries whose odometer contradicts the sealed record \u2014 maintenance points withheld pending owner review`);
+  }
+  if (!maintHeld) {
+    for (const { award } of evaluation.awards)
+      await pay(award);
+  }
 }
 async function latestRetainer(ctx, username) {
   const db = ctx.db();
@@ -18025,6 +22401,7 @@ async function notifyTeamChange(ctx, args) {
       try {
         const res = await ctx.executePrivileged(privileged.sendDocEmail, {
           to: email,
+          replyTo: null,
           subject: `STONEMILES \u2014 ${args.summary}`,
           text: [
             `From: ${TEAM_CONTACT_NAME} <${teamEmail}>`,
@@ -18069,6 +22446,31 @@ async function notifyTeamChange(ctx, args) {
     emailStatus,
     emailDetail
   });
+}
+async function sendAlertEmail(ctx, args) {
+  try {
+    const email = await accountEmailFor(ctx, args.username);
+    if (!email)
+      return "no_address";
+    if (!await docEmailProviderConfigured(ctx))
+      return "queued";
+    const res = await ctx.executePrivileged(privileged.sendDocEmail, {
+      to: email,
+      replyTo: null,
+      subject: args.subject,
+      text: args.lines.join(`
+`),
+      attachmentBase64: null,
+      attachmentFilename: null
+    });
+    if (res.ok && res.providerId)
+      return "sent";
+    if (res.notConfigured)
+      return "queued";
+    return "failed";
+  } catch {
+    return "failed";
+  }
 }
 var itemWindowShape = object({
   id: number2(),
@@ -19852,6 +24254,7 @@ var appSettingsShape = object({
   mapTiltMode: _enum(["auto", "flat", "tilted"]),
   hillGradeAlerts: boolean2(),
   winterWeatherAlerts: boolean2(),
+  autoAddStops: boolean2(),
   carModeEnabled: boolean2(),
   carModeAutoLaunch: boolean2(),
   carVoicePrompts: boolean2(),
@@ -19874,6 +24277,7 @@ var APP_SETTINGS_DEFAULTS = {
   weighPrompts: true,
   hillGradeAlerts: true,
   winterWeatherAlerts: true,
+  autoAddStops: true,
   carModeEnabled: false,
   carModeAutoLaunch: true,
   carVoicePrompts: true,
@@ -19906,10 +24310,77 @@ var profileShape = object({
   driverCpm: number2().min(0.05).max(20).nullable(),
   payBasis: _enum(["cpm", "percent"]),
   driverPayPct: number2().min(0.1).max(100).nullable(),
-  trailerType: _enum(["dry_van", "reefer", "flatbed", "step_deck", "rgn"]).default("dry_van")
+  factoringPct: number2().min(0).max(100).default(0),
+  dispatcherPct: number2().min(0).max(100).default(0),
+  trailerType: _enum(["dry_van", "reefer", "flatbed", "step_deck", "rgn"]).default("dry_van"),
+  truckYear: number2().int().min(1950).max(2100).nullable().default(null),
+  truckMake: string2().max(60).nullable().default(null),
+  truckModel: string2().max(60).nullable().default(null),
+  truckUnitNumber: string2().max(40).nullable().default(null),
+  truckVin: string2().max(40).nullable().default(null),
+  truckPlate: string2().max(30).nullable().default(null),
+  truckEngine: string2().max(80).nullable().default(null),
+  truckTransmission: string2().max(80).nullable().default(null),
+  trailerYear: number2().int().min(1950).max(2100).nullable().default(null),
+  trailerMake: string2().max(60).nullable().default(null),
+  trailerModel: string2().max(60).nullable().default(null),
+  trailerVin: string2().max(40).nullable().default(null),
+  trailerPlate: string2().max(30).nullable().default(null),
+  birthMonth: number2().int().min(1).max(12).nullable().default(null),
+  birthDay: number2().int().min(1).max(31).nullable().default(null)
 });
 var profileResponse = object({
   profile: profileShape.extend({ pinSet: boolean2() }).nullable()
+});
+var maintenanceLogCategory = _enum([
+  "oil",
+  "tires",
+  "brakes",
+  "dot_inspection",
+  "engine",
+  "transmission",
+  "suspension",
+  "electrical",
+  "ac",
+  "other"
+]);
+var maintenanceLogAttachmentShape = object({
+  id: number2(),
+  label: string2(),
+  mime: string2().nullable(),
+  hasFile: boolean2(),
+  createdAt: string2()
+});
+var maintenanceLogEntryShape = object({
+  id: number2(),
+  performedAt: string2(),
+  odometer: number2().nullable(),
+  category: string2(),
+  description: string2(),
+  shop: string2().nullable(),
+  cost: number2(),
+  nextDueMiles: number2().nullable(),
+  nextDueAt: string2().nullable(),
+  notes: string2().nullable(),
+  status: string2(),
+  dvirId: number2().nullable(),
+  attachments: array(maintenanceLogAttachmentShape),
+  createdAt: string2()
+});
+var truckRecordIdentityShape = object({
+  truckYear: number2().nullable(),
+  truckMake: string2().nullable(),
+  truckModel: string2().nullable(),
+  truckUnitNumber: string2().nullable(),
+  truckVin: string2().nullable(),
+  truckPlate: string2().nullable(),
+  truckEngine: string2().nullable(),
+  truckTransmission: string2().nullable(),
+  heightFt: number2().nullable(),
+  heightIn: number2().nullable(),
+  weightLbs: number2().nullable(),
+  lengthFt: number2().nullable(),
+  trailerType: string2().nullable()
 });
 var learningResponse = object({
   enabled: boolean2(),
@@ -20241,6 +24712,7 @@ var loadShape = object({
   brokerCompany: string2().nullable(),
   brokerMc: string2().nullable(),
   brokerSource: string2().nullable(),
+  referenceNumber: string2().nullable(),
   packet: packetShape.nullable(),
   hasDoc: boolean2(),
   docMime: string2().nullable(),
@@ -20363,6 +24835,7 @@ function toLoad(row, pod = NO_POD, extraSecurementCount = 0, packet = null, reef
     brokerCompany: row.brokerCompany ?? null,
     brokerMc: row.brokerMc ?? null,
     brokerSource: row.brokerSource ?? null,
+    referenceNumber: row.referenceNumber ?? null,
     packet: packet ? toPacket(packet) : null,
     hasDoc: row.docBlobKey != null,
     docMime: row.docMime,
@@ -20440,6 +24913,34 @@ async function podStatusByLoad(ctx) {
     }
   }
   return map;
+}
+async function credentialStatusesFor(ctx, me) {
+  const db = ctx.db();
+  const docs = await db.select().from(personalDocs3);
+  const soonestDoc = (kind) => docs.filter((d) => d.kind === kind && d.expiresAt != null).sort((a, b) => a.expiresAt.getTime() - b.expiresAt.getTime())[0] ?? null;
+  const cdlDoc = soonestDoc("cdl");
+  const medDoc = soonestDoc("medical");
+  const socialRows = await db.select().from(socialUsers3).where(eq(socialUsers3.username, me)).limit(1);
+  const social = socialRows[0];
+  const credentials = [
+    {
+      key: "cdl",
+      label: cdlDoc?.label ?? CREDENTIAL_LABELS.cdl,
+      expiresOn: cdlDoc?.expiresAt ? cdlDoc.expiresAt.toISOString().slice(0, 10) : null
+    },
+    {
+      key: "medical",
+      label: medDoc?.label ?? CREDENTIAL_LABELS.medical,
+      expiresOn: medDoc?.expiresAt ? medDoc.expiresAt.toISOString().slice(0, 10) : null
+    },
+    {
+      key: "twic",
+      label: CREDENTIAL_LABELS.twic,
+      expiresOn: social?.twicHas && social?.twicExpires ? social.twicExpires : null
+    }
+  ];
+  const dismissals = await db.select().from(credentialAlertDismissals3).where(eq(credentialAlertDismissals3.username, me));
+  return buildCredentialStatuses(credentials, dismissals, Date.now());
 }
 async function invoiceFingerprintFor(load) {
   const amount = load.rate != null ? Math.round((load.rate + (load.extraCharges ?? 0)) * 100) / 100 : null;
@@ -21587,6 +26088,17 @@ var boardLoadShape = object({
   claimMethod: string2().nullable(),
   claimedBy: string2().nullable(),
   claimedAt: string2().nullable(),
+  assignmentPhase: string2(),
+  referenceNumber: string2().nullable(),
+  pickupApptAt: string2().nullable(),
+  deliveryApptAt: string2().nullable(),
+  declineReason: string2().nullable(),
+  declinedBy: string2().nullable(),
+  declinedAt: string2().nullable(),
+  deliveryPath: string2().nullable(),
+  deliveryReceiver: string2().nullable(),
+  deliveryException: string2().nullable(),
+  deliveryConfirmedAt: string2().nullable(),
   loadId: number2().nullable(),
   tripQueueId: number2().nullable(),
   linkedLoadStatus: string2().nullable(),
@@ -21613,7 +26125,9 @@ var boardLoadShape = object({
 function toBoardLoad(row, linked) {
   let canUnassign = false;
   let blocked = null;
-  if (row.status === "taken") {
+  if (row.status === "assigned") {
+    canUnassign = true;
+  } else if (row.status === "taken") {
     if (!linked) {
       blocked = "The driver's load for this board post is gone, so there is nothing to hand back \u2014 withdraw and repost it fresh if it still needs covering.";
     } else if (linked.podSealed) {
@@ -21654,6 +26168,17 @@ function toBoardLoad(row, linked) {
     claimMethod: row.claimMethod ?? null,
     claimedBy: row.claimedBy ?? null,
     claimedAt: row.claimedAt?.toISOString() ?? null,
+    assignmentPhase: assignmentPhaseFor({ status: row.status, claimMethod: row.claimMethod ?? null }),
+    referenceNumber: row.referenceNumber ?? null,
+    pickupApptAt: row.pickupApptAt?.toISOString() ?? null,
+    deliveryApptAt: row.deliveryApptAt?.toISOString() ?? null,
+    declineReason: row.declineReason ?? null,
+    declinedBy: row.declinedBy ?? null,
+    declinedAt: row.declinedAt?.toISOString() ?? null,
+    deliveryPath: linked?.confirmation?.path ?? null,
+    deliveryReceiver: linked?.confirmation?.receiverName ?? null,
+    deliveryException: linked?.confirmation?.exceptionNotes ?? null,
+    deliveryConfirmedAt: linked?.confirmation?.at ?? null,
     loadId: row.loadId ?? null,
     tripQueueId: row.tripQueueId ?? null,
     linkedLoadStatus: linked?.status ?? null,
@@ -21682,15 +26207,57 @@ async function boardLinkedState(ctx, row) {
   if (row.loadId == null)
     return null;
   const db = ctx.db();
-  const rows = await db.select().from(loads3).where(eq(loads3.id, row.loadId)).limit(1);
-  const load = rows[0];
-  if (!load)
+  const events = await db.select().from(chainLog3).where(and(eq(chainLog3.refKind, "load"), eq(chainLog3.refId, row.loadId))).orderBy(asc(chainLog3.id));
+  if (events.length === 0)
+    return null;
+  if (events.some((e) => e.event === "load_deleted"))
+    return null;
+  let seen = false;
+  let status = "booked";
+  let hasPickupProof = false;
+  for (const e of events) {
+    if (e.event === "load_saved") {
+      seen = true;
+    } else if (e.event === "pickup_load_photo_sealed" || e.event === "pickup_bol_photo_sealed" || e.event === "pickup_securement_photo_sealed") {
+      hasPickupProof = true;
+    } else if (e.event === "pickup_sealed") {
+      hasPickupProof = true;
+      if (status === "booked")
+        status = "picked_up";
+    } else if (e.event === "load_status") {
+      try {
+        const p = JSON.parse(e.payload);
+        if (typeof p.status === "string" && p.status)
+          status = p.status;
+      } catch {}
+    }
+  }
+  if (!seen)
     return null;
   const pods = await podStatusByLoad(ctx);
+  let confirmation = null;
+  for (const e of events) {
+    if (e.event !== "delivery_confirmed" && e.event !== "pod_seal")
+      continue;
+    try {
+      const p = JSON.parse(e.payload);
+      if (e.event === "pod_seal" && typeof p.confirmationPath !== "string" && confirmation)
+        continue;
+      confirmation = {
+        path: e.event === "delivery_confirmed" ? typeof p.path === "string" ? p.path : "receive_link" : typeof p.confirmationPath === "string" ? p.confirmationPath : "driver_pod",
+        receiverName: typeof p.receiverName === "string" ? p.receiverName : null,
+        exceptionNotes: typeof p.exceptionNotes === "string" ? p.exceptionNotes : null,
+        at: typeof p.at === "string" ? p.at : null
+      };
+      if (e.event === "delivery_confirmed")
+        break;
+    } catch {}
+  }
   return {
-    status: load.status,
-    podSealed: pods.get(load.id)?.sealed ?? false,
-    hasPickupProof: load.pickupLoadBlobKey != null || load.pickupBolBlobKey != null || load.pickupSealedAt != null
+    status,
+    podSealed: pods.get(row.loadId)?.sealed ?? false,
+    hasPickupProof,
+    confirmation
   };
 }
 async function createLoadFromBoard(ctx, board, driverUsername) {
@@ -21722,6 +26289,8 @@ async function createLoadFromBoard(ctx, board, driverUsername) {
     equipmentType: board.equipmentType ?? null,
     trailerNumber: prof?.currentTrailer ?? null,
     status: "booked",
+    referenceNumber: board.referenceNumber ?? null,
+    dockApptAt: board.deliveryApptAt ?? null,
     brokerName: board.brokerName ?? null,
     brokerCompany: board.brokerCompany ?? null,
     brokerMc: board.brokerMc ?? null,
@@ -21737,7 +26306,7 @@ async function createLoadFromBoard(ctx, board, driverUsername) {
     refId: loadId,
     sessionId: null,
     event: "load_saved",
-    payload: { ...fields, extraCharges: board.extraCharges ?? 0, extraChargesNote: board.extraChargesNote ?? null, source: claimSource, boardLoadId: board.id, originKind: board.originKind ?? null, originLabel: board.originLabel ?? null, driver: driverUsername }
+    payload: { ...fields, extraCharges: board.extraCharges ?? 0, extraChargesNote: board.extraChargesNote ?? null, source: claimSource, boardLoadId: board.id, originKind: board.originKind ?? null, originLabel: board.originLabel ?? null, driver: driverUsername, referenceNumber: board.referenceNumber ?? null, pickupApptAt: board.pickupApptAt?.toISOString() ?? null, deliveryApptAt: board.deliveryApptAt?.toISOString() ?? null }
   });
   if (board.docSha256) {
     await appendChain(ctx, {
@@ -21748,6 +26317,9 @@ async function createLoadFromBoard(ctx, board, driverUsername) {
       payload: { sha256: board.docSha256, mime: board.docMime, source: claimSource, boardLoadId: board.id }
     });
   }
+  try {
+    await ensureReceiveLink(ctx, loadId, driverUsername);
+  } catch {}
   const lane = (city, state) => [city, state].filter(Boolean).join(", ");
   const tripName = `${lane(board.pickupCity, board.pickupState) || "Pickup"} \u2192 ${lane(board.deliveryCity, board.deliveryState) || "Delivery"}`.slice(0, 120);
   const payRate = prof?.driverCpm ?? 0.55;
@@ -21821,12 +26393,23 @@ async function takeBoardLoad(ctx, board, driverUsername, method, actor) {
     return { ok: false, error: "Claiming hit a snag creating the load \u2014 nothing was taken and the load is back on the board. Try again.", loadId: null, tripQueueId: null };
   }
 }
+function parseBoardAppt(input, label) {
+  const t = (input ?? "").trim();
+  if (!t)
+    return { at: null, error: null };
+  const d = new Date(t);
+  if (!Number.isFinite(d.getTime())) {
+    return { at: null, error: `That ${label} appointment doesn't parse \u2014 pick it again or leave it blank.` };
+  }
+  return { at: d, error: null };
+}
 var brokerLinkShape = object({
   id: number2(),
   brokerName: string2(),
   brokerCompany: string2().nullable(),
   brokerContact: string2().nullable(),
   brokerMc: string2().nullable(),
+  kind: string2(),
   token: string2(),
   status: string2(),
   expiresAt: string2(),
@@ -21843,6 +26426,11 @@ var brokerSubmissionShape = object({
   brokerCompany: string2().nullable(),
   brokerMc: string2().nullable(),
   brokerLinkLabel: string2(),
+  sourceKind: string2(),
+  senderContact: string2().nullable(),
+  referenceNumber: string2().nullable(),
+  pickupApptAt: string2().nullable(),
+  deliveryApptAt: string2().nullable(),
   shipper: string2().nullable(),
   pickupCity: string2().nullable(),
   pickupState: string2().nullable(),
@@ -21901,6 +26489,11 @@ async function brokerEnabled(ctx, scopeKey) {
   const rows = await db.select().from(brokerOptins3).where(eq(brokerOptins3.scopeKey, scopeKey)).limit(1);
   return rows[0]?.enabled ?? false;
 }
+async function sendDoorRow(ctx, scopeKey) {
+  const db = ctx.db();
+  const rows = await db.select().from(brokerLinks3).where(and(eq(brokerLinks3.scopeKey, scopeKey), eq(brokerLinks3.kind, "door"))).orderBy(desc(brokerLinks3.id));
+  return rows[0] ?? null;
+}
 function brokerToken() {
   const bytes = new Uint8Array(24);
   crypto.getRandomValues(bytes);
@@ -21921,6 +26514,7 @@ function toBrokerLink(row, subs) {
     brokerCompany: row.brokerCompany ?? null,
     brokerContact: row.brokerContact ?? null,
     brokerMc: row.brokerMc ?? null,
+    kind: row.kind ?? "broker",
     token: row.token,
     status: brokerLinkStatus(row),
     expiresAt: row.expiresAt.toISOString(),
@@ -21938,7 +26532,12 @@ function toBrokerSubmission(row, link) {
     brokerName: row.brokerName,
     brokerCompany: row.brokerCompany ?? null,
     brokerMc: row.brokerMc ?? null,
-    brokerLinkLabel: link ? `${link.brokerName}${link.brokerCompany ? ` \u2014 ${link.brokerCompany}` : ""}` : `Link #${row.linkId}`,
+    brokerLinkLabel: link ? (link.kind ?? "broker") === "door" ? "Send door" : `${link.brokerName}${link.brokerCompany ? ` \u2014 ${link.brokerCompany}` : ""}` : `Link #${row.linkId}`,
+    sourceKind: (link?.kind ?? "broker") === "door" ? "door" : "link",
+    senderContact: row.senderContact ?? null,
+    referenceNumber: row.referenceNumber ?? null,
+    pickupApptAt: row.pickupApptAt?.toISOString() ?? null,
+    deliveryApptAt: row.deliveryApptAt?.toISOString() ?? null,
     shipper: row.shipper,
     pickupCity: row.pickupCity,
     pickupState: row.pickupState,
@@ -22496,10 +27095,11 @@ async function eldFeedsFor(ctx, conn) {
   return map.map((f) => {
     const snap = snaps.filter((s) => s.feed === f.feed).sort((a, b) => b.receivedAt.getTime() - a.receivedAt.getTime())[0];
     if (snap) {
+      const simulated = snapshotIsSimulated(snap.payloadJson);
       return {
         ...f,
         state: "received",
-        detail: `Last received ${snap.receivedAt.toLocaleString()} from ${ELD_PROVIDER_NAMES[conn.provider] ?? conn.provider}.`
+        detail: simulated ? `Test sync ${snap.receivedAt.toLocaleString()} \u2014 simulated device data through the sync pipeline. Live sync awaits a real ELD device.` : `Last received ${snap.receivedAt.toLocaleString()} from ${ELD_PROVIDER_NAMES[conn.provider] ?? conn.provider}.`
       };
     }
     const marked = stored.find((s) => s.feed === f.feed && s.state === "blocked_by_plan");
@@ -22533,7 +27133,7 @@ async function mirroredEldHos(ctx) {
   const conns = await db.select().from(eldConnections3).where(eq(eldConnections3.status, "connected"));
   for (const c of conns) {
     const snaps = await db.select().from(eldSnapshots3).where(eq(eldSnapshots3.connectionId, c.id)).orderBy(desc(eldSnapshots3.id));
-    const snap = snaps.find((s) => s.feed === "hos_clocks");
+    const snap = snaps.find((s) => s.feed === "hos_clocks" && !snapshotIsSimulated(s.payloadJson));
     if (!snap)
       continue;
     try {
@@ -22825,6 +27425,34 @@ async function toBoardPost(ctx, row, me) {
     referralLevelKey: authorLevel.level.key,
     isRoadCaptain: authorLevel.isRoadCaptain
   };
+}
+var PUBLIC_TRAILER_LABELS = {
+  dry_van: "Dry Van",
+  reefer: "Reefer",
+  flatbed: "Flatbed",
+  step_deck: "Step Deck",
+  lowboy: "Lowboy",
+  tanker: "Tanker",
+  conestoga: "Conestoga",
+  box_truck: "Box Truck",
+  car_hauler: "Car Hauler",
+  other: "Other Trailer"
+};
+function publicTruckLineFor(prof) {
+  if (!prof)
+    return null;
+  const head = [prof.truckYear != null ? String(prof.truckYear) : "", prof.truckMake ?? "", prof.truckModel ?? ""].map((x) => x.trim()).filter(Boolean).join(" ");
+  const trailer = PUBLIC_TRAILER_LABELS[prof.trailerType] ?? "";
+  const line = [head, trailer].filter(Boolean).join(" \xB7 ");
+  return line || null;
+}
+function publicTrailerLineFor(prof) {
+  if (!prof)
+    return null;
+  const head = [prof.trailerYear != null ? String(prof.trailerYear) : "", prof.trailerMake ?? "", prof.trailerModel ?? ""].map((x) => x.trim()).filter(Boolean).join(" ");
+  const trailer = PUBLIC_TRAILER_LABELS[prof.trailerType] ?? "";
+  const line = [head, trailer].filter(Boolean).join(" \xB7 ");
+  return line || null;
 }
 async function milesPanelFor(ctx, _username, isMe, visible) {
   if (!isMe) {
@@ -23857,6 +28485,1175 @@ var marketPulseEquipmentInput = object({
   yoyPct: number2(),
   loadsChangePct: number2()
 });
+async function iftaAggregates(ctx, startMs, endMs) {
+  const db = ctx.db();
+  const trips = (await db.select().from(trips3)).filter((t) => t.startedAt.getTime() >= startMs && t.startedAt.getTime() < endMs);
+  const fuel = (await db.select().from(fuelPurchases3)).filter((f) => f.purchasedAt.getTime() >= startMs && f.purchasedAt.getTime() < endMs);
+  const milesByState = new Map;
+  for (const t of trips) {
+    try {
+      const states = JSON.parse(t.stateBreakdown);
+      for (const s of states)
+        milesByState.set(s.state, (milesByState.get(s.state) ?? 0) + s.miles);
+    } catch {}
+  }
+  const fuelByState = new Map;
+  for (const f of fuel)
+    fuelByState.set(f.state, (fuelByState.get(f.state) ?? 0) + f.gallons);
+  return {
+    milesByState,
+    fuelByState,
+    totalMiles: trips.reduce((s, t) => s + t.totalMiles, 0),
+    totalGallons: fuel.reduce((s, f) => s + f.gallons, 0)
+  };
+}
+async function chainWalk(ctx) {
+  const db = ctx.db();
+  const rows = await db.select().from(chainLog3).orderBy(asc(chainLog3.id));
+  const statusById = new Map;
+  let prev = GENESIS_HASH;
+  let brokenAtId = null;
+  for (const r of rows) {
+    if (brokenAtId != null) {
+      statusById.set(r.id, "unverified");
+      continue;
+    }
+    if (r.prevHash !== prev) {
+      statusById.set(r.id, "broken");
+      brokenAtId = r.id;
+      continue;
+    }
+    const expected = await sha256(`${r.prevHash}|${r.event}|${r.payload}`);
+    if (expected !== r.hash) {
+      statusById.set(r.id, "broken");
+      brokenAtId = r.id;
+      continue;
+    }
+    statusById.set(r.id, "verified");
+    prev = r.hash;
+  }
+  return {
+    intact: brokenAtId == null,
+    brokenAtId,
+    headHash: prev,
+    checked: rows.length,
+    statusById,
+    rows
+  };
+}
+function laneTextOf(a) {
+  const from = [a.pickupCity, a.pickupState].filter(Boolean).join(", ") || "Pickup TBD";
+  const to = [a.deliveryCity, a.deliveryState].filter(Boolean).join(", ") || "Delivery TBD";
+  return `${from} \u2192 ${to}`;
+}
+function monthLabelOf(d) {
+  return d.toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
+}
+var LIBRARY_PDF_FOOTER = "STONEMILES - sealed records - generated from the User Library";
+function libraryPdfBytes(args) {
+  return buildPdf({ title: args.title, subtitle: args.subtitle ?? null, sections: args.sections, footer: LIBRARY_PDF_FOOTER, image: args.image ?? null });
+}
+var moneyText = (n) => n == null ? "not set" : `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+async function readBlobBytes(ctx, key) {
+  const blobs = ctx.blobs;
+  if (typeof blobs.read !== "function")
+    return null;
+  try {
+    return await blobs.read(key);
+  } catch {
+    return null;
+  }
+}
+function fileNameFor(label, mime, fallbackExt) {
+  const base = label.replace(/[^a-zA-Z0-9-_ ]/g, "").trim().replace(/\s+/g, "-").slice(0, 60) || "document";
+  const ext = mime?.includes("pdf") ? "pdf" : mime?.includes("png") ? "png" : mime?.includes("jpeg") || mime?.includes("jpg") ? "jpg" : fallbackExt;
+  return `${base}.${ext}`;
+}
+async function libraryLoadScope(ctx, loadId) {
+  const db = ctx.db();
+  const mine = await db.select().from(loads3).where(eq(loads3.id, loadId)).limit(1);
+  if (mine[0])
+    return { via: "mine", load: mine[0], board: null };
+  const me = await myUsername(ctx);
+  const membership = await myMembership(ctx, me);
+  if (membership && (membership.role === "owner" || membership.role === "dispatch")) {
+    const rows = await db.select().from(boardLoads3).where(and(eq(boardLoads3.companyId, membership.company.id), eq(boardLoads3.loadId, loadId), eq(boardLoads3.status, "taken"))).limit(1);
+    if (rows[0])
+      return { via: "fleet", load: null, board: rows[0] };
+  }
+  return null;
+}
+var docRefused = (docKind) => ({
+  ok: false,
+  error: "That document isn't in your library \u2014 it belongs to another account or fleet, or it doesn't exist.",
+  docKind,
+  title: "",
+  filename: "",
+  mime: "",
+  bytes: null
+});
+async function sealedLoadSections(ctx, loadId) {
+  const walk = await chainWalk(ctx);
+  const entries = walk.rows.filter((r) => r.refKind === "load" && r.refId === loadId);
+  const lines = [];
+  if (entries.length === 0)
+    lines.push("No sealed chain entries name this load yet.");
+  for (const e of entries) {
+    const status = walk.statusById.get(e.id) ?? "unverified";
+    lines.push(`#${e.id} ${e.event} - ${e.createdAt.toISOString()} - ${status}`);
+    lines.push(`  hash ${e.hash}`);
+  }
+  let verdict = "Chain is intact - every entry above verifies against the sealed chain.";
+  if (!walk.intact) {
+    verdict = `Chain verification stops at entry #${walk.brokenAtId} - entries after it cannot be verified. Run Verify in the app for the full audit.`;
+  }
+  const codes = await ctx.db().select().from(verifyCodes3).where(and(eq(verifyCodes3.kind, "load"), eq(verifyCodes3.refId, loadId)));
+  const sections = [
+    { heading: "Sealed chain record", lines },
+    {
+      heading: "Verification",
+      lines: [
+        verdict,
+        `Chain head: ${walk.headHash}`,
+        `Entries checked: ${walk.checked}`,
+        ...codes.length ? codes.map((c) => `Verify-anywhere code: ${c.code} (record hash ${c.recordHash})`) : ["No verify-anywhere code has been issued for this load."]
+      ]
+    }
+  ];
+  return sections;
+}
+async function iftaPdfSections(ctx, year, quarter) {
+  const qStart = Date.UTC(year, (quarter - 1) * 3, 1);
+  const qEnd = Date.UTC(year, quarter * 3, 1);
+  const agg = await iftaAggregates(ctx, qStart, qEnd);
+  const mpg = agg.totalGallons > 0 && agg.totalMiles > 0 ? agg.totalMiles / agg.totalGallons : null;
+  const states = [...new Set([...agg.milesByState.keys(), ...agg.fuelByState.keys()])].sort();
+  const lines = ["State | Miles | Gal bought | Gal used | Tax rate | Tax paid | Tax on used | Net"];
+  let totalNet = 0;
+  let anyNet = false;
+  for (const state of states) {
+    const miles = agg.milesByState.get(state) ?? 0;
+    const bought = agg.fuelByState.get(state) ?? 0;
+    const rate = IFTA_DIESEL_RATES[state] ?? null;
+    const used = mpg != null ? miles / mpg : null;
+    const paid = rate != null ? bought * rate : null;
+    const owed = rate != null && used != null ? used * rate : null;
+    const net = owed != null && paid != null ? owed - paid : null;
+    if (net != null) {
+      totalNet += net;
+      anyNet = true;
+    }
+    lines.push(`${state} | ${miles.toFixed(1)} | ${bought.toFixed(2)} | ${used != null ? used.toFixed(2) : "-"} | ${rate != null ? "$" + rate.toFixed(4) : "rate not loaded"} | ${paid != null ? "$" + paid.toFixed(2) : "-"} | ${owed != null ? "$" + owed.toFixed(2) : "-"} | ${net != null ? "$" + net.toFixed(2) : "-"}`);
+  }
+  if (states.length === 0)
+    lines.push("No trips or fuel in this quarter yet.");
+  const db = ctx.db();
+  const chain = await db.select({ hash: chainLog3.hash }).from(chainLog3).orderBy(desc(chainLog3.id)).limit(1);
+  return [
+    {
+      heading: `State lines - Q${quarter} ${year}`,
+      lines: [
+        `Total miles: ${agg.totalMiles.toFixed(1)} - Total fuel bought: ${agg.totalGallons.toFixed(2)} gal - Fleet MPG: ${mpg != null ? mpg.toFixed(2) : "not enough fuel logged"}`,
+        "",
+        ...lines,
+        "",
+        `Estimated net for the quarter: ${anyNet ? "$" + totalNet.toFixed(2) + (totalNet >= 0 ? " owed" : " credit") : "- (log fuel purchases to complete the estimate)"}`
+      ]
+    },
+    {
+      heading: "About this report",
+      lines: [
+        "Miles from sealed trip sheets - Fuel from sealed fuel purchases.",
+        "Tax rates: IFTA, Inc. fuel tax matrix - estimate for planning only, not a filing and not tax advice. Verify before filing.",
+        `Sealed chain head hash: ${chain[0]?.hash ?? GENESIS_HASH}`
+      ]
+    }
+  ];
+}
+async function businessIdentityFor(ctx) {
+  const db = ctx.db();
+  const rows = await db.select().from(profile3).where(eq(profile3.id, myProfileId(ctx))).limit(1);
+  const p = rows[0];
+  return {
+    name: p?.bizName ?? p?.companyName ?? p?.chatName ?? null,
+    address: p?.bizAddress ?? null,
+    phone: p?.bizPhone ?? null,
+    email: p?.bizEmail ?? null,
+    paymentInstructions: p?.bizPaymentInstructions ?? null,
+    logoBlobKey: p?.bizLogoBlobKey ?? null,
+    logoMime: p?.bizLogoMime ?? null
+  };
+}
+async function businessLogoImageFor(ctx, biz) {
+  if (!biz.logoBlobKey)
+    return null;
+  const got = await readBlobBytes(ctx, biz.logoBlobKey);
+  if (!got)
+    return null;
+  const dims = jpegDimensions(got.bytes);
+  if (!dims)
+    return null;
+  const widthPt = 132;
+  const heightPt = Math.max(24, Math.min(72, Math.round(widthPt * dims.height / Math.max(1, dims.width))));
+  return { jpegBytes: got.bytes, widthPt, heightPt };
+}
+function invoiceLinesParsed(row) {
+  try {
+    const parsed = JSON.parse(row.linesJson);
+    return Array.isArray(parsed) ? parsed.filter((l) => typeof l?.label === "string" && Number.isFinite(l?.amount)) : [];
+  } catch {
+    return [];
+  }
+}
+async function profitLossDataFor(ctx, kind, year, index) {
+  const db = ctx.db();
+  const period = plPeriodRange(kind, year, index);
+  const loads = await db.select().from(loads3);
+  const pods = await podStatusByLoad(ctx);
+  const claims = await db.select().from(claimEvents3);
+  const claimsByLoad = new Map;
+  for (const c of claims) {
+    if (c.loadId == null)
+      continue;
+    claimsByLoad.set(c.loadId, Math.round(((claimsByLoad.get(c.loadId) ?? 0) + c.amount) * 100) / 100);
+  }
+  const expenses = await db.select().from(expenses3);
+  const fuel = await db.select().from(fuelPurchases3);
+  const maint = await db.select().from(maintenanceLogEntries3);
+  const loadMeta = new Map;
+  const plLoads = [];
+  for (const l of loads) {
+    const pod = pods.get(l.id);
+    if (!pod?.sealed || !pod.sealedAt)
+      continue;
+    loadMeta.set(l.id, { lane: laneTextOf(l), shipper: l.shipper ?? null, deliveredAt: pod.sealedAt });
+    plLoads.push({
+      loadId: l.id,
+      deliveredAtMs: Date.parse(pod.sealedAt),
+      gross: l.rate != null ? Math.round((l.rate + (l.extraCharges ?? 0)) * 100) / 100 : null,
+      claimsTotal: claimsByLoad.get(l.id) ?? 0
+    });
+  }
+  const pl = buildProfitLoss({
+    loads: plLoads,
+    expenses: expenses.map((e) => ({ spentAtMs: e.spentAt.getTime(), category: e.category, amount: e.amount, loadId: e.loadId ?? null })),
+    fuelPurchases: fuel.map((f) => ({ purchasedAtMs: f.purchasedAt.getTime(), total: f.total })),
+    maintenance: maint.filter((m) => m.status !== "draft").map((m) => ({ performedAtMs: m.performedAt.getTime(), cost: m.cost ?? 0 })),
+    period
+  });
+  return { pl, loadMeta };
+}
+function invoicePdfSections(row, biz) {
+  const lines = invoiceLinesParsed(row);
+  const status = invoiceDisplayStatus({ status: row.status, dueAtMs: row.dueAt?.getTime() ?? null }, Date.now());
+  const fromLines = [
+    biz.name ?? "Your business",
+    ...biz.address ? biz.address.split(`
+`).map((s) => s.trim()).filter(Boolean) : [],
+    ...biz.phone ? [`Phone: ${biz.phone}`] : [],
+    ...biz.email ? [`Email: ${biz.email}`] : []
+  ];
+  return [
+    { heading: "From", lines: fromLines },
+    {
+      heading: "Bill to",
+      lines: [
+        row.billToName,
+        ...row.billToCompany && row.billToCompany !== row.billToName ? [row.billToCompany] : [],
+        ...row.shipper ? [`Shipper: ${row.shipper}`] : []
+      ]
+    },
+    {
+      heading: "Load",
+      lines: [
+        `Load #${row.loadId} - ${laneTextOf(row)}`,
+        ...row.referenceNumber ? [`Reference #: ${row.referenceNumber}`] : [],
+        ...row.commodity ? [`Freight: ${row.commodity}`] : [],
+        `Delivered: ${row.deliveredAt.toISOString().slice(0, 10)}`
+      ]
+    },
+    {
+      heading: "Charges",
+      lines: [
+        ...lines.map((l) => `${l.label}: ${moneyText(l.amount)}`),
+        `TOTAL DUE: ${moneyText(row.amount)}`
+      ]
+    },
+    {
+      heading: "Payment",
+      lines: [
+        `Status: ${status === "paid" ? `PAID${row.paidAt ? ` - ${row.paidAt.toISOString().slice(0, 10)}` : ""}` : status === "overdue" ? "OVERDUE" : status === "issued" ? "Issued - awaiting payment" : "Draft - not issued yet"}`,
+        ...row.issuedAt ? [`Issued: ${row.issuedAt.toISOString().slice(0, 10)}`] : [],
+        ...row.dueAt ? [`Due: ${row.dueAt.toISOString().slice(0, 10)}`] : [`Terms: Net ${row.dueDays} (due date sets when the invoice is issued)`],
+        ...biz.paymentInstructions ? [`Payment instructions: ${biz.paymentInstructions}`] : ["Payment instructions: add them in Settings - Business profile and they print here."],
+        ...row.notes ? [`Note: ${row.notes}`] : []
+      ]
+    }
+  ];
+}
+var BUNDLE_CREDENTIAL_LABELS = {
+  cdl: "CDL",
+  medical: "Medical card",
+  insurance: "Insurance",
+  registration: "Registration",
+  ifta_licence: "IFTA licence",
+  other: "Document"
+};
+async function recordsBundleForCaller(ctx) {
+  const db = ctx.db();
+  const me = await myUsername(ctx);
+  const profRows = await db.select().from(profile3).where(eq(profile3.id, myProfileId(ctx))).limit(1);
+  const prof = profRows[0];
+  const pod = await podStatusByLoad(ctx);
+  const walk = await chainWalk(ctx);
+  const loadRows = await db.select().from(loads3).orderBy(desc(loads3.id));
+  const loads = loadRows.map((l) => ({
+    id: l.id,
+    shipper: l.shipper,
+    lane: laneTextOf(l),
+    referenceNumber: l.referenceNumber ?? null,
+    commodity: l.commodity,
+    status: l.status,
+    rate: l.rate,
+    extraCharges: l.extraCharges ?? 0,
+    loadedMiles: l.loadedMiles,
+    sealed: !!pod.get(l.id)?.sealed,
+    deliveredAtIso: pod.get(l.id)?.sealedAt ?? null
+  }));
+  const hosRows = await db.select().from(dailyLogs3).where(eq(dailyLogs3.username, me)).orderBy(desc(dailyLogs3.logDate));
+  const hosDays = hosRows.map((d) => {
+    let pretripResult = null;
+    if (d.pretrip) {
+      try {
+        const p = JSON.parse(d.pretrip);
+        if (typeof p.result === "string")
+          pretripResult = p.result;
+      } catch {}
+    }
+    return {
+      logDate: d.logDate,
+      status: d.status,
+      totalMiles: d.totalMiles,
+      loadsDelivered: d.loadsDelivered,
+      pretripResult,
+      criticalDefect: !!d.criticalDefect
+    };
+  });
+  const dvirRows = await db.select().from(dvirReports3).orderBy(desc(dvirReports3.inspectedAt));
+  const dvirs = dvirRows.map((r) => {
+    let defectCount = 0;
+    try {
+      const parsed = JSON.parse(r.defectsJson);
+      if (Array.isArray(parsed))
+        defectCount = parsed.length;
+    } catch {}
+    return {
+      inspectedAtIso: r.inspectedAt.toISOString(),
+      kind: r.kind,
+      status: r.status,
+      defectCount,
+      odometer: r.odometer,
+      truckLabel: r.truckLabel,
+      trailerLabel: r.trailerLabel,
+      signedName: r.signedName
+    };
+  });
+  const maintRows = await db.select().from(maintenanceLogEntries3).orderBy(desc(maintenanceLogEntries3.performedAt));
+  const maintenance = maintRows.map((m) => ({
+    performedAtIso: m.performedAt.toISOString(),
+    category: m.category,
+    description: m.description,
+    shop: m.shop,
+    cost: m.cost ?? 0,
+    odometer: m.odometer,
+    status: m.status
+  }));
+  const truck = prof ? {
+    truckYear: prof.truckYear,
+    truckMake: prof.truckMake,
+    truckModel: prof.truckModel,
+    truckUnitNumber: prof.truckUnitNumber,
+    truckVin: prof.truckVin,
+    truckPlate: prof.truckPlate,
+    truckEngine: prof.truckEngine,
+    truckTransmission: prof.truckTransmission,
+    heightFt: prof.heightFt,
+    heightIn: prof.heightIn,
+    weightLbs: prof.weightLbs,
+    lengthFt: prof.lengthFt,
+    trailerYear: prof.trailerYear,
+    trailerMake: prof.trailerMake,
+    trailerModel: prof.trailerModel,
+    trailerType: prof.trailerType,
+    trailerVin: prof.trailerVin,
+    trailerPlate: prof.trailerPlate
+  } : null;
+  const year = new Date().getUTCFullYear();
+  const agg = await iftaAggregates(ctx, Date.UTC(year, 0, 1), Date.UTC(year + 1, 0, 1));
+  const iftaStates = [...new Set([...agg.milesByState.keys(), ...agg.fuelByState.keys()])].sort();
+  const ifta = {
+    year,
+    rows: iftaStates.map((state) => ({
+      state,
+      miles: agg.milesByState.get(state) ?? 0,
+      gallonsBought: agg.fuelByState.get(state) ?? 0
+    })),
+    totalMiles: agg.totalMiles,
+    totalGallons: agg.totalGallons
+  };
+  const docRows = await db.select().from(personalDocs3).orderBy(asc(personalDocs3.id));
+  const credentials = docRows.map((d) => ({
+    label: BUNDLE_CREDENTIAL_LABELS[d.kind] ?? "Document",
+    detail: d.label && d.label !== (BUNDLE_CREDENTIAL_LABELS[d.kind] ?? "") ? d.label : null,
+    expiresIso: d.expiresAt ? d.expiresAt.toISOString() : null,
+    last4: d.docNumberLast4
+  }));
+  const socialRows = await db.select().from(socialUsers3).where(eq(socialUsers3.username, me)).limit(1);
+  const social = socialRows[0];
+  if (social?.twicHas) {
+    credentials.push({
+      label: "TWIC",
+      detail: null,
+      expiresIso: social.twicExpires ? `${social.twicExpires}T00:00:00.000Z` : null,
+      last4: null
+    });
+  }
+  return buildRecordsBundle({
+    driverLabel: prof?.chatName ? `${prof.chatName} (@${me})` : `@${me}`,
+    generatedAtIso: new Date().toISOString(),
+    chainHead: walk.headHash,
+    chainIntact: walk.intact,
+    chainChecked: walk.checked,
+    loads,
+    hosDays,
+    dvirs,
+    maintenance,
+    truck,
+    ifta,
+    credentials
+  });
+}
+async function resolveLibraryDocument(ctx, ref) {
+  const db = ctx.db();
+  const me = await myUsername(ctx);
+  const parts = ref.split(":");
+  const kind = parts[0] ?? "";
+  if (kind === "settlement") {
+    const id = Number(parts[1]);
+    const rows = await db.select().from(settlements3).where(eq(settlements3.id, id)).limit(1);
+    const r = rows[0];
+    if (!r)
+      return docRefused("settlement");
+    const lines = [];
+    try {
+      const items = JSON.parse(r.linesJson);
+      for (const it of items) {
+        const label = it.label ?? it.description ?? it.name ?? "Line";
+        const amt = typeof it.amount === "number" ? it.amount : typeof it.total === "number" ? it.total : null;
+        lines.push(amt != null ? `${label}: ${moneyText(amt)}` : JSON.stringify(it).slice(0, 160));
+      }
+    } catch {}
+    let checkLines = [];
+    if (r.checkJson) {
+      try {
+        const c = JSON.parse(r.checkJson);
+        if (c.report)
+          checkLines = c.report.split(`
+`);
+      } catch {}
+    }
+    const title = `Settlement statement - ${r.carrier ?? "carrier"} - ${r.periodLabel ?? monthLabelOf(r.createdAt)}`;
+    const bytes = libraryPdfBytes({
+      title,
+      subtitle: `Recorded ${r.createdAt.toISOString()} - from the sealed settlement record in your library`,
+      sections: [
+        {
+          heading: "Statement",
+          lines: [
+            `Carrier: ${r.carrier ?? "not named"}`,
+            `Period: ${r.periodLabel ?? monthLabelOf(r.createdAt)}`,
+            `Gross: ${moneyText(r.gross)}`,
+            `Net: ${moneyText(r.net)}`
+          ]
+        },
+        ...lines.length ? [{ heading: "Lines", lines }] : [],
+        ...checkLines.length ? [{ heading: "Settlement check (sealed)", lines: checkLines }] : []
+      ]
+    });
+    return { ok: true, error: null, docKind: "settlement", title, filename: `settlement-${r.id}.pdf`, mime: "application/pdf", bytes };
+  }
+  if (kind === "pay") {
+    const id = Number(parts[1]);
+    const rows = await db.select().from(payEntries3).where(and(eq(payEntries3.id, id), eq(payEntries3.username, me))).limit(1);
+    const r = rows[0];
+    if (!r)
+      return docRefused("pay");
+    let dedLines = [];
+    if (r.deductionLines) {
+      try {
+        const items = JSON.parse(r.deductionLines);
+        dedLines = items.map((d) => `${d.label}: ${moneyText(d.amount)}`);
+      } catch {}
+    }
+    const net = Math.round((r.gross - r.federalWithheld - r.stateWithheld - r.otherDeductions) * 100) / 100;
+    const title = `Pay statement - ${r.payer} - ${r.paidAt.toISOString().slice(0, 10)}`;
+    const bytes = libraryPdfBytes({
+      title,
+      subtitle: `${r.kind === "w2" ? "W-2" : "1099"} pay stub - from your Pay Book record`,
+      sections: [
+        {
+          heading: "Pay",
+          lines: [
+            `Payer: ${r.payer}`,
+            `Paid: ${r.paidAt.toISOString().slice(0, 10)}`,
+            `Gross: ${moneyText(r.gross)}`,
+            `Federal withheld: ${moneyText(r.federalWithheld)}`,
+            `State withheld: ${moneyText(r.stateWithheld)}`,
+            `Other deductions: ${moneyText(r.otherDeductions)}`,
+            ...dedLines,
+            ...r.perDiem > 0 ? [`Per diem (non-taxable, separate): ${moneyText(r.perDiem)}`] : [],
+            `Net pay: ${moneyText(net)}`
+          ]
+        }
+      ]
+    });
+    return { ok: true, error: null, docKind: "pay", title, filename: `pay-statement-${r.id}.pdf`, mime: "application/pdf", bytes };
+  }
+  if (kind === "ifta") {
+    const year = Number(parts[1]);
+    const quarter = Number(parts[2]);
+    if (!Number.isInteger(year) || year < 2020 || year > 2100 || !Number.isInteger(quarter) || quarter < 1 || quarter > 4)
+      return { ...docRefused("ifta"), error: "That IFTA quarter isn't valid." };
+    const title = `IFTA Q${quarter} ${year} - state lines`;
+    const bytes = libraryPdfBytes({
+      title,
+      subtitle: "State-by-state miles and fuel from your sealed trip and fuel records",
+      sections: await iftaPdfSections(ctx, year, quarter)
+    });
+    return { ok: true, error: null, docKind: "ifta", title, filename: `stonemiles-ifta-Q${quarter}-${year}.pdf`, mime: "application/pdf", bytes };
+  }
+  if (kind === "filing") {
+    const id = Number(parts[1]);
+    const rows = await db.select().from(chainLog3).where(eq(chainLog3.id, id)).limit(1);
+    const r = rows[0];
+    let payload = {};
+    try {
+      payload = JSON.parse(r?.payload ?? "{}");
+    } catch {}
+    if (!r || r.refKind !== "library" || r.event !== "ifta_export_generated" && r.event !== "tax_year_export_generated" || payload.by !== me)
+      return docRefused("filing");
+    if (r.event === "ifta_export_generated") {
+      const year = Number(payload.year);
+      const quarter = Number(payload.quarter);
+      const title = `IFTA Q${quarter} ${year} - state lines`;
+      const bytes = libraryPdfBytes({
+        title,
+        subtitle: `Filing export generated ${r.createdAt.toISOString()} - regenerated from the same sealed data (chain entry #${r.id})`,
+        sections: await iftaPdfSections(ctx, year, quarter)
+      });
+      return { ok: true, error: null, docKind: "filing", title, filename: `stonemiles-ifta-Q${quarter}-${year}.pdf`, mime: "application/pdf", bytes };
+    }
+    const year = Number(payload.year);
+    const expenses = await db.select().from(expenses3);
+    const totals = expenseTotalsForYear(expenses.map((e) => ({ spentAtMs: e.spentAt.getTime(), category: e.category, amount: e.amount })), year);
+    const fuel = (await db.select().from(fuelPurchases3)).filter((f) => f.purchasedAt.getUTCFullYear() === year);
+    const trips = await db.select().from(trips3);
+    const days = perDiemDates(trips.map((t) => ({ startedAtMs: t.startedAt.getTime(), endedAtMs: t.endedAt.getTime() })), year);
+    const title = `Tax-year summary ${year}`;
+    const bytes = libraryPdfBytes({
+      title,
+      subtitle: `Filing export generated ${r.createdAt.toISOString()} - regenerated from the same sealed data (chain entry #${r.id}). A record for tax prep - not tax advice.`,
+      sections: [
+        { heading: "Per-diem days", lines: [`Days out in ${year}: ${days.length} - counted from your sealed trip records.`] },
+        {
+          heading: "Expenses by category",
+          lines: totals.byCategory.length ? totals.byCategory.map((c) => `${c.category}: ${moneyText(c.total)}`) : ["No expenses logged for this year."]
+        },
+        {
+          heading: "Fuel",
+          lines: [
+            `Purchases: ${fuel.length}`,
+            `Gallons: ${fuel.reduce((s, f) => s + f.gallons, 0).toFixed(2)}`,
+            `Spent: ${moneyText(fuel.reduce((s, f) => s + f.total, 0))}`
+          ]
+        }
+      ]
+    });
+    return { ok: true, error: null, docKind: "filing", title, filename: `stonemiles-tax-summary-${year}.pdf`, mime: "application/pdf", bytes };
+  }
+  if (kind === "invoice") {
+    const id = Number(parts[1]);
+    const rows = await db.select().from(loadInvoices3).where(eq(loadInvoices3.id, id)).limit(1);
+    const r = rows[0];
+    if (!r)
+      return docRefused("invoice");
+    const biz = await businessIdentityFor(ctx);
+    const title = `Invoice ${r.number} - ${r.billToName} - Load #${r.loadId}`;
+    const bytes = buildPdf({
+      title: `INVOICE ${r.number}`,
+      subtitle: `${biz.name ?? "Your business"} - Load #${r.loadId} - ${laneTextOf(r)}`,
+      sections: invoicePdfSections(r, biz),
+      footer: LIBRARY_PDF_FOOTER,
+      image: await businessLogoImageFor(ctx, biz)
+    });
+    return { ok: true, error: null, docKind: "invoice", title, filename: `invoice-${r.number}.pdf`, mime: "application/pdf", bytes };
+  }
+  if (kind === "pl") {
+    const pKind = parts[1];
+    const year = Number(parts[2]);
+    const index = Number(parts[3]);
+    if (pKind !== "month" && pKind !== "quarter" && pKind !== "year" || !Number.isInteger(year) || year < 2020 || year > 2100 || !Number.isInteger(index))
+      return { ...docRefused("pl"), error: "That statement period isn't valid." };
+    const { pl, loadMeta } = await profitLossDataFor(ctx, pKind, year, index);
+    const biz = await businessIdentityFor(ctx);
+    const title = `Profit & loss - ${pl.period.label}`;
+    const sections = [
+      {
+        heading: "Income",
+        lines: [
+          `Freight (sealed loads delivered): ${moneyText(pl.incomeFreight)}`,
+          `Claim events (TONU / layover / assist): ${moneyText(pl.incomeClaims)}`,
+          `Total income: ${moneyText(pl.incomeTotal)}`,
+          ...pl.unfiguredLoads > 0 ? [`${pl.unfiguredLoads} delivered load${pl.unfiguredLoads === 1 ? " has" : "s have"} no rate on file \u2014 its freight is NOT in these totals (nothing is invented).`] : []
+        ]
+      },
+      {
+        heading: "Costs",
+        lines: pl.costLines.length ? [...pl.costLines.map((l) => `${l.label}: ${moneyText(l.amount)}`), `Total costs: ${moneyText(pl.costsTotal)}`] : ["No costs recorded in this period."]
+      },
+      {
+        heading: "Net",
+        lines: [`Net profit: ${moneyText(pl.net)}`]
+      }
+    ];
+    if (pl.perLoad.length) {
+      sections.push({
+        heading: "Per load",
+        lines: pl.perLoad.map((l) => {
+          const meta = loadMeta.get(l.loadId);
+          const head = `Load #${l.loadId}${meta ? ` - ${meta.lane}` : ""}`;
+          return l.income != null ? `${head}: income ${moneyText(l.income)} - costs ${moneyText(l.costs)} = net ${moneyText(l.net)}` : `${head}: no rate on file - costs ${moneyText(l.costs)} - net not figured`;
+        })
+      });
+    }
+    sections.push({
+      heading: "About this statement",
+      lines: [
+        "Built from your own records in STONEMILES: sealed loads, claim events, the expense tracker, fuel purchases, and the maintenance log.",
+        "Fuel purchases stand as their own line, apart from any fuel logged as an expense \u2014 the same two-block honesty as the Tax Worksheet, so nothing double-counts.",
+        "A record for your books \u2014 not tax advice."
+      ]
+    });
+    const bytes = libraryPdfBytes({ title, subtitle: `${biz.name ?? "Your business"} - from your sealed STONEMILES records`, sections });
+    return { ok: true, error: null, docKind: "pl", title, filename: `profit-loss-${pl.period.key.replace(/:/g, "-")}.pdf`, mime: "application/pdf", bytes };
+  }
+  if (kind === "records") {
+    if (parts[1] !== "bundle")
+      return docRefused("records");
+    const bundle = await recordsBundleForCaller(ctx);
+    const bytes = libraryPdfBytes({ title: bundle.title, subtitle: bundle.subtitle, sections: bundle.sections });
+    const datePart = new Date().toISOString().slice(0, 10);
+    return { ok: true, error: null, docKind: "records", title: bundle.title, filename: `stonemiles-records-bundle-${datePart}.pdf`, mime: "application/pdf", bytes };
+  }
+  if (kind === "bol") {
+    const loadId = Number(parts[1]);
+    const scope = await libraryLoadScope(ctx, loadId);
+    if (!scope || !scope.load)
+      return docRefused("bol");
+    const pdf = await buildBolPdf(ctx, { load: scope.load, board: scope.board }, me);
+    return { ok: true, error: null, docKind: "bol", title: pdf.title, filename: `bol-load-${loadId}.pdf`, mime: "application/pdf", bytes: pdf.bytes };
+  }
+  if (kind === "pod") {
+    const loadId = Number(parts[1]);
+    const scope = await libraryLoadScope(ctx, loadId);
+    if (!scope || !scope.load)
+      return docRefused("pod");
+    const confirmation = await deliveryConfirmationFor(ctx, loadId);
+    if (!confirmation)
+      return docRefused("pod");
+    const pdf = await buildSignedPodPdf(ctx, scope.load, confirmation);
+    return { ok: true, error: null, docKind: "pod", title: pdf.title, filename: `signed-pod-load-${loadId}.pdf`, mime: "application/pdf", bytes: pdf.bytes };
+  }
+  if (kind === "sealed" || kind === "packet") {
+    const loadId = Number(parts[1]);
+    const scope = await libraryLoadScope(ctx, loadId);
+    if (!scope)
+      return docRefused(kind);
+    const head = scope.load ?? scope.board;
+    const lane = laneTextOf(head);
+    const title = kind === "sealed" ? `Sealed load record - Load #${loadId} - ${lane}` : `Delivered-load packet - Load #${loadId} - ${lane}`;
+    const summaryLines = [
+      `Lane: ${lane}`,
+      `Shipper: ${head.shipper ?? "not named"}`,
+      ...head.brokerName || head.brokerCompany ? [`Broker: ${[head.brokerName, head.brokerCompany].filter(Boolean).join(" - ")}${head.brokerMc ? ` (${head.brokerMc})` : ""}`] : [],
+      `Reference #: ${head.referenceNumber ?? "none on file"}`,
+      `Rate: ${moneyText(head.rate)}${head.extraCharges ? ` + ${moneyText(head.extraCharges)} extras` : ""} = ${moneyText(head.rate != null ? Math.round((head.rate + (head.extraCharges ?? 0)) * 100) / 100 : null)} total`,
+      `Weight: ${head.weightLbs != null ? `${head.weightLbs.toLocaleString()} lbs` : "not set"}`,
+      `Freight: ${head.commodity ?? "not named"}${head.hazmat ? " - HAZMAT" : ""}`,
+      `Pickup window: ${head.pickupText ?? "not set"}`,
+      `Delivery window: ${head.deliveryText ?? "not set"}`,
+      `Recorded: ${head.createdAt.toISOString()}`
+    ];
+    const sections = [{ heading: "Load", lines: summaryLines }];
+    if (kind === "packet") {
+      const walk = await chainWalk(ctx);
+      const pod = walk.rows.find((r) => r.refKind === "load" && r.refId === loadId && r.event === "pod_seal");
+      let podLines = ["Not delivered yet - no POD seal on this load's record."];
+      if (pod) {
+        let p = {};
+        try {
+          p = JSON.parse(pod.payload);
+        } catch {}
+        podLines = [
+          `POD sealed: ${pod.createdAt.toISOString()}`,
+          `Seal grade: ${p.sealGrade === "release_grade" ? "RELEASE-GRADE" : "proof-grade"}`,
+          `Geofence: ${String(p.geofence ?? "unavailable")}`,
+          `${String(p.pickupNote ?? "Pickup proof state recorded on the seal.")}`,
+          `Seal hash: ${pod.hash}`
+        ];
+      }
+      sections.push({ heading: "Delivery (POD)", lines: podLines });
+      const reg = await db.select().from(invoiceRegistry3).where(eq(invoiceRegistry3.loadId, loadId));
+      sections.push({
+        heading: "Payment packet",
+        lines: reg.length ? reg.map((x) => `Invoice fingerprint ${x.fingerprint} - packet ${x.packetRef} - registered ${x.registeredAt.toISOString()}`) : ["No payment packet registered for this load yet - it assembles at the delivery seal."]
+      });
+      if (scope.via === "mine") {
+        const copies = await db.select().from(filedDocCopies3).where(eq(filedDocCopies3.loadId, loadId));
+        sections.push({
+          heading: "Documents on file",
+          lines: copies.length ? copies.map((c) => `${c.label} - SHA-256 ${c.sha256}`) : ["No documents filed for this load yet."]
+        });
+      } else {
+        sections.push({
+          heading: "Documents on file",
+          lines: [
+            scope.board.docSha256 ? `Booking document fingerprint (SHA-256): ${scope.board.docSha256}` : "No booking document was attached to this board post.",
+            "The driver's filed copies live in the driver's own library."
+          ]
+        });
+      }
+    }
+    sections.push(...await sealedLoadSections(ctx, loadId));
+    const bytes = libraryPdfBytes({
+      title,
+      subtitle: kind === "sealed" ? "Record certificate - the hash-chained sealed record for this load" : "The delivered load's full packet: load, delivery seal, payment packet, verification",
+      sections
+    });
+    return {
+      ok: true,
+      error: null,
+      docKind: kind,
+      title,
+      filename: kind === "sealed" ? `sealed-load-${loadId}.pdf` : `load-packet-${loadId}.pdf`,
+      mime: "application/pdf",
+      bytes
+    };
+  }
+  if (kind === "upload") {
+    const sub = parts[1] ?? "";
+    const id = Number(parts[2]);
+    let blobKey = null;
+    let mime = null;
+    let label = "Upload";
+    if (sub === "filed") {
+      const rows = await db.select().from(filedDocCopies3).where(eq(filedDocCopies3.id, id)).limit(1);
+      if (!rows[0])
+        return docRefused("upload");
+      blobKey = rows[0].blobKey;
+      mime = rows[0].mime;
+      label = rows[0].label;
+    } else if (sub === "personal") {
+      const rows = await db.select().from(personalDocs3).where(eq(personalDocs3.id, id)).limit(1);
+      if (!rows[0])
+        return docRefused("upload");
+      blobKey = rows[0].blobKey;
+      mime = rows[0].mime;
+      label = rows[0].label;
+    } else if (sub === "scale") {
+      const rows = await db.select().from(scaleTickets3).where(eq(scaleTickets3.id, id)).limit(1);
+      if (!rows[0])
+        return docRefused("upload");
+      blobKey = rows[0].photoBlobKey;
+      mime = rows[0].photoMime;
+      label = `Scale ticket ${rows[0].location ?? ""}`.trim();
+    } else if (sub === "settlement") {
+      const rows = await db.select().from(settlements3).where(eq(settlements3.id, id)).limit(1);
+      if (!rows[0])
+        return docRefused("upload");
+      blobKey = rows[0].docBlobKey;
+      mime = rows[0].docMime;
+      label = `Settlement document - ${rows[0].carrier ?? "carrier"}`;
+    } else if (sub === "fuel") {
+      const rows = await db.select().from(fuelPurchases3).where(eq(fuelPurchases3.id, id)).limit(1);
+      if (!rows[0])
+        return docRefused("upload");
+      blobKey = rows[0].receiptBlobKey;
+      mime = rows[0].receiptMime;
+      label = `Fuel receipt - ${rows[0].station ?? rows[0].state} - ${rows[0].purchasedAt.toISOString().slice(0, 10)}`;
+    } else {
+      return { ...docRefused("upload"), error: "That upload reference isn't one the library knows." };
+    }
+    if (!blobKey)
+      return { ...docRefused("upload"), error: "That upload has no file bytes on record \u2014 its sealed summary lives on the load record instead." };
+    const got = await readBlobBytes(ctx, blobKey);
+    if (!got)
+      return { ...docRefused("upload"), error: "That file's bytes aren't reachable from the server in this build \u2014 open it from the load or document screen instead." };
+    const finalMime = mime ?? got.contentType;
+    return {
+      ok: true,
+      error: null,
+      docKind: "upload",
+      title: label,
+      filename: fileNameFor(label, finalMime, "bin"),
+      mime: finalMime,
+      bytes: got.bytes
+    };
+  }
+  return { ...docRefused(kind), error: "That document reference isn't one the library knows." };
+}
+var libDeliveredShape = object({
+  loadId: number2(),
+  driverUsername: string2(),
+  lane: string2(),
+  shipper: string2().nullable(),
+  referenceNumber: string2().nullable(),
+  totalWithExtras: number2().nullable(),
+  deliveredAt: string2().nullable(),
+  sealHash: string2().nullable(),
+  sealGrade: string2().nullable()
+});
+var libSealedShape = object({
+  ref: string2().nullable(),
+  recordKind: string2(),
+  recordId: number2(),
+  title: string2(),
+  eventCount: number2(),
+  headHash: string2().nullable(),
+  status: string2(),
+  lastEventAt: string2().nullable()
+});
+function sealedEntriesFor(walk, recordKind, recordId, title, ref) {
+  const entries = walk.rows.filter((r) => r.refKind === recordKind && r.refId === recordId);
+  if (entries.length === 0)
+    return null;
+  const rank = { verified: 0, unverified: 1, broken: 2 };
+  let worst = "verified";
+  for (const e of entries) {
+    const s = walk.statusById.get(e.id) ?? "unverified";
+    if (rank[s] > rank[worst])
+      worst = s;
+  }
+  const last = entries.at(-1);
+  return {
+    ref,
+    recordKind,
+    recordId,
+    title,
+    eventCount: entries.length,
+    headHash: last.hash,
+    status: worst,
+    lastEventAt: last.createdAt.toISOString()
+  };
+}
+async function buildLibrary(ctx) {
+  const db = ctx.db();
+  const me = await myUsername(ctx);
+  const membership = await myMembership(ctx, me);
+  const canManage = !!membership && (membership.role === "owner" || membership.role === "dispatch");
+  const pod = await podStatusByLoad(ctx);
+  const walk = await chainWalk(ctx);
+  const myLoads = await db.select().from(loads3);
+  const deliveredLoads = myLoads.filter((l) => pod.get(l.id)?.sealed).map((l) => ({
+    loadId: l.id,
+    driverUsername: me,
+    lane: laneTextOf(l),
+    shipper: l.shipper,
+    referenceNumber: l.referenceNumber ?? null,
+    totalWithExtras: l.rate != null ? Math.round((l.rate + (l.extraCharges ?? 0)) * 100) / 100 : null,
+    deliveredAt: pod.get(l.id)?.sealedAt ?? null,
+    sealHash: pod.get(l.id)?.sealHash ?? null,
+    sealGrade: pod.get(l.id)?.grade ?? null
+  })).sort((a, b) => (b.deliveredAt ?? "").localeCompare(a.deliveredAt ?? ""));
+  const settlementRows = (await db.select().from(settlements3).orderBy(desc(settlements3.id)).limit(50)).map((r) => ({
+    ref: `settlement:${r.id}`,
+    kind: "settlement",
+    title: `Settlement - ${r.carrier ?? "carrier"} - ${r.periodLabel ?? monthLabelOf(r.createdAt)}`,
+    periodKey: r.periodLabel ?? monthLabelOf(r.createdAt),
+    periodLabel: r.periodLabel ?? monthLabelOf(r.createdAt),
+    gross: r.gross,
+    net: r.net,
+    createdAt: r.createdAt.toISOString(),
+    hasDoc: r.docBlobKey != null
+  }));
+  const payRows = (await db.select().from(payEntries3).where(eq(payEntries3.username, me))).sort((a, b) => b.paidAt.getTime() - a.paidAt.getTime()).slice(0, 50).map((r) => ({
+    ref: `pay:${r.id}`,
+    kind: "pay",
+    title: `Pay stub - ${r.payer} - ${r.paidAt.toISOString().slice(0, 10)}`,
+    periodKey: monthLabelOf(r.paidAt),
+    periodLabel: monthLabelOf(r.paidAt),
+    gross: r.gross,
+    net: Math.round((r.gross - r.federalWithheld - r.stateWithheld - r.otherDeductions) * 100) / 100,
+    createdAt: r.paidAt.toISOString(),
+    hasDoc: r.stubBlobKey != null
+  }));
+  const invoiceRows = (await db.select().from(loadInvoices3).orderBy(desc(loadInvoices3.id)).limit(50)).map((r) => ({
+    ref: `invoice:${r.id}`,
+    kind: "invoice",
+    title: `Invoice ${r.number} - ${r.billToName} - Load #${r.loadId}`,
+    periodKey: monthLabelOf(r.issuedAt ?? r.createdAt),
+    periodLabel: monthLabelOf(r.issuedAt ?? r.createdAt),
+    gross: r.amount,
+    net: r.amount,
+    createdAt: r.createdAt.toISOString(),
+    hasDoc: true
+  }));
+  const plClaims = await db.select().from(claimEvents3);
+  const plClaimsByLoad = new Map;
+  for (const c of plClaims) {
+    if (c.loadId == null)
+      continue;
+    plClaimsByLoad.set(c.loadId, Math.round(((plClaimsByLoad.get(c.loadId) ?? 0) + c.amount) * 100) / 100);
+  }
+  const plExpenses = await db.select().from(expenses3);
+  const plFuel = await db.select().from(fuelPurchases3);
+  const plMaint = (await db.select().from(maintenanceLogEntries3)).filter((m) => m.status !== "draft");
+  const plLoadInputs = myLoads.filter((l) => pod.get(l.id)?.sealed && pod.get(l.id)?.sealedAt).map((l) => ({
+    loadId: l.id,
+    deliveredAtMs: Date.parse(pod.get(l.id).sealedAt),
+    gross: l.rate != null ? Math.round((l.rate + (l.extraCharges ?? 0)) * 100) / 100 : null,
+    claimsTotal: plClaimsByLoad.get(l.id) ?? 0
+  }));
+  const touched = new Map;
+  const touch = (ms) => {
+    if (!Number.isFinite(ms))
+      return;
+    const d = new Date(ms);
+    const y = d.getUTCFullYear();
+    const m = d.getUTCMonth() + 1;
+    const keys = [
+      { kind: "month", year: y, index: m },
+      { kind: "quarter", year: y, index: Math.floor((m - 1) / 3) + 1 },
+      { kind: "year", year: y, index: 1 }
+    ];
+    for (const k of keys) {
+      const key = `${k.kind}:${k.year}:${k.index}`;
+      const cur = touched.get(key);
+      if (!cur || ms > cur.latestMs)
+        touched.set(key, { ...k, latestMs: ms });
+    }
+  };
+  for (const l of plLoadInputs)
+    touch(l.deliveredAtMs);
+  for (const e of plExpenses)
+    touch(e.spentAt.getTime());
+  for (const f of plFuel)
+    touch(f.purchasedAt.getTime());
+  for (const m of plMaint)
+    touch(m.performedAt.getTime());
+  const plPeriods = ["month", "quarter", "year"].flatMap((kind) => [...touched.values()].filter((p) => p.kind === kind).sort((a, b) => b.latestMs - a.latestMs).slice(0, kind === "month" ? 6 : kind === "quarter" ? 4 : 3));
+  const plRows = plPeriods.map((p) => {
+    const pl = buildProfitLoss({
+      loads: plLoadInputs,
+      expenses: plExpenses.map((e) => ({ spentAtMs: e.spentAt.getTime(), category: e.category, amount: e.amount, loadId: e.loadId ?? null })),
+      fuelPurchases: plFuel.map((f) => ({ purchasedAtMs: f.purchasedAt.getTime(), total: f.total })),
+      maintenance: plMaint.map((m) => ({ performedAtMs: m.performedAt.getTime(), cost: m.cost ?? 0 })),
+      period: plPeriodRange(p.kind, p.year, p.index)
+    });
+    return {
+      ref: `pl:${p.kind}:${p.year}:${p.index}`,
+      kind: "pl",
+      title: `Profit & loss - ${pl.period.label}`,
+      periodKey: pl.period.label,
+      periodLabel: pl.period.label,
+      gross: pl.incomeTotal,
+      net: pl.net,
+      createdAt: new Date(p.latestMs).toISOString(),
+      hasDoc: true
+    };
+  });
+  const statements = [...settlementRows, ...payRows, ...invoiceRows, ...plRows].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const trips = await db.select().from(trips3);
+  const fuel = await db.select().from(fuelPurchases3);
+  const quarterKeys = new Map;
+  const addQuarter = (d) => {
+    const year = d.getUTCFullYear();
+    const quarter = Math.floor(d.getUTCMonth() / 3) + 1;
+    quarterKeys.set(`${year}:${quarter}`, { year, quarter });
+  };
+  for (const t of trips)
+    addQuarter(t.startedAt);
+  for (const f of fuel)
+    addQuarter(f.purchasedAt);
+  const quarters = [...quarterKeys.values()].sort((a, b) => b.year - a.year || b.quarter - a.quarter).slice(0, 8);
+  const fuelTax = [];
+  for (const q of quarters) {
+    const agg = await iftaAggregates(ctx, Date.UTC(q.year, (q.quarter - 1) * 3, 1), Date.UTC(q.year, q.quarter * 3, 1));
+    const totalMiles = Math.round(agg.totalMiles * 10) / 10;
+    const totalGallons = Math.round(agg.totalGallons * 100) / 100;
+    const mpg = totalGallons > 0 && totalMiles > 0 ? Math.round(totalMiles / totalGallons * 100) / 100 : null;
+    const states = [...new Set([...agg.milesByState.keys(), ...agg.fuelByState.keys()])].sort();
+    fuelTax.push({
+      year: q.year,
+      quarter: q.quarter,
+      rows: states.map((state) => {
+        const miles = Math.round((agg.milesByState.get(state) ?? 0) * 10) / 10;
+        return {
+          state,
+          miles,
+          gallonsBought: Math.round((agg.fuelByState.get(state) ?? 0) * 100) / 100,
+          gallonsUsed: mpg != null && mpg > 0 ? Math.round(miles / mpg * 100) / 100 : null
+        };
+      }),
+      totalMiles,
+      totalGallonsBought: totalGallons
+    });
+  }
+  const filings = walk.rows.filter((r) => r.refKind === "library" && (r.event === "ifta_export_generated" || r.event === "tax_year_export_generated")).flatMap((r) => {
+    let p = {};
+    try {
+      p = JSON.parse(r.payload);
+    } catch {
+      return [];
+    }
+    if (p.by !== me)
+      return [];
+    const isIfta = r.event === "ifta_export_generated";
+    return [{
+      ref: `filing:${r.id}`,
+      kind: isIfta ? "ifta" : "tax_year",
+      title: isIfta ? `IFTA Q${String(p.quarter)} ${String(p.year)} export` : `Tax-year summary ${String(p.year)}`,
+      periodLabel: isIfta ? `Q${String(p.quarter)} ${String(p.year)}` : String(p.year),
+      generatedAt: r.createdAt.toISOString(),
+      recordHash: r.hash
+    }];
+  }).reverse().slice(0, 50);
+  const uploads = [];
+  for (const c of await db.select().from(filedDocCopies3)) {
+    uploads.push({
+      ref: `upload:filed:${c.id}`,
+      kind: c.docKind,
+      label: c.label,
+      loadId: c.loadId,
+      mime: c.mime,
+      sha256: c.sha256,
+      createdAt: c.createdAt.toISOString(),
+      hasFile: c.blobKey != null
+    });
+  }
+  for (const d of await db.select().from(personalDocs3)) {
+    uploads.push({
+      ref: `upload:personal:${d.id}`,
+      kind: d.kind,
+      label: d.label,
+      loadId: null,
+      mime: d.mime,
+      sha256: null,
+      createdAt: d.createdAt.toISOString(),
+      hasFile: d.blobKey != null
+    });
+  }
+  for (const t of await db.select().from(scaleTickets3)) {
+    uploads.push({
+      ref: `upload:scale:${t.id}`,
+      kind: "scale_ticket",
+      label: `Scale ticket - ${t.location ?? "weigh station"} - ${t.weighedAt.toISOString().slice(0, 10)}`,
+      loadId: t.loadId,
+      mime: t.photoMime,
+      sha256: t.photoSha256,
+      createdAt: t.createdAt.toISOString(),
+      hasFile: t.photoBlobKey != null
+    });
+  }
+  for (const s of await db.select().from(settlements3)) {
+    if (!s.docBlobKey)
+      continue;
+    uploads.push({
+      ref: `upload:settlement:${s.id}`,
+      kind: "settlement_doc",
+      label: `Settlement document - ${s.carrier ?? "carrier"} - ${s.periodLabel ?? monthLabelOf(s.createdAt)}`,
+      loadId: null,
+      mime: s.docMime,
+      sha256: s.docSha256,
+      createdAt: s.createdAt.toISOString(),
+      hasFile: true
+    });
+  }
+  for (const f of fuel) {
+    if (!f.receiptBlobKey)
+      continue;
+    uploads.push({
+      ref: `upload:fuel:${f.id}`,
+      kind: "fuel_receipt",
+      label: `Fuel receipt - ${f.station ?? f.state} - ${f.purchasedAt.toISOString().slice(0, 10)}`,
+      loadId: null,
+      mime: f.receiptMime,
+      sha256: null,
+      createdAt: f.createdAt.toISOString(),
+      hasFile: true
+    });
+  }
+  uploads.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const sealedFiles = [];
+  for (const l of myLoads) {
+    const s = sealedEntriesFor(walk, "load", l.id, `Load #${l.id} - ${laneTextOf(l)}`, `sealed:${l.id}`);
+    if (s)
+      sealedFiles.push(s);
+  }
+  for (const t of trips) {
+    const s = sealedEntriesFor(walk, "trip", t.id, `Trip - ${t.startedAt.toISOString().slice(0, 10)} - ${Math.round(t.totalMiles)} mi`, null);
+    if (s)
+      sealedFiles.push(s);
+  }
+  sealedFiles.sort((a, b) => (b.lastEventAt ?? "").localeCompare(a.lastEventAt ?? ""));
+  let fleet = null;
+  if (canManage && membership) {
+    const boardRows = await db.select().from(boardLoads3).where(and(eq(boardLoads3.companyId, membership.company.id), eq(boardLoads3.status, "taken")));
+    const fDelivered = [];
+    const fSealed = [];
+    for (const b of boardRows) {
+      if (b.loadId == null)
+        continue;
+      const p = pod.get(b.loadId);
+      if (p?.sealed) {
+        fDelivered.push({
+          loadId: b.loadId,
+          driverUsername: b.claimedBy ?? "",
+          lane: laneTextOf(b),
+          shipper: b.shipper,
+          referenceNumber: b.referenceNumber ?? null,
+          totalWithExtras: b.rate != null ? Math.round((b.rate + (b.extraCharges ?? 0)) * 100) / 100 : null,
+          deliveredAt: p.sealedAt,
+          sealHash: p.sealHash,
+          sealGrade: p.grade
+        });
+      }
+      const s = sealedEntriesFor(walk, "load", b.loadId, `Load #${b.loadId} - ${laneTextOf(b)} - @${b.claimedBy ?? "?"}`, `sealed:${b.loadId}`);
+      if (s)
+        fSealed.push(s);
+    }
+    fDelivered.sort((a, b) => (b.deliveredAt ?? "").localeCompare(a.deliveredAt ?? ""));
+    fSealed.sort((a, b) => (b.lastEventAt ?? "").localeCompare(a.lastEventAt ?? ""));
+    fleet = { companyName: membership.company.name, deliveredLoads: fDelivered, sealedFiles: fSealed };
+  }
+  return {
+    viewer: {
+      username: me,
+      email: viewerOf(ctx)?.email ?? await accountEmailFor(ctx, me),
+      mode: membership ? "fleet" : "solo",
+      canManageFleet: canManage,
+      companyName: membership?.company.name ?? null
+    },
+    deliveredLoads,
+    statements,
+    fuelTax,
+    filings,
+    uploads: uploads.slice(0, 100),
+    sealedFiles: sealedFiles.slice(0, 100),
+    chain: { intact: walk.intact, checked: walk.checked, headHash: walk.headHash },
+    fleet
+  };
+}
 var Actions = {
   getBetaStatus: defineAction({
     description: "Get beta status.",
@@ -27381,6 +33178,7 @@ var Actions = {
           weighPrompts: row.weighPrompts ?? true,
           hillGradeAlerts: row.hillGradeAlerts ?? true,
           winterWeatherAlerts: row.winterWeatherAlerts ?? true,
+          autoAddStops: row.autoAddStops ?? true,
           carModeEnabled: row.carModeEnabled ?? false,
           carModeAutoLaunch: row.carModeAutoLaunch ?? true,
           carVoicePrompts: row.carVoicePrompts ?? true,
@@ -27415,6 +33213,7 @@ var Actions = {
           weighPrompts: values.weighPrompts,
           hillGradeAlerts: values.hillGradeAlerts,
           winterWeatherAlerts: values.winterWeatherAlerts,
+          autoAddStops: values.autoAddStops,
           carModeEnabled: values.carModeEnabled,
           carModeAutoLaunch: values.carModeAutoLaunch,
           carVoicePrompts: values.carVoicePrompts,
@@ -27468,7 +33267,24 @@ var Actions = {
           driverCpm: row.driverCpm ?? null,
           payBasis: row.payBasis === "percent" ? "percent" : "cpm",
           driverPayPct: row.driverPayPct ?? null,
+          factoringPct: row.factoringPct ?? 0,
+          dispatcherPct: row.dispatcherPct ?? 0,
           trailerType: ["dry_van", "reefer", "flatbed", "step_deck", "rgn"].includes(row.trailerType ?? "") ? row.trailerType : "dry_van",
+          truckYear: row.truckYear ?? null,
+          truckMake: row.truckMake ?? null,
+          truckModel: row.truckModel ?? null,
+          truckUnitNumber: row.truckUnitNumber ?? null,
+          truckVin: row.truckVin ?? null,
+          truckPlate: row.truckPlate ?? null,
+          truckEngine: row.truckEngine ?? null,
+          truckTransmission: row.truckTransmission ?? null,
+          trailerYear: row.trailerYear ?? null,
+          trailerMake: row.trailerMake ?? null,
+          trailerModel: row.trailerModel ?? null,
+          trailerVin: row.trailerVin ?? null,
+          trailerPlate: row.trailerPlate ?? null,
+          birthMonth: row.birthMonth ?? null,
+          birthDay: row.birthDay ?? null,
           pinSet: row.pinHash != null
         }
       };
@@ -27480,6 +33296,14 @@ var Actions = {
     response: object({ ok: literal(true) }),
     async handler(ctx, args) {
       const db = ctx.db();
+      const birthMonth = args.birthMonth ?? null;
+      const birthDay = args.birthDay ?? null;
+      if (birthMonth == null !== (birthDay == null)) {
+        throw new Error("Birthday needs both a month and a day \u2014 or neither. (We never ask for a birth year.)");
+      }
+      if (birthMonth != null && !validBirthMonthDay(birthMonth, birthDay)) {
+        throw new Error("That birthday doesn't exist \u2014 check the month and day. (We never ask for a birth year.)");
+      }
       const offs = new Set(args.brandOffs);
       if (args.lovesOff)
         offs.add("loves");
@@ -27512,7 +33336,24 @@ var Actions = {
         driverCpm: args.driverCpm,
         payBasis: args.payBasis,
         driverPayPct: args.driverPayPct,
+        factoringPct: args.factoringPct,
+        dispatcherPct: args.dispatcherPct,
         trailerType: args.trailerType,
+        truckYear: args.truckYear,
+        truckMake: args.truckMake?.trim() || null,
+        truckModel: args.truckModel?.trim() || null,
+        truckUnitNumber: args.truckUnitNumber?.trim() || null,
+        truckVin: args.truckVin?.trim() || null,
+        truckPlate: args.truckPlate?.trim() || null,
+        truckEngine: args.truckEngine?.trim() || null,
+        truckTransmission: args.truckTransmission?.trim() || null,
+        trailerYear: args.trailerYear,
+        trailerMake: args.trailerMake?.trim() || null,
+        trailerModel: args.trailerModel?.trim() || null,
+        trailerVin: args.trailerVin?.trim() || null,
+        trailerPlate: args.trailerPlate?.trim() || null,
+        birthMonth,
+        birthDay,
         updatedAt: new Date
       };
       await db.insert(profile3).values(values).onConflictDoUpdate({
@@ -27543,7 +33384,24 @@ var Actions = {
           driverCpm: values.driverCpm,
           payBasis: values.payBasis,
           driverPayPct: values.driverPayPct,
+          factoringPct: values.factoringPct,
+          dispatcherPct: values.dispatcherPct,
           trailerType: values.trailerType,
+          truckYear: values.truckYear,
+          truckMake: values.truckMake,
+          truckModel: values.truckModel,
+          truckUnitNumber: values.truckUnitNumber,
+          truckVin: values.truckVin,
+          truckPlate: values.truckPlate,
+          truckEngine: values.truckEngine,
+          truckTransmission: values.truckTransmission,
+          trailerYear: values.trailerYear,
+          trailerMake: values.trailerMake,
+          trailerModel: values.trailerModel,
+          trailerVin: values.trailerVin,
+          trailerPlate: values.trailerPlate,
+          birthMonth: values.birthMonth,
+          birthDay: values.birthDay,
           updatedAt: values.updatedAt
         }
       });
@@ -27655,7 +33513,7 @@ var Actions = {
       const eldConns = await db.select().from(eldConnections3).where(eq(eldConnections3.status, "connected"));
       for (const c of eldConns) {
         const snaps = await db.select().from(eldSnapshots3).where(eq(eldSnapshots3.connectionId, c.id));
-        const stats = snaps.find((s) => s.feed === "vehicle_stats");
+        const stats = snaps.find((s) => s.feed === "vehicle_stats" && !snapshotIsSimulated(s.payloadJson));
         if (stats) {
           try {
             const p = JSON.parse(stats.payloadJson);
@@ -28941,6 +34799,9 @@ var Actions = {
       const inserted = result[0];
       if (!inserted)
         throw new Error("saveLoad: insert returned no rows");
+      try {
+        await ensureReceiveLink(ctx, inserted.id, await myUsername(ctx));
+      } catch {}
       await appendChain(ctx, {
         refKind: "load",
         refId: inserted.id,
@@ -29051,6 +34912,591 @@ var Actions = {
       });
       ctx.invalidateQueries();
       return { ok: true };
+    }
+  }),
+  getLoadReceiveLink: defineAction({
+    description: "Get (or create) this load's receive link + confirmation state.",
+    request: object({ loadId: number2().int().positive() }),
+    response: object({
+      ok: boolean2(),
+      error: string2().nullable(),
+      url: string2().nullable(),
+      token: string2().nullable(),
+      confirmed: boolean2(),
+      path: string2().nullable(),
+      receiverName: string2().nullable(),
+      confirmedAt: string2().nullable(),
+      exceptionNotes: string2().nullable(),
+      copyUrl: string2().nullable()
+    }),
+    async handler(ctx, args) {
+      const fail = { ok: false, error: "That load isn't in your scope.", url: null, token: null, confirmed: false, path: null, receiverName: null, confirmedAt: null, exceptionNotes: null, copyUrl: null };
+      const scope = await libraryLoadScope(ctx, args.loadId);
+      if (!scope)
+        return fail;
+      const me = await myUsername(ctx);
+      const link = await ensureReceiveLink(ctx, args.loadId, me);
+      const confirmation = await deliveryConfirmationFor(ctx, args.loadId);
+      let copyUrl = null;
+      if (confirmation) {
+        const copy = await ensureCopyLink(ctx, args.loadId, me);
+        copyUrl = copyUrlFor(copy.token);
+      }
+      return {
+        ok: true,
+        error: null,
+        url: receiveUrlFor(link.token),
+        token: link.token,
+        confirmed: confirmation != null,
+        path: confirmation?.path ?? null,
+        receiverName: confirmation?.receiverName ?? null,
+        confirmedAt: confirmation?.at ?? null,
+        exceptionNotes: confirmation?.exceptionNotes ?? null,
+        copyUrl
+      };
+    }
+  }),
+  regenerateReceiveLink: defineAction({
+    description: "Revoke this load's receive link and issue a new one (desk).",
+    request: object({ loadId: number2().int().positive() }),
+    response: object({ ok: boolean2(), error: string2().nullable(), url: string2().nullable(), token: string2().nullable() }),
+    async handler(ctx, args) {
+      const scope = await libraryLoadScope(ctx, args.loadId);
+      if (!scope)
+        return { ok: false, error: "That load isn't in your scope.", url: null, token: null };
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      await db.update(receiveLinks3).set({ status: "revoked", revokedAt: new Date }).where(and(eq(receiveLinks3.loadId, args.loadId), eq(receiveLinks3.kind, "action"), ne(receiveLinks3.status, "revoked")));
+      const token = newReceiveToken("action");
+      await db.insert(receiveLinks3).values({ loadId: args.loadId, token, kind: "action", status: "active", createdBy: me });
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: args.loadId,
+        sessionId: null,
+        event: "receive_link_regenerated",
+        payload: { loadId: args.loadId, by: me, at: new Date().toISOString() }
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null, url: receiveUrlFor(token), token };
+    }
+  }),
+  getReceiveInfo: defineAction({
+    description: "PUBLIC: delivery-necessary info for a receive/copy token. Never any rate or money field.",
+    request: object({ token: string2().min(8).max(80) }),
+    response: object({
+      valid: boolean2(),
+      kind: string2().nullable(),
+      canConfirm: boolean2(),
+      status: string2().nullable(),
+      shipperName: string2().nullable(),
+      commodity: string2().nullable(),
+      pieces: number2().nullable(),
+      weightText: string2().nullable(),
+      deliveryCity: string2().nullable(),
+      deliveryState: string2().nullable(),
+      deliveryWindow: string2().nullable(),
+      fleetName: string2().nullable(),
+      driverFirstName: string2().nullable(),
+      receiverName: string2().nullable(),
+      confirmedAt: string2().nullable(),
+      exceptionNotes: string2().nullable()
+    }),
+    async handler(ctx, args) {
+      const invalid = { valid: false, kind: null, canConfirm: false, status: null, shipperName: null, commodity: null, pieces: null, weightText: null, deliveryCity: null, deliveryState: null, deliveryWindow: null, fleetName: null, driverFirstName: null, receiverName: null, confirmedAt: null, exceptionNotes: null };
+      if (receiveThrottleBlocked(args.token))
+        return invalid;
+      const resolved = await resolveReceiveToken(ctx, args.token);
+      if (!resolved) {
+        receiveThrottleFail(args.token);
+        return invalid;
+      }
+      receiveThrottleOk(args.token);
+      const { link, load } = resolved;
+      if (link.kind === "track")
+        return invalid;
+      const db = ctx.db();
+      const confirmation = await deliveryConfirmationFor(ctx, load.id);
+      let board = null;
+      const saved = await db.select().from(chainLog3).where(and(eq(chainLog3.refKind, "load"), eq(chainLog3.refId, load.id), eq(chainLog3.event, "load_saved"))).limit(1);
+      if (saved[0]) {
+        try {
+          const p = JSON.parse(saved[0].payload);
+          if (typeof p.boardLoadId === "number") {
+            const brows = await db.select().from(boardLoads3).where(eq(boardLoads3.id, p.boardLoadId)).limit(1);
+            board = brows[0] ?? null;
+          }
+        } catch {}
+      }
+      const driverUsername = await driverUsernameForLoad(ctx, load);
+      const driver = await db.select().from(socialUsers3).where(eq(socialUsers3.username, driverUsername ?? "")).limit(1);
+      const driverName = driver[0]?.displayName?.trim() || driverUsername || "";
+      return {
+        valid: true,
+        kind: link.kind,
+        canConfirm: link.kind === "action" && link.status === "active" && confirmation == null,
+        status: confirmation ? "confirmed" : "awaiting",
+        shipperName: load.shipper ?? board?.shipper ?? null,
+        commodity: load.commodity ?? null,
+        pieces: null,
+        weightText: load.weightLbs != null ? `${load.weightLbs.toLocaleString("en-US")} lbs` : null,
+        deliveryCity: load.deliveryCity ?? null,
+        deliveryState: load.deliveryState ?? null,
+        deliveryWindow: load.deliveryText ?? (load.dockApptAt ? load.dockApptAt.toISOString() : null),
+        fleetName: driver[0]?.company ?? "STONEMILES carrier",
+        driverFirstName: driverName.split(/\s+/)[0] ?? null,
+        receiverName: confirmation?.receiverName ?? null,
+        confirmedAt: confirmation?.at ?? null,
+        exceptionNotes: confirmation?.exceptionNotes ?? null
+      };
+    }
+  }),
+  confirmReceive: defineAction({
+    description: "PUBLIC: the receiver confirms delivery on the receive link (typed name = signature). First close wins.",
+    request: object({
+      token: string2().min(8).max(80),
+      receiverName: string2().min(1).max(120),
+      exceptionNotes: string2().max(500).nullable().default(null),
+      photoDataBase64: string2().max(8000000).nullable().default(null),
+      photoMime: string2().max(60).nullable().default(null)
+    }),
+    response: object({
+      ok: boolean2(),
+      error: string2().nullable(),
+      alreadyConfirmed: boolean2(),
+      confirmedAt: string2().nullable(),
+      copyUrl: string2().nullable()
+    }),
+    async handler(ctx, args) {
+      const refused = { ok: false, error: "This link isn't valid for confirming a delivery.", alreadyConfirmed: false, confirmedAt: null, copyUrl: null };
+      if (receiveThrottleBlocked(args.token))
+        return refused;
+      const resolved = await resolveReceiveToken(ctx, args.token);
+      if (!resolved || resolved.link.kind !== "action") {
+        receiveThrottleFail(args.token);
+        return refused;
+      }
+      const { link, load } = resolved;
+      const existing = await deliveryConfirmationFor(ctx, load.id);
+      if (existing || link.status === "used") {
+        const copy = await ensureCopyLink(ctx, load.id, await driverUsernameForLoad(ctx, load) ?? "receiver");
+        return { ok: true, error: null, alreadyConfirmed: true, confirmedAt: existing?.at ?? null, copyUrl: copyUrlFor(copy.token) };
+      }
+      if (link.status !== "active")
+        return refused;
+      receiveThrottleOk(args.token);
+      let doc = null;
+      if (args.photoDataBase64 && args.photoMime)
+        doc = { base64: args.photoDataBase64, mime: args.photoMime };
+      const result = await completeDeliveryConfirmation(ctx, {
+        load,
+        path: "receive_link",
+        receiverName: args.receiverName.trim(),
+        exceptionNotes: args.exceptionNotes?.trim() ? args.exceptionNotes.trim() : null,
+        doc,
+        actorUsername: await driverUsernameForLoad(ctx, load) ?? "receiver"
+      });
+      const db = ctx.db();
+      await db.update(receiveLinks3).set({ status: "used" }).where(eq(receiveLinks3.id, link.id));
+      const copy = await ensureCopyLink(ctx, load.id, await driverUsernameForLoad(ctx, load) ?? "receiver");
+      const conf = await deliveryConfirmationFor(ctx, load.id);
+      return { ok: true, error: null, alreadyConfirmed: result.already, confirmedAt: conf?.at ?? new Date().toISOString(), copyUrl: copyUrlFor(copy.token) };
+    }
+  }),
+  signDeliveryOnPhone: defineAction({
+    description: "Receiver signs on the driver's phone: signature image + printed name seal the delivery.",
+    request: object({
+      loadId: number2().int().positive(),
+      receiverName: string2().min(1).max(120),
+      exceptionNotes: string2().max(500).nullable().default(null),
+      signatureDataBase64: string2().min(100).max(8000000),
+      signatureMime: string2().max(60).default("image/jpeg")
+    }),
+    response: object({ ok: boolean2(), error: string2().nullable(), alreadyConfirmed: boolean2(), confirmedAt: string2().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const rows = await db.select().from(loads3).where(eq(loads3.id, args.loadId)).limit(1);
+      if (!rows[0])
+        return { ok: false, error: "That load isn't in your scope.", alreadyConfirmed: false, confirmedAt: null };
+      const me = await myUsername(ctx);
+      const result = await completeDeliveryConfirmation(ctx, {
+        load: rows[0],
+        path: "phone_signature",
+        receiverName: args.receiverName.trim(),
+        exceptionNotes: args.exceptionNotes?.trim() ? args.exceptionNotes.trim() : null,
+        doc: { base64: args.signatureDataBase64, mime: args.signatureMime },
+        actorUsername: me
+      });
+      const conf = await deliveryConfirmationFor(ctx, args.loadId);
+      ctx.invalidateQueries();
+      return { ok: true, error: null, alreadyConfirmed: result.already, confirmedAt: conf?.at ?? null };
+    }
+  }),
+  uploadSignedBolPod: defineAction({
+    description: "Paper path: a photo of the signed paper BOL uploads as the signed POD and seals the delivery.",
+    request: object({
+      loadId: number2().int().positive(),
+      receiverName: string2().min(1).max(120),
+      exceptionNotes: string2().max(500).nullable().default(null),
+      photoDataBase64: string2().min(100).max(12000000),
+      photoMime: string2().max(60)
+    }),
+    response: object({ ok: boolean2(), error: string2().nullable(), alreadyConfirmed: boolean2(), confirmedAt: string2().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const rows = await db.select().from(loads3).where(eq(loads3.id, args.loadId)).limit(1);
+      if (!rows[0])
+        return { ok: false, error: "That load isn't in your scope.", alreadyConfirmed: false, confirmedAt: null };
+      const me = await myUsername(ctx);
+      const result = await completeDeliveryConfirmation(ctx, {
+        load: rows[0],
+        path: "paper_bol",
+        receiverName: args.receiverName.trim(),
+        exceptionNotes: args.exceptionNotes?.trim() ? args.exceptionNotes.trim() : null,
+        doc: { base64: args.photoDataBase64, mime: args.photoMime },
+        actorUsername: me
+      });
+      const conf = await deliveryConfirmationFor(ctx, args.loadId);
+      ctx.invalidateQueries();
+      return { ok: true, error: null, alreadyConfirmed: result.already, confirmedAt: conf?.at ?? null };
+    }
+  }),
+  getReceiverCopyLink: defineAction({
+    description: "PUBLIC: the receiver's view-only POD copy link for a confirmed delivery (separate token, no action rights).",
+    request: object({ token: string2().min(8).max(80) }),
+    response: object({ ok: boolean2(), error: string2().nullable(), copyUrl: string2().nullable(), copyToken: string2().nullable() }),
+    async handler(ctx, args) {
+      const resolved = await resolveReceiveToken(ctx, args.token);
+      if (!resolved || resolved.link.kind === "track")
+        return { ok: false, error: "This link isn't valid.", copyUrl: null, copyToken: null };
+      const confirmation = await deliveryConfirmationFor(ctx, resolved.load.id);
+      if (!confirmation)
+        return { ok: false, error: "This delivery hasn't been confirmed yet.", copyUrl: null, copyToken: null };
+      const copy = await ensureCopyLink(ctx, resolved.load.id, await driverUsernameForLoad(ctx, resolved.load) ?? "receiver");
+      return { ok: true, error: null, copyUrl: copyUrlFor(copy.token), copyToken: copy.token };
+    }
+  }),
+  getPodCopyDocument: defineAction({
+    description: "PUBLIC: the signed POD PDF for a confirmed delivery (action or copy token). Download/print.",
+    request: object({ token: string2().min(8).max(80) }),
+    response: object({
+      ok: boolean2(),
+      error: string2().nullable(),
+      filename: string2().nullable(),
+      mime: string2().nullable(),
+      dataBase64: string2().nullable()
+    }),
+    async handler(ctx, args) {
+      const resolved = await resolveReceiveToken(ctx, args.token);
+      if (!resolved || resolved.link.kind === "track")
+        return { ok: false, error: "This link isn't valid.", filename: null, mime: null, dataBase64: null };
+      const confirmation = await deliveryConfirmationFor(ctx, resolved.load.id);
+      if (!confirmation)
+        return { ok: false, error: "This delivery hasn't been confirmed yet.", filename: null, mime: null, dataBase64: null };
+      const pdf = await buildSignedPodPdf(ctx, resolved.load, confirmation);
+      return {
+        ok: true,
+        error: null,
+        filename: `signed-pod-load-${resolved.load.id}.pdf`,
+        mime: "application/pdf",
+        dataBase64: Buffer.from(pdf.bytes).toString("base64")
+      };
+    }
+  }),
+  getLoadShareLinks: defineAction({
+    description: "This load's outward tracking share links + their live state (owner of the load, or its fleet's desk).",
+    request: object({ loadId: number2().int().positive() }),
+    response: object({
+      ok: boolean2(),
+      error: string2().nullable(),
+      delivered: boolean2(),
+      links: array(object({
+        id: number2(),
+        url: string2(),
+        state: string2(),
+        createdBy: string2(),
+        createdAt: string2()
+      }))
+    }),
+    async handler(ctx, args) {
+      const fail = { ok: false, error: "That load isn't in your scope.", delivered: false, links: [] };
+      const scope = await libraryLoadScope(ctx, args.loadId);
+      if (!scope)
+        return fail;
+      const db = ctx.db();
+      const delivered = await deliveryConfirmationFor(ctx, args.loadId) != null;
+      const rows = await db.select().from(receiveLinks3).where(and(eq(receiveLinks3.loadId, args.loadId), eq(receiveLinks3.kind, "track"))).orderBy(desc(receiveLinks3.id));
+      return {
+        ok: true,
+        error: null,
+        delivered,
+        links: rows.map((r) => ({
+          id: r.id,
+          url: trackUrlFor(r.token),
+          state: trackShareStateFor({ linkStatus: r.status, delivered }),
+          createdBy: r.createdBy,
+          createdAt: r.createdAt.toISOString()
+        }))
+      };
+    }
+  }),
+  createLoadShareLink: defineAction({
+    description: "Opt in: create (or return) this load's outward tracking share link. Sealed; never carries the rate.",
+    request: object({ loadId: number2().int().positive() }),
+    response: object({
+      ok: boolean2(),
+      error: string2().nullable(),
+      url: string2().nullable(),
+      state: string2().nullable()
+    }),
+    async handler(ctx, args) {
+      const scope = await libraryLoadScope(ctx, args.loadId);
+      if (!scope)
+        return { ok: false, error: "That load isn't in your scope.", url: null, state: null };
+      const delivered = await deliveryConfirmationFor(ctx, args.loadId) != null;
+      if (delivered)
+        return {
+          ok: false,
+          error: "This load is already delivered \u2014 tracking shares end at delivery. The receiver's copy link is the record now.",
+          url: null,
+          state: null
+        };
+      const me = await myUsername(ctx);
+      const { row, created } = await ensureTrackLink(ctx, args.loadId, me);
+      if (created) {
+        await appendChain(ctx, {
+          refKind: "load",
+          refId: args.loadId,
+          sessionId: null,
+          event: "load_share_created",
+          payload: { loadId: args.loadId, by: me, via: scope.via, at: new Date().toISOString() }
+        });
+      }
+      ctx.invalidateQueries();
+      return { ok: true, error: null, url: trackUrlFor(row.token), state: "live" };
+    }
+  }),
+  revokeLoadShareLink: defineAction({
+    description: "Revoke one of this load's tracking share links \u2014 the link dies immediately, everywhere.",
+    request: object({ loadId: number2().int().positive(), linkId: number2().int().positive() }),
+    response: object({ ok: boolean2(), error: string2().nullable() }),
+    async handler(ctx, args) {
+      const scope = await libraryLoadScope(ctx, args.loadId);
+      if (!scope)
+        return { ok: false, error: "That load isn't in your scope." };
+      const db = ctx.db();
+      const rows = await db.select().from(receiveLinks3).where(and(eq(receiveLinks3.id, args.linkId), eq(receiveLinks3.loadId, args.loadId), eq(receiveLinks3.kind, "track"))).limit(1);
+      const row = rows[0];
+      if (!row)
+        return { ok: false, error: "That share link isn't on this load." };
+      if (row.status === "revoked")
+        return { ok: true, error: null };
+      await db.update(receiveLinks3).set({ status: "revoked", revokedAt: new Date }).where(eq(receiveLinks3.id, row.id));
+      const me = await myUsername(ctx);
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: args.loadId,
+        sessionId: null,
+        event: "load_share_revoked",
+        payload: { loadId: args.loadId, linkId: row.id, by: me, via: scope.via, at: new Date().toISOString() }
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
+    }
+  }),
+  getTrackInfo: defineAction({
+    description: "PUBLIC: tracking view for a shared load \u2014 route, stops, ETA, location + freshness. Never any rate or money field. Expires at delivery.",
+    request: object({ token: string2().min(8).max(80) }),
+    response: object({
+      valid: boolean2(),
+      state: string2().nullable(),
+      shipperName: string2().nullable(),
+      commodity: string2().nullable(),
+      lane: string2().nullable(),
+      pickupLabel: string2().nullable(),
+      deliveryLabel: string2().nullable(),
+      pickupText: string2().nullable(),
+      deliveryText: string2().nullable(),
+      statusLabel: string2().nullable(),
+      stops: array(string2()),
+      etaAt: string2().nullable(),
+      fleetName: string2().nullable(),
+      driverFirstName: string2().nullable(),
+      positionVisible: boolean2(),
+      lat: number2().nullable(),
+      lon: number2().nullable(),
+      positionAt: string2().nullable(),
+      positionFreshness: string2().nullable()
+    }),
+    async handler(ctx, args) {
+      const invalid = {
+        valid: false,
+        state: null,
+        shipperName: null,
+        commodity: null,
+        lane: null,
+        pickupLabel: null,
+        deliveryLabel: null,
+        pickupText: null,
+        deliveryText: null,
+        statusLabel: null,
+        stops: [],
+        etaAt: null,
+        fleetName: null,
+        driverFirstName: null,
+        positionVisible: false,
+        lat: null,
+        lon: null,
+        positionAt: null,
+        positionFreshness: null
+      };
+      if (receiveThrottleBlocked(args.token))
+        return invalid;
+      const resolved = await resolveReceiveToken(ctx, args.token);
+      if (!resolved || resolved.link.kind !== "track") {
+        receiveThrottleFail(args.token);
+        return invalid;
+      }
+      receiveThrottleOk(args.token);
+      const { load } = resolved;
+      const db = ctx.db();
+      const confirmation = await deliveryConfirmationFor(ctx, load.id);
+      const state = trackShareStateFor({ linkStatus: resolved.link.status, delivered: confirmation != null });
+      const driverUsername = await driverUsernameForLoad(ctx, load);
+      const driver = driverUsername ? (await db.select().from(socialUsers3).where(eq(socialUsers3.username, driverUsername)).limit(1))[0] : undefined;
+      const driverName = driver?.displayName?.trim() || driverUsername || "";
+      const snapshot = driverUsername ? await fleetStatusFor(ctx, driverUsername) : null;
+      const snapForLoad = snapshot && snapshot.loadId === load.id ? snapshot : null;
+      let stops = snapshotStops(snapForLoad);
+      if (stops.length === 0) {
+        const queue = await db.select().from(tripQueue3).where(eq(tripQueue3.loadId, load.id));
+        for (const q of queue) {
+          try {
+            const parsed = JSON.parse(q.stopsJson);
+            if (Array.isArray(parsed))
+              stops = cleanStops(parsed.filter((s) => typeof s === "string"));
+          } catch {}
+          if (stops.length > 0)
+            break;
+        }
+      }
+      let positionVisible = false;
+      let lat = null;
+      let lon = null;
+      let positionAt = null;
+      let positionFreshness = null;
+      if (state === "live" && driverUsername) {
+        const pos = (await db.select().from(driverPositions3).where(eq(driverPositions3.username, driverUsername)).limit(1))[0];
+        if (pos) {
+          positionVisible = true;
+          lat = pos.lat;
+          lon = pos.lon;
+          positionAt = pos.updatedAt.toISOString();
+          positionFreshness = freshnessFor(pos.updatedAt, new Date).label;
+        }
+      }
+      const side = (city, st) => [city, st].filter(Boolean).join(", ") || null;
+      return {
+        valid: true,
+        state,
+        shipperName: load.shipper ?? null,
+        commodity: load.commodity ?? null,
+        lane: laneLabel(load.pickupCity, load.pickupState, load.deliveryCity, load.deliveryState),
+        pickupLabel: side(load.pickupCity, load.pickupState),
+        deliveryLabel: side(load.deliveryCity, load.deliveryState),
+        pickupText: load.pickupText ?? null,
+        deliveryText: load.deliveryText ?? null,
+        statusLabel: confirmation ? "Delivered" : plainLoadStatus(load.status),
+        stops,
+        etaAt: load.dockApptAt?.toISOString() ?? snapForLoad?.etaAt?.toISOString() ?? null,
+        fleetName: driver?.company ?? "STONEMILES carrier",
+        driverFirstName: driverName.split(/\s+/)[0] ?? null,
+        positionVisible,
+        lat,
+        lon,
+        positionAt,
+        positionFreshness
+      };
+    }
+  }),
+  emailReceiverCopy: defineAction({
+    description: "PUBLIC: email the signed POD PDF to the receiver's typed address. Audited against the load (document mail).",
+    request: object({
+      token: string2().min(8).max(80),
+      toEmail: string2().email().max(200)
+    }),
+    response: object({ ok: boolean2(), error: string2().nullable(), status: string2().nullable() }),
+    privileged: [privileged.docEmailConfig, privileged.sendDocEmail],
+    async handler(ctx, args) {
+      const resolved = await resolveReceiveToken(ctx, args.token);
+      if (!resolved || resolved.link.kind === "track")
+        return { ok: false, error: "This link isn't valid.", status: null };
+      const { load } = resolved;
+      const confirmation = await deliveryConfirmationFor(ctx, load.id);
+      if (!confirmation)
+        return { ok: false, error: "This delivery hasn't been confirmed yet.", status: null };
+      const pdf = await buildSignedPodPdf(ctx, load, confirmation);
+      const db = ctx.db();
+      const subject = `Your signed delivery copy \u2014 Load #${load.id}`;
+      const send = await ctx.executePrivileged(privileged.sendDocEmail, {
+        to: args.toEmail,
+        replyTo: null,
+        subject,
+        text: `Attached is your signed proof of delivery for load #${load.id} (${load.pickupCity ?? ""} \u2192 ${load.deliveryCity ?? ""}), received by ${confirmation.receiverName ?? "the receiver"}.
+Keep it for your records.
+
+\u2014 STONEMILES by Stonervision`,
+        attachmentFilename: `signed-pod-load-${load.id}.pdf`,
+        attachmentBase64: Buffer.from(pdf.bytes).toString("base64")
+      });
+      const status = send.ok ? "sent" : send.notConfigured ? "queued" : "failed";
+      await db.insert(documentSends3).values({
+        profileId: load.profileId ?? null,
+        username: await driverUsernameForLoad(ctx, load) ?? "receiver-copy",
+        docRef: `podcopy:${load.id}`,
+        docKind: "receiver_copy",
+        docTitle: `Signed POD copy \u2014 Load #${load.id}`,
+        toEmail: args.toEmail,
+        replyTo: null,
+        subject,
+        status,
+        providerId: send.providerId ?? null,
+        detail: send.notConfigured ? "Mail transport not configured yet \u2014 the send is queued." : send.errorMessage ?? null,
+        sentAt: send.ok ? new Date : null
+      });
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: load.id,
+        sessionId: null,
+        event: "receiver_copy_emailed",
+        payload: { loadId: load.id, channel: "email", toMasked: maskEmailForLog(args.toEmail), status, at: new Date().toISOString() }
+      });
+      return { ok: status !== "failed", error: status === "failed" ? send.errorMessage ?? "The email could not be sent." : null, status };
+    }
+  }),
+  logReceiverCopyTextOffer: defineAction({
+    description: "Audit-log a receiver-copy offer handed to the DRIVER'S device text app (sms: handoff \u2014 no server SMS exists). Stores only a masked number + hash.",
+    request: object({
+      token: string2().min(8).max(80),
+      phone: string2().min(7).max(24)
+    }),
+    response: object({ ok: boolean2(), masked: string2().nullable() }),
+    async handler(ctx, args) {
+      const resolved = await resolveReceiveToken(ctx, args.token);
+      if (!resolved)
+        return { ok: false, masked: null };
+      const digits = args.phone.replace(/\D/g, "");
+      if (digits.length < 7 || digits.length > 15)
+        return { ok: false, masked: null };
+      const masked = `***-***-${digits.slice(-2)}`;
+      const phoneHash = (await sha256Bytes(new TextEncoder().encode(digits))).slice(0, 16);
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: resolved.load.id,
+        sessionId: null,
+        event: "receiver_copy_text_offered",
+        payload: { loadId: resolved.load.id, channel: "driver_device_text", masked, phoneHash, at: new Date().toISOString() }
+      });
+      return { ok: true, masked };
     }
   }),
   getDocCopySettings: defineAction({
@@ -29295,6 +35741,7 @@ var Actions = {
       try {
         const res = await ctx.executePrivileged(privileged.sendDocEmail, {
           to: row.recipientEmail,
+          replyTo: null,
           subject: `STONEMILES \u2014 ${label}`,
           text: docCopyEmailText({
             label,
@@ -29416,6 +35863,7 @@ var Actions = {
       try {
         const res = await ctx.executePrivileged(privileged.sendDocEmail, {
           to: row.recipientEmail,
+          replyTo: null,
           subject: `STONEMILES \u2014 ${label}`,
           text: payStubEmailText({
             label,
@@ -29589,6 +36037,9 @@ var Actions = {
       brokerName: string2().max(120).nullable().default(null),
       brokerCompany: string2().max(160).nullable().default(null),
       brokerMc: string2().max(40).nullable().default(null),
+      referenceNumber: string2().max(80).nullable().default(null),
+      pickupApptAt: string2().max(40).nullable().default(null),
+      deliveryApptAt: string2().max(40).nullable().default(null),
       docDataBase64: string2().max(14000000).nullable().default(null),
       docMime: string2().max(100).nullable().default(null)
     }),
@@ -29626,6 +36077,12 @@ var Actions = {
       if (!fields.pickupCity && !fields.deliveryCity && !fields.shipper) {
         return { ok: false, error: "That post is empty \u2014 give it at least a pickup or delivery city (or the shipper) before it goes on the board.", id: null };
       }
+      const pickupAppt = parseBoardAppt(args.pickupApptAt, "pickup");
+      if (pickupAppt.error)
+        return { ok: false, error: pickupAppt.error, id: null };
+      const deliveryAppt = parseBoardAppt(args.deliveryApptAt, "delivery");
+      if (deliveryAppt.error)
+        return { ok: false, error: deliveryAppt.error, id: null };
       let siCheckId = null;
       if (await siEnabled(ctx)) {
         const lr = vetLoadForBoard({
@@ -29701,7 +36158,19 @@ var Actions = {
         brokerSource: clean(args.brokerName) ? "board_post" : null,
         brokerLinkId: null
       };
-      const ins = await db.insert(boardLoads3).values({ companyId: mine.company.id, postedBy: me, ...fields, ...brokerFields, status: "open", docBlobKey, docMime, docSha256: docSha }).returning({ id: boardLoads3.id });
+      const ins = await db.insert(boardLoads3).values({
+        companyId: mine.company.id,
+        postedBy: me,
+        ...fields,
+        ...brokerFields,
+        status: "open",
+        docBlobKey,
+        docMime,
+        docSha256: docSha,
+        referenceNumber: cleanReferenceNumber(args.referenceNumber),
+        pickupApptAt: pickupAppt.at,
+        deliveryApptAt: deliveryAppt.at
+      }).returning({ id: boardLoads3.id });
       const id = ins[0]?.id ?? null;
       if (id == null)
         throw new Error("postBoardLoad: insert returned no rows");
@@ -29739,7 +36208,10 @@ var Actions = {
       commodity: string2().max(200).nullable(),
       hazmat: boolean2().default(false),
       equipmentType: _enum(["flatbed", "open_deck", "rgn", "oversized", "dry_van", "reefer", "container"]).nullable().default(null),
-      notes: string2().max(500).nullable().default(null)
+      notes: string2().max(500).nullable().default(null),
+      referenceNumber: string2().max(80).nullable().optional(),
+      pickupApptAt: string2().max(40).nullable().optional(),
+      deliveryApptAt: string2().max(40).nullable().optional()
     }),
     response: object({ ok: boolean2(), error: string2().nullable() }),
     async handler(ctx, args) {
@@ -29754,8 +36226,17 @@ var Actions = {
         return { ok: false, error: "That board load isn't on your company's board." };
       if (row.status !== "open")
         return { ok: false, error: "That load is already taken \u2014 unassign it back to the board before editing it." };
+      const pickupAppt = parseBoardAppt(args.pickupApptAt, "pickup");
+      if (pickupAppt.error)
+        return { ok: false, error: pickupAppt.error };
+      const deliveryAppt = parseBoardAppt(args.deliveryApptAt, "delivery");
+      if (deliveryAppt.error)
+        return { ok: false, error: deliveryAppt.error };
       const clean = (s) => s?.trim() ? s.trim() : null;
       await db.update(boardLoads3).set({
+        ...args.referenceNumber !== undefined ? { referenceNumber: cleanReferenceNumber(args.referenceNumber) } : {},
+        ...args.pickupApptAt !== undefined ? { pickupApptAt: pickupAppt.at } : {},
+        ...args.deliveryApptAt !== undefined ? { deliveryApptAt: deliveryAppt.at } : {},
         shipper: clean(args.shipper),
         pickupCity: clean(args.pickupCity),
         pickupState: clean(args.pickupState),
@@ -29806,6 +36287,14 @@ var Actions = {
       const row = rows[0];
       if (!row || row.companyId !== mine.company.id)
         return { ok: false, error: "That load isn't on your company's board.", loadId: null, tripQueueId: null };
+      if (row.status === "assigned") {
+        return {
+          ok: false,
+          error: `That load is assigned to @${row.claimedBy ?? "a driver"} \u2014 it's waiting on them to accept or decline, not open for claiming.`,
+          loadId: null,
+          tripQueueId: null
+        };
+      }
       if (row.status !== "open") {
         return {
           ok: false,
@@ -29847,10 +36336,11 @@ var Actions = {
       const row = rows[0];
       if (!row || row.companyId !== mine.company.id)
         return { ok: false, error: "That load isn't on your company's board.", loadId: null, tripQueueId: null };
-      if (row.status !== "open") {
+      const decision = assignDecisionFor({ status: row.status, claimedBy: row.claimedBy ?? null, targetUsername: targetRow.username });
+      if (decision.kind === "refuse") {
         return {
           ok: false,
-          error: row.claimedBy ? `Already taken by @${row.claimedBy} \u2014 unassign it back to the board first if it needs a different driver.` : "That load is no longer open.",
+          error: row.status === "taken" ? `Already taken by @${row.claimedBy} \u2014 unassign it back to the board first if it needs a different driver.` : row.status === "overflowed" ? "That load is out on the Open Board \u2014 recall it to your board before assigning it." : decision.error,
           loadId: null,
           tripQueueId: null
         };
@@ -29864,9 +36354,184 @@ var Actions = {
           tripQueueId: null
         };
       }
-      const res = await takeBoardLoad(ctx, row, targetRow.username, "assign", me);
+      const now = new Date;
+      if (decision.kind === "reassign") {
+        const moved = await db.update(boardLoads3).set({ claimedBy: targetRow.username, claimedAt: now, updatedAt: now }).where(and(eq(boardLoads3.id, row.id), eq(boardLoads3.status, "assigned"))).returning({ id: boardLoads3.id });
+        if (!moved[0]) {
+          return { ok: false, error: "That assignment just changed \u2014 refresh the board and try again.", loadId: null, tripQueueId: null };
+        }
+        await appendChain(ctx, {
+          refKind: "load",
+          refId: null,
+          sessionId: null,
+          event: "board_load_reassigned",
+          payload: {
+            boardLoadId: row.id,
+            companyId: mine.company.id,
+            from: decision.from,
+            to: targetRow.username,
+            by: me,
+            lane: `${row.pickupCity ?? "?"} \u2192 ${row.deliveryCity ?? "?"}`,
+            at: now.toISOString()
+          }
+        });
+        ctx.invalidateQueries();
+        return { ok: true, error: null, loadId: null, tripQueueId: null };
+      }
+      const flipped = await db.update(boardLoads3).set({
+        status: "assigned",
+        claimMethod: "assign",
+        claimedBy: targetRow.username,
+        claimedAt: now,
+        declineReason: null,
+        declinedBy: null,
+        declinedAt: null,
+        updatedAt: now
+      }).where(and(eq(boardLoads3.id, row.id), eq(boardLoads3.status, "open"))).returning({ id: boardLoads3.id });
+      if (!flipped[0]) {
+        return { ok: false, error: "That load just changed \u2014 refresh the board and try again.", loadId: null, tripQueueId: null };
+      }
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: null,
+        sessionId: null,
+        event: "board_load_assigned",
+        payload: {
+          boardLoadId: row.id,
+          companyId: mine.company.id,
+          driver: targetRow.username,
+          by: me,
+          lane: `${row.pickupCity ?? "?"} \u2192 ${row.deliveryCity ?? "?"}`,
+          at: now.toISOString()
+        }
+      });
       ctx.invalidateQueries();
-      return res;
+      return { ok: true, error: null, loadId: null, tripQueueId: null };
+    }
+  }),
+  acceptAssignedLoad: defineAction({
+    description: "Accept assigned load.",
+    request: object({ id: number2().int().positive() }),
+    response: object({ ok: boolean2(), error: string2().nullable(), loadId: number2().nullable(), tripQueueId: number2().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const mine = await myMembership(ctx, me);
+      if (!mine)
+        return { ok: false, error: "You're not in a company \u2014 assignments live inside a fleet. Join with your owner's driver code first.", loadId: null, tripQueueId: null };
+      if (mine.role === "dispatch")
+        return { ok: false, error: "Dispatch doesn't haul loads \u2014 this assignment is for the driver it names.", loadId: null, tripQueueId: null };
+      if (mine.role !== "driver" && mine.role !== "owner")
+        return { ok: false, error: "Accepting an assignment requires a driver seat in the company.", loadId: null, tripQueueId: null };
+      const rows = await db.select().from(boardLoads3).where(eq(boardLoads3.id, args.id)).limit(1);
+      const row = rows[0];
+      if (!row || row.companyId !== mine.company.id)
+        return { ok: false, error: "That load isn't on your company's board.", loadId: null, tripQueueId: null };
+      if (row.status === "taken" && row.claimedBy === me)
+        return { ok: false, error: "You already accepted this one \u2014 it's in your loads, on the Load Tracker.", loadId: row.loadId ?? null, tripQueueId: row.tripQueueId ?? null };
+      if (!canRespondToAssignment({ status: row.status, claimedBy: row.claimedBy ?? null, username: me })) {
+        return {
+          ok: false,
+          error: row.status === "assigned" ? `This load is assigned to @${row.claimedBy ?? "another driver"} \u2014 only they can accept or decline it.` : "That load isn't waiting on an answer \u2014 it may have been taken back or given to another driver.",
+          loadId: null,
+          tripQueueId: null
+        };
+      }
+      const standing = await feeStandingForCarrier(ctx, mine.company.id, me);
+      if (standing.gate.blocked) {
+        return { ok: false, error: gateRefusalMessage(standing.gate), loadId: null, tripQueueId: null };
+      }
+      const now = new Date;
+      const flipped = await db.update(boardLoads3).set({ status: "taken", updatedAt: now }).where(and(eq(boardLoads3.id, row.id), eq(boardLoads3.status, "assigned"), eq(boardLoads3.claimedBy, row.claimedBy ?? ""))).returning({ id: boardLoads3.id });
+      if (!flipped[0]) {
+        return { ok: false, error: "That assignment just changed \u2014 refresh and try again.", loadId: null, tripQueueId: null };
+      }
+      try {
+        const takenRow = { ...row, status: "taken", claimMethod: "assign", claimedBy: me, claimedAt: row.claimedAt ?? now };
+        const { loadId, tripQueueId } = await createLoadFromBoard(ctx, takenRow, me);
+        await db.update(boardLoads3).set({ loadId, tripQueueId, updatedAt: new Date }).where(eq(boardLoads3.id, row.id));
+        await appendChain(ctx, {
+          refKind: "load",
+          refId: loadId,
+          sessionId: null,
+          event: "board_load_assignment_accepted",
+          payload: {
+            boardLoadId: row.id,
+            companyId: mine.company.id,
+            driver: me,
+            assignedBy: row.postedBy,
+            loadId,
+            tripQueueId,
+            lane: `${row.pickupCity ?? "?"} \u2192 ${row.deliveryCity ?? "?"}`,
+            at: new Date().toISOString()
+          }
+        });
+        ctx.invalidateQueries();
+        return { ok: true, error: null, loadId, tripQueueId };
+      } catch {
+        await db.update(boardLoads3).set({ status: "assigned", loadId: null, tripQueueId: null, updatedAt: new Date }).where(eq(boardLoads3.id, row.id));
+        return { ok: false, error: "Accepting hit a snag creating the load \u2014 nothing was taken and the assignment is still waiting on you. Try again.", loadId: null, tripQueueId: null };
+      }
+    }
+  }),
+  declineAssignedLoad: defineAction({
+    description: "Decline assigned load.",
+    request: object({
+      id: number2().int().positive(),
+      reason: string2().max(300)
+    }),
+    response: object({ ok: boolean2(), error: string2().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const mine = await myMembership(ctx, me);
+      if (!mine)
+        return { ok: false, error: "You're not in a company \u2014 assignments live inside a fleet." };
+      if (mine.role === "dispatch")
+        return { ok: false, error: "Dispatch doesn't haul loads \u2014 this assignment is for the driver it names." };
+      const checked = validateDeclineReason(args.reason);
+      if (!checked.ok)
+        return { ok: false, error: checked.error };
+      const rows = await db.select().from(boardLoads3).where(eq(boardLoads3.id, args.id)).limit(1);
+      const row = rows[0];
+      if (!row || row.companyId !== mine.company.id)
+        return { ok: false, error: "That load isn't on your company's board." };
+      if (!canRespondToAssignment({ status: row.status, claimedBy: row.claimedBy ?? null, username: me })) {
+        return {
+          ok: false,
+          error: row.status === "assigned" ? `This load is assigned to @${row.claimedBy ?? "another driver"} \u2014 only they can accept or decline it.` : "That load isn't waiting on an answer \u2014 it may have been taken back or given to another driver."
+        };
+      }
+      const now = new Date;
+      const flipped = await db.update(boardLoads3).set({
+        status: "open",
+        claimMethod: null,
+        claimedBy: null,
+        claimedAt: null,
+        declineReason: checked.reason,
+        declinedBy: me,
+        declinedAt: now,
+        updatedAt: now
+      }).where(and(eq(boardLoads3.id, row.id), eq(boardLoads3.status, "assigned"), eq(boardLoads3.claimedBy, row.claimedBy ?? ""))).returning({ id: boardLoads3.id });
+      if (!flipped[0]) {
+        return { ok: false, error: "That assignment just changed \u2014 refresh and try again." };
+      }
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: null,
+        sessionId: null,
+        event: "board_load_assignment_declined",
+        payload: {
+          boardLoadId: row.id,
+          companyId: mine.company.id,
+          driver: me,
+          reason: checked.reason,
+          lane: `${row.pickupCity ?? "?"} \u2192 ${row.deliveryCity ?? "?"}`,
+          at: now.toISOString()
+        }
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
     }
   }),
   unassignBoardLoad: defineAction({
@@ -29883,6 +36548,19 @@ var Actions = {
       const row = rows[0];
       if (!row || row.companyId !== mine.company.id)
         return { ok: false, error: "That load isn't on your company's board." };
+      if (row.status === "assigned") {
+        const driverWas = row.claimedBy;
+        await db.update(boardLoads3).set({ status: "open", claimMethod: null, claimedBy: null, claimedAt: null, updatedAt: new Date }).where(and(eq(boardLoads3.id, args.id), eq(boardLoads3.status, "assigned")));
+        await appendChain(ctx, {
+          refKind: "load",
+          refId: null,
+          sessionId: null,
+          event: "board_load_unassigned",
+          payload: { boardLoadId: row.id, companyId: mine.company.id, by: me, driverWas, methodWas: "assign_pending", at: new Date().toISOString() }
+        });
+        ctx.invalidateQueries();
+        return { ok: true, error: null };
+      }
       if (row.status !== "taken")
         return { ok: false, error: "That load is already open on the board \u2014 nobody has it." };
       const linked = await boardLinkedState(ctx, row);
@@ -30312,6 +36990,7 @@ var Actions = {
       canToggle: boolean2(),
       pendingCount: number2(),
       links: array(brokerLinkShape),
+      sendDoor: brokerLinkShape.nullable(),
       submissions: array(brokerSubmissionShape)
     }),
     async handler(ctx) {
@@ -30328,20 +37007,22 @@ var Actions = {
         canToggle: bc.canToggle
       };
       if (!bc.eligible || !bc.canManage) {
-        return { ...base, enabled: false, pendingCount: 0, links: [], submissions: [] };
+        return { ...base, enabled: false, pendingCount: 0, links: [], sendDoor: null, submissions: [] };
       }
       const enabled = await brokerEnabled(ctx, bc.scopeKey);
       if (!enabled) {
-        return { ...base, enabled: false, pendingCount: 0, links: [], submissions: [] };
+        return { ...base, enabled: false, pendingCount: 0, links: [], sendDoor: null, submissions: [] };
       }
       const linkRows = await db.select().from(brokerLinks3).where(eq(brokerLinks3.scopeKey, bc.scopeKey)).orderBy(desc(brokerLinks3.id));
       const subRows = await db.select().from(brokerSubmissions3).where(eq(brokerSubmissions3.scopeKey, bc.scopeKey)).orderBy(desc(brokerSubmissions3.id));
       const linkById = new Map(linkRows.map((l) => [l.id, l]));
+      const doorRow = linkRows.find((l) => (l.kind ?? "broker") === "door") ?? null;
       return {
         ...base,
         enabled: true,
         pendingCount: subRows.filter((s) => s.status === "pending").length,
-        links: linkRows.map((l) => toBrokerLink(l, subRows)),
+        links: linkRows.filter((l) => (l.kind ?? "broker") !== "door").map((l) => toBrokerLink(l, subRows)),
+        sendDoor: doorRow ? toBrokerLink(doorRow, subRows) : null,
         submissions: subRows.map((s) => toBrokerSubmission(s, linkById.get(s.linkId) ?? null))
       };
     }
@@ -30482,6 +37163,85 @@ var Actions = {
       return { ok: true, error: null };
     }
   }),
+  createSendDoor: defineAction({
+    description: "Create send door.",
+    request: object({}),
+    response: object({ ok: boolean2(), error: string2().nullable(), door: brokerLinkShape.nullable() }),
+    async handler(ctx) {
+      const db = ctx.db();
+      const bc = await brokerContext(ctx);
+      if (!bc.eligible)
+        return { ok: false, error: "The send door is a Diamond / Fleet Owner feature \u2014 Gold and Basic don't include it.", door: null };
+      if (bc.mode !== "fleet")
+        return { ok: false, error: "The send door belongs to a fleet \u2014 solo accounts give each broker their own upload link instead.", door: null };
+      if (!bc.canManage)
+        return { ok: false, error: "Only the owner or dispatch runs the fleet's send door.", door: null };
+      if (!await brokerEnabled(ctx, bc.scopeKey))
+        return { ok: false, error: "Broker uploads are OFF \u2014 turn them on first (the toggle at the top of the Broker panel), then open the door.", door: null };
+      const existing = await sendDoorRow(ctx, bc.scopeKey);
+      if (existing) {
+        return { ok: false, error: "Your fleet already has a send door \u2014 regenerate it to change the code, don't mint a second one.", door: toBrokerLink(existing, []) };
+      }
+      const expiresAt = new Date(Date.now() + 100 * 365 * 86400000);
+      const ins = await db.insert(brokerLinks3).values({
+        scopeKey: bc.scopeKey,
+        companyId: bc.companyId,
+        ownerUsername: bc.me,
+        kind: "door",
+        brokerName: "Send door",
+        brokerCompany: null,
+        brokerContact: null,
+        brokerMc: null,
+        token: brokerToken(),
+        expiresAt,
+        createdBy: bc.me
+      }).returning({ id: brokerLinks3.id });
+      const id = ins[0]?.id;
+      if (id == null)
+        throw new Error("createSendDoor: insert returned no rows");
+      const row = (await db.select().from(brokerLinks3).where(eq(brokerLinks3.id, id)).limit(1))[0];
+      if (!row)
+        throw new Error("createSendDoor: row vanished after insert");
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "send_door_created",
+        payload: { doorId: id, scopeKey: bc.scopeKey, companyId: bc.companyId, tokenHint: `${row.token.slice(0, 8)}\u2026`, by: bc.me, at: new Date().toISOString() }
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null, door: toBrokerLink(row, []) };
+    }
+  }),
+  regenerateSendDoor: defineAction({
+    description: "Regenerate send door.",
+    request: object({}),
+    response: object({ ok: boolean2(), error: string2().nullable(), door: brokerLinkShape.nullable() }),
+    async handler(ctx) {
+      const db = ctx.db();
+      const bc = await brokerContext(ctx);
+      if (bc.mode !== "fleet" || !bc.canManage)
+        return { ok: false, error: "Only the fleet's owner or dispatch can regenerate the send door code.", door: null };
+      const existing = await sendDoorRow(ctx, bc.scopeKey);
+      if (!existing)
+        return { ok: false, error: "Your fleet has no send door yet \u2014 create it first.", door: null };
+      const expiresAt = new Date(Date.now() + 100 * 365 * 86400000);
+      const token = brokerToken();
+      await db.update(brokerLinks3).set({ token, expiresAt, revokedAt: null }).where(eq(brokerLinks3.id, existing.id));
+      const row = (await db.select().from(brokerLinks3).where(eq(brokerLinks3.id, existing.id)).limit(1))[0];
+      if (!row)
+        throw new Error("regenerateSendDoor: row vanished after update");
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "send_door_regenerated",
+        payload: { doorId: row.id, scopeKey: bc.scopeKey, companyId: bc.companyId, tokenHint: `${token.slice(0, 8)}\u2026`, by: bc.me, at: new Date().toISOString() }
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null, door: toBrokerLink(row, []) };
+    }
+  }),
   getBrokerUploadInfo: defineAction({
     description: "Get broker upload info.",
     request: object({ token: string2().min(8).max(120) }),
@@ -30491,17 +37251,19 @@ var Actions = {
       brokerName: string2().nullable(),
       brokerCompany: string2().nullable(),
       forName: string2().nullable(),
-      expiresAt: string2().nullable()
+      expiresAt: string2().nullable(),
+      isDoor: boolean2()
     }),
     async handler(ctx, args) {
       const db = ctx.db();
       const rows = await db.select().from(brokerLinks3).where(eq(brokerLinks3.token, args.token.trim())).limit(1);
       const row = rows[0];
       if (!row)
-        return { valid: false, reason: "This upload link isn't valid. Check the link your carrier sent you, or ask them for a fresh one.", brokerName: null, brokerCompany: null, forName: null, expiresAt: null };
-      const dead = (reason) => ({ valid: false, reason, brokerName: row.brokerName, brokerCompany: row.brokerCompany ?? null, forName: null, expiresAt: row.expiresAt.toISOString() });
+        return { valid: false, reason: "This upload link isn't valid. Check the link your carrier sent you, or ask them for a fresh one.", brokerName: null, brokerCompany: null, forName: null, expiresAt: null, isDoor: false };
+      const isDoor = (row.kind ?? "broker") === "door";
+      const dead = (reason) => ({ valid: false, reason, brokerName: isDoor ? null : row.brokerName, brokerCompany: isDoor ? null : row.brokerCompany ?? null, forName: null, expiresAt: row.expiresAt.toISOString(), isDoor });
       if (row.revokedAt)
-        return dead("This upload link has been revoked by the carrier, so it no longer accepts uploads. Ask them for a new link if you still have a load for them.");
+        return dead(isDoor ? "This fleet's send door has been closed by the fleet, so it no longer accepts loads. Contact the fleet directly." : "This upload link has been revoked by the carrier, so it no longer accepts uploads. Ask them for a new link if you still have a load for them.");
       if (row.expiresAt.getTime() <= Date.now())
         return dead("This upload link has expired, so it no longer accepts uploads. Ask the carrier for a fresh link if you still have a load for them.");
       if (!await brokerEnabled(ctx, row.scopeKey))
@@ -30511,7 +37273,7 @@ var Actions = {
         const comps = await db.select().from(companies3).where(eq(companies3.id, row.companyId)).limit(1);
         forName = comps[0]?.name ?? row.ownerUsername;
       }
-      return { valid: true, reason: null, brokerName: row.brokerName, brokerCompany: row.brokerCompany ?? null, forName, expiresAt: row.expiresAt.toISOString() };
+      return { valid: true, reason: null, brokerName: isDoor ? null : row.brokerName, brokerCompany: isDoor ? null : row.brokerCompany ?? null, forName, expiresAt: row.expiresAt.toISOString(), isDoor };
     }
   }),
   submitBrokerUpload: defineAction({
@@ -30520,11 +37282,16 @@ var Actions = {
       token: string2().min(8).max(120),
       brokerName: string2().max(120).nullable().default(null),
       brokerCompany: string2().max(160).nullable().default(null),
+      senderContact: string2().max(160).nullable().default(null),
+      referenceNumber: string2().max(80).nullable().default(null),
+      pickupApptAt: string2().max(40).nullable().default(null),
+      deliveryApptAt: string2().max(40).nullable().default(null),
       ...brokerLoadFields,
       docDataBase64: string2().max(14000000).nullable().default(null),
       docMime: string2().max(100).nullable().default(null)
     }),
     response: object({ ok: boolean2(), error: string2().nullable(), submissionId: number2().nullable(), extracted: boolean2() }),
+    privileged: [privileged.docEmailConfig, privileged.sendDocEmail],
     async handler(ctx, args) {
       const db = ctx.db();
       const rows = await db.select().from(brokerLinks3).where(eq(brokerLinks3.token, args.token.trim())).limit(1);
@@ -30537,6 +37304,19 @@ var Actions = {
         return { ok: false, error: "This upload link has expired, so it no longer accepts uploads \u2014 nothing was submitted. Ask the carrier for a fresh link.", submissionId: null, extracted: false };
       if (!await brokerEnabled(ctx, link.scopeKey))
         return { ok: false, error: "Broker uploads are turned off for this carrier right now \u2014 nothing was submitted.", submissionId: null, extracted: false };
+      const viaDoor = (link.kind ?? "broker") === "door";
+      const senderName = args.brokerName?.trim() ?? "";
+      const senderCompany = args.brokerCompany?.trim() ?? "";
+      const senderContact = args.senderContact?.trim() ?? "";
+      if (viaDoor && (!senderName || !senderCompany || !senderContact)) {
+        return { ok: false, error: "Tell the fleet who you are first \u2014 your name, your company, and a contact (phone or email). The send door takes no anonymous loads.", submissionId: null, extracted: false };
+      }
+      const pickupAppt = parseBoardAppt(args.pickupApptAt, "pickup");
+      if (pickupAppt.error)
+        return { ok: false, error: pickupAppt.error, submissionId: null, extracted: false };
+      const deliveryAppt = parseBoardAppt(args.deliveryApptAt, "delivery");
+      if (deliveryAppt.error)
+        return { ok: false, error: deliveryAppt.error, submissionId: null, extracted: false };
       let fields = cleanBrokerFields(args);
       let docBlobKey = null;
       let docMime = null;
@@ -30585,6 +37365,10 @@ var Actions = {
         brokerName: args.brokerName?.trim() || link.brokerName,
         brokerCompany: args.brokerCompany?.trim() || link.brokerCompany,
         brokerMc: link.brokerMc ?? null,
+        senderContact: senderContact || null,
+        referenceNumber: cleanReferenceNumber(args.referenceNumber),
+        pickupApptAt: pickupAppt.at,
+        deliveryApptAt: deliveryAppt.at,
         ...fields,
         status: "pending",
         docBlobKey,
@@ -30603,8 +37387,11 @@ var Actions = {
           submissionId: id,
           linkId: link.id,
           scopeKey: link.scopeKey,
+          viaDoor,
           brokerName: args.brokerName?.trim() || link.brokerName,
           brokerCompany: args.brokerCompany?.trim() || link.brokerCompany,
+          senderContact: senderContact || null,
+          referenceNumber: cleanReferenceNumber(args.referenceNumber),
           ...fields,
           docSha256: docSha,
           extracted,
@@ -30618,6 +37405,44 @@ var Actions = {
           sessionId: null,
           event: "doc_sealed",
           payload: { sha256: docSha, mime: docMime, source: "broker_upload", submissionId: id, linkId: link.id }
+        });
+      }
+      const alertStatus = await sendAlertEmail(ctx, {
+        username: link.ownerUsername,
+        subject: "STONEMILES \u2014 new load offer in your desk inbox",
+        lines: [
+          `A new load offer just landed in your STONEMILES desk inbox.`,
+          ``,
+          `From: ${args.brokerName?.trim() || link.brokerName || "A broker / shipper"}${args.brokerCompany?.trim() || link.brokerCompany ? ` (${args.brokerCompany?.trim() || link.brokerCompany})` : ""}`,
+          `Pickup: ${fields.pickupCity ? `${fields.pickupCity}${fields.pickupState ? `, ${fields.pickupState}` : ""}` : "\u2014"}`,
+          `Delivery: ${fields.deliveryCity ? `${fields.deliveryCity}${fields.deliveryState ? `, ${fields.deliveryState}` : ""}` : "\u2014"}`,
+          ``,
+          `Open the app to review it: https://app.stonervision.io`
+        ]
+      });
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: null,
+        sessionId: null,
+        event: "broker_submission_email_alert",
+        payload: { submissionId: id, viaDoor, emailStatus: alertStatus, at: new Date().toISOString() }
+      });
+      {
+        const built = loadOfferNotification({
+          brokerName: args.brokerName?.trim() || link.brokerName,
+          brokerCompany: args.brokerCompany?.trim() || link.brokerCompany,
+          pickupLabel: fields.pickupCity ? `${fields.pickupCity}${fields.pickupState ? `, ${fields.pickupState}` : ""}` : null,
+          deliveryLabel: fields.deliveryCity ? `${fields.deliveryCity}${fields.deliveryState ? `, ${fields.deliveryState}` : ""}` : null,
+          viaDoor
+        });
+        await recordNotificationSafe(ctx, {
+          username: link.ownerUsername,
+          kind: "load_offer",
+          title: built.title,
+          body: built.body,
+          dedupeKey: `offer:${id}`,
+          refKind: "broker_submission",
+          refId: id
         });
       }
       ctx.invalidateQueries();
@@ -30643,7 +37468,14 @@ var Actions = {
   }),
   updateBrokerSubmission: defineAction({
     description: "Update broker submission.",
-    request: object({ id: number2().int().positive(), ...brokerLoadFields }),
+    request: object({
+      id: number2().int().positive(),
+      ...brokerLoadFields,
+      senderContact: string2().max(160).nullable().optional(),
+      referenceNumber: string2().max(80).nullable().optional(),
+      pickupApptAt: string2().max(40).nullable().optional(),
+      deliveryApptAt: string2().max(40).nullable().optional()
+    }),
     response: object({ ok: boolean2(), error: string2().nullable() }),
     async handler(ctx, args) {
       const db = ctx.db();
@@ -30657,7 +37489,20 @@ var Actions = {
       if (row.status !== "pending")
         return { ok: false, error: `That submission was already ${row.status} \u2014 decided submissions stay exactly as recorded.` };
       const fields = cleanBrokerFields(args);
-      await db.update(brokerSubmissions3).set({ ...fields, updatedAt: new Date }).where(eq(brokerSubmissions3.id, args.id));
+      const pickupAppt = parseBoardAppt(args.pickupApptAt, "pickup");
+      if (pickupAppt.error)
+        return { ok: false, error: pickupAppt.error };
+      const deliveryAppt = parseBoardAppt(args.deliveryApptAt, "delivery");
+      if (deliveryAppt.error)
+        return { ok: false, error: deliveryAppt.error };
+      await db.update(brokerSubmissions3).set({
+        ...fields,
+        ...args.senderContact !== undefined ? { senderContact: args.senderContact?.trim() || null } : {},
+        ...args.referenceNumber !== undefined ? { referenceNumber: cleanReferenceNumber(args.referenceNumber) } : {},
+        ...args.pickupApptAt !== undefined ? { pickupApptAt: pickupAppt.at } : {},
+        ...args.deliveryApptAt !== undefined ? { deliveryApptAt: deliveryAppt.at } : {},
+        updatedAt: new Date
+      }).where(eq(brokerSubmissions3.id, args.id));
       await appendChain(ctx, {
         refKind: "load",
         refId: null,
@@ -30706,7 +37551,10 @@ var Actions = {
           brokerCompany: row.brokerCompany ?? null,
           brokerMc: row.brokerMc ?? null,
           brokerSource: "broker_link",
-          brokerLinkId: row.linkId
+          brokerLinkId: row.linkId,
+          referenceNumber: row.referenceNumber ?? null,
+          pickupApptAt: row.pickupApptAt ?? null,
+          deliveryApptAt: row.deliveryApptAt ?? null
         }).returning({ id: boardLoads3.id });
         const boardLoadId = ins[0]?.id ?? null;
         if (boardLoadId == null)
@@ -30743,7 +37591,10 @@ var Actions = {
         brokerCompany: row.brokerCompany ?? null,
         brokerMc: row.brokerMc ?? null,
         brokerSource: "broker_link",
-        brokerLinkId: row.linkId
+        brokerLinkId: row.linkId,
+        referenceNumber: row.referenceNumber ?? null,
+        pickupApptAt: row.pickupApptAt ?? null,
+        deliveryApptAt: row.deliveryApptAt ?? null
       };
       const { loadId, tripQueueId } = await createLoadFromBoard(ctx, boardLike, bc.me);
       await db.update(brokerSubmissions3).set({ ...fields, notes: fields.notes, status: "approved", loadId, tripQueueId, reviewedBy: bc.me, reviewedAt: now, reviewNote: args.reviewNote?.trim() || null, updatedAt: now }).where(eq(brokerSubmissions3.id, args.id));
@@ -33001,6 +39852,11 @@ ${args.question}`, { schema: answerSchema });
           gradeCriteria: gradeResult.criteria
         }
       });
+      await recordSealedLane(ctx, {
+        load: rows[0],
+        sealedAt: sealAt,
+        username: await myUsername(ctx)
+      });
       try {
         await assemblePaymentPacket(ctx, rows[0], hash);
       } catch (e) {
@@ -33108,6 +39964,11 @@ ${args.question}`, { schema: answerSchema });
         });
         if (clawedMiles)
           pointsClawedBack += milesAward.amount;
+      }
+      const firstLaneClawed = await reverseLaneAward(ctx, me, `lane3-firstlane-${args.loadId}`, `the first-seal on its lane (load #${args.loadId}) was voided`);
+      if (firstLaneClawed) {
+        pointsClawedBack += LANE3_FIRST_LANE_POINTS;
+        await db.delete(sealedLanes3).where(eq(sealedLanes3.firstLoadId, args.loadId));
       }
       ctx.invalidateQueries();
       return { ok: true, pointsClawedBack };
@@ -33232,42 +40093,107 @@ ${args.question}`, { schema: answerSchema });
     async handler(ctx, args) {
       const me = await myUsername(ctx);
       const source = args.source ?? "manual";
-      if (source === "auto_no_movement") {
-        const okPair = args.autoStage === "off_duty_2min" && args.state === "off_duty" || args.autoStage === "sleeper_10min" && args.state === "sleeper";
-        if (!okPair) {
-          const hash = await appendChain(ctx, {
-            refKind: "driver",
-            refId: null,
-            sessionId: null,
-            event: "duty_auto_swap_rejected",
-            payload: {
-              username: me,
-              attemptedState: args.state,
-              autoStage: args.autoStage ?? null,
-              reason: "Auto-swap refused: stage/state pairing is not the 2-min Off Duty or 10-min Sleeper rule.",
-              at: new Date().toISOString()
-            }
-          });
-          return { hash };
-        }
+      if (source === "auto_no_movement" && !dutyAutoSwapPairingOk(args.state, args.autoStage)) {
+        const hash = await appendChain(ctx, {
+          refKind: "driver",
+          refId: null,
+          sessionId: null,
+          event: "duty_auto_swap_rejected",
+          payload: {
+            username: me,
+            attemptedState: args.state,
+            autoStage: args.autoStage ?? null,
+            reason: "Auto-swap refused: stage/state pairing is not the 2-min Off Duty or 10-min Sleeper rule.",
+            at: new Date().toISOString()
+          }
+        });
+        return { hash };
       }
-      const hash = await appendChain(ctx, {
-        refKind: "driver",
-        refId: null,
-        sessionId: null,
-        event: "duty_change",
-        payload: {
-          state: args.state,
-          at: new Date().toISOString(),
-          location: args.locationLabel?.trim() || null,
-          username: me,
-          source,
-          autoStage: source === "auto_no_movement" ? args.autoStage ?? null : null,
-          stillSince: source === "auto_no_movement" ? args.stillSince ?? null : null
-        }
+      const hash = await sealDutyChange(ctx, me, {
+        state: args.state,
+        at: new Date,
+        location: args.locationLabel?.trim() || null,
+        source,
+        autoStage: source === "auto_no_movement" ? args.autoStage ?? null : null,
+        stillSince: source === "auto_no_movement" ? args.stillSince ?? null : null,
+        offline: null
       });
       ctx.invalidateQueries();
       return { hash };
+    }
+  }),
+  syncDutyCapture: defineAction({
+    description: "Sync one duty change captured offline: seals it into the chain at its captured time, flagged as an offline capture. Idempotent per capture id.",
+    request: object({
+      captureId: string2().min(1).max(80),
+      state: _enum(["off_duty", "sleeper", "on_duty", "driving"]),
+      locationLabel: string2().max(120).nullable().optional(),
+      source: _enum(["manual", "auto_no_movement"]).optional(),
+      autoStage: _enum(["off_duty_2min", "sleeper_10min"]).nullable().optional(),
+      stillSince: string2().max(40).nullable().optional(),
+      capturedAt: string2().max(40)
+    }),
+    response: object({
+      status: _enum(["sealed", "refused"]),
+      hash: string2().nullable(),
+      duplicate: boolean2(),
+      error: string2().nullable()
+    }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const capturedMs = Date.parse(args.capturedAt);
+      if (Number.isNaN(capturedMs)) {
+        return { status: "refused", hash: null, duplicate: false, error: "That capture's timestamp couldn't be read \u2014 it wasn't sealed." };
+      }
+      const prior = await db.select().from(offlineCaptures3).where(and(eq(offlineCaptures3.username, me), eq(offlineCaptures3.captureId, args.captureId))).limit(1);
+      const priorRow = prior[0];
+      if (priorRow) {
+        if (priorRow.chainHash) {
+          return { status: "sealed", hash: priorRow.chainHash, duplicate: true, error: null };
+        }
+        let refusedError = "That capture was refused when it first synced.";
+        try {
+          const parsed = JSON.parse(priorRow.resultJson ?? "{}");
+          if (parsed.error)
+            refusedError = parsed.error;
+        } catch {}
+        return { status: "refused", hash: null, duplicate: true, error: refusedError };
+      }
+      const source = args.source ?? "manual";
+      if (source === "auto_no_movement" && !dutyAutoSwapPairingOk(args.state, args.autoStage)) {
+        const error = "Auto-swap refused: stage/state pairing is not the 2-min Off Duty or 10-min Sleeper rule.";
+        await db.insert(offlineCaptures3).values({
+          username: me,
+          captureId: args.captureId,
+          kind: "duty",
+          chainHash: null,
+          resultJson: JSON.stringify({ error }),
+          capturedAt: new Date(capturedMs),
+          syncedAt: new Date
+        });
+        return { status: "refused", hash: null, duplicate: false, error };
+      }
+      const hash = await sealDutyChange(ctx, me, {
+        state: args.state,
+        at: new Date(capturedMs),
+        location: args.locationLabel?.trim() || null,
+        source,
+        autoStage: source === "auto_no_movement" ? args.autoStage ?? null : null,
+        stillSince: source === "auto_no_movement" ? args.stillSince ?? null : null,
+        offline: { captureId: args.captureId, capturedAt: new Date(capturedMs).toISOString() }
+      });
+      await db.insert(offlineCaptures3).values({
+        username: me,
+        captureId: args.captureId,
+        kind: "duty",
+        chainHash: hash,
+        resultJson: null,
+        capturedAt: new Date(capturedMs),
+        syncedAt: new Date
+      });
+      ctx.invalidateQueries();
+      return { status: "sealed", hash, duplicate: false, error: null };
     }
   }),
   listDuty: defineAction({
@@ -33454,6 +40380,21 @@ ${args.question}`, { schema: answerSchema });
         event: args.event,
         payload: parsed
       });
+      if (args.event === "hos_warning") {
+        const me = await myUsername(ctx);
+        const clock = typeof parsed.clock === "string" ? parsed.clock : "unknown";
+        const thresholdMin = typeof parsed.thresholdMin === "number" ? parsed.thresholdMin : 0;
+        const built = hosNotification({ clock, thresholdMin });
+        await recordNotificationSafe(ctx, {
+          username: me,
+          kind: "hos",
+          title: built.title,
+          body: built.body,
+          dedupeKey: `hos:${clock}:${thresholdMin}`,
+          refKind: "driver",
+          refId: null
+        });
+      }
       ctx.invalidateQueries();
       return { hash };
     }
@@ -33923,6 +40864,31 @@ ${args.question}`, { schema: answerSchema });
       const inserted = result[0];
       if (!inserted)
         throw new Error("addIntelReport: insert returned no rows");
+      try {
+        const nowMs = Date.now();
+        const others = await db.select().from(intelReports3).where(gte(intelReports3.createdAt, new Date(nowMs - LANE2_CORROBORATION_WINDOW_MS)));
+        const near = others.filter((r) => r.id !== inserted.id && r.reporter != null && r.reporter !== me && haversineMiServer(args.lat, args.lon, r.lat, r.lon) <= LANE2_CORROBORATION_RADIUS_MI);
+        const relations = near.map((r) => ({ row: r, rel: intelRelation(args.kind, r.kind) }));
+        if (!relations.some((x) => x.rel === "contradicted")) {
+          const consistent = relations.filter((x) => x.rel === "consistent");
+          if (consistent.length > 0) {
+            await awardLane2Report(ctx, {
+              reporter: me,
+              source: LANE2_INTEL_SOURCE,
+              refKey: `lane2-intel-${inserted.id}`,
+              reason: `Road report backed up by another driver (${args.kind.replace(/_/g, " ")})`
+            });
+            for (const x of consistent) {
+              await awardLane2Report(ctx, {
+                reporter: x.row.reporter,
+                source: LANE2_INTEL_SOURCE,
+                refKey: `lane2-intel-${x.row.id}`,
+                reason: `Road report backed up by another driver (${x.row.kind.replace(/_/g, " ")})`
+              });
+            }
+          }
+        }
+      } catch {}
       ctx.invalidateQueries();
       return { id: inserted.id, points: 0 };
     }
@@ -34026,6 +40992,16 @@ ${args.question}`, { schema: answerSchema });
         refSuffix: `-intel${row.id}`
       });
       await db.update(intelReports3).set({ confirmedAt: new Date, points: pointsAwarded }).where(eq(intelReports3.id, args.id));
+      if (row.reporter && row.reporter !== me) {
+        try {
+          await awardLane2Report(ctx, {
+            reporter: row.reporter,
+            source: LANE2_INTEL_SOURCE,
+            refKey: `lane2-intel-${row.id}`,
+            reason: `Road report confirmed by another driver (${row.kind.replace(/_/g, " ")})`
+          });
+        } catch {}
+      }
       ctx.invalidateQueries();
       return { ok: true, confirmed: true, pointsAwarded, reason: null };
     }
@@ -35901,6 +42877,46 @@ ${args.question}`, { schema: answerSchema });
       return { ok: true, error: null };
     }
   }),
+  runEldTestSync: defineAction({
+    description: "Run a test sync of simulated ELD device data through the real sync pipeline for one of the caller's connections (live sync still awaits a real ELD device).",
+    request: object({ connectionId: number2().int().positive() }),
+    response: object({
+      ok: boolean2(),
+      error: string2().nullable(),
+      accepted: number2(),
+      rejected: number2(),
+      lines: array(string2()),
+      note: string2().nullable()
+    }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const gate = await eldManageGate(ctx);
+      if (!gate.premium) {
+        return { ok: false, error: "ELD connections are a Diamond feature \u2014 the test sync runs on a connection, and connections come with Diamond Driver and Owner plans.", accepted: 0, rejected: 0, lines: [], note: null };
+      }
+      if (!gate.canManage) {
+        return { ok: false, error: "Only the fleet owner / admin can run the ELD test sync \u2014 drivers and dispatch can view connection status.", accepted: 0, rejected: 0, lines: [], note: null };
+      }
+      const rows = await db.select().from(eldConnections3).where(eq(eldConnections3.id, args.connectionId)).limit(1);
+      const conn = rows[0];
+      if (!conn)
+        return { ok: false, error: "That ELD connection doesn't exist.", accepted: 0, rejected: 0, lines: [], note: null };
+      if (conn.status === "revoked") {
+        return { ok: false, error: "That connection was revoked \u2014 its token is wiped, so there's nothing to sync against. Connect the ELD again first.", accepted: 0, rejected: 0, lines: [], note: null };
+      }
+      const batch = simulatedEldPayloads(new Date);
+      const r = await applyEldSyncBatch(ctx, conn, batch, "test_harness");
+      ctx.invalidateQueries();
+      return {
+        ok: true,
+        error: null,
+        accepted: r.accepted,
+        rejected: r.rejected,
+        lines: r.lines,
+        note: "Test sync complete \u2014 simulated device data flowed through the real sync pipeline and is stored stamped \u201Csimulated\u201D. Live sync starts when a real ELD device is connected; nothing here is live provider data."
+      };
+    }
+  }),
   getEldIftaReconciliation: defineAction({
     description: "Get eld ifta reconciliation.",
     request: object({
@@ -35947,7 +42963,7 @@ ${args.question}`, { schema: answerSchema });
       const conns = await db.select().from(eldConnections3).where(eq(eldConnections3.status, "connected"));
       for (const c of conns) {
         const snaps = await db.select().from(eldSnapshots3).where(eq(eldSnapshots3.connectionId, c.id)).orderBy(desc(eldSnapshots3.id));
-        const snap = snaps.find((s) => s.feed === "ifta");
+        const snap = snaps.find((s) => s.feed === "ifta" && !snapshotIsSimulated(s.payloadJson));
         if (!snap)
           continue;
         try {
@@ -36909,6 +43925,48 @@ ${args.question}`, { schema: answerSchema });
         target: chatReads3.groupId,
         set: { lastReadId: inserted.id }
       });
+      await db.insert(chatMemberReads3).values({
+        groupId: args.groupId,
+        username: dm.me,
+        lastReadId: inserted.id,
+        lastAlertedId: 0
+      }).onConflictDoUpdate({
+        target: [chatMemberReads3.groupId, chatMemberReads3.username],
+        set: { lastReadId: inserted.id }
+      });
+      {
+        const members = await db.select().from(chatMembers3).where(eq(chatMembers3.groupId, args.groupId));
+        const groupRows = await db.select().from(chatGroups3).where(eq(chatGroups3.id, args.groupId)).limit(1);
+        const group = groupRows[0];
+        const built = dmNotification({
+          senderName: sender,
+          groupLabel: group?.kind === "dm" ? null : group?.name ?? "Company chat",
+          body: args.body,
+          kind: args.kind
+        });
+        for (const m of members) {
+          if (m.username.toLowerCase() === dm.me.toLowerCase())
+            continue;
+          const profRows = await db.select({ id: profile3.id }).from(profile3).where(eq(profile3.socialUsername, m.username)).limit(1);
+          let notify = true;
+          if (profRows[0]) {
+            const settingsRows = await db.select({ notifyChat: appSettings3.notifyChat }).from(appSettings3).where(eq(appSettings3.id, profRows[0].id)).limit(1);
+            if (settingsRows[0] && settingsRows[0].notifyChat === false)
+              notify = false;
+          }
+          if (!notify)
+            continue;
+          await recordNotificationSafe(ctx, {
+            username: m.username,
+            kind: "dm",
+            title: built.title,
+            body: built.body,
+            dedupeKey: `dm:${args.groupId}`,
+            refKind: "chat",
+            refId: args.groupId
+          });
+        }
+      }
       ctx.invalidateQueries();
       return { id: inserted.id };
     }
@@ -36925,6 +43983,18 @@ ${args.question}`, { schema: answerSchema });
       await db.insert(chatReads3).values({ groupId: args.groupId, lastReadId: args.messageId }).onConflictDoUpdate({
         target: chatReads3.groupId,
         set: { lastReadId: args.messageId }
+      });
+      const me = await myUsername(ctx);
+      const mine = (await db.select().from(chatMemberReads3).where(and(eq(chatMemberReads3.groupId, args.groupId), eq(chatMemberReads3.username, me))).limit(1))[0];
+      const readId = Math.max(mine?.lastReadId ?? 0, args.messageId);
+      await db.insert(chatMemberReads3).values({
+        groupId: args.groupId,
+        username: me,
+        lastReadId: readId,
+        lastAlertedId: 0
+      }).onConflictDoUpdate({
+        target: [chatMemberReads3.groupId, chatMemberReads3.username],
+        set: { lastReadId: readId }
       });
       ctx.invalidateQueries();
       return { ok: true };
@@ -37058,6 +44128,8 @@ ${args.question}`, { schema: answerSchema });
       homeState: string2().nullable(),
       contactPhone: string2().nullable(),
       contactEmail: string2().nullable(),
+      birthMonth: number2().nullable(),
+      birthDay: number2().nullable(),
       mcNumber: string2().nullable(),
       dotNumber: string2().nullable(),
       saferUrl: string2().nullable(),
@@ -37069,6 +44141,11 @@ ${args.question}`, { schema: answerSchema });
       groupPolicy: string2(),
       showReputation: boolean2(),
       showMilesPanel: boolean2(),
+      showTruck: boolean2(),
+      truckLine: string2().nullable(),
+      trailerLine: string2().nullable(),
+      truckPhotos: array(object({ url: string2() })),
+      trailerPhotos: array(object({ url: string2() })),
       overallRank: string2().nullable(),
       seasonNumber: number2(),
       allTimeBest: object({ rank: string2(), seasonNumber: number2() }).nullable(),
@@ -37105,6 +44182,20 @@ ${args.question}`, { schema: answerSchema });
       const allFollows = await db.select().from(follows3);
       const blocks = await db.select().from(chatBlocks3);
       const showMilesPanel = row?.showMilesPanel ?? true;
+      const showTruck = row?.showTruck ?? true;
+      const truckLine = showTruck || isMe ? publicTruckLineFor(isMe ? prof[0] : null) : null;
+      const trailerLine = showTruck || isMe ? publicTrailerLineFor(isMe ? prof[0] : null) : null;
+      const truckPhotos = [];
+      const trailerPhotos = [];
+      if (isMe && showTruck) {
+        const photoRows = await db.select().from(vehiclePhotos3).orderBy(asc(vehiclePhotos3.sortOrder), asc(vehiclePhotos3.id));
+        for (const p of photoRows) {
+          if (!p.blobKey)
+            continue;
+          const url = await ctx.blobs.getUrl(p.blobKey);
+          (p.kind === "trailer" ? trailerPhotos : truckPhotos).push({ url });
+        }
+      }
       const milesPanel = await milesPanelFor(ctx, args.username, isMe, showMilesPanel);
       const rank = isMe ? await rankSummaryFor(ctx) : { overallRank: null, seasonNumber: seasonInfo(Date.now()).number, allTimeBest: null };
       const refSummary = await referralLevelSummary(ctx, args.username);
@@ -37124,6 +44215,8 @@ ${args.question}`, { schema: answerSchema });
         homeState: row?.homeState ?? null,
         contactPhone: isMe ? row?.contactPhone ?? null : null,
         contactEmail: isMe ? row?.contactEmail ?? null : null,
+        birthMonth: isMe ? prof[0]?.birthMonth ?? null : null,
+        birthDay: isMe ? prof[0]?.birthDay ?? null : null,
         mcNumber: row?.mcNumber ?? null,
         dotNumber: row?.dotNumber ?? null,
         saferUrl: saferUrlFor({ dotNumber: row?.dotNumber ?? null, mcNumber: row?.mcNumber ?? null }),
@@ -37135,6 +44228,11 @@ ${args.question}`, { schema: answerSchema });
         groupPolicy: row?.groupPolicy ?? "everyone",
         showReputation: row?.showReputation ?? false,
         showMilesPanel,
+        showTruck,
+        truckLine,
+        trailerLine,
+        truckPhotos,
+        trailerPhotos,
         overallRank: rank.overallRank,
         seasonNumber: rank.seasonNumber,
         allTimeBest: rank.allTimeBest,
@@ -37174,7 +44272,10 @@ ${args.question}`, { schema: answerSchema });
       groupPolicy: _enum(["everyone", "following", "nobody"]),
       showReputation: boolean2(),
       showMilesPanel: boolean2().default(true),
+      showTruck: boolean2().default(true),
       featuredBadge: _enum(["referral", "all_time_best", "season_rank"]).nullable().default(null),
+      birthMonth: number2().int().min(1).max(12).nullable().default(null),
+      birthDay: number2().int().min(1).max(31).nullable().default(null),
       avatarDataBase64: string2().max(8000000).nullable(),
       avatarMime: string2().max(60).nullable()
     }),
@@ -37183,8 +44284,16 @@ ${args.question}`, { schema: answerSchema });
       const db = ctx.db();
       const prof = await db.select().from(profile3).where(eq(profile3.id, myProfileId(ctx))).limit(1);
       const me = prof[0]?.socialUsername ?? "driver";
+      const birthMonth = args.birthMonth ?? null;
+      const birthDay = args.birthDay ?? null;
+      if (birthMonth == null !== (birthDay == null)) {
+        throw new Error("Birthday needs both a month and a day \u2014 or neither. (We never ask for a birth year.)");
+      }
+      if (birthMonth != null && !validBirthMonthDay(birthMonth, birthDay)) {
+        throw new Error("That birthday doesn't exist \u2014 check the month and day. (We never ask for a birth year.)");
+      }
       if (prof[0]) {
-        await db.update(profile3).set({ chatName: args.displayName }).where(eq(profile3.id, myProfileId(ctx)));
+        await db.update(profile3).set({ chatName: args.displayName, birthMonth, birthDay }).where(eq(profile3.id, myProfileId(ctx)));
       }
       let avatarBlobKey = null;
       let avatarMime = null;
@@ -37219,6 +44328,7 @@ ${args.question}`, { schema: answerSchema });
         groupPolicy: args.groupPolicy,
         showReputation: args.showReputation,
         showMilesPanel: args.showMilesPanel,
+        showTruck: args.showTruck,
         featuredBadge
       };
       const existing = await db.select().from(socialUsers3).where(eq(socialUsers3.username, me)).limit(1);
@@ -40902,8 +48012,30 @@ ${args.question}`, { schema: answerSchema });
         amount: number2(),
         reason: string2(),
         source: string2(),
+        lane: _enum(["lane1", "lane2", "lane3", "layer2"]).nullable(),
         createdAt: string2()
       })),
+      lanes: object({
+        eligible: boolean2(),
+        totals: object({
+          lane1: number2(),
+          lane2: number2(),
+          lane3: number2()
+        }),
+        howToEarn: array(object({
+          lane: _enum(["lane1", "lane2", "lane3"]),
+          title: string2(),
+          lines: array(string2())
+        }))
+      }),
+      layer2: object({
+        total: number2(),
+        openHolds: number2(),
+        howToEarn: array(object({
+          section: string2(),
+          lines: array(string2())
+        }))
+      }),
       today: object({
         day: string2(),
         earned: number2(),
@@ -40940,6 +48072,12 @@ ${args.question}`, { schema: answerSchema });
       const me = await myUsername(ctx);
       await settleAccountLifecycle(ctx, me);
       const now = Date.now();
+      try {
+        await evaluatePointsLanes(ctx, me);
+      } catch {}
+      try {
+        await evaluatePointsLayer2(ctx, me);
+      } catch {}
       const trips = await db.select().from(trips3);
       const chain = await db.select().from(chainLog3).orderBy(asc(chainLog3.id));
       const overspeedTimes = chain.filter((r) => r.event === "overspeed").map((r) => r.createdAt.getTime());
@@ -41070,6 +48208,16 @@ ${args.question}`, { schema: answerSchema });
       const standing = await myStanding(ctx);
       const earning = await myEarningClass(ctx, me);
       const convRows = await db.select().from(pointsConversions3).where(eq(pointsConversions3.username, me));
+      const laneTotals = { lane1: 0, lane2: 0, lane3: 0 };
+      let layer2Total = 0;
+      for (const r of allMine) {
+        const lane = laneForSource(r.source);
+        if (lane && r.amount > 0)
+          laneTotals[lane] += r.amount;
+        if (isLayer2Source(r.source) && r.amount > 0)
+          layer2Total += r.amount;
+      }
+      const myOpenHolds = await db.select().from(pointsSafetyHolds3).where(and(eq(pointsSafetyHolds3.username, me), eq(pointsSafetyHolds3.status, "open")));
       return {
         balance: pointsBalanceFromLedger(allMine),
         history: rows.map((r) => ({
@@ -41077,8 +48225,19 @@ ${args.question}`, { schema: answerSchema });
           amount: r.amount,
           reason: r.reason,
           source: r.source,
+          lane: laneForSource(r.source) ?? (isLayer2Source(r.source) ? "layer2" : null),
           createdAt: r.createdAt.toISOString()
         })),
+        lanes: {
+          eligible: await laneEligibleFor(ctx, me),
+          totals: laneTotals,
+          howToEarn: howToEarnLanes()
+        },
+        layer2: {
+          total: layer2Total,
+          openHolds: myOpenHolds.length,
+          howToEarn: howToEarnLayer2()
+        },
         today,
         conversion: {
           live: await pointsConversionLive(ctx),
@@ -41100,6 +48259,63 @@ ${args.question}`, { schema: answerSchema });
           milesMonthlyCeiling: earning.milesMonthlyCeiling
         }
       };
+    }
+  }),
+  getPointsSafetyHolds: defineAction({
+    description: "Owner-only: list open points safety-net holds (suspected farming patterns).",
+    request: object({}),
+    response: object({
+      holds: array(object({
+        id: number2(),
+        username: string2(),
+        kind: string2(),
+        detail: string2(),
+        createdAt: string2()
+      }))
+    }),
+    async handler(ctx) {
+      if (!await isBetaOwner(ctx))
+        return { holds: [] };
+      const db = ctx.db();
+      const rows = await db.select().from(pointsSafetyHolds3).where(eq(pointsSafetyHolds3.status, "open")).orderBy(desc(pointsSafetyHolds3.id));
+      return {
+        holds: rows.map((h) => ({
+          id: h.id,
+          username: h.username,
+          kind: h.kind,
+          detail: h.detail,
+          createdAt: h.createdAt.toISOString()
+        }))
+      };
+    }
+  }),
+  clearPointsSafetyHold: defineAction({
+    description: "Owner-only: clear a points safety-net hold after review (awards resume).",
+    request: object({ holdId: number2().int().positive() }),
+    response: object({ ok: boolean2(), error: string2().nullable() }),
+    async handler(ctx, args) {
+      if (!await isBetaOwner(ctx))
+        return { ok: false, error: "Only the owner can clear a safety hold." };
+      const db = ctx.db();
+      const rows = await db.select().from(pointsSafetyHolds3).where(eq(pointsSafetyHolds3.id, args.holdId)).limit(1);
+      const hold = rows[0];
+      if (!hold || hold.status !== "open")
+        return { ok: false, error: "That hold isn't open." };
+      await db.update(pointsSafetyHolds3).set({ status: "cleared", updatedAt: new Date }).where(eq(pointsSafetyHolds3.id, hold.id));
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "points_safety_hold_cleared",
+        payload: {
+          username: hold.username,
+          kind: hold.kind,
+          holdId: hold.id,
+          at: new Date().toISOString()
+        }
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
     }
   }),
   giftPoints: defineAction({
@@ -41613,7 +48829,7 @@ ${args.question}`, { schema: answerSchema });
     description: "Log expense.",
     request: object({
       spentAt: string2(),
-      category: _enum(["fuel", "tolls", "lumper", "maintenance", "insurance", "scale", "parking", "permits", "meals", "supplies", "other"]),
+      category: _enum(["fuel", "tolls", "lumper", "maintenance", "insurance", "scale", "parking", "permits", "meals", "supplies", "repairs", "dot_testing", "licensing", "software", "other"]),
       amount: number2().positive().max(1e6),
       vendor: string2().max(160).nullable(),
       state: string2().max(60).nullable(),
@@ -42581,21 +49797,11 @@ ${args.question}`, { schema: answerSchema });
       const db = ctx.db();
       const qStart = Date.UTC(args.year, (args.quarter - 1) * 3, 1);
       const qEnd = Date.UTC(args.year, args.quarter * 3, 1);
-      const trips = (await db.select().from(trips3)).filter((t) => t.startedAt.getTime() >= qStart && t.startedAt.getTime() < qEnd);
-      const fuel = (await db.select().from(fuelPurchases3)).filter((f) => f.purchasedAt.getTime() >= qStart && f.purchasedAt.getTime() < qEnd);
-      const milesByState = new Map;
-      for (const t of trips) {
-        try {
-          const states = JSON.parse(t.stateBreakdown);
-          for (const s of states)
-            milesByState.set(s.state, (milesByState.get(s.state) ?? 0) + s.miles);
-        } catch {}
-      }
-      const fuelByState = new Map;
-      for (const f of fuel)
-        fuelByState.set(f.state, (fuelByState.get(f.state) ?? 0) + f.gallons);
-      const totalMiles = Math.round(trips.reduce((s, t) => s + t.totalMiles, 0) * 10) / 10;
-      const totalGallons = Math.round(fuel.reduce((s, f) => s + f.gallons, 0) * 100) / 100;
+      const agg = await iftaAggregates(ctx, qStart, qEnd);
+      const milesByState = agg.milesByState;
+      const fuelByState = agg.fuelByState;
+      const totalMiles = Math.round(agg.totalMiles * 10) / 10;
+      const totalGallons = Math.round(agg.totalGallons * 100) / 100;
       const fleetMpg = totalGallons > 0 && totalMiles > 0 ? Math.round(totalMiles / totalGallons * 100) / 100 : null;
       const states = new Set([...milesByState.keys(), ...fuelByState.keys()]);
       let totalNet = null;
@@ -42632,26 +49838,17 @@ ${args.question}`, { schema: answerSchema });
     response: object({ text: string2(), filename: string2() }),
     async handler(ctx, args) {
       const db = ctx.db();
-      if (await isAccountLocked(ctx, await myUsername(ctx))) {
+      const me = await myUsername(ctx);
+      if (await isAccountLocked(ctx, me)) {
         return { text: "EXPORT BLOCKED \u2014 this account is locked (lost-phone kill switch). Unlock it from the Security Center to export again.", filename: "stonemiles-ifta-blocked.txt" };
       }
       const qStart = Date.UTC(args.year, (args.quarter - 1) * 3, 1);
       const qEnd = Date.UTC(args.year, args.quarter * 3, 1);
-      const trips = (await db.select().from(trips3)).filter((t) => t.startedAt.getTime() >= qStart && t.startedAt.getTime() < qEnd);
-      const fuel = (await db.select().from(fuelPurchases3)).filter((f) => f.purchasedAt.getTime() >= qStart && f.purchasedAt.getTime() < qEnd);
-      const milesByState = new Map;
-      for (const t of trips) {
-        try {
-          const states = JSON.parse(t.stateBreakdown);
-          for (const s of states)
-            milesByState.set(s.state, (milesByState.get(s.state) ?? 0) + s.miles);
-        } catch {}
-      }
-      const fuelByState = new Map;
-      for (const f of fuel)
-        fuelByState.set(f.state, (fuelByState.get(f.state) ?? 0) + f.gallons);
-      const totalMiles = trips.reduce((s, t) => s + t.totalMiles, 0);
-      const totalGal = fuel.reduce((s, f) => s + f.gallons, 0);
+      const agg = await iftaAggregates(ctx, qStart, qEnd);
+      const milesByState = agg.milesByState;
+      const fuelByState = agg.fuelByState;
+      const totalMiles = agg.totalMiles;
+      const totalGal = agg.totalGallons;
       const mpg = totalGal > 0 ? totalMiles / totalGal : null;
       const chain = await db.select({ hash: chainLog3.hash }).from(chainLog3).orderBy(desc(chainLog3.id)).limit(1);
       const head = chain[0]?.hash ?? GENESIS_HASH;
@@ -42682,8 +49879,187 @@ ${args.question}`, { schema: answerSchema });
       lines.push("", `Estimated net for the quarter: ${anyNet ? "$" + totalNet.toFixed(2) + (totalNet >= 0 ? " owed" : " credit") : "\u2014 (log fuel purchases to complete the estimate)"}`);
       lines.push("Tax rates: IFTA, Inc. fuel tax matrix, 4th quarter 2026 (Oct\u2013Dec 2026), matrix dated October 15, 2026, updated November 5, 2026 \u2014 not final until December 4, 2026; verify before filing. Kentucky/Virginia include their surcharge; Oregon 0 (weight-mile tax). Estimate for planning only \u2014 not a filing and not tax advice.");
       lines.push(`Sealed chain head hash: ${head}`);
+      try {
+        await appendChain(ctx, {
+          refKind: "library",
+          refId: null,
+          sessionId: null,
+          event: "ifta_export_generated",
+          payload: { by: me, year: args.year, quarter: args.quarter }
+        });
+      } catch {}
       return { text: lines.join(`
 `), filename: `stonemiles-ifta-Q${args.quarter}-${args.year}.txt` };
+    }
+  }),
+  getLibrary: defineAction({
+    description: "Get the viewer's User Library: delivered loads, statements, fuel tax by state, filings, uploads, sealed files (plus the fleet block for owner/dispatch seats).",
+    request: object({}),
+    response: object({
+      viewer: object({
+        username: string2(),
+        email: string2().nullable(),
+        mode: _enum(["fleet", "solo"]),
+        canManageFleet: boolean2(),
+        companyName: string2().nullable()
+      }),
+      deliveredLoads: array(libDeliveredShape),
+      statements: array(object({
+        ref: string2(),
+        kind: string2(),
+        title: string2(),
+        periodKey: string2(),
+        periodLabel: string2(),
+        gross: number2().nullable(),
+        net: number2().nullable(),
+        createdAt: string2(),
+        hasDoc: boolean2()
+      })),
+      fuelTax: array(object({
+        year: number2(),
+        quarter: number2(),
+        rows: array(object({
+          state: string2(),
+          miles: number2(),
+          gallonsBought: number2(),
+          gallonsUsed: number2().nullable()
+        })),
+        totalMiles: number2(),
+        totalGallonsBought: number2()
+      })),
+      filings: array(object({
+        ref: string2(),
+        kind: string2(),
+        title: string2(),
+        periodLabel: string2(),
+        generatedAt: string2(),
+        recordHash: string2()
+      })),
+      uploads: array(object({
+        ref: string2(),
+        kind: string2(),
+        label: string2(),
+        loadId: number2().nullable(),
+        mime: string2().nullable(),
+        sha256: string2().nullable(),
+        createdAt: string2(),
+        hasFile: boolean2()
+      })),
+      sealedFiles: array(libSealedShape),
+      chain: object({ intact: boolean2(), checked: number2(), headHash: string2() }),
+      fleet: object({
+        companyName: string2(),
+        deliveredLoads: array(libDeliveredShape),
+        sealedFiles: array(libSealedShape)
+      }).nullable()
+    }),
+    async handler(ctx) {
+      return buildLibrary(ctx);
+    }
+  }),
+  getLibraryDocument: defineAction({
+    description: "Get one Library document's bytes (base64) for print/download \u2014 scope-checked per call.",
+    request: object({ ref: string2().min(1).max(160) }),
+    response: object({
+      ok: boolean2(),
+      error: string2().nullable(),
+      filename: string2().nullable(),
+      mime: string2().nullable(),
+      dataBase64: string2().nullable()
+    }),
+    async handler(ctx, args) {
+      if (await isAccountLocked(ctx, await myUsername(ctx))) {
+        return {
+          ok: false,
+          error: "This account is locked (lost-phone kill switch) \u2014 exports are off until you unlock it from the Security Center.",
+          filename: null,
+          mime: null,
+          dataBase64: null
+        };
+      }
+      const doc = await resolveLibraryDocument(ctx, args.ref);
+      if (!doc.ok || !doc.bytes) {
+        return { ok: false, error: doc.error ?? "That document couldn't be built.", filename: null, mime: null, dataBase64: null };
+      }
+      return {
+        ok: true,
+        error: null,
+        filename: doc.filename,
+        mime: doc.mime,
+        dataBase64: Buffer.from(doc.bytes).toString("base64")
+      };
+    }
+  }),
+  emailLibraryDocument: defineAction({
+    description: "Email one Library document as an attachment to an address the user enters (default: their own). Audit-logged; queued when mail is unconfigured.",
+    request: object({
+      ref: string2().min(1).max(160),
+      toEmail: string2().min(3).max(160)
+    }),
+    response: object({
+      ok: boolean2(),
+      error: string2().nullable(),
+      status: _enum(["sent", "queued", "failed"]).nullable()
+    }),
+    privileged: [privileged.docEmailConfig, privileged.sendDocEmail],
+    async handler(ctx, args) {
+      const me = await myUsername(ctx);
+      if (await isAccountLocked(ctx, me)) {
+        return { ok: false, error: "This account is locked (lost-phone kill switch) \u2014 sending is off until you unlock it from the Security Center.", status: null };
+      }
+      const to = args.toEmail.trim();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
+        return { ok: false, error: "That email address doesn't look right \u2014 check it and try again.", status: null };
+      }
+      const doc = await resolveLibraryDocument(ctx, args.ref);
+      if (!doc.ok || !doc.bytes) {
+        return { ok: false, error: doc.error ?? "That document couldn't be built.", status: null };
+      }
+      const myEmail = viewerOf(ctx)?.email ?? await accountEmailFor(ctx, me);
+      const subject = doc.title;
+      const res = await ctx.executePrivileged(privileged.sendDocEmail, {
+        to,
+        replyTo: myEmail ?? null,
+        subject,
+        text: [
+          `${subject}`,
+          ``,
+          `Sent by @${me} from their STONEMILES Library. The document is attached (${doc.filename}).`,
+          myEmail ? `Reply to this email and it goes to ${myEmail} \u2014 the sender \u2014 not to the app.` : `Reply to this email and it goes to the sender.`,
+          ``,
+          `STONEMILES by Stonervision \u2014 sealed records, plain and simple.`
+        ].join(`
+`),
+        attachmentBase64: Buffer.from(doc.bytes).toString("base64"),
+        attachmentFilename: doc.filename
+      });
+      const status = res.ok && res.providerId ? "sent" : res.notConfigured ? "queued" : "failed";
+      const detail = status === "failed" ? res.errorMessage ?? "The mail transport refused the send." : null;
+      const db = ctx.db();
+      await db.insert(documentSends3).values({
+        username: me,
+        docRef: args.ref,
+        docKind: doc.docKind,
+        docTitle: doc.title,
+        toEmail: to,
+        replyTo: myEmail ?? null,
+        subject,
+        status,
+        providerId: res.providerId ?? null,
+        detail,
+        sentAt: status === "sent" ? new Date : null
+      });
+      await appendChain(ctx, {
+        refKind: "library",
+        refId: null,
+        sessionId: null,
+        event: "document_emailed",
+        payload: { by: me, ref: args.ref, docKind: doc.docKind, to, subject, status }
+      });
+      if (status === "failed") {
+        return { ok: false, error: detail ?? "The email didn't send.", status };
+      }
+      return { ok: true, error: null, status };
     }
   }),
   getFacilityMemory: defineAction({
@@ -42861,7 +50237,8 @@ ${args.question}`, { schema: answerSchema });
     response: object({ text: string2(), filename: string2() }),
     async handler(ctx, args) {
       const db = ctx.db();
-      if (await isAccountLocked(ctx, await myUsername(ctx))) {
+      const me = await myUsername(ctx);
+      if (await isAccountLocked(ctx, me)) {
         return { text: "EXPORT BLOCKED \u2014 this account is locked (lost-phone kill switch). Unlock it from the Security Center to export again.", filename: "stonemiles-tax-summary-blocked.txt" };
       }
       const expenses = await db.select().from(expenses3);
@@ -42890,8 +50267,161 @@ ${args.question}`, { schema: answerSchema });
         "",
         `Sealed chain head hash: ${head}`
       ];
+      try {
+        await appendChain(ctx, {
+          refKind: "library",
+          refId: null,
+          sessionId: null,
+          event: "tax_year_export_generated",
+          payload: { by: me, year: args.year }
+        });
+      } catch {}
       return { text: lines.join(`
 `), filename: `stonemiles-tax-year-${args.year}.txt` };
+    }
+  }),
+  getTaxWorksheet: defineAction({
+    description: "Get the tax worksheet for a year: income tracker by lane, worksheet expense sections, fuel block, per-diem days, sealed trip miles.",
+    request: object({ year: number2().int().min(2020).max(2100) }),
+    response: object({
+      year: number2(),
+      driverName: string2(),
+      companyName: string2().nullable(),
+      incomeRows: array(object({ dateIso: string2(), payer: string2(), lane: _enum(["w2", "1099"]), miles: number2().nullable(), gross: number2() })),
+      w2: object({ gross: number2(), count: number2() }),
+      ten99: object({ gross: number2(), count: number2() }),
+      sections: array(object({
+        key: string2(),
+        title: string2(),
+        lines: array(object({ key: string2(), label: string2(), categories: array(string2()), total: number2(), count: number2() })),
+        subtotal: number2()
+      })),
+      expenseTotal: number2(),
+      expenseCount: number2(),
+      fuelTotal: number2(),
+      fuelGallons: number2(),
+      fuelCount: number2(),
+      perDiemDays: number2(),
+      sealedTripMiles: number2()
+    }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const social = (await db.select().from(socialUsers3).where(eq(socialUsers3.username, me)).limit(1))[0];
+      let companyName = social?.company?.trim() || null;
+      if (!companyName) {
+        const member = (await db.select().from(companyMembers3).where(eq(companyMembers3.username, me)).limit(1))[0];
+        if (member) {
+          const comp = (await db.select().from(companies3).where(eq(companies3.id, member.companyId)).limit(1))[0];
+          if (comp)
+            companyName = comp.name;
+        }
+      }
+      const entries = await db.select().from(payEntries3);
+      const expenses = await db.select().from(expenses3);
+      const ws = buildTaxWorksheet({
+        income: entries.map((e) => ({ paidAtMs: e.paidAt.getTime(), kind: e.kind, isForm: e.isForm, payer: e.payer, gross: e.gross, miles: null })),
+        expenses: expenses.map((e) => ({ spentAtMs: e.spentAt.getTime(), category: e.category, amount: e.amount })),
+        year: args.year
+      });
+      const fuel = (await db.select().from(fuelPurchases3)).filter((f) => f.purchasedAt.getUTCFullYear() === args.year);
+      const trips = await db.select().from(trips3);
+      const days = perDiemDates(trips.map((t) => ({ startedAtMs: t.startedAt.getTime(), endedAtMs: t.endedAt.getTime() })), args.year);
+      const sealedTripMiles = Math.round(trips.filter((t) => t.startedAt.getUTCFullYear() === args.year).reduce((s, t) => s + (t.totalMiles ?? 0), 0) * 100) / 100;
+      return {
+        year: args.year,
+        driverName: social?.displayName?.trim() || me,
+        companyName,
+        incomeRows: ws.incomeRows,
+        w2: ws.w2,
+        ten99: ws.ten99,
+        sections: ws.sections,
+        expenseTotal: ws.expenseTotal,
+        expenseCount: ws.expenseCount,
+        fuelTotal: Math.round(fuel.reduce((s, f) => s + f.total, 0) * 100) / 100,
+        fuelGallons: Math.round(fuel.reduce((s, f) => s + f.gallons, 0) * 100) / 100,
+        fuelCount: fuel.length,
+        perDiemDays: days.length,
+        sealedTripMiles
+      };
+    }
+  }),
+  exportTaxWorksheet: defineAction({
+    description: "Export the tax worksheet for a year as a text packet for tax prep.",
+    request: object({ year: number2().int().min(2020).max(2100) }),
+    response: object({ text: string2(), filename: string2() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      if (await isAccountLocked(ctx, me)) {
+        return { text: "EXPORT BLOCKED \u2014 this account is locked (lost-phone kill switch). Unlock it from the Security Center to export again.", filename: "stonemiles-tax-worksheet-blocked.txt" };
+      }
+      const social = (await db.select().from(socialUsers3).where(eq(socialUsers3.username, me)).limit(1))[0];
+      let companyName = social?.company?.trim() || null;
+      if (!companyName) {
+        const member = (await db.select().from(companyMembers3).where(eq(companyMembers3.username, me)).limit(1))[0];
+        if (member) {
+          const comp = (await db.select().from(companies3).where(eq(companies3.id, member.companyId)).limit(1))[0];
+          if (comp)
+            companyName = comp.name;
+        }
+      }
+      const driverName = social?.displayName?.trim() || me;
+      const entries = await db.select().from(payEntries3);
+      const expenses = await db.select().from(expenses3);
+      const ws = buildTaxWorksheet({
+        income: entries.map((e) => ({ paidAtMs: e.paidAt.getTime(), kind: e.kind, isForm: e.isForm, payer: e.payer, gross: e.gross, miles: null })),
+        expenses: expenses.map((e) => ({ spentAtMs: e.spentAt.getTime(), category: e.category, amount: e.amount })),
+        year: args.year
+      });
+      const fuel = (await db.select().from(fuelPurchases3)).filter((f) => f.purchasedAt.getUTCFullYear() === args.year);
+      const trips = await db.select().from(trips3);
+      const days = perDiemDates(trips.map((t) => ({ startedAtMs: t.startedAt.getTime(), endedAtMs: t.endedAt.getTime() })), args.year);
+      const sealedTripMiles = Math.round(trips.filter((t) => t.startedAt.getUTCFullYear() === args.year).reduce((s, t) => s + (t.totalMiles ?? 0), 0) * 100) / 100;
+      const chain = await db.select({ hash: chainLog3.hash }).from(chainLog3).orderBy(desc(chainLog3.id)).limit(1);
+      const head = chain[0]?.hash ?? GENESIS_HASH;
+      const money = (n) => `$${n.toFixed(2)}`;
+      const lines = [
+        `STONEMILES \u2014 TAX WORKSHEET ${args.year}`,
+        `Driver: ${driverName}${companyName ? ` \xB7 Company: ${companyName}` : ""}`,
+        "Built only from your own records in this app: the pay you logged in your Pay Book, the expenses you logged and categorised yourself, fuel purchases you logged, and your sealed trip records.",
+        "A record for tax prep \u2014 not tax advice. Hand it to your tax preparer; they apply the current rules and rates.",
+        "W-2 WARNING: per-diem and unreimbursed employee expenses are owner-operator / 1099 territory. W-2 company drivers generally cannot claim them on a federal return \u2014 per-diem was removed by the 2017 tax law change. If your pay is W-2, treat those parts of this worksheet as records only.",
+        "",
+        "\u2014 INCOME TRACKER (from your Pay Book \u2014 year-end forms are not rows; the paychecks already counted that money) \u2014",
+        ...ws.incomeRows.length ? ws.incomeRows.map((r) => `${r.dateIso} \xB7 ${r.payer} \xB7 ${r.lane === "1099" ? "1099" : "W-2"} \xB7 miles ${r.miles != null ? r.miles.toLocaleString() : "\u2014"} \xB7 ${money(r.gross)}`) : ["No pay logged in this year."],
+        `W-2 subtotal: ${money(ws.w2.gross)} (${ws.w2.count} payment${ws.w2.count === 1 ? "" : "s"})`,
+        `1099 subtotal: ${money(ws.ten99.gross)} (${ws.ten99.count} payment${ws.ten99.count === 1 ? "" : "s"})`,
+        "The two lanes file separately \u2014 this worksheet never adds them into one filing total.",
+        "",
+        ...ws.sections.flatMap((s) => [
+          `\u2014 ${s.title.toUpperCase()} \u2014`,
+          ...s.lines.some((l) => l.count > 0) ? s.lines.filter((l) => l.count > 0).map((l) => `${l.label}: ${money(l.total)} (${l.count} record${l.count === 1 ? "" : "s"})`) : ["No expenses logged in this section."],
+          `Section subtotal: ${money(s.subtotal)}`,
+          ""
+        ]),
+        "\u2014 PER-DIEM DAYS \u2014",
+        `Days out in ${args.year}: ${days.length} \u2014 counted automatically from your sealed trip records (every calendar day a sealed trip was on the road, counted once). No deduction amount is figured here: the app assumes no rate.`,
+        "",
+        "\u2014 FUEL PURCHASES (logged separately from expenses) \u2014",
+        fuel.length ? `${fuel.length} purchase${fuel.length === 1 ? "" : "s"} \xB7 ${Math.round(fuel.reduce((s, f) => s + f.gallons, 0) * 100) / 100} gal \xB7 ${money(Math.round(fuel.reduce((s, f) => s + f.total, 0) * 100) / 100)} \u2014 these also feed your IFTA quarters; they are listed here so nothing is double-counted.` : "No fuel purchases logged in this year.",
+        "",
+        "\u2014 TOTALS (records for tax prep \u2014 not a filing) \u2014",
+        `W-2 gross: ${money(ws.w2.gross)} \xB7 1099 gross: ${money(ws.ten99.gross)} \xB7 Expenses total: ${money(ws.expenseTotal)} \xB7 Sealed trip miles in ${args.year}: ${sealedTripMiles.toLocaleString()}`,
+        "",
+        `Sealed chain head hash: ${head}`
+      ];
+      try {
+        await appendChain(ctx, {
+          refKind: "library",
+          refId: null,
+          sessionId: null,
+          event: "tax_worksheet_export_generated",
+          payload: { by: me, year: args.year }
+        });
+      } catch {}
+      return { text: lines.join(`
+`), filename: `stonemiles-tax-worksheet-${args.year}.txt` };
     }
   }),
   scoreLoad: defineAction({
@@ -42903,7 +50433,9 @@ ${args.question}`, { schema: answerSchema });
       deadheadMiles: number2().nonnegative().max(1e5),
       facility: string2().max(200).nullable(),
       expectedDetentionHours: number2().nonnegative().max(100).nullable(),
-      detentionRatePerHour: number2().nonnegative().max(1000).default(50)
+      detentionRatePerHour: number2().nonnegative().max(1000).default(50),
+      factoringPct: number2().min(0).max(100).nullable().default(null),
+      dispatcherPct: number2().min(0).max(100).nullable().default(null)
     }),
     response: object({
       locked: boolean2(),
@@ -42913,7 +50445,10 @@ ${args.question}`, { schema: answerSchema });
       ratePerLoadedMile: number2(),
       ratePerTotalMile: number2(),
       breakEvenPerMile: number2().nullable(),
-      detentionNote: string2().nullable()
+      detentionNote: string2().nullable(),
+      factoringAmt: number2(),
+      dispatcherAmt: number2(),
+      netRate: number2()
     }),
     async handler(ctx, args) {
       const { plan, diamond } = await hasDiamondAccess(ctx);
@@ -42929,7 +50464,10 @@ ${args.question}`, { schema: answerSchema });
           ratePerLoadedMile: 0,
           ratePerTotalMile: 0,
           breakEvenPerMile: null,
-          detentionNote: null
+          detentionNote: null,
+          factoringAmt: 0,
+          dispatcherAmt: 0,
+          netRate: 0
         };
       }
       const db = ctx.db();
@@ -42944,6 +50482,8 @@ ${args.question}`, { schema: answerSchema });
       const totalMi = args.loadedMiles + args.deadheadMiles;
       const ratePerLoaded = args.rate / args.loadedMiles;
       const ratePerTotal = args.rate / totalMi;
+      const fees = loadFeeBreakdown(args.rate, args.factoringPct ?? profForCpm[0]?.factoringPct ?? 0, args.dispatcherPct ?? profForCpm[0]?.dispatcherPct ?? 0);
+      const netRatePerTotal = fees.netRate / totalMi;
       let detentionNote = null;
       let histAvgExcess = 0;
       if (args.facility) {
@@ -42977,24 +50517,30 @@ ${args.question}`, { schema: answerSchema });
       const lines = [];
       lines.push(`Rate: $${args.rate.toFixed(2)} for ${args.loadedMiles} loaded mi + ${args.deadheadMiles} deadhead mi = ${totalMi} total mi.`);
       lines.push(`Rate per loaded mile: $${ratePerLoaded.toFixed(2)}/mi \xB7 Rate per TOTAL mile (the honest number): $${ratePerTotal.toFixed(2)}/mi.`);
+      if (fees.factoringAmt > 0)
+        lines.push(`Your factoring: ${fees.factoringPct}% of $${args.rate.toFixed(2)} = $${fees.factoringAmt.toFixed(2)} \u2014 what YOUR factoring company takes out of this load.`);
+      if (fees.dispatcherAmt > 0)
+        lines.push(`Your dispatcher: ${fees.dispatcherPct}% of $${args.rate.toFixed(2)} = $${fees.dispatcherAmt.toFixed(2)} \u2014 what YOUR dispatcher takes out of this load.`);
+      if (fees.totalFees > 0)
+        lines.push(`Pay after your fees: $${args.rate.toFixed(2)} \u2212 $${fees.totalFees.toFixed(2)} = $${fees.netRate.toFixed(2)} \u2014 the score below judges THIS number, not the gross.`);
       let profit;
       if (cpm != null) {
         const runCost = cpm * totalMi;
-        profit = Math.round((args.rate + detPay - runCost) * 100) / 100;
+        profit = Math.round((fees.netRate + detPay - runCost) * 100) / 100;
         lines.push(`Your break-even from your own logged costs: $${cpm.toFixed(3)}/mi \xD7 ${totalMi} mi = $${runCost.toFixed(2)} to run this load.`);
         if (detPay > 0)
           lines.push(`Expected detention pay: ${detHours.toFixed(1)} h \xD7 $${args.detentionRatePerHour.toFixed(0)}/h = $${detPay.toFixed(2)} (only if the carrier actually pays it \u2014 detention note below).`);
-        lines.push(`Estimated profit: $${args.rate.toFixed(2)}${detPay > 0 ? ` + $${detPay.toFixed(2)} detention` : ""} \u2212 $${runCost.toFixed(2)} cost = $${profit.toFixed(2)}.`);
+        lines.push(`Estimated profit: $${fees.netRate.toFixed(2)}${fees.totalFees > 0 ? " (rate after your fees)" : ""}${detPay > 0 ? ` + $${detPay.toFixed(2)} detention` : ""} \u2212 $${runCost.toFixed(2)} cost = $${profit.toFixed(2)}.`);
       } else {
-        profit = Math.round((args.rate + detPay) * 100) / 100;
+        profit = Math.round((fees.netRate + detPay) * 100) / 100;
         lines.push(`No break-even yet: log fuel purchases and expenses (Money Truth) and this score gets your real cost per mile. Until then the verdict uses rate per total mile alone against a $${floorRate.toFixed(2)}/mi floor \u2014 ${profForCpm[0]?.payBasis === "percent" ? `a rough guide only: you're paid ${profForCpm[0]?.driverPayPct ?? "?"}% of the load's pay, so judge the load on your cut (rate \xD7 your %), not the gross rate` : `your employer's pay rate${profForCpm[0]?.driverCpm != null ? " (your saved company CPM)" : " (the $0.55 default \u2014 set your own CPM in Settings \u2192 My pay)"} \u2014 as a rough guide only`}.`);
-        profit = Math.round((args.rate - floorRate * totalMi) * 100) / 100;
+        profit = Math.round((fees.netRate - floorRate * totalMi) * 100) / 100;
       }
       let verdict;
       if (cpm != null) {
         verdict = profit > totalMi * 0.25 ? "green" : profit >= 0 ? "yellow" : "red";
       } else {
-        verdict = ratePerTotal >= 1.1 ? "green" : ratePerTotal >= floorRate ? "yellow" : "red";
+        verdict = netRatePerTotal >= 1.1 ? "green" : netRatePerTotal >= floorRate ? "yellow" : "red";
       }
       lines.push(verdict === "green" ? "Verdict: GREEN \u2014 clears your own break-even with room to spare." : verdict === "yellow" ? "Verdict: YELLOW \u2014 it covers your costs but thin. Deadhead and unpaid detention decide this one." : "Verdict: RED \u2014 at your own numbers this load loses money. The math is above; the call is yours.");
       const hash = await appendChain(ctx, {
@@ -43002,7 +50548,7 @@ ${args.question}`, { schema: answerSchema });
         refId: null,
         sessionId: null,
         event: "load_score",
-        payload: { label: args.label, rate: args.rate, loadedMiles: args.loadedMiles, deadheadMiles: args.deadheadMiles, facility: args.facility, profit, verdict, at: new Date().toISOString() }
+        payload: { label: args.label, rate: args.rate, loadedMiles: args.loadedMiles, deadheadMiles: args.deadheadMiles, facility: args.facility, profit, verdict, factoringPct: fees.factoringPct, dispatcherPct: fees.dispatcherPct, factoringAmt: fees.factoringAmt, dispatcherAmt: fees.dispatcherAmt, netRate: fees.netRate, at: new Date().toISOString() }
       });
       ctx.invalidateQueries();
       return {
@@ -43013,7 +50559,10 @@ ${args.question}`, { schema: answerSchema });
         ratePerLoadedMile: Math.round(ratePerLoaded * 100) / 100,
         ratePerTotalMile: Math.round(ratePerTotal * 100) / 100,
         breakEvenPerMile: cpm != null ? Math.round(cpm * 1000) / 1000 : null,
-        detentionNote
+        detentionNote,
+        factoringAmt: fees.factoringAmt,
+        dispatcherAmt: fees.dispatcherAmt,
+        netRate: fees.netRate
       };
     }
   }),
@@ -43556,7 +51105,7 @@ ${args.question}`, { schema: answerSchema });
       if (eldActive) {
         const providerName = ELD_PROVIDER_NAMES[eldActive.provider] ?? eldActive.provider;
         const snaps = await db.select().from(eldSnapshots3).where(eq(eldSnapshots3.connectionId, eldActive.id)).orderBy(desc(eldSnapshots3.id));
-        const dvirSnap = snaps.find((s) => s.feed === "dvirs");
+        const dvirSnap = snaps.find((s) => s.feed === "dvirs" && !snapshotIsSimulated(s.payloadJson));
         if (dvirSnap) {
           try {
             const p = JSON.parse(dvirSnap.payloadJson);
@@ -44259,6 +51808,258 @@ ${args.question}`, { schema: answerSchema });
       return { ok: true };
     }
   }),
+  getCredentialAlerts: defineAction({
+    description: "The caller's CDL / medical / TWIC expiry status and the credential alerts actively nagging right now (60/30/7 days + expired, per-threshold dismissals honored).",
+    request: object({}),
+    response: object({
+      credentials: array(object({
+        key: string2(),
+        label: string2(),
+        expiresOn: string2().nullable(),
+        daysLeft: number2().nullable(),
+        threshold: number2().nullable(),
+        dismissed: boolean2()
+      })),
+      alerts: array(object({
+        key: string2(),
+        label: string2(),
+        expiresOn: string2().nullable(),
+        daysLeft: number2().nullable(),
+        threshold: number2()
+      }))
+    }),
+    async handler(ctx) {
+      const me = await myUsername(ctx);
+      const statuses = await credentialStatusesFor(ctx, me);
+      for (const s of activeCredentialAlerts(statuses)) {
+        const built = credentialNotification({
+          label: s.label,
+          threshold: s.threshold ?? 0,
+          daysLeft: s.daysLeft,
+          expiresOn: s.expiresOn
+        });
+        await recordNotificationSafe(ctx, {
+          username: me,
+          kind: "credential",
+          title: built.title,
+          body: built.body,
+          dedupeKey: `credential:${s.key}:${s.threshold ?? 0}:${s.expiresOn ?? ""}`,
+          refKind: "credential",
+          refId: null
+        });
+      }
+      const shape = (s) => ({
+        key: s.key,
+        label: s.label,
+        expiresOn: s.expiresOn,
+        daysLeft: s.daysLeft,
+        threshold: s.threshold,
+        dismissed: s.dismissed
+      });
+      return {
+        credentials: statuses.map(shape),
+        alerts: activeCredentialAlerts(statuses).map((s) => ({
+          key: s.key,
+          label: s.label,
+          expiresOn: s.expiresOn,
+          daysLeft: s.daysLeft,
+          threshold: s.threshold ?? 0
+        }))
+      };
+    }
+  }),
+  dismissCredentialAlert: defineAction({
+    description: "Dismiss the current credential expiry alert for one threshold (recorded against the card's current expiry date; the next threshold still fires, and a renewal re-arms).",
+    request: object({
+      credentialKey: _enum(["cdl", "medical", "twic"]),
+      threshold: number2().int()
+    }),
+    response: object({ ok: boolean2(), error: string2().nullable() }),
+    async handler(ctx, args) {
+      const me = await myUsername(ctx);
+      const statuses = await credentialStatusesFor(ctx, me);
+      const status = statuses.find((s) => s.key === args.credentialKey);
+      if (!status || status.expiresOn == null)
+        return { ok: false, error: "No expiry date is on file for that credential \u2014 there's no alert to dismiss." };
+      if (status.threshold == null)
+        return { ok: false, error: "That credential isn't in an alert window right now." };
+      if (args.threshold !== status.threshold)
+        return { ok: false, error: "That alert has moved on \u2014 refresh and dismiss the one showing now." };
+      if (!status.dismissed) {
+        const db = ctx.db();
+        await db.insert(credentialAlertDismissals3).values({
+          username: me,
+          credentialKey: status.key,
+          threshold: status.threshold,
+          expiresOn: status.expiresOn
+        });
+        await appendChain(ctx, {
+          refKind: "driver",
+          refId: null,
+          sessionId: null,
+          event: "credential_alert_dismissed",
+          payload: {
+            username: me,
+            credentialKey: status.key,
+            threshold: status.threshold,
+            expiresOn: status.expiresOn,
+            at: new Date().toISOString()
+          }
+        });
+      }
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
+    }
+  }),
+  getNotifications: defineAction({
+    description: "The caller's notification center: newest first, with the unread count and the honest phone-push status.",
+    request: object({ limit: number2().int().positive().max(100).default(50) }),
+    response: object({
+      notifications: array(object({
+        id: number2(),
+        kind: string2(),
+        title: string2(),
+        body: string2(),
+        count: number2(),
+        refKind: string2().nullable(),
+        refId: number2().nullable(),
+        pushState: string2(),
+        read: boolean2(),
+        createdAt: string2(),
+        updatedAt: string2()
+      })),
+      unreadCount: number2(),
+      push: object({
+        deviceCount: number2(),
+        senderConfigured: boolean2(),
+        statusLine: string2()
+      })
+    }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const rows = await db.select().from(notifications3).where(eq(notifications3.username, me)).orderBy(desc(notifications3.id)).limit(args.limit);
+      const unread = await db.select({ id: notifications3.id }).from(notifications3).where(and(eq(notifications3.username, me), isNull(notifications3.readAt)));
+      const devices = await db.select({ enabled: pushDevices3.enabled }).from(pushDevices3).where(eq(pushDevices3.username, me));
+      const deviceCount = devices.filter((d) => d.enabled).length;
+      const senderConfigured = pushSenderFromEnv(process.env) != null;
+      return {
+        notifications: rows.map((n) => ({
+          id: n.id,
+          kind: n.kind,
+          title: n.title,
+          body: n.body,
+          count: n.count,
+          refKind: n.refKind,
+          refId: n.refId,
+          pushState: n.pushState,
+          read: n.readAt != null,
+          createdAt: n.createdAt.toISOString(),
+          updatedAt: n.updatedAt.toISOString()
+        })),
+        unreadCount: unread.length,
+        push: {
+          deviceCount,
+          senderConfigured,
+          statusLine: pushStatusLine({ enabledDeviceCount: deviceCount, senderConfigured })
+        }
+      };
+    }
+  }),
+  markNotificationsRead: defineAction({
+    description: "Mark notification-center rows read \u2014 the named ids, or every unread row when all is set.",
+    request: object({
+      ids: array(number2().int().positive()).max(200).nullable().optional(),
+      all: boolean2().optional()
+    }),
+    response: object({ ok: boolean2(), marked: number2() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const now = new Date;
+      if (args.all) {
+        const updated = await db.update(notifications3).set({ readAt: now, updatedAt: now }).where(and(eq(notifications3.username, me), isNull(notifications3.readAt))).returning({ id: notifications3.id });
+        ctx.invalidateQueries();
+        return { ok: true, marked: updated.length };
+      }
+      const ids = args.ids ?? [];
+      if (ids.length === 0)
+        return { ok: true, marked: 0 };
+      const updated = await db.update(notifications3).set({ readAt: now, updatedAt: now }).where(and(eq(notifications3.username, me), isNull(notifications3.readAt), inArray(notifications3.id, ids))).returning({ id: notifications3.id });
+      ctx.invalidateQueries();
+      return { ok: true, marked: updated.length };
+    }
+  }),
+  registerPushDevice: defineAction({
+    description: "Register a device push token for the caller (FCM plumbing for the Android build; delivery activates when the native sender wires in).",
+    request: object({
+      platform: _enum(["android", "ios"]),
+      token: string2().min(10).max(4096)
+    }),
+    response: object({ ok: boolean2(), senderConfigured: boolean2() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const now = new Date;
+      await db.insert(pushDevices3).values({
+        token: args.token,
+        username: me,
+        platform: args.platform,
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+        lastSeenAt: now
+      }).onConflictDoUpdate({
+        target: pushDevices3.token,
+        set: { username: me, platform: args.platform, enabled: true, updatedAt: now, lastSeenAt: now }
+      });
+      ctx.invalidateQueries();
+      return { ok: true, senderConfigured: pushSenderFromEnv(process.env) != null };
+    }
+  }),
+  unregisterPushDevice: defineAction({
+    description: "Remove one of the caller's registered push devices.",
+    request: object({
+      token: string2().min(1).max(4096)
+    }),
+    response: object({ ok: boolean2() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      await db.delete(pushDevices3).where(and(eq(pushDevices3.token, args.token), eq(pushDevices3.username, me)));
+      ctx.invalidateQueries();
+      return { ok: true };
+    }
+  }),
+  getPushDevices: defineAction({
+    description: "The caller's registered push devices (token shown by last 4 only) and whether a push sender is configured.",
+    request: object({}),
+    response: object({
+      devices: array(object({
+        platform: string2(),
+        tokenLast4: string2(),
+        enabled: boolean2(),
+        lastSeenAt: string2().nullable(),
+        createdAt: string2()
+      })),
+      senderConfigured: boolean2()
+    }),
+    async handler(ctx) {
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const rows = await db.select().from(pushDevices3).where(eq(pushDevices3.username, me)).orderBy(desc(pushDevices3.createdAt));
+      return {
+        devices: rows.map((d) => ({
+          platform: d.platform,
+          tokenLast4: d.token.slice(-4),
+          enabled: d.enabled,
+          lastSeenAt: d.lastSeenAt ? d.lastSeenAt.toISOString() : null,
+          createdAt: d.createdAt.toISOString()
+        })),
+        senderConfigured: pushSenderFromEnv(process.env) != null
+      };
+    }
+  }),
   getOwedBoard: defineAction({
     description: "Delivered loads still owed money (freight + claims \u2212 recorded payments), oldest first.",
     request: object({}),
@@ -44329,6 +52130,525 @@ ${args.question}`, { schema: answerSchema });
       }
       out.sort((a, b) => Date.parse(a.deliveredAt) - Date.parse(b.deliveredAt) || a.loadId - b.loadId);
       return { rows: out };
+    }
+  }),
+  getMySettlement: defineAction({
+    description: "The caller's own sealed loads with per-line pay computed from their My Pay setting (CPM or percent), read-only.",
+    request: object({}),
+    response: object({
+      payBasis: string2(),
+      driverCpm: number2().nullable(),
+      driverPayPct: number2().nullable(),
+      companyName: string2().nullable(),
+      lines: array(object({
+        loadId: number2(),
+        shipper: string2().nullable(),
+        pickupCity: string2().nullable(),
+        pickupState: string2().nullable(),
+        deliveryCity: string2().nullable(),
+        deliveryState: string2().nullable(),
+        referenceNumber: string2().nullable(),
+        sealedAt: string2(),
+        rate: number2().nullable(),
+        extraCharges: number2(),
+        gross: number2().nullable(),
+        loadedMiles: number2().nullable(),
+        deadheadMiles: number2().nullable(),
+        pay: number2().nullable(),
+        basisNote: string2()
+      })),
+      totalPay: number2(),
+      totalGross: number2(),
+      figured: number2(),
+      unfigured: number2()
+    }),
+    async handler(ctx) {
+      const db = ctx.db();
+      const profRows = await db.select().from(profile3).where(eq(profile3.id, myProfileId(ctx))).limit(1);
+      const prof = profRows[0];
+      const setting = {
+        payBasis: prof?.payBasis ?? "cpm",
+        driverCpm: prof?.driverCpm ?? null,
+        driverPayPct: prof?.driverPayPct ?? null
+      };
+      const loads = await db.select().from(loads3).orderBy(desc(loads3.id));
+      const pods = await podStatusByLoad(ctx);
+      const lines = [];
+      const rawLines = [];
+      for (const l of loads) {
+        const pod = pods.get(l.id);
+        if (!pod?.sealed || !pod.sealedAt)
+          continue;
+        const line = settlementLineFor(setting, {
+          rate: l.rate ?? null,
+          extraCharges: l.extraCharges ?? 0,
+          loadedMiles: l.loadedMiles ?? null
+        });
+        rawLines.push(line);
+        lines.push({
+          loadId: l.id,
+          shipper: l.shipper,
+          pickupCity: l.pickupCity,
+          pickupState: l.pickupState,
+          deliveryCity: l.deliveryCity,
+          deliveryState: l.deliveryState,
+          referenceNumber: l.referenceNumber ?? null,
+          sealedAt: pod.sealedAt,
+          rate: l.rate ?? null,
+          extraCharges: l.extraCharges ?? 0,
+          gross: line.gross,
+          loadedMiles: l.loadedMiles ?? null,
+          deadheadMiles: l.deadheadMiles ?? null,
+          pay: line.pay,
+          basisNote: line.basisNote
+        });
+      }
+      lines.sort((a, b) => Date.parse(b.sealedAt) - Date.parse(a.sealedAt) || b.loadId - a.loadId);
+      const totals = settlementTotals(rawLines);
+      return {
+        payBasis: setting.payBasis,
+        driverCpm: setting.driverCpm,
+        driverPayPct: setting.driverPayPct,
+        companyName: prof?.companyName ?? null,
+        lines,
+        totalPay: totals.totalPay,
+        totalGross: totals.totalGross,
+        figured: totals.figured,
+        unfigured: totals.unfigured
+      };
+    }
+  }),
+  getBusinessProfile: defineAction({
+    description: "The caller's business identity for invoices + P&L (Settings \u2192 Business profile).",
+    request: object({}),
+    response: object({
+      name: string2().nullable(),
+      address: string2().nullable(),
+      phone: string2().nullable(),
+      email: string2().nullable(),
+      paymentInstructions: string2().nullable(),
+      hasLogo: boolean2(),
+      logoUrl: string2().nullable()
+    }),
+    async handler(ctx) {
+      const db = ctx.db();
+      const rows = await db.select().from(profile3).where(eq(profile3.id, myProfileId(ctx))).limit(1);
+      const p = rows[0];
+      const biz = await businessIdentityFor(ctx);
+      return {
+        name: p?.bizName ?? null,
+        address: biz.address,
+        phone: biz.phone,
+        email: biz.email,
+        paymentInstructions: biz.paymentInstructions,
+        hasLogo: biz.logoBlobKey != null,
+        logoUrl: biz.logoBlobKey ? await ctx.blobs.getUrl(biz.logoBlobKey) : null
+      };
+    }
+  }),
+  saveBusinessProfile: defineAction({
+    description: "Save the business identity (name, address, phone, email, payment instructions, logo) that brands invoices + P&L.",
+    request: object({
+      name: string2().max(120).nullable(),
+      address: string2().max(400).nullable(),
+      phone: string2().max(40).nullable(),
+      email: string2().max(120).nullable(),
+      paymentInstructions: string2().max(500).nullable(),
+      logoDataBase64: string2().max(1e7).nullable(),
+      logoMime: string2().max(80).nullable(),
+      removeLogo: boolean2().default(false)
+    }),
+    response: object({ ok: literal(true) }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const rows = await db.select().from(profile3).where(eq(profile3.id, myProfileId(ctx))).limit(1);
+      const p = rows[0];
+      if (!p)
+        throw new Error("saveBusinessProfile: no profile");
+      const me = await myUsername(ctx);
+      let logoBlobKey = p.bizLogoBlobKey ?? null;
+      let logoMime = p.bizLogoMime ?? null;
+      if (args.removeLogo) {
+        if (logoBlobKey) {
+          try {
+            await ctx.blobs.delete(logoBlobKey);
+          } catch {}
+        }
+        logoBlobKey = null;
+        logoMime = null;
+      } else if (args.logoDataBase64 && args.logoMime) {
+        const nextKey = `biz-logo-${me}-${Date.now()}`;
+        await ctx.blobs.put(nextKey, base64ToBytes(args.logoDataBase64), { contentType: args.logoMime });
+        if (logoBlobKey && logoBlobKey !== nextKey) {
+          try {
+            await ctx.blobs.delete(logoBlobKey);
+          } catch {}
+        }
+        logoBlobKey = nextKey;
+        logoMime = args.logoMime;
+      }
+      await db.update(profile3).set({
+        bizName: args.name?.trim() || null,
+        bizAddress: args.address?.trim() || null,
+        bizPhone: args.phone?.trim() || null,
+        bizEmail: args.email?.trim() || null,
+        bizPaymentInstructions: args.paymentInstructions?.trim() || null,
+        bizLogoBlobKey: logoBlobKey,
+        bizLogoMime: logoMime,
+        updatedAt: new Date
+      }).where(eq(profile3.id, myProfileId(ctx)));
+      ctx.invalidateQueries();
+      return { ok: true };
+    }
+  }),
+  createInvoice: defineAction({
+    description: "Cut a draft invoice from a sealed load (snapshot bill-to, lines, amount; per-driver sequential number).",
+    request: object({
+      loadId: number2().int().positive(),
+      dueDays: number2().int().min(0).max(120).default(DEFAULT_DUE_DAYS),
+      notes: string2().max(300).nullable()
+    }),
+    response: object({ id: number2(), number: string2() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const loads = await db.select().from(loads3).where(eq(loads3.id, args.loadId)).limit(1);
+      const load = loads[0];
+      if (!load)
+        throw new Error("createInvoice: no such load");
+      const pods = await podStatusByLoad(ctx);
+      const pod = pods.get(load.id);
+      if (!pod?.sealed || !pod.sealedAt) {
+        throw new Error("That load hasn't been delivered and sealed yet \u2014 an invoice is cut from a sealed load, so the bill always matches the sealed record.");
+      }
+      if (load.rate == null) {
+        throw new Error("This load has no rate on file \u2014 add the rate on the load first. An invoice never invents an amount.");
+      }
+      const existing = await db.select().from(loadInvoices3).where(eq(loadInvoices3.loadId, load.id)).limit(1);
+      if (existing[0]) {
+        throw new Error(`Load #${load.id} already has invoice ${existing[0].number} \u2014 one invoice per load. Delete the draft if you need to cut it again.`);
+      }
+      const claims = (await db.select().from(claimEvents3).where(eq(claimEvents3.loadId, load.id))).map((c) => ({ kind: c.kind, amount: c.amount }));
+      const built = invoiceLinesFor({ rate: load.rate, extraCharges: load.extraCharges ?? 0, extraChargesNote: load.extraChargesNote ?? null }, claims);
+      if (built.amount == null)
+        throw new Error("createInvoice: amount could not be figured from the load's rate");
+      const year = new Date().getUTCFullYear();
+      const myLoads = await db.select({ id: loads3.id }).from(loads3);
+      const myLoadIds = new Set(myLoads.map((l) => l.id));
+      const createdEvents = await db.select().from(chainLog3).where(eq(chainLog3.event, "invoice_created"));
+      let maxSeq = 0;
+      for (const r of createdEvents) {
+        if (r.refId == null || !myLoadIds.has(r.refId))
+          continue;
+        try {
+          const p = JSON.parse(r.payload);
+          const m = p.number ? new RegExp(`^INV-${year}-(\\d+)$`).exec(p.number) : null;
+          if (m)
+            maxSeq = Math.max(maxSeq, Number(m[1]));
+        } catch {}
+      }
+      const number = formatInvoiceNumber(year, maxSeq + 1);
+      const billToName = load.brokerCompany ?? load.brokerName ?? load.shipper ?? "Payer not named on the load";
+      const ins = await db.insert(loadInvoices3).values({
+        loadId: load.id,
+        number,
+        status: "draft",
+        billToName,
+        billToCompany: load.brokerCompany ?? null,
+        shipper: load.shipper ?? null,
+        pickupCity: load.pickupCity ?? null,
+        pickupState: load.pickupState ?? null,
+        deliveryCity: load.deliveryCity ?? null,
+        deliveryState: load.deliveryState ?? null,
+        referenceNumber: load.referenceNumber ?? null,
+        commodity: load.commodity ?? null,
+        deliveredAt: new Date(pod.sealedAt),
+        linesJson: JSON.stringify(built.lines),
+        amount: built.amount,
+        dueDays: args.dueDays,
+        notes: args.notes?.trim() || null
+      }).returning({ id: loadInvoices3.id });
+      const row = ins[0];
+      if (!row)
+        throw new Error("createInvoice: insert returned no rows");
+      const hash = await appendChain(ctx, {
+        refKind: "load",
+        refId: load.id,
+        sessionId: null,
+        event: "invoice_created",
+        payload: { invoiceId: row.id, number, loadId: load.id, amount: built.amount, billToName, at: new Date().toISOString() }
+      });
+      await db.update(loadInvoices3).set({ chainHash: hash }).where(eq(loadInvoices3.id, row.id));
+      ctx.invalidateQueries();
+      return { id: row.id, number };
+    }
+  }),
+  listInvoices: defineAction({
+    description: "The caller's invoices, newest first, with derived display status (overdue from the due date).",
+    request: object({}),
+    response: object({
+      invoices: array(object({
+        id: number2(),
+        number: string2(),
+        loadId: number2(),
+        billToName: string2(),
+        lane: string2(),
+        amount: number2(),
+        status: string2(),
+        displayStatus: string2(),
+        issuedAt: string2().nullable(),
+        dueAt: string2().nullable(),
+        paidAt: string2().nullable(),
+        createdAt: string2()
+      }))
+    }),
+    async handler(ctx) {
+      const db = ctx.db();
+      const rows = await db.select().from(loadInvoices3).orderBy(desc(loadInvoices3.id));
+      const now = Date.now();
+      return {
+        invoices: rows.map((r) => ({
+          id: r.id,
+          number: r.number,
+          loadId: r.loadId,
+          billToName: r.billToName,
+          lane: laneTextOf(r),
+          amount: r.amount,
+          status: r.status,
+          displayStatus: invoiceDisplayStatus({ status: r.status, dueAtMs: r.dueAt?.getTime() ?? null }, now),
+          issuedAt: r.issuedAt?.toISOString() ?? null,
+          dueAt: r.dueAt?.toISOString() ?? null,
+          paidAt: r.paidAt?.toISOString() ?? null,
+          createdAt: r.createdAt.toISOString()
+        }))
+      };
+    }
+  }),
+  getInvoice: defineAction({
+    description: "One invoice in full: snapshot lines, lifecycle dates, and the caller's business identity that brands it.",
+    request: object({ id: number2().int().positive() }),
+    response: object({
+      id: number2(),
+      number: string2(),
+      loadId: number2(),
+      billToName: string2(),
+      billToCompany: string2().nullable(),
+      shipper: string2().nullable(),
+      lane: string2(),
+      referenceNumber: string2().nullable(),
+      commodity: string2().nullable(),
+      deliveredAt: string2(),
+      lines: array(object({ label: string2(), amount: number2() })),
+      amount: number2(),
+      status: string2(),
+      displayStatus: string2(),
+      dueDays: number2(),
+      issuedAt: string2().nullable(),
+      dueAt: string2().nullable(),
+      paidAt: string2().nullable(),
+      notes: string2().nullable(),
+      business: object({
+        name: string2().nullable(),
+        address: string2().nullable(),
+        phone: string2().nullable(),
+        email: string2().nullable(),
+        paymentInstructions: string2().nullable(),
+        hasLogo: boolean2()
+      })
+    }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const rows = await db.select().from(loadInvoices3).where(eq(loadInvoices3.id, args.id)).limit(1);
+      const r = rows[0];
+      if (!r)
+        throw new Error("getInvoice: no such invoice");
+      const biz = await businessIdentityFor(ctx);
+      return {
+        id: r.id,
+        number: r.number,
+        loadId: r.loadId,
+        billToName: r.billToName,
+        billToCompany: r.billToCompany ?? null,
+        shipper: r.shipper ?? null,
+        lane: laneTextOf(r),
+        referenceNumber: r.referenceNumber ?? null,
+        commodity: r.commodity ?? null,
+        deliveredAt: r.deliveredAt.toISOString(),
+        lines: invoiceLinesParsed(r),
+        amount: r.amount,
+        status: r.status,
+        displayStatus: invoiceDisplayStatus({ status: r.status, dueAtMs: r.dueAt?.getTime() ?? null }, Date.now()),
+        dueDays: r.dueDays,
+        issuedAt: r.issuedAt?.toISOString() ?? null,
+        dueAt: r.dueAt?.toISOString() ?? null,
+        paidAt: r.paidAt?.toISOString() ?? null,
+        notes: r.notes ?? null,
+        business: {
+          name: biz.name,
+          address: biz.address,
+          phone: biz.phone,
+          email: biz.email,
+          paymentInstructions: biz.paymentInstructions,
+          hasLogo: biz.logoBlobKey != null
+        }
+      };
+    }
+  }),
+  issueInvoice: defineAction({
+    description: "Issue a draft invoice: stamps the issue date and sets the due date from its terms (Net N).",
+    request: object({ id: number2().int().positive() }),
+    response: object({ ok: literal(true), dueAt: string2() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const rows = await db.select().from(loadInvoices3).where(eq(loadInvoices3.id, args.id)).limit(1);
+      const r = rows[0];
+      if (!r)
+        throw new Error("issueInvoice: no such invoice");
+      if (r.status !== "draft")
+        throw new Error(`Invoice ${r.number} is already ${r.status} \u2014 only a draft can be issued.`);
+      const issuedAt = new Date;
+      const dueAt = new Date(issuedAt.getTime() + r.dueDays * 86400000);
+      await db.update(loadInvoices3).set({ status: "issued", issuedAt, dueAt, updatedAt: new Date }).where(eq(loadInvoices3.id, r.id));
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: r.loadId,
+        sessionId: null,
+        event: "invoice_issued",
+        payload: { invoiceId: r.id, number: r.number, loadId: r.loadId, amount: r.amount, issuedAt: issuedAt.toISOString(), dueAt: dueAt.toISOString() }
+      });
+      ctx.invalidateQueries();
+      return { ok: true, dueAt: dueAt.toISOString() };
+    }
+  }),
+  markInvoicePaid: defineAction({
+    description: "Mark an invoice paid \u2014 records the covering payment on the load so the who-owes-me board clears (record only, no money moves).",
+    request: object({
+      id: number2().int().positive(),
+      paidAt: string2().max(40).nullable(),
+      note: string2().max(200).nullable()
+    }),
+    response: object({ ok: literal(true), recordedPayment: number2() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const rows = await db.select().from(loadInvoices3).where(eq(loadInvoices3.id, args.id)).limit(1);
+      const r = rows[0];
+      if (!r)
+        throw new Error("markInvoicePaid: no such invoice");
+      if (r.status === "paid")
+        throw new Error(`Invoice ${r.number} is already marked paid.`);
+      const paidAt = args.paidAt && Number.isFinite(Date.parse(args.paidAt)) ? new Date(args.paidAt) : new Date;
+      const loads = await db.select().from(loads3).where(eq(loads3.id, r.loadId)).limit(1);
+      const load = loads[0];
+      const claims = await db.select().from(claimEvents3).where(eq(claimEvents3.loadId, r.loadId));
+      const claimsTotal = Math.round(claims.reduce((s, c) => s + c.amount, 0) * 100) / 100;
+      const payments = await db.select().from(loadPayments3).where(eq(loadPayments3.loadId, r.loadId));
+      const paidTotal = Math.round(payments.reduce((s, p) => s + p.amount, 0) * 100) / 100;
+      const freight = load?.rate != null ? Math.round((load.rate + (load.extraCharges ?? 0)) * 100) / 100 : null;
+      const totalOwed = freight != null ? Math.round((freight + claimsTotal) * 100) / 100 : null;
+      const outstanding = totalOwed != null ? Math.round((totalOwed - paidTotal) * 100) / 100 : 0;
+      let recordedPayment = 0;
+      if (outstanding > 0.005) {
+        recordedPayment = outstanding;
+        const ins = await db.insert(loadPayments3).values({ loadId: r.loadId, amount: outstanding, paidAt, note: args.note?.trim() || `Invoice ${r.number} marked paid` }).returning({ id: loadPayments3.id });
+        const payRow = ins[0];
+        if (!payRow)
+          throw new Error("markInvoicePaid: payment insert returned no rows");
+        const payHash = await appendChain(ctx, {
+          refKind: "load",
+          refId: r.loadId,
+          sessionId: null,
+          event: "load_payment",
+          payload: { paymentId: payRow.id, loadId: r.loadId, amount: outstanding, paidAt: paidAt.toISOString(), note: args.note?.trim() || `Invoice ${r.number} marked paid`, viaInvoice: r.id }
+        });
+        await db.update(loadPayments3).set({ chainHash: payHash }).where(eq(loadPayments3.id, payRow.id));
+      }
+      await db.update(loadInvoices3).set({ status: "paid", paidAt, updatedAt: new Date }).where(eq(loadInvoices3.id, r.id));
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: r.loadId,
+        sessionId: null,
+        event: "invoice_paid",
+        payload: { invoiceId: r.id, number: r.number, loadId: r.loadId, amount: r.amount, paidAt: paidAt.toISOString(), recordedPayment }
+      });
+      ctx.invalidateQueries();
+      return { ok: true, recordedPayment };
+    }
+  }),
+  deleteInvoice: defineAction({
+    description: "Delete a DRAFT invoice (the deletion is sealed; issued/paid invoices are records and stay).",
+    request: object({ id: number2().int().positive() }),
+    response: object({ ok: literal(true) }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const rows = await db.select().from(loadInvoices3).where(eq(loadInvoices3.id, args.id)).limit(1);
+      const r = rows[0];
+      if (!r)
+        throw new Error("deleteInvoice: no such invoice");
+      if (r.status !== "draft")
+        throw new Error(`Invoice ${r.number} is ${r.status} \u2014 only a draft can be deleted.`);
+      await db.delete(loadInvoices3).where(eq(loadInvoices3.id, r.id));
+      await appendChain(ctx, {
+        refKind: "load",
+        refId: r.loadId,
+        sessionId: null,
+        event: "invoice_deleted",
+        payload: { invoiceId: r.id, number: r.number, loadId: r.loadId, amount: r.amount, at: new Date().toISOString() }
+      });
+      ctx.invalidateQueries();
+      return { ok: true };
+    }
+  }),
+  getProfitLoss: defineAction({
+    description: "The caller's profit & loss for one period (month / quarter / year): income from sealed loads + claims, costs from fuel, expenses, and the maintenance log, plus per-load lines.",
+    request: object({
+      kind: _enum(["month", "quarter", "year"]),
+      year: number2().int().min(2020).max(2100),
+      index: number2().int().min(1).max(12).default(1)
+    }),
+    response: object({
+      period: object({ kind: string2(), year: number2(), index: number2(), label: string2(), key: string2() }),
+      incomeFreight: number2(),
+      incomeClaims: number2(),
+      incomeTotal: number2(),
+      unfiguredLoads: number2(),
+      costLines: array(object({ key: string2(), label: string2(), amount: number2() })),
+      costsTotal: number2(),
+      net: number2(),
+      unassignedExpenses: number2(),
+      perLoad: array(object({
+        loadId: number2(),
+        lane: string2(),
+        shipper: string2().nullable(),
+        deliveredAt: string2(),
+        income: number2().nullable(),
+        costs: number2(),
+        net: number2().nullable()
+      }))
+    }),
+    async handler(ctx, args) {
+      const { pl, loadMeta } = await profitLossDataFor(ctx, args.kind, args.year, args.index);
+      return {
+        period: { kind: pl.period.kind, year: pl.period.year, index: pl.period.index, label: pl.period.label, key: pl.period.key },
+        incomeFreight: pl.incomeFreight,
+        incomeClaims: pl.incomeClaims,
+        incomeTotal: pl.incomeTotal,
+        unfiguredLoads: pl.unfiguredLoads,
+        costLines: pl.costLines,
+        costsTotal: pl.costsTotal,
+        net: pl.net,
+        unassignedExpenses: pl.unassignedExpenses,
+        perLoad: pl.perLoad.map((l) => {
+          const meta = loadMeta.get(l.loadId);
+          return {
+            loadId: l.loadId,
+            lane: meta?.lane ?? `Load #${l.loadId}`,
+            shipper: meta?.shipper ?? null,
+            deliveredAt: meta?.deliveredAt ?? "",
+            income: l.income,
+            costs: l.costs,
+            net: l.net
+          };
+        })
+      };
     }
   }),
   recordLoadPayment: defineAction({
@@ -44721,6 +53041,699 @@ ${args.question}`, { schema: answerSchema });
 `), filename: `stonemiles-breakdown-${r.id}.txt` };
     }
   }),
+  listMaintenanceLog: defineAction({
+    description: "Maintenance log entries (newest first) with attachments, the running total cost, and the truck identity they belong to.",
+    request: object({}),
+    response: object({
+      entries: array(maintenanceLogEntryShape),
+      totalCost: number2(),
+      truck: truckRecordIdentityShape
+    }),
+    async handler(ctx) {
+      const db = ctx.db();
+      const rows = await db.select().from(maintenanceLogEntries3).orderBy(desc(maintenanceLogEntries3.performedAt), desc(maintenanceLogEntries3.id));
+      const atts = await db.select().from(maintenanceLogAttachments3).orderBy(asc(maintenanceLogAttachments3.id));
+      const byEntry = new Map;
+      for (const a of atts) {
+        const list = byEntry.get(a.entryId) ?? [];
+        list.push({ id: a.id, label: a.label, mime: a.mime, hasFile: a.blobKey != null, createdAt: a.createdAt.toISOString() });
+        byEntry.set(a.entryId, list);
+      }
+      const dvirLinks = await db.select().from(dvirDefectLinks3);
+      const dvirByEntry = new Map(dvirLinks.map((l) => [l.maintenanceEntryId, l.dvirId]));
+      const totalCost = Math.round(rows.reduce((s, r) => s + (r.cost || 0), 0) * 100) / 100;
+      const prof = await db.select().from(profile3).where(eq(profile3.id, myProfileId(ctx))).limit(1);
+      const p = prof[0];
+      return {
+        entries: rows.map((r) => ({
+          id: r.id,
+          performedAt: r.performedAt.toISOString(),
+          odometer: r.odometer ?? null,
+          category: r.category,
+          description: r.description,
+          shop: r.shop ?? null,
+          cost: r.cost || 0,
+          nextDueMiles: r.nextDueMiles ?? null,
+          nextDueAt: r.nextDueAt ? r.nextDueAt.toISOString() : null,
+          notes: r.notes ?? null,
+          status: r.status ?? "logged",
+          dvirId: dvirByEntry.get(r.id) ?? null,
+          attachments: byEntry.get(r.id) ?? [],
+          createdAt: r.createdAt.toISOString()
+        })),
+        totalCost,
+        truck: {
+          truckYear: p?.truckYear ?? null,
+          truckMake: p?.truckMake ?? null,
+          truckModel: p?.truckModel ?? null,
+          truckUnitNumber: p?.truckUnitNumber ?? null,
+          truckVin: p?.truckVin ?? null,
+          truckPlate: p?.truckPlate ?? null,
+          truckEngine: p?.truckEngine ?? null,
+          truckTransmission: p?.truckTransmission ?? null,
+          heightFt: p?.heightFt ?? null,
+          heightIn: p?.heightIn ?? null,
+          weightLbs: p?.weightLbs ?? null,
+          lengthFt: p?.lengthFt ?? null,
+          trailerType: p?.trailerType ?? null
+        }
+      };
+    }
+  }),
+  saveMaintenanceLogEntry: defineAction({
+    description: "Add or edit one maintenance log entry (driver's own record, sealed).",
+    request: object({
+      id: number2().int().positive().nullable(),
+      performedAt: string2().min(1).max(40),
+      odometer: number2().nonnegative().max(1e7).nullable(),
+      category: maintenanceLogCategory,
+      description: string2().min(1).max(300),
+      shop: string2().max(160).nullable(),
+      cost: number2().nonnegative().max(1e6),
+      nextDueMiles: number2().nonnegative().max(1e7).nullable(),
+      nextDueAt: string2().max(40).nullable(),
+      notes: string2().max(500).nullable()
+    }),
+    response: object({ id: number2() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const performedAt = Number.isFinite(Date.parse(args.performedAt)) ? new Date(args.performedAt) : new Date;
+      const values = {
+        performedAt,
+        odometer: args.odometer,
+        category: args.category,
+        description: args.description.trim(),
+        shop: args.shop?.trim() || null,
+        cost: Math.round(args.cost * 100) / 100,
+        nextDueMiles: args.nextDueMiles,
+        nextDueAt: args.nextDueAt && Number.isFinite(Date.parse(args.nextDueAt)) ? new Date(args.nextDueAt) : null,
+        notes: args.notes?.trim() || null,
+        updatedAt: new Date
+      };
+      let id = args.id ?? 0;
+      if (args.id != null) {
+        const existing = await db.select().from(maintenanceLogEntries3).where(eq(maintenanceLogEntries3.id, args.id)).limit(1);
+        if (!existing[0])
+          throw new Error("saveMaintenanceLogEntry: no such entry");
+        const status = existing[0].status === "draft" ? "logged" : existing[0].status;
+        await db.update(maintenanceLogEntries3).set({ ...values, status }).where(eq(maintenanceLogEntries3.id, args.id));
+      } else {
+        const ins = await db.insert(maintenanceLogEntries3).values(values).returning({ id: maintenanceLogEntries3.id });
+        const row = ins[0];
+        if (!row)
+          throw new Error("saveMaintenanceLogEntry: insert returned no rows");
+        id = row.id;
+      }
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "maintenance_log_entry_saved",
+        payload: { entryId: id, category: args.category, cost: values.cost, performedAt: performedAt.toISOString(), edited: args.id != null }
+      });
+      ctx.invalidateQueries();
+      return { id };
+    }
+  }),
+  deleteMaintenanceLogEntry: defineAction({
+    description: "Delete one maintenance log entry and its attachments (the removal itself is sealed).",
+    request: object({ id: number2().int().positive() }),
+    response: object({ ok: literal(true) }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const rows = await db.select().from(maintenanceLogEntries3).where(eq(maintenanceLogEntries3.id, args.id)).limit(1);
+      const row = rows[0];
+      if (row) {
+        const atts = await db.select().from(maintenanceLogAttachments3).where(eq(maintenanceLogAttachments3.entryId, args.id));
+        for (const a of atts) {
+          if (a.blobKey) {
+            try {
+              await ctx.blobs.delete(a.blobKey);
+            } catch {}
+          }
+        }
+        await db.delete(maintenanceLogAttachments3).where(eq(maintenanceLogAttachments3.entryId, args.id));
+        await db.delete(maintenanceLogEntries3).where(eq(maintenanceLogEntries3.id, args.id));
+        await appendChain(ctx, {
+          refKind: "driver",
+          refId: null,
+          sessionId: null,
+          event: "maintenance_log_entry_deleted",
+          payload: { entryId: args.id, category: row.category, cost: row.cost, at: new Date().toISOString() }
+        });
+      }
+      ctx.invalidateQueries();
+      return { ok: true };
+    }
+  }),
+  setMaintenanceLogEntryStatus: defineAction({
+    description: "Set a maintenance log entry's workflow status \u2014 close it when the work is done (closing a DVIR draft clears its open defect), or reopen it.",
+    request: object({
+      id: number2().int().positive(),
+      status: _enum(["logged", "closed"])
+    }),
+    response: object({ ok: literal(true) }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const rows = await db.select().from(maintenanceLogEntries3).where(eq(maintenanceLogEntries3.id, args.id)).limit(1);
+      const row = rows[0];
+      if (!row)
+        throw new Error("setMaintenanceLogEntryStatus: no such entry");
+      await db.update(maintenanceLogEntries3).set({ status: args.status, updatedAt: new Date }).where(eq(maintenanceLogEntries3.id, args.id));
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "maintenance_log_entry_status",
+        payload: { entryId: args.id, from: row.status, to: args.status, at: new Date().toISOString() }
+      });
+      ctx.invalidateQueries();
+      return { ok: true };
+    }
+  }),
+  addMaintenanceLogAttachment: defineAction({
+    description: "Attach a receipt / paperwork file (photo or PDF) to a maintenance log entry \u2014 same blob path as the Document Vault.",
+    request: object({
+      entryId: number2().int().positive(),
+      label: string2().min(1).max(160),
+      dataBase64: string2().max(14000000).nullable(),
+      mime: string2().max(100).nullable()
+    }),
+    response: object({ id: number2(), error: string2().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const entries = await db.select().from(maintenanceLogEntries3).where(eq(maintenanceLogEntries3.id, args.entryId)).limit(1);
+      if (!entries[0])
+        return { id: 0, error: "That maintenance log entry doesn't exist \u2014 nothing was attached." };
+      let blobKey = null;
+      if (args.dataBase64 && args.mime) {
+        blobKey = `maintenance-log-${args.entryId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        await ctx.blobs.put(blobKey, base64ToBytes(args.dataBase64), { contentType: args.mime });
+      }
+      const res = await db.insert(maintenanceLogAttachments3).values({ entryId: args.entryId, label: args.label.trim(), blobKey, mime: args.mime }).returning({ id: maintenanceLogAttachments3.id });
+      const row = res[0];
+      if (!row)
+        throw new Error("addMaintenanceLogAttachment: insert returned no rows");
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "maintenance_log_attachment_added",
+        payload: { entryId: args.entryId, attachmentId: row.id, label: args.label.trim(), hasFile: blobKey != null }
+      });
+      ctx.invalidateQueries();
+      return { id: row.id, error: null };
+    }
+  }),
+  deleteMaintenanceLogAttachment: defineAction({
+    description: "Remove one receipt / paperwork attachment from a maintenance log entry.",
+    request: object({ id: number2().int().positive() }),
+    response: object({ ok: literal(true) }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const rows = await db.select().from(maintenanceLogAttachments3).where(eq(maintenanceLogAttachments3.id, args.id)).limit(1);
+      const row = rows[0];
+      if (row?.blobKey) {
+        try {
+          await ctx.blobs.delete(row.blobKey);
+        } catch {}
+      }
+      await db.delete(maintenanceLogAttachments3).where(eq(maintenanceLogAttachments3.id, args.id));
+      if (row) {
+        await appendChain(ctx, {
+          refKind: "driver",
+          refId: null,
+          sessionId: null,
+          event: "maintenance_log_attachment_deleted",
+          payload: { entryId: row.entryId, attachmentId: args.id, at: new Date().toISOString() }
+        });
+      }
+      ctx.invalidateQueries();
+      return { ok: true };
+    }
+  }),
+  getMaintenanceLogAttachmentFile: defineAction({
+    description: "Download URL for one maintenance log attachment (receipt / paperwork).",
+    request: object({ id: number2().int().positive() }),
+    response: object({ url: string2().nullable(), mime: string2().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const rows = await db.select().from(maintenanceLogAttachments3).where(eq(maintenanceLogAttachments3.id, args.id)).limit(1);
+      const row = rows[0];
+      if (!row?.blobKey)
+        return { url: null, mime: null };
+      const url = await ctx.blobs.getUrl(row.blobKey);
+      return { url, mime: row.mime };
+    }
+  }),
+  startDetention: defineAction({
+    description: "Start the detention clock \u2014 tap on arrival at a dock or stop. Snapshots the appointment and grace period; seals an arrival event.",
+    request: object({
+      loadId: number2().int().positive().nullable(),
+      site: _enum(["pickup", "delivery", "stop"]),
+      placeLabel: string2().max(160).nullable(),
+      graceMinutes: number2().int().min(DETENTION_GRACE_MIN_MINUTES).max(DETENTION_GRACE_MAX_MINUTES).nullable(),
+      apptAt: string2().max(40).nullable(),
+      lat: number2().min(-90).max(90).nullable(),
+      lon: number2().min(-180).max(180).nullable()
+    }),
+    response: object({
+      id: number2(),
+      alreadyOpen: boolean2(),
+      apptAt: string2().nullable(),
+      graceMinutes: number2()
+    }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      let load;
+      if (args.loadId != null) {
+        const rows = await db.select().from(loads3).where(eq(loads3.id, args.loadId)).limit(1);
+        load = rows[0];
+        if (!load)
+          throw new Error("startDetention: that load doesn't exist \u2014 it may have been deleted.");
+      }
+      const open = await db.select().from(detentionRecords3);
+      const existing = open.find((r) => r.departedAt == null && r.site === args.site && (args.loadId != null ? r.loadId === args.loadId : r.loadId == null));
+      if (existing) {
+        return { id: existing.id, alreadyOpen: true, apptAt: existing.apptAt ? existing.apptAt.toISOString() : null, graceMinutes: existing.graceMinutes };
+      }
+      let apptAt = null;
+      if (args.apptAt && Number.isFinite(Date.parse(args.apptAt)))
+        apptAt = new Date(args.apptAt);
+      if (!apptAt && load) {
+        const text = args.site === "pickup" ? load.pickupText : load.deliveryText;
+        if (text) {
+          const parsed = Date.parse(text);
+          if (Number.isFinite(parsed))
+            apptAt = new Date(parsed);
+        }
+        if (!apptAt && args.site !== "pickup" && load.dockApptAt)
+          apptAt = load.dockApptAt;
+      }
+      const placeLabel = args.placeLabel?.trim() || (load ? (args.site === "pickup" ? [load.pickupCity, load.pickupState].filter(Boolean).join(", ") : [load.deliveryCity, load.deliveryState].filter(Boolean).join(", ")) || `Load #${load.id}` : null);
+      const graceMinutes = args.graceMinutes ?? DETENTION_DEFAULT_GRACE_MINUTES;
+      const now = new Date;
+      const ins = await db.insert(detentionRecords3).values({
+        loadId: args.loadId,
+        site: args.site,
+        placeLabel,
+        apptAt,
+        graceMinutes,
+        arrivedAt: now,
+        departedAt: null,
+        arriveLat: args.lat,
+        arriveLon: args.lon,
+        departLat: null,
+        departLon: null,
+        chainHash: null
+      }).returning({ id: detentionRecords3.id });
+      const row = ins[0];
+      if (!row)
+        throw new Error("startDetention: insert returned no rows");
+      await appendChain(ctx, {
+        refKind: args.loadId != null ? "load" : "driver",
+        refId: args.loadId,
+        sessionId: null,
+        event: "detention_arrival",
+        payload: { detentionId: row.id, site: args.site, place: placeLabel, apptAt: apptAt ? apptAt.toISOString() : null, graceMinutes, lat: args.lat, lon: args.lon, at: now.toISOString() }
+      });
+      ctx.invalidateQueries();
+      return { id: row.id, alreadyOpen: false, apptAt: apptAt ? apptAt.toISOString() : null, graceMinutes };
+    }
+  }),
+  endDetention: defineAction({
+    description: "Stop the detention clock \u2014 tap when the dock releases you. Seals the visit and computes the wait + time past the free/grace period.",
+    request: object({
+      id: number2().int().positive(),
+      lat: number2().min(-90).max(90).nullable(),
+      lon: number2().min(-180).max(180).nullable()
+    }),
+    response: object({
+      id: number2(),
+      waitMinutes: number2(),
+      billableMinutes: number2(),
+      chainHash: string2().nullable()
+    }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const rows = await db.select().from(detentionRecords3).where(eq(detentionRecords3.id, args.id)).limit(1);
+      const row = rows[0];
+      if (!row)
+        throw new Error("endDetention: that detention record doesn't exist.");
+      if (row.departedAt != null) {
+        const t = detentionTimes(row.arrivedAt.getTime(), row.departedAt.getTime(), row.graceMinutes);
+        return { id: row.id, waitMinutes: t.waitMinutes ?? 0, billableMinutes: t.billableMinutes ?? 0, chainHash: row.chainHash };
+      }
+      const now = new Date;
+      const t = detentionTimes(row.arrivedAt.getTime(), now.getTime(), row.graceMinutes);
+      const waitMinutes = t.waitMinutes ?? 0;
+      const billableMinutes = t.billableMinutes ?? 0;
+      const hash = await appendChain(ctx, {
+        refKind: row.loadId != null ? "load" : "driver",
+        refId: row.loadId,
+        sessionId: null,
+        event: "detention_departure",
+        payload: { detentionId: row.id, site: row.site, place: row.placeLabel, at: now.toISOString(), waitMinutes, billableMinutes }
+      });
+      await db.update(detentionRecords3).set({ departedAt: now, departLat: args.lat, departLon: args.lon, chainHash: hash, updatedAt: now }).where(eq(detentionRecords3.id, args.id));
+      ctx.invalidateQueries();
+      return { id: row.id, waitMinutes, billableMinutes, chainHash: hash };
+    }
+  }),
+  listDetention: defineAction({
+    description: "Detention timer records (newest first) with wait + past-free-time totals as TIME, plus the running-clock count. No money anywhere \u2014 time only.",
+    request: object({ limit: number2().int().positive().max(100).default(30) }),
+    response: object({
+      records: array(object({
+        id: number2(),
+        loadId: number2().nullable(),
+        loadLabel: string2().nullable(),
+        site: string2(),
+        placeLabel: string2().nullable(),
+        apptAt: string2().nullable(),
+        graceMinutes: number2(),
+        arrivedAt: string2(),
+        departedAt: string2().nullable(),
+        waitMinutes: number2().nullable(),
+        billableMinutes: number2().nullable(),
+        chainHash: string2().nullable()
+      })),
+      totalBillableMinutes: number2(),
+      openCount: number2()
+    }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const rows = await db.select().from(detentionRecords3).orderBy(desc(detentionRecords3.id));
+      const loads = await db.select().from(loads3);
+      const loadById = new Map(loads.map((l) => [l.id, l]));
+      let totalBillableMinutes = 0;
+      let openCount = 0;
+      const records = rows.map((r) => {
+        const t = detentionTimes(r.arrivedAt.getTime(), r.departedAt ? r.departedAt.getTime() : null, r.graceMinutes);
+        if (r.departedAt == null)
+          openCount++;
+        else
+          totalBillableMinutes += t.billableMinutes ?? 0;
+        const load = r.loadId != null ? loadById.get(r.loadId) : undefined;
+        return {
+          id: r.id,
+          loadId: r.loadId ?? null,
+          loadLabel: load ? `Load #${load.id} \xB7 ${[load.pickupCity, load.pickupState].filter(Boolean).join(", ") || "?"} \u2192 ${[load.deliveryCity, load.deliveryState].filter(Boolean).join(", ") || "?"}` : null,
+          site: r.site,
+          placeLabel: r.placeLabel ?? null,
+          apptAt: r.apptAt ? r.apptAt.toISOString() : null,
+          graceMinutes: r.graceMinutes,
+          arrivedAt: r.arrivedAt.toISOString(),
+          departedAt: r.departedAt ? r.departedAt.toISOString() : null,
+          waitMinutes: t.waitMinutes,
+          billableMinutes: t.billableMinutes,
+          chainHash: r.chainHash ?? null
+        };
+      });
+      return { records: records.slice(0, args.limit), totalBillableMinutes, openCount };
+    }
+  }),
+  getDetentionProof: defineAction({
+    description: "The shareable detention proof for one sealed visit: appointment, arrival, departure, and the wait \u2014 times and place only, never a rate or an amount.",
+    request: object({ id: number2().int().positive() }),
+    response: object({ text: string2(), filename: string2() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const rows = await db.select().from(detentionRecords3).where(eq(detentionRecords3.id, args.id)).limit(1);
+      const row = rows[0];
+      if (!row)
+        throw new Error("getDetentionProof: that detention record doesn't exist.");
+      if (row.departedAt == null)
+        throw new Error("getDetentionProof: that clock is still running \u2014 the proof seals when you tap Done.");
+      const loads = row.loadId != null ? await db.select().from(loads3).where(eq(loads3.id, row.loadId)).limit(1) : [];
+      const load = loads[0];
+      const place = row.placeLabel || (load ? [load.deliveryCity, load.deliveryState].filter(Boolean).join(", ") : "") || "Stop";
+      const text = detentionProofText({
+        place,
+        site: row.site,
+        apptAtIso: row.apptAt ? row.apptAt.toISOString() : null,
+        arrivedAtIso: row.arrivedAt.toISOString(),
+        departedAtIso: row.departedAt.toISOString(),
+        graceMinutes: row.graceMinutes,
+        chainHash: row.chainHash
+      });
+      return { text, filename: `stonemiles-detention-${row.id}.txt` };
+    }
+  }),
+  listVehiclePhotos: defineAction({
+    description: "The driver's own truck and trailer photo sets (up to 5 each) with display URLs, in saved order.",
+    request: object({}),
+    response: object({
+      truck: array(object({ id: number2(), url: string2().nullable(), mime: string2().nullable() })),
+      trailer: array(object({ id: number2(), url: string2().nullable(), mime: string2().nullable() }))
+    }),
+    async handler(ctx) {
+      const db = ctx.db();
+      const rows = await db.select().from(vehiclePhotos3).orderBy(asc(vehiclePhotos3.sortOrder), asc(vehiclePhotos3.id));
+      const truck = [];
+      const trailer = [];
+      for (const r of rows) {
+        const item = {
+          id: r.id,
+          url: r.blobKey ? await ctx.blobs.getUrl(r.blobKey) : null,
+          mime: r.mime
+        };
+        (r.kind === "trailer" ? trailer : truck).push(item);
+      }
+      return { truck, trailer };
+    }
+  }),
+  addVehiclePhoto: defineAction({
+    description: "Add one photo to the truck or trailer photo set (up to 5 per set, enforced here) \u2014 same blob path and size handling as the profile avatar.",
+    request: object({
+      kind: _enum(["truck", "trailer"]),
+      dataBase64: string2().max(8000000),
+      mime: string2().max(60)
+    }),
+    response: object({ id: number2(), error: string2().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const existing = await db.select().from(vehiclePhotos3).where(eq(vehiclePhotos3.kind, args.kind));
+      if (existing.length >= 5) {
+        return {
+          id: 0,
+          error: `That's the limit \u2014 5 ${args.kind} photos. Remove one first to add another.`
+        };
+      }
+      const me = await myUsername(ctx);
+      const blobKey = `vehicle-photo-${args.kind}-${me}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      await ctx.blobs.put(blobKey, base64ToBytes(args.dataBase64), { contentType: args.mime });
+      const res = await db.insert(vehiclePhotos3).values({ kind: args.kind, blobKey, mime: args.mime, sortOrder: existing.length }).returning({ id: vehiclePhotos3.id });
+      const row = res[0];
+      if (!row)
+        throw new Error("addVehiclePhoto: insert returned no rows");
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "vehicle_photo_added",
+        payload: { kind: args.kind, photoId: row.id, count: existing.length + 1 }
+      });
+      ctx.invalidateQueries();
+      return { id: row.id, error: null };
+    }
+  }),
+  replaceVehiclePhoto: defineAction({
+    description: "Replace one truck/trailer photo with a new image \u2014 the old file is removed from the blob store.",
+    request: object({
+      id: number2().int().positive(),
+      dataBase64: string2().max(8000000),
+      mime: string2().max(60)
+    }),
+    response: object({ ok: boolean2(), error: string2().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const rows = await db.select().from(vehiclePhotos3).where(eq(vehiclePhotos3.id, args.id)).limit(1);
+      const row = rows[0];
+      if (!row)
+        return { ok: false, error: "That photo doesn't exist \u2014 nothing was changed." };
+      const me = await myUsername(ctx);
+      const blobKey = `vehicle-photo-${row.kind}-${me}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      await ctx.blobs.put(blobKey, base64ToBytes(args.dataBase64), { contentType: args.mime });
+      if (row.blobKey) {
+        try {
+          await ctx.blobs.delete(row.blobKey);
+        } catch {}
+      }
+      await db.update(vehiclePhotos3).set({ blobKey, mime: args.mime }).where(eq(vehiclePhotos3.id, args.id));
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "vehicle_photo_replaced",
+        payload: { kind: row.kind, photoId: args.id }
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
+    }
+  }),
+  deleteVehiclePhoto: defineAction({
+    description: "Remove one truck/trailer photo and its file, freeing a slot in that set.",
+    request: object({ id: number2().int().positive() }),
+    response: object({ ok: literal(true) }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const rows = await db.select().from(vehiclePhotos3).where(eq(vehiclePhotos3.id, args.id)).limit(1);
+      const row = rows[0];
+      if (row) {
+        if (row.blobKey) {
+          try {
+            await ctx.blobs.delete(row.blobKey);
+          } catch {}
+        }
+        await db.delete(vehiclePhotos3).where(eq(vehiclePhotos3.id, args.id));
+        await appendChain(ctx, {
+          refKind: "driver",
+          refId: null,
+          sessionId: null,
+          event: "vehicle_photo_deleted",
+          payload: { kind: row.kind, photoId: args.id, at: new Date().toISOString() }
+        });
+      }
+      ctx.invalidateQueries();
+      return { ok: true };
+    }
+  }),
+  exportTruckRecord: defineAction({
+    description: "Download the truck record: truck identity + specs headed CSV of the full maintenance log, plus a printable text version.",
+    request: object({}),
+    response: object({ csv: string2(), text: string2(), entryCount: number2(), totalCost: number2() }),
+    async handler(ctx) {
+      const db = ctx.db();
+      if (await isAccountLocked(ctx, await myUsername(ctx))) {
+        const note = "EXPORT BLOCKED \u2014 this account is locked (lost-phone kill switch). Unlock it from the Security Center to export again.";
+        return { csv: note, text: note, entryCount: 0, totalCost: 0 };
+      }
+      const log = await (async () => {
+        const rows = await db.select().from(maintenanceLogEntries3).orderBy(desc(maintenanceLogEntries3.performedAt), desc(maintenanceLogEntries3.id));
+        const atts = await db.select().from(maintenanceLogAttachments3).orderBy(asc(maintenanceLogAttachments3.id));
+        return { rows, atts };
+      })();
+      const prof = await db.select().from(profile3).where(eq(profile3.id, myProfileId(ctx))).limit(1);
+      const p = prof[0];
+      const attNames = new Map;
+      for (const a of log.atts) {
+        const list = attNames.get(a.entryId) ?? [];
+        list.push(a.label);
+        attNames.set(a.entryId, list);
+      }
+      const totalCost = Math.round(log.rows.reduce((s, r) => s + (r.cost || 0), 0) * 100) / 100;
+      const truckName = [p?.truckYear ?? null, p?.truckMake ?? null, p?.truckModel ?? null].filter(Boolean).join(" ") || "Truck not named yet";
+      const catLabel = (k) => k === "oil" ? "Oil & filters" : k === "tires" ? "Tires" : k === "brakes" ? "Brakes" : k === "dot_inspection" ? "Annual DOT inspection" : k === "engine" ? "Engine" : k === "transmission" ? "Transmission" : k === "suspension" ? "Suspension & steering" : k === "electrical" ? "Electrical" : k === "ac" ? "A/C & heating" : "Other";
+      const q = (v) => {
+        const s = String(v);
+        return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+      };
+      const day = (d) => d.toISOString().slice(0, 10);
+      const dvirRows = await db.select().from(dvirReports3).orderBy(desc(dvirReports3.id));
+      const dvirCsvRows = [
+        "",
+        "DVIR INSPECTIONS",
+        "Date,Kind,Result,Defects,Odometer (mi),Signed by,Truck,Trailer,Safe to operate",
+        ...dvirRows.map((r) => {
+          let defs = [];
+          try {
+            defs = JSON.parse(r.defectsJson);
+          } catch {
+            defs = [];
+          }
+          return [
+            r.inspectedAt.toISOString(),
+            r.kind === "posttrip" ? "Post-trip" : "Pre-trip",
+            r.status === "defects_reported" ? "Defects reported" : "Signed \u2014 no defects",
+            defs.map((d) => d.item).join("; "),
+            r.odometer ?? "",
+            r.signedName,
+            r.truckLabel ?? "",
+            r.trailerLabel ?? "",
+            r.safeToOperate == null ? "" : r.safeToOperate ? "Yes" : "No"
+          ].map((v) => q(v)).join(",");
+        })
+      ];
+      const dvirTextLines = [
+        "",
+        "INSPECTIONS (DVIR)",
+        ...dvirRows.length > 0 ? dvirRows.flatMap((r) => {
+          let defs = [];
+          try {
+            defs = JSON.parse(r.defectsJson);
+          } catch {
+            defs = [];
+          }
+          return [
+            `${day(r.inspectedAt)} \xB7 ${r.kind === "posttrip" ? "Post-trip" : "Pre-trip"} DVIR \xB7 signed ${r.signedName}${r.odometer != null ? ` \xB7 odometer ${r.odometer.toLocaleString()} mi` : ""}${r.truckLabel ? ` \xB7 ${r.truckLabel}` : ""}`,
+            ...defs.length > 0 ? defs.map((d) => `  \u26A0 ${d.item}${d.critical ? " (safety-critical)" : ""}: ${d.note}`) : ["  All systems OK"]
+          ];
+        }) : ["  (no DVIR signed yet)"]
+      ];
+      const trailerName = [p?.trailerYear ?? null, p?.trailerMake ?? null, p?.trailerModel ?? null].filter(Boolean).join(" ");
+      const identityRows = [
+        ["Truck", truckName],
+        ["Unit number", p?.truckUnitNumber ?? ""],
+        ["VIN", p?.truckVin ?? ""],
+        ["Plate", p?.truckPlate ?? ""],
+        ["Engine", p?.truckEngine ?? ""],
+        ["Transmission", p?.truckTransmission ?? ""],
+        ["Height", p ? `${p.heightFt} ft ${p.heightIn} in` : ""],
+        ["Gross weight (lbs)", p?.weightLbs != null ? String(p.weightLbs) : ""],
+        ["Trailer", trailerName],
+        ["Trailer VIN", p?.trailerVin ?? ""],
+        ["Trailer plate", p?.trailerPlate ?? ""],
+        ["Trailer length (ft)", p?.lengthFt != null ? String(p.lengthFt) : ""],
+        ["Trailer type", p?.trailerType ?? ""],
+        ["MPG (default)", p?.mpg != null ? String(p.mpg) : ""],
+        ["Tank range (mi)", p?.tankRangeMi != null ? String(p.tankRangeMi) : ""]
+      ];
+      const csvRows = [
+        "STONEMILES \u2014 TRUCK RECORD",
+        `Exported,${new Date().toISOString()}`,
+        ...identityRows.map(([k, v]) => `${q(k)},${q(v)}`),
+        "",
+        "Date,Odometer (mi),Category,Description,Shop / vendor,Cost (USD),Next due (mi),Next due (date),Notes,Attachments",
+        ...log.rows.map((r) => [
+          day(r.performedAt),
+          r.odometer ?? "",
+          catLabel(r.category),
+          r.description,
+          r.shop ?? "",
+          (r.cost || 0).toFixed(2),
+          r.nextDueMiles ?? "",
+          r.nextDueAt ? day(r.nextDueAt) : "",
+          r.notes ?? "",
+          (attNames.get(r.id) ?? []).join("; ")
+        ].map((v) => q(v)).join(",")),
+        ["TOTAL", "", "", `${log.rows.length} log entries`, "", totalCost.toFixed(2), "", "", "", ""].map((v) => q(v)).join(","),
+        ...dvirCsvRows
+      ];
+      const textLines = [
+        "STONEMILES \u2014 TRUCK RECORD",
+        `Exported: ${new Date().toISOString()}`,
+        "",
+        ...identityRows.map(([k, v]) => `${k}: ${v || "\u2014"}`),
+        "",
+        "MAINTENANCE LOG",
+        ...log.rows.length > 0 ? log.rows.flatMap((r) => [
+          `${day(r.performedAt)} \xB7 ${catLabel(r.category)} \u2014 ${r.description}`,
+          `  Odometer: ${r.odometer != null ? `${r.odometer.toLocaleString()} mi` : "\u2014"} \xB7 Shop: ${r.shop ?? "\u2014"} \xB7 Cost: $${(r.cost || 0).toFixed(2)}`,
+          ...r.nextDueMiles != null || r.nextDueAt ? [`  Next due: ${r.nextDueMiles != null ? `${r.nextDueMiles.toLocaleString()} mi` : ""}${r.nextDueMiles != null && r.nextDueAt ? " \xB7 " : ""}${r.nextDueAt ? day(r.nextDueAt) : ""}`] : [],
+          ...r.notes ? [`  Notes: ${r.notes}`] : [],
+          ...(attNames.get(r.id) ?? []).length > 0 ? [`  Paperwork: ${(attNames.get(r.id) ?? []).join("; ")} (files stay in the app \u2014 download them from the entry)`] : []
+        ]) : ["  (no maintenance logged yet)"],
+        ...dvirTextLines,
+        "",
+        `TOTAL LOGGED COST: $${totalCost.toFixed(2)} across ${log.rows.length} entr${log.rows.length === 1 ? "y" : "ies"}`,
+        "The driver's own records, kept in STONEMILES. Receipts and paperwork files are attached to their entries in the app and download from there."
+      ];
+      return { csv: csvRows.join(`
+`), text: textLines.join(`
+`), entryCount: log.rows.length, totalCost };
+    }
+  }),
   exportMoneyFlow: defineAction({
     description: "Export claim events + load payments as plain text (claims ride load paperwork).",
     request: object({}),
@@ -44820,44 +53833,197 @@ ${args.question}`, { schema: answerSchema });
     request: object({
       kind: _enum(["pretrip", "posttrip"]),
       items: array(object({ item: string2().max(80), ok: boolean2() })).max(30),
-      defects: array(object({ item: string2().max(80), note: string2().max(300), critical: boolean2() })).max(20),
+      defects: array(object({
+        item: string2().max(80),
+        note: string2().max(300),
+        critical: boolean2(),
+        category: maintenanceLogCategory.nullable().optional(),
+        photoDataBase64: string2().max(8000000).nullable().optional(),
+        photoMime: string2().max(100).nullable().optional()
+      })).max(20),
       signedName: string2().min(1).max(80),
-      odometer: number2().nonnegative().max(1e7).nullable()
+      odometer: number2().nonnegative().max(1e7).nullable(),
+      lat: number2().min(-90).max(90).nullable().optional(),
+      lon: number2().min(-180).max(180).nullable().optional(),
+      safeToOperate: boolean2().nullable().optional()
     }),
-    response: object({ id: number2(), criticalDefect: boolean2() }),
+    response: object({ id: number2(), criticalDefect: boolean2(), draftEntryIds: array(number2()) }),
+    async handler(ctx, args) {
+      const r = await insertSignedDvir(ctx, args, { inspectedAt: new Date, offline: null });
+      ctx.invalidateQueries();
+      return { id: r.id, criticalDefect: r.criticalDefect, draftEntryIds: r.draftEntryIds };
+    }
+  }),
+  syncDvirCapture: defineAction({
+    description: "Sync one DVIR captured offline: files it at its captured signing time through the same insert path as a live save, flagged as an offline capture. Idempotent per capture id.",
+    request: object({
+      captureId: string2().min(1).max(80),
+      capturedAt: string2().max(40),
+      kind: _enum(["pretrip", "posttrip"]),
+      items: array(object({ item: string2().max(80), ok: boolean2() })).max(30),
+      defects: array(object({
+        item: string2().max(80),
+        note: string2().max(300),
+        critical: boolean2(),
+        category: maintenanceLogCategory.nullable().optional(),
+        photoDataBase64: string2().max(8000000).nullable().optional(),
+        photoMime: string2().max(100).nullable().optional()
+      })).max(20),
+      signedName: string2().min(1).max(80),
+      odometer: number2().nonnegative().max(1e7).nullable(),
+      lat: number2().min(-90).max(90).nullable().optional(),
+      lon: number2().min(-180).max(180).nullable().optional(),
+      safeToOperate: boolean2().nullable().optional()
+    }),
+    response: object({
+      status: _enum(["sealed", "refused"]),
+      id: number2().nullable(),
+      criticalDefect: boolean2(),
+      draftEntryIds: array(number2()),
+      hash: string2().nullable(),
+      duplicate: boolean2(),
+      error: string2().nullable()
+    }),
     async handler(ctx, args) {
       const db = ctx.db();
-      const critical = args.defects.some((d) => d.critical);
-      const res = await db.insert(dvirReports3).values({
-        inspectedAt: new Date,
-        kind: args.kind,
-        itemsJson: JSON.stringify(args.items),
-        defectsJson: JSON.stringify(args.defects),
-        signedName: args.signedName,
-        status: args.defects.length > 0 ? "defects_reported" : "signed",
-        odometer: args.odometer
-      }).returning({ id: dvirReports3.id });
-      const row = res[0];
-      if (!row)
-        throw new Error("saveDvir: insert returned no rows");
-      await appendChain(ctx, {
-        refKind: "driver",
-        refId: null,
-        sessionId: null,
-        event: "dvir_signed",
-        payload: { dvirId: row.id, kind: args.kind, items: args.items.length, defects: args.defects, criticalDefect: critical, signedName: args.signedName, odometer: args.odometer, at: new Date().toISOString() }
-      });
-      {
-        const me = await myUsername(ctx);
-        await awardDailyTask(ctx, {
+      const me = await myUsername(ctx);
+      const capturedMs = Date.parse(args.capturedAt);
+      if (Number.isNaN(capturedMs)) {
+        return { status: "refused", id: null, criticalDefect: false, draftEntryIds: [], hash: null, duplicate: false, error: "That capture's timestamp couldn't be read \u2014 it wasn't filed." };
+      }
+      const prior = await db.select().from(offlineCaptures3).where(and(eq(offlineCaptures3.username, me), eq(offlineCaptures3.captureId, args.captureId))).limit(1);
+      const priorRow = prior[0];
+      if (priorRow) {
+        let stored = {};
+        try {
+          stored = JSON.parse(priorRow.resultJson ?? "{}");
+        } catch {}
+        if (priorRow.chainHash && stored.id != null) {
+          return {
+            status: "sealed",
+            id: stored.id,
+            criticalDefect: stored.criticalDefect ?? false,
+            draftEntryIds: stored.draftEntryIds ?? [],
+            hash: priorRow.chainHash,
+            duplicate: true,
+            error: null
+          };
+        }
+        return {
+          status: "refused",
+          id: null,
+          criticalDefect: false,
+          draftEntryIds: [],
+          hash: null,
+          duplicate: true,
+          error: stored.error ?? "That capture was refused when it first synced."
+        };
+      }
+      const capturedAt = new Date(capturedMs);
+      try {
+        const r = await insertSignedDvir(ctx, {
+          kind: args.kind,
+          items: args.items,
+          defects: args.defects,
+          signedName: args.signedName,
+          odometer: args.odometer,
+          lat: args.lat,
+          lon: args.lon,
+          safeToOperate: args.safeToOperate
+        }, { inspectedAt: capturedAt, offline: { captureId: args.captureId, capturedAt: capturedAt.toISOString() } });
+        await db.insert(offlineCaptures3).values({
           username: me,
-          task: args.kind === "pretrip" ? "dvir" : "posttrip_dvir",
-          reason: args.kind === "pretrip" ? "Pre-trip DVIR signed" : "Post-trip DVIR signed",
-          refSuffix: `-dvir${row.id}`
+          captureId: args.captureId,
+          kind: "dvir",
+          chainHash: r.chainHash,
+          resultJson: JSON.stringify({ id: r.id, criticalDefect: r.criticalDefect, draftEntryIds: r.draftEntryIds }),
+          capturedAt,
+          syncedAt: new Date
+        });
+        ctx.invalidateQueries();
+        return {
+          status: "sealed",
+          id: r.id,
+          criticalDefect: r.criticalDefect,
+          draftEntryIds: r.draftEntryIds,
+          hash: r.chainHash,
+          duplicate: false,
+          error: null
+        };
+      } catch (e) {
+        const error = e instanceof Error ? e.message : "That DVIR couldn't be filed.";
+        if (!error.startsWith("saveDvir: the defect on"))
+          throw e;
+        await db.insert(offlineCaptures3).values({
+          username: me,
+          captureId: args.captureId,
+          kind: "dvir",
+          chainHash: null,
+          resultJson: JSON.stringify({ error }),
+          capturedAt,
+          syncedAt: new Date
+        });
+        return { status: "refused", id: null, criticalDefect: false, draftEntryIds: [], hash: null, duplicate: false, error };
+      }
+    }
+  }),
+  getOpenDvirDefects: defineAction({
+    description: "Open DVIR defects \u2014 signed defects whose maintenance repair is not closed yet.",
+    request: object({}),
+    response: object({
+      defects: array(object({
+        linkId: number2(),
+        dvirId: number2(),
+        kind: string2(),
+        at: string2(),
+        item: string2(),
+        note: string2(),
+        critical: boolean2(),
+        entryId: number2().nullable(),
+        entryStatus: string2().nullable()
+      }))
+    }),
+    async handler(ctx) {
+      const db = ctx.db();
+      const links = await db.select().from(dvirDefectLinks3).orderBy(desc(dvirDefectLinks3.id));
+      if (links.length === 0)
+        return { defects: [] };
+      const entries = await db.select().from(maintenanceLogEntries3);
+      const entryById = new Map(entries.map((e) => [e.id, e]));
+      const dvirs = await db.select().from(dvirReports3);
+      const dvirById = new Map(dvirs.map((d) => [d.id, d]));
+      const out = [];
+      for (const l of links) {
+        const entry = entryById.get(l.maintenanceEntryId);
+        if (entry && entry.status === "closed")
+          continue;
+        const dvir = dvirById.get(l.dvirId);
+        let note = "";
+        let critical = false;
+        if (dvir) {
+          try {
+            const defs = JSON.parse(dvir.defectsJson);
+            const match = defs.find((d) => d.item === l.item);
+            if (match) {
+              note = match.note;
+              critical = match.critical;
+            }
+          } catch {}
+        }
+        out.push({
+          linkId: l.id,
+          dvirId: l.dvirId,
+          kind: dvir?.kind ?? "pretrip",
+          at: (dvir?.inspectedAt ?? l.createdAt).toISOString(),
+          item: l.item,
+          note,
+          critical,
+          entryId: entry ? entry.id : null,
+          entryStatus: entry ? entry.status : null
         });
       }
-      ctx.invalidateQueries();
-      return { id: row.id, criticalDefect: critical };
+      out.sort((a, b) => Number(b.critical) - Number(a.critical) || b.dvirId - a.dvirId);
+      return { defects: out };
     }
   }),
   listDvirs: defineAction({
@@ -44872,7 +54038,11 @@ ${args.question}`, { schema: answerSchema });
         defects: array(object({ item: string2(), note: string2(), critical: boolean2() })),
         signedName: string2(),
         status: string2(),
-        odometer: number2().nullable()
+        odometer: number2().nullable(),
+        truckLabel: string2().nullable(),
+        trailerLabel: string2().nullable(),
+        safeToOperate: boolean2().nullable(),
+        hasLocation: boolean2()
       }))
     }),
     async handler(ctx, args) {
@@ -44892,7 +54062,7 @@ ${args.question}`, { schema: answerSchema });
           } catch {
             defects = [];
           }
-          return { id: r.id, inspectedAt: r.inspectedAt.toISOString(), kind: r.kind, items, defects, signedName: r.signedName, status: r.status, odometer: r.odometer };
+          return { id: r.id, inspectedAt: r.inspectedAt.toISOString(), kind: r.kind, items, defects, signedName: r.signedName, status: r.status, odometer: r.odometer, truckLabel: r.truckLabel ?? null, trailerLabel: r.trailerLabel ?? null, safeToOperate: r.safeToOperate ?? null, hasLocation: r.lat != null && r.lon != null };
         })
       };
     }
@@ -45360,6 +54530,7 @@ ${args.question}`, { schema: answerSchema });
         return { ok: false, id: null, error: GOLD_GATE_ERROR };
       }
       const db = ctx.db();
+      const me = await myUsername(ctx);
       const inserted = await db.insert(fuelPriceReports3).values({
         station: args.station,
         lat: args.lat,
@@ -45367,11 +54538,37 @@ ${args.question}`, { schema: answerSchema });
         state: args.state,
         price: args.price,
         reportedAt: new Date,
-        grade: REPORTED_PRICE_GRADE
+        grade: REPORTED_PRICE_GRADE,
+        reporter: me
       }).returning({ id: fuelPriceReports3.id });
       const row = inserted[0];
       if (!row)
         return { ok: false, id: null, error: "The report didn't save \u2014 try again." };
+      try {
+        const nowMs = Date.now();
+        const others = await db.select().from(fuelPriceReports3).where(gte(fuelPriceReports3.reportedAt, new Date(nowMs - LANE2_CORROBORATION_WINDOW_MS)));
+        const near = others.filter((r) => r.id !== row.id && r.reporter != null && r.reporter !== me && r.lat != null && r.lon != null && haversineMiServer(args.lat, args.lon, r.lat, r.lon) <= LANE2_CORROBORATION_RADIUS_MI);
+        const relations = near.map((r) => ({ row: r, rel: fuelRelation(args.price, r.price) }));
+        if (!relations.some((x) => x.rel === "contradicted")) {
+          const consistent = relations.filter((x) => x.rel === "consistent");
+          if (consistent.length > 0) {
+            await awardLane2Report(ctx, {
+              reporter: me,
+              source: LANE2_FUEL_SOURCE,
+              refKey: `lane2-fuel-${row.id}`,
+              reason: `Fuel price report matched by another driver (${args.station})`
+            });
+            for (const x of consistent) {
+              await awardLane2Report(ctx, {
+                reporter: x.row.reporter,
+                source: LANE2_FUEL_SOURCE,
+                refKey: `lane2-fuel-${x.row.id}`,
+                reason: `Fuel price report matched by another driver (${x.row.station})`
+              });
+            }
+          }
+        }
+      } catch {}
       await appendChain(ctx, {
         refKind: "fuel_price_report",
         refId: row.id,
@@ -46690,6 +55887,66 @@ ${args.question}`, { schema: answerSchema });
       return { ok: true, purged };
     }
   }),
+  publishFleetStatus: defineAction({
+    description: "Publish my fleet-visibility snapshot (current load, lane, stops, route end, ETA) for my fleet's desk.",
+    request: object({
+      loadId: number2().int().positive().nullable(),
+      stops: array(string2().max(120)).max(24).default([]),
+      routeLabel: string2().max(120).nullable().default(null),
+      endLat: number2().min(-90).max(90).nullable().default(null),
+      endLon: number2().min(-180).max(180).nullable().default(null),
+      etaAt: string2().max(40).nullable().default(null)
+    }),
+    response: object({ ok: boolean2(), error: string2().nullable(), hasActiveLoad: boolean2() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      let load = null;
+      if (args.loadId != null) {
+        const rows = await db.select().from(loads3).where(eq(loads3.id, args.loadId)).limit(1);
+        load = rows[0] ?? null;
+        if (!load)
+          return { ok: false, error: "That load isn't in your scope.", hasActiveLoad: false };
+        if (await deliveryConfirmationFor(ctx, load.id) != null)
+          load = null;
+      }
+      const etaParsed = args.etaAt ? new Date(args.etaAt) : null;
+      const etaAt = load ? etaParsed && !Number.isNaN(etaParsed.getTime()) ? etaParsed : load.dockApptAt ?? null : null;
+      const values = {
+        username: me,
+        loadId: load?.id ?? null,
+        loadStatus: load ? load.status : null,
+        pickupCity: load?.pickupCity ?? null,
+        pickupState: load?.pickupState ?? null,
+        deliveryCity: load?.deliveryCity ?? null,
+        deliveryState: load?.deliveryState ?? null,
+        stopsJson: JSON.stringify(cleanStops(args.stops)),
+        routeLabel: args.routeLabel?.trim() ? args.routeLabel.trim().slice(0, 120) : null,
+        endLat: load ? args.endLat : null,
+        endLon: load ? args.endLon : null,
+        etaAt,
+        publishedAt: new Date
+      };
+      await db.insert(driverFleetStatus3).values(values).onConflictDoUpdate({
+        target: driverFleetStatus3.username,
+        set: {
+          loadId: values.loadId,
+          loadStatus: values.loadStatus,
+          pickupCity: values.pickupCity,
+          pickupState: values.pickupState,
+          deliveryCity: values.deliveryCity,
+          deliveryState: values.deliveryState,
+          stopsJson: values.stopsJson,
+          routeLabel: values.routeLabel,
+          endLat: values.endLat,
+          endLon: values.endLon,
+          etaAt: values.etaAt,
+          publishedAt: values.publishedAt
+        }
+      });
+      return { ok: true, error: null, hasActiveLoad: load != null };
+    }
+  }),
   recordPerfEvent: defineAction({
     description: "Record perf event.",
     request: object({
@@ -46929,6 +56186,242 @@ ${args.question}`, { schema: answerSchema });
           takenBoard: taken.length,
           positionsLive: drivers.filter((d) => d.positionVisible).length
         }
+      };
+    }
+  }),
+  getFleetBoard: defineAction({
+    description: "Get fleet board.",
+    request: object({}),
+    response: object({
+      canView: boolean2(),
+      companyName: string2().nullable(),
+      cards: array(object({
+        username: string2(),
+        role: string2(),
+        displayName: string2().nullable(),
+        isMe: boolean2(),
+        truckLine: string2().nullable(),
+        hasActiveLoad: boolean2(),
+        loadId: number2().nullable(),
+        lane: string2().nullable(),
+        loadStatus: string2().nullable(),
+        loadStatusLabel: string2().nullable(),
+        stops: array(string2()),
+        routeEndLabel: string2().nullable(),
+        etaAt: string2().nullable(),
+        snapshotAt: string2().nullable(),
+        positionVisible: boolean2(),
+        positionLabel: string2(),
+        lat: number2().nullable(),
+        lon: number2().nullable(),
+        positionAt: string2().nullable(),
+        positionFreshness: string2().nullable()
+      }))
+    }),
+    async handler(ctx) {
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const mine = await myMembership(ctx, me);
+      if (!mine || mine.role !== "owner" && mine.role !== "dispatch") {
+        return { canView: false, companyName: null, cards: [] };
+      }
+      const members = await db.select().from(companyMembers3).where(eq(companyMembers3.companyId, mine.company.id));
+      const duty = await dutyPicture(ctx);
+      const positions = await db.select().from(driverPositions3);
+      const boardRows = await db.select().from(boardLoads3).where(eq(boardLoads3.companyId, mine.company.id));
+      const taken = boardRows.filter((b) => b.status === "taken");
+      const now = new Date;
+      const cards = [];
+      for (const m of members) {
+        if (m.role === "dispatch")
+          continue;
+        const isMe = m.username === me;
+        const profile = (await db.select().from(profile3).where(eq(profile3.socialUsername, m.username)).limit(1))[0];
+        const social = (await db.select().from(socialUsers3).where(eq(socialUsers3.username, m.username)).limit(1))[0];
+        let truckLine = null;
+        if (profile) {
+          const rig = [profile.truckYear, profile.truckMake, profile.truckModel].filter(Boolean).join(" ");
+          const unit = profile.truckUnitNumber ? `Unit ${profile.truckUnitNumber}` : "";
+          truckLine = [rig, unit].filter(Boolean).join(" \xB7 ") || null;
+        }
+        const snap = await fleetStatusFor(ctx, m.username);
+        const snapActive = await snapshotActiveLoad(ctx, snap);
+        let hasActiveLoad = false;
+        let loadId = null;
+        let lane = null;
+        let loadStatus = null;
+        let loadStatusLabel = null;
+        let stops = [];
+        let routeEndLabel = null;
+        let etaAt = null;
+        let snapshotAt = null;
+        if (snap && snapActive) {
+          hasActiveLoad = true;
+          loadId = snap.loadId;
+          lane = laneLabel(snap.pickupCity, snap.pickupState, snap.deliveryCity, snap.deliveryState);
+          loadStatus = snap.loadStatus;
+          loadStatusLabel = plainLoadStatus(snap.loadStatus);
+          stops = snapshotStops(snap);
+          routeEndLabel = [snap.deliveryCity, snap.deliveryState].filter(Boolean).join(", ") || null;
+          etaAt = snap.etaAt?.toISOString() ?? null;
+          snapshotAt = snap.publishedAt.toISOString();
+        } else {
+          const board = taken.find((b) => b.claimedBy === m.username) ?? null;
+          if (board) {
+            hasActiveLoad = true;
+            loadId = board.loadId ?? null;
+            lane = laneLabel(board.pickupCity, board.pickupState, board.deliveryCity, board.deliveryState);
+            loadStatusLabel = "Accepted \u2014 on a company load";
+            routeEndLabel = [board.deliveryCity, board.deliveryState].filter(Boolean).join(", ") || null;
+            etaAt = board.deliveryApptAt?.toISOString() ?? null;
+          }
+        }
+        const pos = positions.find((p) => p.username === m.username) ?? null;
+        const gate = fleetPositionGate({
+          isMe,
+          duty,
+          snapshotActive: snapActive,
+          snapshotFresh: snapshotFreshFor(snap?.publishedAt ?? null, now),
+          hasPos: pos != null
+        });
+        cards.push({
+          username: m.username,
+          role: m.role,
+          displayName: social?.displayName ?? null,
+          isMe,
+          truckLine,
+          hasActiveLoad,
+          loadId,
+          lane,
+          loadStatus,
+          loadStatusLabel,
+          stops,
+          routeEndLabel,
+          etaAt,
+          snapshotAt,
+          positionVisible: gate.visible,
+          positionLabel: gate.label,
+          lat: gate.visible && pos ? pos.lat : null,
+          lon: gate.visible && pos ? pos.lon : null,
+          positionAt: gate.visible && pos ? pos.updatedAt.toISOString() : null,
+          positionFreshness: gate.visible && pos ? freshnessFor(pos.updatedAt, now).label : null
+        });
+      }
+      cards.sort((a, b) => a.hasActiveLoad === b.hasActiveLoad ? a.username.localeCompare(b.username) : a.hasActiveLoad ? -1 : 1);
+      return { canView: true, companyName: mine.company.name, cards };
+    }
+  }),
+  getAssignCandidates: defineAction({
+    description: "Rank this company's drivers by deadhead for assigning a board load.",
+    request: object({
+      boardLoadId: number2().int().positive(),
+      pickupLat: number2().min(-90).max(90).nullable().default(null),
+      pickupLon: number2().min(-180).max(180).nullable().default(null)
+    }),
+    response: object({
+      ok: boolean2(),
+      error: string2().nullable(),
+      lane: string2().nullable(),
+      pickupLabel: string2().nullable(),
+      rankedByDeadhead: boolean2(),
+      candidates: array(object({
+        username: string2(),
+        displayName: string2().nullable(),
+        role: string2(),
+        hasActiveLoad: boolean2(),
+        currentLane: string2().nullable(),
+        currentStatusLabel: string2().nullable(),
+        routeEndLabel: string2().nullable(),
+        etaAt: string2().nullable(),
+        deadheadNowMi: number2().nullable(),
+        deadheadEndMi: number2().nullable(),
+        effectiveMi: number2().nullable(),
+        basis: string2(),
+        basisLabel: string2(),
+        positionFreshness: string2().nullable()
+      }))
+    }),
+    async handler(ctx, args) {
+      const fail = { ok: false, error: null, lane: null, pickupLabel: null, rankedByDeadhead: false, candidates: [] };
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const mine = await myMembership(ctx, me);
+      if (!mine || mine.role !== "owner" && mine.role !== "dispatch")
+        return { ...fail, error: "Only the owner or dispatch can rank trucks for an assignment." };
+      const rows = await db.select().from(boardLoads3).where(eq(boardLoads3.id, args.boardLoadId)).limit(1);
+      const row = rows[0];
+      if (!row || row.companyId !== mine.company.id)
+        return { ...fail, error: "That load isn't on your company's board." };
+      if (row.status === "taken")
+        return { ...fail, error: `Already taken by @${row.claimedBy} \u2014 unassign it back to the board first if it needs a different driver.` };
+      if (row.status !== "open" && row.status !== "assigned")
+        return { ...fail, error: "That load isn't in a state that takes an assignment." };
+      const members = await db.select().from(companyMembers3).where(eq(companyMembers3.companyId, mine.company.id));
+      const duty = await dutyPicture(ctx);
+      const positions = await db.select().from(driverPositions3);
+      const taken = await db.select().from(boardLoads3).where(and(eq(boardLoads3.companyId, mine.company.id), eq(boardLoads3.status, "taken")));
+      const now = new Date;
+      const inputs = [];
+      const facts = new Map;
+      for (const m of members) {
+        if (m.role === "dispatch")
+          continue;
+        const social = (await db.select().from(socialUsers3).where(eq(socialUsers3.username, m.username)).limit(1))[0];
+        const snap = await fleetStatusFor(ctx, m.username);
+        const snapActive = await snapshotActiveLoad(ctx, snap);
+        const board = taken.find((b) => b.claimedBy === m.username) ?? null;
+        const hasActiveLoad = snapActive || board != null;
+        const pos = positions.find((p) => p.username === m.username) ?? null;
+        const gate = fleetPositionGate({
+          isMe: m.username === me,
+          duty,
+          snapshotActive: snapActive,
+          snapshotFresh: snapshotFreshFor(snap?.publishedAt ?? null, now),
+          hasPos: pos != null
+        });
+        inputs.push({
+          username: m.username,
+          currentPos: gate.visible && pos ? { lat: pos.lat, lon: pos.lon } : null,
+          routeEnd: snapActive && snap && snap.endLat != null && snap.endLon != null ? { lat: snap.endLat, lon: snap.endLon } : null,
+          hasActiveLoad
+        });
+        facts.set(m.username, {
+          displayName: social?.displayName ?? null,
+          role: m.role,
+          currentLane: snapActive && snap ? laneLabel(snap.pickupCity, snap.pickupState, snap.deliveryCity, snap.deliveryState) : board ? laneLabel(board.pickupCity, board.pickupState, board.deliveryCity, board.deliveryState) : null,
+          currentStatusLabel: snapActive && snap ? plainLoadStatus(snap.loadStatus) : board ? "Accepted \u2014 on a company load" : "Empty \u2014 no current load",
+          routeEndLabel: snapActive && snap ? [snap.deliveryCity, snap.deliveryState].filter(Boolean).join(", ") || null : board ? [board.deliveryCity, board.deliveryState].filter(Boolean).join(", ") || null : null,
+          etaAt: snapActive && snap ? snap.etaAt?.toISOString() ?? null : board?.deliveryApptAt?.toISOString() ?? null,
+          positionFreshness: gate.visible && pos ? freshnessFor(pos.updatedAt, now).label : null
+        });
+      }
+      const pickup = args.pickupLat != null && args.pickupLon != null ? { lat: args.pickupLat, lon: args.pickupLon } : null;
+      const ranked = rankAssignCandidates(inputs, pickup);
+      return {
+        ok: true,
+        error: null,
+        lane: laneLabel(row.pickupCity, row.pickupState, row.deliveryCity, row.deliveryState),
+        pickupLabel: [row.pickupCity, row.pickupState].filter(Boolean).join(", ") || null,
+        rankedByDeadhead: pickup != null,
+        candidates: ranked.map((c) => {
+          const f = facts.get(c.username);
+          return {
+            username: c.username,
+            displayName: f.displayName,
+            role: f.role,
+            hasActiveLoad: c.hasActiveLoad,
+            currentLane: f.currentLane,
+            currentStatusLabel: f.currentStatusLabel,
+            routeEndLabel: f.routeEndLabel,
+            etaAt: f.etaAt,
+            deadheadNowMi: c.deadheadNowMi,
+            deadheadEndMi: c.deadheadEndMi,
+            effectiveMi: c.effectiveMi,
+            basis: c.basis,
+            basisLabel: c.basisLabel,
+            positionFreshness: f.positionFreshness
+          };
+        })
       };
     }
   }),
@@ -48114,6 +57607,8 @@ ${args.question}`, { schema: answerSchema });
         return { ok: false, error: "That load isn't on your fleet's board.", openBoardLoadId: null };
       if (row.status === "overflowed")
         return { ok: false, error: "That load is already out on the Open Board \u2014 recall it from here if it needs to come back.", openBoardLoadId: null };
+      if (row.status === "assigned")
+        return { ok: false, error: `Only an open load can move to the Open Board \u2014 this one is assigned to @${row.claimedBy ?? "a driver"} and waiting on their answer. Cancel the assignment back to open first.`, openBoardLoadId: null };
       if (row.status !== "open")
         return { ok: false, error: "Only an open load can move to the Open Board \u2014 this one is already taken by a driver.", openBoardLoadId: null };
       const now = new Date;
@@ -48422,7 +57917,8 @@ ${args.question}`, { schema: answerSchema });
       defaultCommodity: string2().max(200).nullable().default(null),
       defaultFreightClass: string2().max(40).nullable().default(null),
       defaultContactName: string2().max(120).nullable().default(null),
-      defaultContactPhone: string2().max(40).nullable().default(null)
+      defaultContactPhone: string2().max(40).nullable().default(null),
+      referralCode: string2().max(40).nullable().default(null)
     }),
     response: object({ ok: boolean2(), error: string2().nullable(), id: number2().nullable() }),
     async handler(ctx, args) {
@@ -48453,12 +57949,18 @@ ${args.question}`, { schema: answerSchema });
       const id = ins[0]?.id ?? null;
       if (id == null)
         throw new Error("createShipperAccount: insert returned no rows");
+      const referredBy = await recordPosterReferral(ctx, {
+        referralCode: args.referralCode,
+        kind: "shipper",
+        accountId: id,
+        deskUsername: desk.me
+      });
       await appendChain(ctx, {
         refKind: "driver",
         refId: null,
         sessionId: null,
         event: "shipper_account_created",
-        payload: { shipperId: id, name, email: args.email.trim(), linkedUsername: clean(args.linkedUsername), isDemo: args.isDemo, companyId: desk.membership.company.id, by: desk.me, at: new Date().toISOString() }
+        payload: { shipperId: id, name, email: args.email.trim(), linkedUsername: clean(args.linkedUsername), isDemo: args.isDemo, companyId: desk.membership.company.id, by: desk.me, referredBy, at: new Date().toISOString() }
       });
       ctx.invalidateQueries();
       return { ok: true, error: null, id };
@@ -48982,7 +58484,8 @@ ${args.question}`, { schema: answerSchema });
       defaultCommodity: string2().max(200).nullable().default(null),
       defaultFreightClass: string2().max(40).nullable().default(null),
       defaultContactName: string2().max(120).nullable().default(null),
-      defaultContactPhone: string2().max(40).nullable().default(null)
+      defaultContactPhone: string2().max(40).nullable().default(null),
+      referralCode: string2().max(40).nullable().default(null)
     }),
     response: object({ ok: boolean2(), error: string2().nullable(), id: number2().nullable() }),
     async handler(ctx, args) {
@@ -49018,12 +58521,18 @@ ${args.question}`, { schema: answerSchema });
       const id = ins[0]?.id ?? null;
       if (id == null)
         throw new Error("createBrokerAccount: insert returned no rows");
+      const referredBy = await recordPosterReferral(ctx, {
+        referralCode: args.referralCode,
+        kind: "broker",
+        accountId: id,
+        deskUsername: desk.me
+      });
       await appendChain(ctx, {
         refKind: "driver",
         refId: null,
         sessionId: null,
         event: "broker_account_created",
-        payload: { brokerId: id, name, email: args.email.trim(), brokerMc: clean(args.brokerMc), linkedUsername: clean(args.linkedUsername), isDemo: args.isDemo, companyId: desk.membership.company.id, by: desk.me, at: new Date().toISOString() }
+        payload: { brokerId: id, name, email: args.email.trim(), brokerMc: clean(args.brokerMc), linkedUsername: clean(args.linkedUsername), isDemo: args.isDemo, companyId: desk.membership.company.id, by: desk.me, referredBy, at: new Date().toISOString() }
       });
       ctx.invalidateQueries();
       return { ok: true, error: null, id };

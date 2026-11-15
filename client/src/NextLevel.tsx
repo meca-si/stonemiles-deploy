@@ -15,6 +15,16 @@ import { t as tt, type Lang } from "./i18n";
 import { qrGrid } from "./qrcode";
 import { apptBehaviourLabel, groupVisitsByFacility } from "./extras";
 import { ensureStepUp } from "./SecurityPack";
+import {
+  OFFLINE_BADGE,
+  OFFLINE_CAPTURED_LINE,
+  OFFLINE_CAPTURES_EVENT,
+  enqueueCapture,
+  loadCaptures,
+  newCaptureId,
+  pendingDvirCaptures,
+  type OfflineCapture,
+} from "./offlineCapture";
 
 // ---------- shared bits ------------------------------------------------------
 
@@ -2916,6 +2926,16 @@ export function DvirPanel({ setBanner, focus, lang = "en" }: { setBanner: Banner
   const [started, setStarted] = useState<{ kind: DvirKind; at: string; dutyStamped: boolean } | null>(null);
   const list = useQuery({ queryKey: ["dvirs"], queryFn: () => api.listDvirs({ limit: 20 }) });
   const openDefects = useQuery({ queryKey: ["dvir-open-defects"], queryFn: () => api.getOpenDvirDefects({}) });
+  // Offline captures (queue item 7): DVIRs signed with no signal sit
+  // in the device queue, badged below as not-yet-sealed, until the
+  // App's flush seals them on reconnect.
+  const [captures, setCaptures] = useState<OfflineCapture[]>(() => loadCaptures());
+  useEffect(() => {
+    const refresh = () => setCaptures(loadCaptures());
+    window.addEventListener(OFFLINE_CAPTURES_EVENT, refresh);
+    return () => window.removeEventListener(OFFLINE_CAPTURES_EVENT, refresh);
+  }, []);
+  const pendingDvirs = pendingDvirCaptures(captures);
   const criticalItems = new Set(["Tires & wheels", "Brakes", "Trailer brakes & lights", "Lights & reflectors", "Coupling (fifth wheel / kingpin)", "Load securement"]);
   const defectMissingNote = DVIR_ITEMS.some((i) => checks[i] === false && !(defectNotes[i] ?? "").trim());
   // A Today-tab checklist button lands here with a kind picked: switch
@@ -3065,8 +3085,12 @@ export function DvirPanel({ setBanner, focus, lang = "en" }: { setBanner: Banner
             photoMime: defectPhotos[i]?.mime ?? null,
           }));
           const safeToOperate = defects.length === 0 ? true : attestSafe;
+          let gpsFix: { lat: number | null; lon: number | null } = { lat: null, lon: null };
           void gpsOnce()
-            .then(({ lat, lon }) => api.saveDvir({ kind, items, defects, signedName: signName.trim(), odometer: odometer ? parseFloat(odometer) : null, lat, lon, safeToOperate }))
+            .then(({ lat, lon }) => {
+              gpsFix = { lat, lon };
+              return api.saveDvir({ kind, items, defects, signedName: signName.trim(), odometer: odometer ? parseFloat(odometer) : null, lat, lon, safeToOperate });
+            })
             .then((r) => {
               const pts = kind === "pretrip" ? " +50 SM Points for the day." : " +25 SM Points for the day.";
               const drafts = r.draftEntryIds.length > 0 ? ` ${r.draftEntryIds.length} repair draft${r.draftEntryIds.length === 1 ? "" : "s"} went into your maintenance log — confirm them there; a defect stays open until you close its repair.` : "";
@@ -3081,12 +3105,53 @@ export function DvirPanel({ setBanner, focus, lang = "en" }: { setBanner: Banner
               setAttestSafe(false);
               setStarted(null);
             })
-            .catch(() => setBanner("Couldn't save the DVIR — try again."))
+            .catch(() => {
+              // Offline (queue item 7): the signed inspection is
+              // captured on this device with the moment it was
+              // signed — never lost, never dressed as sealed — and
+              // the App's flush files it through syncDvirCapture on
+              // reconnect. The form resets like a save: the record
+              // exists, on this device, badged below.
+              enqueueCapture({
+                captureId: newCaptureId(),
+                kind: "dvir",
+                capturedAt: new Date().toISOString(),
+                dvirKind: kind,
+                items,
+                defects,
+                signedName: signName.trim(),
+                odometer: odometer ? parseFloat(odometer) : null,
+                lat: gpsFix.lat,
+                lon: gpsFix.lon,
+                safeToOperate,
+              });
+              setBanner(`📴 No connection — this ${kind === "pretrip" ? "pre-trip" : "post-trip"} DVIR is captured on this device and will seal on reconnect. It is NOT sealed yet.`);
+              setChecks({});
+              setDefectNotes({});
+              setDefectPhotos({});
+              setAttestSafe(false);
+              setStarted(null);
+            })
             .finally(() => setBusy(false));
         }}
       >
         {busy ? "Sealing…" : kind === "pretrip" ? "✍️ Sign & seal pre-trip DVIR" : "✍️ Sign & seal post-trip DVIR"}
       </button>
+      {pendingDvirs.length > 0 && (
+        <div className="mt-3 space-y-1.5" aria-label="DVIRs captured offline — waiting to seal">
+          {pendingDvirs.map((c) => (
+            <div key={c.captureId} className="rounded-xl border border-amber-300/50 bg-[var(--surface2)] px-3 py-2 text-sm">
+              <strong>{c.dvirKind === "pretrip" ? "Pretrip" : "Post-trip"} DVIR</strong> · captured {new Date(c.capturedAt).toLocaleString()} · signed {c.signedName}
+              <span className="block text-xs font-semibold text-amber-300">📴 {OFFLINE_BADGE} — {OFFLINE_CAPTURED_LINE}</span>
+              {c.defects.length > 0 ? (
+                <span className="block text-xs font-semibold text-red-300">Defects: {c.defects.map((d) => `${d.item}${d.critical ? " 🚨" : ""}`).join(" · ")}</span>
+              ) : (
+                <span className="block text-xs text-emerald-300">All {c.items.length} systems OK</span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
       <div className="mt-3 space-y-1.5">
         {(list.data?.reports ?? []).slice(0, 6).map((r) => (
           <div key={r.id} className="rounded-xl bg-[var(--surface2)] px-3 py-2 text-sm">

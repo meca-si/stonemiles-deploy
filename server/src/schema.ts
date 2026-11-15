@@ -187,6 +187,9 @@ export const loadInvoices = impl.loadInvoices;
 export const dvirDefectLinks = impl.dvirDefectLinks;
 export const detentionRecords = impl.detentionRecords;
 export const breakdownLogs = impl.breakdownLogs;
+export const offlineCaptures = impl.offlineCaptures;
+export const notifications = impl.notifications;
+export const pushDevices = impl.pushDevices;
 
 // Auth (Phase 2b, added at the Phase 2 merge): account + session tables.
 export const accounts = impl.accounts;

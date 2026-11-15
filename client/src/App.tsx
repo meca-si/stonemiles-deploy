@@ -183,6 +183,21 @@ import { LoadTrailerSection, TrailerToolsPanel, WindAdvisoryBanner } from "./Tra
 import { TOOL_GROUPS, type ToolItem } from "./toolDirectory";
 import { asLang, destForLocalizedQuery, destLabel, localeFor, pairText, t as tt, type Lang } from "./i18n";
 import { BusinessProfilePanel, MoneyFlowHub } from "./MoneyFlow";
+import {
+  OFFLINE_BADGE,
+  OFFLINE_CAPTURED_LINE,
+  OFFLINE_CAPTURES_EVENT,
+  enqueueCapture,
+  loadActiveLoadSnapshot,
+  loadCaptures,
+  mergePendingDutyEvents,
+  newCaptureId,
+  pendingDutyCaptures,
+  removeCapture,
+  saveActiveLoadSnapshot,
+  type OfflineCapture,
+} from "./offlineCapture";
+import { NotificationsPanel } from "./NotificationsPanel";
 import { docAlertCount, docAlertTier, mostUrgentDoc, truckSummaryLine } from "./moneyMath";
 import { fmtHeightIn as fmtTrailerHeightIn, heightInUse as trailerHeightInUse, type TrailerType } from "./trailer";
 import { PermitsPanel, PermitPlacardChips } from "./PermitsPanel";
@@ -2123,6 +2138,14 @@ export function App() {
     queryKey: ["loads"],
     queryFn: () => api.listLoads({ limit: 50 }),
   });
+  // Notification center (queue item 9): the unread count badges the
+  // More dock button; the panel itself (More tab) reads the same
+  // cached query. In-app only — no email is ever sent for these.
+  const notificationsQuery = useQuery({
+    queryKey: ["notifications"],
+    queryFn: () => api.getNotifications({ limit: 50 }),
+    refetchInterval: 60_000,
+  });
   // Money & Flow batch (2026-11-06): the Driver-tab expiry badge and
   // Ask Meca's live answers read the same cached queries the panels
   // use — owed board, document wallet, maintenance, and the current
@@ -2600,13 +2623,105 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ---- Offline captures (queue item 7): duty changes and signed
+  // DVIRs made with no signal wait in the device queue
+  // (offlineCapture.ts), badged as not-yet-sealed everywhere they
+  // show. This flush seals them — in capture order, through the
+  // idempotent sync actions — whenever the queue changes or the
+  // connection returns, then verifies against the chain like every
+  // other surface (the ["chain-status"] invalidation below). A
+  // capture only leaves the queue when the server confirms its
+  // seal (or records a terminal refusal, which is surfaced once).
+  const [pendingCaptures, setPendingCaptures] = useState<OfflineCapture[]>(() => loadCaptures());
+  useEffect(() => {
+    const refresh = () => setPendingCaptures(loadCaptures());
+    window.addEventListener(OFFLINE_CAPTURES_EVENT, refresh);
+    return () => window.removeEventListener(OFFLINE_CAPTURES_EVENT, refresh);
+  }, []);
+  const captureFlushBusyRef = useRef(false);
+  useEffect(() => {
+    const flushCaptures = async () => {
+      if (captureFlushBusyRef.current) return;
+      const list = loadCaptures();
+      if (list.length === 0) return;
+      captureFlushBusyRef.current = true;
+      let sealed = 0;
+      let refusedMsg: string | null = null;
+      try {
+        for (const c of list) {
+          try {
+            if (c.kind === "duty") {
+              const r = await api.syncDutyCapture({
+                captureId: c.captureId,
+                state: c.state,
+                locationLabel: c.locationLabel,
+                source: c.source,
+                autoStage: c.autoStage,
+                stillSince: c.stillSince,
+                capturedAt: c.capturedAt,
+              });
+              removeCapture(c.captureId);
+              if (r.status === "sealed") sealed++;
+              else if (!refusedMsg) refusedMsg = r.error;
+            } else {
+              const r = await api.syncDvirCapture({
+                captureId: c.captureId,
+                capturedAt: c.capturedAt,
+                kind: c.dvirKind,
+                items: c.items,
+                defects: c.defects,
+                signedName: c.signedName,
+                odometer: c.odometer,
+                lat: c.lat,
+                lon: c.lon,
+                safeToOperate: c.safeToOperate,
+              });
+              removeCapture(c.captureId);
+              if (r.status === "sealed") sealed++;
+              else if (!refusedMsg) refusedMsg = r.error;
+            }
+          } catch {
+            // Still offline (or the response was lost) — the rest of
+            // the queue waits for the next reconnect; the server's
+            // per-capture dedupe makes the retry safe.
+            break;
+          }
+        }
+      } finally {
+        captureFlushBusyRef.current = false;
+      }
+      setPendingCaptures(loadCaptures());
+      if (sealed > 0) {
+        queryClient.invalidateQueries({ queryKey: ["duty"] });
+        queryClient.invalidateQueries({ queryKey: ["dvirs"] });
+        queryClient.invalidateQueries({ queryKey: ["dvir-open-defects"] });
+        queryClient.invalidateQueries({ queryKey: ["maintenance-log"] });
+        queryClient.invalidateQueries({ queryKey: ["points"] });
+        queryClient.invalidateQueries({ queryKey: ["chain-status"] });
+        setBanner(`Back online — ${sealed} offline capture${sealed === 1 ? "" : "s"} sealed into the record.`);
+      } else if (refusedMsg) {
+        setBanner(refusedMsg);
+      }
+    };
+    void flushCaptures();
+    const onOnline = () => void flushCaptures();
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingCaptures]);
+
   const [hosNow, setHosNow] = useState(() => Date.now());
   useEffect(() => {
     const t = setInterval(() => setHosNow(Date.now()), 30000);
     return () => clearInterval(t);
   }, []);
-  const hos = computeHos(dutyQuery.data?.events ?? [], hosNow);
-  const dutyEvents = dutyQuery.data?.events ?? [];
+  // The HOS clocks run on the sealed timeline MERGED with any
+  // pending offline duty captures (flagged in the merge), so the
+  // driver's real status drives the clocks with no signal — the
+  // pending entries are badged wherever they're listed, and the
+  // sealed record itself only ever comes from the server.
+  const dutyEvents = mergePendingDutyEvents(dutyQuery.data?.events ?? [], pendingDutyCaptures(pendingCaptures));
+  const hos = computeHos(dutyEvents, hosNow);
   const currentDutyState = dutyEvents.length > 0 ? (dutyEvents[dutyEvents.length - 1]?.state ?? null) : null;
   // Duty change from the buttons mounted on the clocks (Today rings, Drive
   // clocks) — the exact write the Driver panel makes: the driver's own tap,
@@ -2623,7 +2738,24 @@ export function App() {
         queryClient.invalidateQueries({ queryKey: ["duty"] });
         setBanner(`Duty status: ${dutyLabel(state)} — set by you, stamped into the sealed log.`);
       })
-      .catch(() => setBanner("That duty change didn't save — check your connection and tap again."));
+      .catch(() => {
+        // Offline (queue item 7): the tap is captured on this device
+        // with the moment it happened and seals on reconnect — the
+        // clocks already run on it through the pending merge, and
+        // every surface badges it as not-yet-sealed until the server
+        // confirms. The old "didn't save" dead end is gone.
+        enqueueCapture({
+          captureId: newCaptureId(),
+          kind: "duty",
+          capturedAt: new Date().toISOString(),
+          state,
+          locationLabel,
+          source: "manual",
+          autoStage: null,
+          stillSince: null,
+        });
+        setBanner(`📴 No connection — duty status ${dutyLabel(state)} captured on this device. ${OFFLINE_CAPTURED_LINE}`);
+      });
   };
   // ---- HOS auto-swap (x's rule, 2026-10-24) -------------------------------
   // The ONE automatic duty change, and the standing exception to the
@@ -2681,8 +2813,27 @@ export function App() {
           aiLog("HOS auto-swap", msg);
         })
         .catch(() => {
-          // The swap didn't seal — allow a later check to retry the stage.
-          if (hosStillRef.current) hosStillRef.current = { since: hosStillRef.current.since, stage: stageNo - 1 };
+          if (!navigator.onLine) {
+            // Offline (queue item 7): capture the swap on-device with
+            // its stage + stillness stamp — it seals on reconnect,
+            // flagged as an offline capture. The stage stays advanced:
+            // the capture IS the swap now, and the pending merge
+            // already runs the clocks on it.
+            enqueueCapture({
+              captureId: newCaptureId(),
+              kind: "duty",
+              capturedAt: new Date().toISOString(),
+              state,
+              locationLabel,
+              source: "auto_no_movement",
+              autoStage: stage,
+              stillSince: stillSinceIso,
+            });
+            aiLog("HOS auto-swap (offline capture)", `Auto-swap to ${state} captured on-device at the ${stage} stage — will seal on reconnect.`);
+          } else {
+            // The swap didn't seal — allow a later check to retry the stage.
+            if (hosStillRef.current) hosStillRef.current = { since: hosStillRef.current.since, stage: stageNo - 1 };
+          }
         })
         .finally(() => {
           hosAutoBusyRef.current = false;
@@ -6422,6 +6573,36 @@ export function App() {
     }
   }, [loadsQuery.data, activeLoadId]);
 
+  // Offline mode (queue item 7): persist the active load's last
+  // known details whenever the loads query lands, so with no signal
+  // the driver still sees the load they're running — rendered from
+  // this snapshot under the offline badge, never as live state.
+  useEffect(() => {
+    const loads = loadsQuery.data?.loads;
+    if (!loads) return;
+    const active =
+      loads.find((l) => l.id === activeLoadId && !l.podSealed) ??
+      loads.find((l) => l.status === "picked_up" && !l.podSealed) ??
+      null;
+    saveActiveLoadSnapshot(
+      active
+        ? {
+            id: active.id,
+            status: active.status,
+            shipper: active.shipper ?? null,
+            brokerName: active.brokerName ?? null,
+            pickupCity: active.pickupCity ?? null,
+            pickupState: active.pickupState ?? null,
+            deliveryCity: active.deliveryCity ?? null,
+            deliveryState: active.deliveryState ?? null,
+            weightLbs: active.weightLbs ?? null,
+            hazmat: active.hazmat ?? false,
+            podSealed: active.podSealed ?? false,
+          }
+        : null,
+    );
+  }, [loadsQuery.data, activeLoadId]);
+
   // Load tracker: automatic status transitions from GPS signals. Every
   // transition is written into the sealed log with the signal that fired.
   const trackerTick = (p: LatLon, mph: number | null) => {
@@ -8819,7 +9000,21 @@ export function App() {
       void api
         .setDuty({ state: choice, locationLabel: locLabel })
         .then(() => queryClient.invalidateQueries({ queryKey: ["duty"] }))
-        .catch(() => undefined);
+        .catch(() => {
+          // Offline (queue item 7): the driver's prompt answer is a
+          // duty change like any other — capture it on-device rather
+          // than dropping it silently; it seals on reconnect.
+          enqueueCapture({
+            captureId: newCaptureId(),
+            kind: "duty",
+            capturedAt: at,
+            state: choice,
+            locationLabel: locLabel,
+            source: "manual",
+            autoStage: null,
+            stillSince: null,
+          });
+        });
       t.dutyNote =
         choice === "driving"
           ? "Duty prompt at 1-mile auto-start: driver chose Drive — duty status set to Driving by the driver."
@@ -13393,6 +13588,40 @@ export function App() {
   // changes; no restart.
   const lang: Lang = asLang(appSettings.language);
   const tr = (en: string, esT: string): string => pairText(lang, en, esT);
+
+  // Offline active-load card (queue item 7): the active load's last
+  // known details from the device snapshot, shown only when live
+  // data can't be reached — badged offline and stamped with the
+  // moment it was saved, never dressed as live state.
+  const offlineLoadSnap = !isOnline || loadsQuery.isError ? loadActiveLoadSnapshot() : null;
+  const offlineLoadCard = offlineLoadSnap ? (
+    <section className="rounded-2xl border border-amber-300/50 bg-[var(--surface)] p-3.5" aria-label="Active load — last known details while offline">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="font-condensed text-lg font-bold">📦 Load #{offlineLoadSnap.load.id} — active load</h3>
+        <span className="shrink-0 rounded-full bg-amber-900/60 px-2 py-0.5 text-[11px] font-bold text-amber-200">📴 {OFFLINE_BADGE}</span>
+      </div>
+      <p className="mt-1 font-semibold">
+        {offlineLoadSnap.load.pickupCity ?? "?"}
+        {offlineLoadSnap.load.pickupState ? `, ${offlineLoadSnap.load.pickupState}` : ""} → {offlineLoadSnap.load.deliveryCity ?? "?"}
+        {offlineLoadSnap.load.deliveryState ? `, ${offlineLoadSnap.load.deliveryState}` : ""}
+      </p>
+      <p className="text-xs leading-relaxed text-[var(--dim)]">
+        {[
+          offlineLoadSnap.load.shipper,
+          offlineLoadSnap.load.brokerName,
+          `Status: ${offlineLoadSnap.load.status.replace(/_/g, " ")}`,
+          offlineLoadSnap.load.weightLbs != null ? `${offlineLoadSnap.load.weightLbs.toLocaleString()} lb` : null,
+          offlineLoadSnap.load.hazmat ? "HAZMAT" : null,
+        ]
+          .filter(Boolean)
+          .join(" · ")}
+      </p>
+      <p className="mt-1 text-[11px] leading-relaxed text-[var(--dim)]">
+        Last known — saved {new Date(offlineLoadSnap.savedAt).toLocaleString()}. Details refresh when your
+        connection returns; anything you capture meanwhile seals then too.
+      </p>
+    </section>
+  ) : null;
   const [lastDebrief, setLastDebrief] = useState<string | null>(null);
   const [multiStops, setMultiStops] = useState<string[]>(() => {
     try { const v = JSON.parse(localStorage.getItem("tgps-stops") ?? "[]") as unknown; return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []; } catch { return []; }
@@ -13550,6 +13779,21 @@ export function App() {
             <button type="button" className="btn-press shrink-0 font-bold underline" onClick={() => setBanner(null)} aria-label="Dismiss message">
               OK
             </button>
+          </div>
+        </div>
+      )}
+      {/* Offline status bar (queue item 7): whenever the device is
+          offline — or captures are still waiting to seal — the state
+          is on screen in plain words. Captured is never "sealed"
+          until the server confirms it. */}
+      {(!isOnline || pendingCaptures.length > 0) && (
+        <div className="shrink-0 px-3 pt-2">
+          <div className="glass-pill animate-rise flex items-center gap-2 rounded-2xl px-4 py-2.5 text-sm" role="status">
+            <span className="min-w-0 flex-1">
+              {!isOnline
+                ? `📴 You're offline — duty changes, DVIRs, and sealed events are captured on this device and seal when the connection returns.${pendingCaptures.length > 0 ? ` ${pendingCaptures.length} capture${pendingCaptures.length === 1 ? "" : "s"} waiting to seal.` : ""}`
+                : `⏳ ${pendingCaptures.length} offline capture${pendingCaptures.length === 1 ? "" : "s"} waiting to seal — ${pendingCaptures.length === 1 ? "it seals" : "they seal"} into the record as soon as the connection allows.`}
+            </span>
           </div>
         </div>
       )}
@@ -15789,6 +16033,7 @@ export function App() {
                 The stack is ordered by context and the single next action
                 is always the biggest button on the screen. Cards retire
                 themselves when their moment passes. */}
+            {offlineLoadCard}
             {dutyPrompt && tripUi.active ? (
               <DutyPromptCard onAnswer={answerDutyPrompt} />
             ) : nearDeliveryLoadId != null ? (
@@ -16304,6 +16549,11 @@ export function App() {
             <p className="px-1 pb-1 text-sm text-[var(--dim)]">
               {tr("Everything in STONEMILES, grouped by what it's for — your desks on top, then every tool under its header.", "Todo en STONEMILES, agrupado según para qué sirve — tus escritorios arriba, luego cada herramienta bajo su encabezado.")}
             </p>
+            {/* NOTIFICATION CENTER (queue item 9): messages, load
+                offers, credential alerts, HOS warnings — in-app only,
+                never emailed. Sits on top of More; the dock's More
+                button carries its unread badge. */}
+            <NotificationsPanel lang={lang} />
             {/* THE DESK (Phase 2 consolidation, 2026-11-12): ONE Desk
                 entry where the three role-desk buttons used to sit.
                 Visible when the account holds ANY desk (the server
@@ -16365,6 +16615,7 @@ export function App() {
 
         {tab === "drive" && (
           <div className="animate-rise space-y-3 px-3 py-3">
+            {offlineLoadCard}
             {driveModeUi ? (
               <>
                 {/* DRIVE MODE — the truck is rolling. Oversized type, the
@@ -19736,6 +19987,14 @@ export function App() {
                 {t.icon}
               </span>
               {t.label}
+              {t.key === "more" && (notificationsQuery.data?.unreadCount ?? 0) > 0 && (
+                <span
+                  className="rounded-full bg-[var(--danger)] px-1.5 py-px text-[10px] font-bold leading-tight text-white"
+                  aria-label={`${notificationsQuery.data?.unreadCount} unread notifications`}
+                >
+                  {notificationsQuery.data?.unreadCount} new
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -26475,6 +26734,31 @@ function EldConnectionsHub({ onOpenPlans }: { onOpenPlans?: () => void }) {
       .catch(() => setMsg("Couldn't revoke — try again."));
   };
 
+  // Test-harness sync (queue item 8): simulated device data through
+  // the REAL sync pipeline. The result lines + note come back from
+  // the server and are shown verbatim — simulated data is labelled
+  // simulated everywhere it lands, and live sync still awaits a
+  // real ELD device.
+  const [syncBusy, setSyncBusy] = useState<number | null>(null);
+  const [syncResult, setSyncResult] = useState<{ id: number; lines: string[]; note: string | null } | null>(null);
+  const doTestSync = (conn: EldConnT) => {
+    setSyncBusy(conn.id);
+    setMsg(null);
+    void api
+      .runEldTestSync({ connectionId: conn.id })
+      .then((r) => {
+        if (r.ok) {
+          setSyncResult({ id: conn.id, lines: r.lines, note: r.note });
+          void queryClient.invalidateQueries({ queryKey: ["eld-hub"] });
+          void queryClient.invalidateQueries({ queryKey: ["eld-identity"] });
+        } else {
+          setMsg(r.error ?? "The test sync couldn't run.");
+        }
+      })
+      .catch(() => setMsg("The test sync couldn't run — check your connection and try again."))
+      .finally(() => setSyncBusy(null));
+  };
+
   return (
     <section aria-label="ELD connections">
       <h3 className="font-condensed text-xl font-bold">🔌 ELD connections — cloud ELD</h3>
@@ -26599,6 +26883,36 @@ function EldConnectionsHub({ onOpenPlans }: { onOpenPlans?: () => void }) {
 
                   {hub.canManage && (c.status === "connected" || c.status === "error") && (
                     <div className="mt-2.5">
+                      <div className="mb-2 rounded-xl border border-[var(--border)] bg-[var(--surface2)] p-2.5">
+                        <p className="text-xs leading-relaxed">
+                          <strong>Test sync — simulated device.</strong> Pushes simulated ELD data through the
+                          real sync pipeline (contract validation → feed snapshots → identity log → sealed
+                          sync record), so the whole path is proven before a real device exists. Stored data
+                          is stamped “simulated” and never poses as your ELD's official record.{" "}
+                          <strong>Live sync still awaits a real ELD device.</strong>
+                        </p>
+                        <button
+                          type="button"
+                          className="btn-press mt-2 rounded-lg bg-[var(--surface)] border border-[var(--border)] px-3 py-2 text-xs font-bold"
+                          aria-label={`Run a test sync with simulated device data for ${c.providerName}`}
+                          disabled={syncBusy === c.id}
+                          onClick={() => doTestSync(c)}
+                        >
+                          {syncBusy === c.id ? "Syncing…" : "🧪 Run test sync (simulated device)"}
+                        </button>
+                        {syncResult?.id === c.id && (
+                          <div className="mt-2">
+                            <ul className="space-y-0.5 text-xs leading-relaxed">
+                              {syncResult.lines.map((line) => (
+                                <li key={line}>• {line}</li>
+                              ))}
+                            </ul>
+                            {syncResult.note && (
+                              <p className="mt-1.5 text-xs leading-relaxed text-[var(--dim)]" role="status">{syncResult.note}</p>
+                            )}
+                          </div>
+                        )}
+                      </div>
                       {confirmRevoke === c.id ? (
                         <div className="rounded-xl border border-red-400/50 bg-red-950/30 p-2.5">
                           <p className="text-xs leading-relaxed">
@@ -33632,6 +33946,7 @@ function DriverPanel({
   const [convTotp, setConvTotp] = useState("");
   const [convStepUpMsg, setConvStepUpMsg] = useState<string | null>(null);
   const [drvCat, setDrvCat] = useState<DrvCat>("today");
+  const lastDutyLocRef = useRef<string | null>(null);
   const setDutyMut = useMutation({
     mutationFn: (state: "off_duty" | "sleeper" | "on_duty" | "driving") => {
       let locationLabel: string | null = null;
@@ -33639,13 +33954,41 @@ function DriverPanel({
         const st = localStorage.getItem("tgps-current-state");
         if (st) locationLabel = `${st} (GPS state at the change)`;
       } catch { /* no fix recorded — the change simply has no location */ }
+      lastDutyLocRef.current = locationLabel;
       return api.setDuty({ state, locationLabel });
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["duty"] }),
+    onError: (_e, state) => {
+      // Offline (queue item 7): capture the tap on-device instead of
+      // losing it — the panel's clocks and totals below already run
+      // on the pending merge, and the capture seals on reconnect.
+      enqueueCapture({
+        captureId: newCaptureId(),
+        kind: "duty",
+        capturedAt: new Date().toISOString(),
+        state,
+        locationLabel: lastDutyLocRef.current,
+        source: "manual",
+        autoStage: null,
+        stillSince: null,
+      });
+      setBanner(`📴 No connection — duty status ${dutyLabel(state)} captured on this device. ${OFFLINE_CAPTURED_LINE}`);
+    },
   });
   const iftaMut = useMutation({ mutationFn: () => api.exportIfta({}) });
 
-  const events = dutyQuery.data?.events ?? [];
+  // Pending offline duty captures (queue item 7) merge into this
+  // panel's timeline exactly like the root clocks: totals, current
+  // status, and hours-left all run on the driver's real status,
+  // with the pending state badged under the buttons.
+  const [panelCaptures, setPanelCaptures] = useState<OfflineCapture[]>(() => loadCaptures());
+  useEffect(() => {
+    const refresh = () => setPanelCaptures(loadCaptures());
+    window.addEventListener(OFFLINE_CAPTURES_EVENT, refresh);
+    return () => window.removeEventListener(OFFLINE_CAPTURES_EVENT, refresh);
+  }, []);
+  const panelPendingDuty = pendingDutyCaptures(panelCaptures);
+  const events = mergePendingDutyEvents(dutyQuery.data?.events ?? [], panelPendingDuty);
   const currentDuty = events.length > 0 ? events[events.length - 1]?.state : null;
   const stats = statsQuery.data;
 
@@ -33810,6 +34153,13 @@ function DriverPanel({
           only be fixed by a fleet owner or an owner-operator — employee drivers' HOS history is locked (see
           HOS log &amp; fixes under Hours).
         </p>
+        {panelPendingDuty.length > 0 && (
+          <p className="mt-2 rounded-xl bg-amber-900/40 px-3 py-2.5 text-sm font-semibold text-amber-200" role="status">
+            📴 {panelPendingDuty.length} duty change{panelPendingDuty.length === 1 ? "" : "s"} captured offline —
+            not sealed yet. {OFFLINE_BADGE}: the change{panelPendingDuty.length === 1 ? " seals" : "s seal"} into
+            the log when your connection returns, stamped with the time {panelPendingDuty.length === 1 ? "it" : "they"} happened.
+          </p>
+        )}
         {movingOffDutyNote && (
           <p className="mt-2 rounded-xl bg-[var(--surface)] px-3 py-2.5 text-sm font-semibold" role="status">
             🚚 {movingOffDutyNote} HOS clocks follow your chosen status only — nothing is recategorized behind

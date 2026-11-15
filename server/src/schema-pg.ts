@@ -4940,3 +4940,88 @@ export const detentionRecords = pgTable("detention_records", {
     .notNull()
     .$defaultFn(() => new Date()),
 });
+
+// Offline captures (migration 0128, TMS queue item 7): the sync
+// ledger for records a driver captured with no signal — a duty
+// change or a signed DVIR held on the device and sealed into the
+// chain when the connection returned. One row per (driver, client
+// capture id): the row IS the idempotency key, so a re-sync after a
+// lost response returns the original seal instead of duplicating
+// the record. chain_hash is the chain entry the capture sealed as;
+// result_json carries the DVIR sync result (report id, critical
+// flag, maintenance draft ids) so a duplicate sync can hand the
+// client the exact original outcome. The captured record itself
+// lives where it always lives (the chain for duty changes,
+// dvir_reports for inspections) — this table only proves the sync.
+export const offlineCaptures = pgTable(
+  "offline_captures",
+  {
+    username: text("username").notNull(),
+    captureId: text("capture_id").notNull(),
+    kind: text("kind").notNull(), // duty | dvir
+    chainHash: text("chain_hash"),
+    resultJson: text("result_json"),
+    capturedAt: timestamp("captured_at", { withTimezone: true, mode: "date" }).notNull(),
+    syncedAt: timestamp("synced_at", { withTimezone: true, mode: "date" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [primaryKey({ columns: [t.username, t.captureId] })],
+);
+
+// In-app notification center (migration 0128, TMS queue item 9):
+// one row per alert a driver should see — DM / dispatch messages,
+// load offers landing in the desk inbox, credential expiry alerts,
+// HOS warnings. Rows are recorded by the event producers themselves
+// (chat send, broker submission, credential evaluation, sealed HOS
+// warnings) through recordNotification in actions.ts, which applies
+// the dedupe policy from notifications.ts: message alerts collapse
+// onto one unread row per conversation (count bumps), a credential
+// threshold notifies once per card, an offer is its own row.
+// push_state is the HONEST device-push outcome for the row:
+// no_devices | not_configured | sent | failed — device push (FCM)
+// wires in with the Android build, so today every row resolves to
+// no_devices or not_configured and the center says so plainly.
+// NO email is ever sent for these — notifications are in-app plus
+// future phone push only (owner decision, 2026-11-14).
+export const notifications = pgTable("notifications", {
+  id: serial("id").primaryKey(),
+  username: text("username").notNull(),
+  kind: text("kind").notNull(), // dm | load_offer | credential | hos | system
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  dedupeKey: text("dedupe_key"),
+  refKind: text("ref_kind"),
+  refId: integer("ref_id"),
+  count: integer("count").notNull().default(1),
+  pushState: text("push_state").notNull().default("not_configured"),
+  readAt: timestamp("read_at", { withTimezone: true, mode: "date" }),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+// Push device registrations (migration 0128, TMS queue item 9):
+// the server-side plumbing the Android build's FCM wiring will use
+// — one row per device token a user's app registers, so a
+// notification can fan out to their devices. The token is the
+// primary key (a token belongs to one user at a time; re-registering
+// moves it). Registration actions exist and are tested now; actual
+// FCM delivery stays unconfigured until the native build lands —
+// see notifications.ts (pushProviderFromEnv).
+export const pushDevices = pgTable("push_devices", {
+  token: text("token").primaryKey(),
+  username: text("username").notNull(),
+  platform: text("platform").notNull(), // android | ios
+  enabled: boolean("enabled").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true, mode: "date" }),
+});
