@@ -74,6 +74,7 @@ import { FleetTrainingBoard, SafetyAcademyPanel } from "./SafetyAcademy";
 import { SiPanel } from "./SiPanel";
 import { LiveUpdatesPanel } from "./LiveUpdatesPanel";
 import { RouteWeatherPanel } from "./RouteWeatherPanel";
+import { RouteFuelPlanPanel } from "./FuelPlanPanel";
 import { RADAR_TILE_URL, cumulativeMiles, pointAtAlongMi, radarTileUrlFor } from "./routeWeather";
 import { apptBehaviourLabel, classifyScalePoi, facilityNameMatches, groupVisitsByFacility, SCALE_KIND_LABEL } from "./extras";
 import { ManeuverCardPrompt, SignCheckPanel, SignCheckPrompt } from "./SignCheckPrompt";
@@ -18493,6 +18494,23 @@ export function App() {
                       ↻ Refresh EIA week
                     </button>
                     <p className="mt-1 text-xs text-[var(--dim)]">{fuelPriceData.ratesLabel}</p>
+                    <RouteFuelPlanPanel
+                      stops={fuelStops.map((s) => {
+                        const info = stopPriceById.get(s.id);
+                        const pinned = stopStateByKey[s.id];
+                        return {
+                          id: s.id,
+                          name: s.name,
+                          state: info?.state ?? (pinned && pinned !== "—" ? pinned : null),
+                          alongMi: s.alongMi,
+                          price: info?.price ?? null,
+                          priceSource: info?.source ?? null,
+                        };
+                      })}
+                      totalMiles={selected?.miles ?? 0}
+                      mpg={profile.mpg}
+                      tankCapacityGal={Math.max(20, Math.round(profile.tankRangeMi / Math.max(profile.mpg, 1)))}
+                    />
                   </>
                 )}
               </section>

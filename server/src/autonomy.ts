@@ -61,7 +61,8 @@ export type ExceptionKind =
   | "low_confidence"
   | "paperwork_no_recipient"
   | "tender_blocked"
-  | "dq_blocked";
+  | "dq_blocked"
+  | "fuel_card_mismatch";
 
 /** An auto-status is only published at or above this confidence. */
 export const CONFIDENCE_THRESHOLD = 0.8;
@@ -551,6 +552,13 @@ export const EXCEPTION_LABELS: Record<ExceptionKind, string> = {
   // actions.ts open/close these rows themselves (their loadId
   // carries the BOARD load id); the evaluator leaves them alone.
   dq_blocked: "Dispatch held — driver not qualified",
+  // Fuel purchase far from the truck's recorded position (Wave 2
+  // item 8). NOT derived by evaluateLoadAutonomy — the fuel-card
+  // geofence evaluation in actions.ts opens these rows itself
+  // (their loadId carries the FUEL PURCHASE id, or 0 for a card
+  // partner transaction); the evaluator leaves them alone. The
+  // label is a check request, never an accusation.
+  fuel_card_mismatch: "Fuel purchase far from the truck — check it",
 };
 
 /** Notification-center copy for a newly opened exception. Lane and

@@ -7,7 +7,7 @@
 // see DATA-PLAN.md.
 
 import { defineAction, z, type ActionsModule, type Ctx } from "@hatch/space-sdk";
-import { and, asc, desc, eq, gte, inArray, isNull, ne, or } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, ne, or } from "drizzle-orm";
 import * as schema from "./schema";
 import {
 normalizeDeductionLines,
@@ -308,6 +308,21 @@ import {
   type BrokerPaymentFact,
 } from "./brokerCredit";
 import {
+  DIESEL_TAX_RATES as IFTA_DIESEL_RATES,
+  FUEL_CARD_MISMATCH_THRESHOLD_MI,
+  FUEL_POSITION_MAX_AGE_MIN,
+  FUEL_STATION_LOCATION_MAX_AGE_DAYS,
+  IFTA_RATES_DATE_LABEL,
+  evaluateFuelGeofence,
+  fuelCardMismatchDetail,
+  fuelCardMismatchNotification,
+  fuelCardPartnerFromEnv,
+  planRouteFuel,
+  type FuelCardTransaction,
+  type FuelPlan,
+  type FuelPlanStop,
+} from "./fuelOptimizer";
+import {
   activeDqfAlerts,
   buildDqfAlertStatuses,
   dqBlockNotification,
@@ -603,43 +618,12 @@ import { privileged } from "../.generated/privileged.contract";
 
 const GENESIS_HASH = "GENESIS";
 
-// IFTA diesel tax rates ($/gallon, the matrix's "Special Diesel"
-// column, US$ per gallon — Canadian provinces at the matrix's own
-// US$/gal equivalents) — the REAL published table: IFTA, Inc. fuel
-// tax matrix, 4th quarter 2026 (Oct–Dec 2026), matrix dated
-// October 15, 2026, updated by IFTA, Inc. November 5, 2026
-// (https://www.iftach.org/taxmatrix4/Taxmatrix.php). IFTA marks the
-// Q4 2026 matrix "not final until December 4, 2026" — the report
-// labels that on screen and in every export. Kentucky and Virginia
-// carry their IFTA surcharge folded into the figure shown
-// (KY 0.2200 + 0.1050; VA 0.3360 + 0.1430), labelled in the report.
-// Oregon is 0: the matrix prints no Oregon fuel-tax rate (Oregon
-// runs a weight-mile tax instead of IFTA fuel tax). Alaska, Hawaii,
-// and the District of Columbia are NOT IFTA member jurisdictions —
-// they are deliberately ABSENT, so a quarter touching them reads
-// "rate not loaded" rather than borrowing a non-IFTA number.
-const IFTA_DIESEL_RATES: Record<string, number> = {
-  Alabama: 0.31, Arizona: 0.26, Arkansas: 0.285, California: 0.979,
-  Colorado: 0.335, Connecticut: 0.499, Delaware: 0.22, Florida: 0.4097,
-  Georgia: 0.373, Idaho: 0.32, Illinois: 0.738, Indiana: 0.63,
-  Iowa: 0.325, Kansas: 0.26, Kentucky: 0.325, Louisiana: 0.20,
-  Maine: 0.312, Maryland: 0.4745, Massachusetts: 0.24, Michigan: 0.524,
-  Minnesota: 0.326, Mississippi: 0.24, Missouri: 0.295, Montana: 0.2975,
-  Nebraska: 0.318, Nevada: 0.27, "New Hampshire": 0.222, "New Jersey": 0.561,
-  "New Mexico": 0.21, "New York": 0.3805, "North Carolina": 0.41,
-  "North Dakota": 0.23, Ohio: 0.47, Oklahoma: 0.19, Oregon: 0,
-  Pennsylvania: 0.741, "Rhode Island": 0.40, "South Carolina": 0.28,
-  "South Dakota": 0.28, Tennessee: 0.27, Texas: 0.20, Utah: 0.379,
-  Vermont: 0.31, Virginia: 0.479, Washington: 0.595, "West Virginia": 0.357,
-  Wisconsin: 0.329, Wyoming: 0.24,
-  Alberta: 0.3509, "British Columbia": 0.4049, Manitoba: 0.3374,
-  "New Brunswick": 0.417, "Newfoundland and Labrador": 0.2564,
-  "Nova Scotia": 0.4157, Ontario: 0.243, "Prince Edward Island": 0.3819,
-  Quebec: 0.5452, Saskatchewan: 0.4049,
-};
-
-const IFTA_RATES_DATE_LABEL =
-  "Rates as of the IFTA, Inc. fuel tax matrix, 4th quarter 2026 (Oct–Dec 2026) — matrix dated October 15, 2026, updated November 5, 2026; IFTA marks it not final until December 4, 2026, and rates change quarterly, so verify against the official matrix for the quarter you file. Kentucky and Virginia figures include their IFTA surcharge. Oregon has no IFTA fuel tax (weight-mile tax instead) and is shown at 0. Alaska, Hawaii, and DC are not IFTA members — no rate is loaded for them. Estimate for planning only — not a filing and not tax advice.";
+// The IFTA diesel tax table + its date label live in
+// fuelOptimizer.ts (moved there in Wave 2 item 8 so the route fuel
+// optimizer and every IFTA surface read ONE maintained table) and
+// are imported above under their historical names
+// (DIESEL_TAX_RATES as IFTA_DIESEL_RATES, IFTA_RATES_DATE_LABEL).
+// The table's provenance comment rides with it in that module.
 
 
 // ---- 31-day seasons ---------------------------------------------------------
@@ -2712,9 +2696,12 @@ async function evaluateLoadAutonomy(
   // their loadId is a broker poster load id. DQ-block rows (kind
   // dq_blocked, Wave 2 item 6) are the same shape: managed by the
   // claim/assign/accept funnels, their loadId is a BOARD load id.
-  // Derivation never refreshes or auto-clears either kind.
+  // Fuel-card mismatch rows (kind fuel_card_mismatch, Wave 2
+  // item 8) are the same shape again: managed by the geofence
+  // evaluation, their loadId is a FUEL PURCHASE id.
+  // Derivation never refreshes or auto-clears any of the three.
   const rows = (await db.select().from(schema.autoExceptions).where(eq(schema.autoExceptions.loadId, loadId))).filter(
-    (r) => r.kind !== "tender_blocked" && r.kind !== "dq_blocked",
+    (r) => r.kind !== "tender_blocked" && r.kind !== "dq_blocked" && r.kind !== "fuel_card_mismatch",
   );
   let opened = 0;
   let cleared = 0;
@@ -15876,6 +15863,124 @@ async function clearDqBlockException(ctx: Ctx, boardLoadId: number): Promise<voi
   }
 }
 
+/** Open (or refresh) the fuel-card mismatch exception for one
+ * flagged purchase — the geofence evaluation's only write. Same
+ * episode discipline as the tender/DQ blocks: one OPEN row per
+ * purchase, a human-closed episode with the same fingerprint
+ * stays closed, and the driver + their fleet's owner/dispatch
+ * seats are notified in-app (recordNotificationSafe — never
+ * email). The flag is a check request with its evidence attached;
+ * nothing is sealed as an accusation and nothing else in the app
+ * changes because of it. */
+async function openFuelCardMismatchException(
+  ctx: Ctx,
+  args: {
+    driverUsername: string;
+    companyId: number | null;
+    /** The fuel purchase id, or null for a card-partner transaction. */
+    purchaseId: number | null;
+    partnerRef: string | null;
+    station: string | null;
+    state: string | null;
+    gallons: number | null;
+    purchasedAt: Date;
+    distanceMi: number;
+    truckAt: Date;
+    truckLat: number;
+    truckLon: number;
+  },
+): Promise<void> {
+  const db = ctx.db<typeof schema>();
+  const now = new Date();
+  const dedupeKey =
+    args.purchaseId != null
+      ? `fuel:${args.purchaseId}:fuel_card_mismatch`
+      : `fuelcard:${args.partnerRef ?? "unknown"}:fuel_card_mismatch`;
+  const fingerprint = `${Math.round(args.distanceMi)}|${args.truckAt.toISOString()}`;
+  const dateLabel = (d: Date) =>
+    d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  const detail = fuelCardMismatchDetail({
+    station: args.station,
+    state: args.state,
+    gallons: args.gallons,
+    purchasedAtLabel: dateLabel(args.purchasedAt),
+    distanceMi: args.distanceMi,
+    truckAtLabel: dateLabel(args.truckAt),
+  });
+  const evidence = [
+    {
+      kind: "position" as const,
+      ref: args.driverUsername,
+      at: args.truckAt.toISOString(),
+      note: `truck recorded position ${args.truckLat.toFixed(4)}, ${args.truckLon.toFixed(4)} — the reading nearest the purchase time`,
+    },
+    {
+      kind: "snapshot" as const,
+      ref: args.purchaseId != null ? `fuel purchase #${args.purchaseId}` : `card transaction ${args.partnerRef ?? ""}`,
+      at: args.purchasedAt.toISOString(),
+      note: `purchase at ${args.station ?? "an unnamed station"}${args.state ? `, ${args.state}` : ""} — about ${args.distanceMi} mi from the truck's position, past the ${FUEL_CARD_MISMATCH_THRESHOLD_MI} mi check line`,
+    },
+  ];
+  const rows = await db
+    .select()
+    .from(schema.autoExceptions)
+    .where(eq(schema.autoExceptions.dedupeKey, dedupeKey))
+    .orderBy(desc(schema.autoExceptions.id));
+  const open = rows.find((r) => r.status === "open");
+  if (open) {
+    await db
+      .update(schema.autoExceptions)
+      .set({ severity: 2, detail, evidenceJson: JSON.stringify(evidence), fingerprint, updatedAt: now })
+      .where(eq(schema.autoExceptions.id, open.id));
+    return;
+  }
+  const latest = rows[0];
+  if (latest && latest.fingerprint === fingerprint) return; // same episode, human-closed — stays closed
+  const ins = await db
+    .insert(schema.autoExceptions)
+    .values({
+      loadId: args.purchaseId ?? 0,
+      kind: "fuel_card_mismatch",
+      severity: 2,
+      detail,
+      evidenceJson: JSON.stringify(evidence),
+      driverUsername: args.driverUsername,
+      companyId: args.companyId,
+      brokerAccountId: null,
+      status: "open",
+      dedupeKey,
+      fingerprint,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .returning({ id: schema.autoExceptions.id });
+  const exceptionId = ins[0]?.id;
+  const note = fuelCardMismatchNotification({
+    station: args.station,
+    state: args.state,
+    distanceMi: args.distanceMi,
+  });
+  const targets = new Set<string>([args.driverUsername]);
+  if (args.companyId != null) {
+    const members = await db
+      .select()
+      .from(schema.companyMembers)
+      .where(eq(schema.companyMembers.companyId, args.companyId));
+    for (const m of members) if (m.role === "owner" || m.role === "dispatch") targets.add(m.username);
+  }
+  for (const username of targets) {
+    await recordNotificationSafe(ctx, {
+      username,
+      kind: "system",
+      title: note.title,
+      body: note.body,
+      dedupeKey: `exception:${exceptionId ?? dedupeKey}`,
+      refKind: "fuel_purchase",
+      refId: args.purchaseId,
+    });
+  }
+}
+
 /** THE DQF GATE (compliance autopilot): run where a driver is
  * bound to a board load — claim, assign, accept. Stands on the
  * recorded qualification file alone. A pass clears any open block
@@ -25621,6 +25726,24 @@ export const Actions = {
               row.loadId,
               b ? laneLabel(b.pickupCity, b.pickupState, b.deliveryCity, b.deliveryState) : null,
             );
+          } else if (row.kind === "fuel_card_mismatch") {
+            // The row's loadId is a FUEL PURCHASE id (0 for a card
+            // partner transaction, which has no purchase row) —
+            // its "lane" is the purchase's station + state. The
+            // purchase table is profile-scoped, so a fleet reader
+            // may not see the row; the exception's detail carries
+            // the full story either way.
+            let label: string | null = null;
+            if (row.loadId > 0) {
+              const purchases = await db
+                .select()
+                .from(schema.fuelPurchases)
+                .where(eq(schema.fuelPurchases.id, row.loadId))
+                .limit(1);
+              const p = purchases[0];
+              if (p) label = `${p.station ?? "Fuel purchase"} · ${p.state}`;
+            }
+            laneCache.set(row.loadId, label);
           } else {
             const aud = await autonomyAudiences(ctx, row.loadId, null);
             laneCache.set(row.loadId, aud.lane);
@@ -50917,6 +51040,391 @@ export const Actions = {
           pricePerGallon: f.pricePerGallon, purchasedAt: f.purchasedAt.toISOString(),
         })),
         eia,
+      };
+    },
+  }),
+
+  // ---- Route fuel optimizer (Wave 2 item 8, Diamond) -------------
+  //
+  // The Net-Price Planner ranks stops; this plans the whole route:
+  // gallons per stop on the ex-tax math (fuelOptimizer.ts), the
+  // trip's true cost with the IFTA settlement figured over the
+  // route's burn, and the naive pump-price plan beside it so the
+  // saving shows as a labelled estimate. The corridor (stops,
+  // prices, state pins) is the client's, matched from
+  // getFuelPriceData's evidence in the same session; the server
+  // owns the tax table and the math, validates every price into
+  // the plausible band (junk becomes "no price", never a figure),
+  // and invents nothing. Diamond-gated like the rate table itself:
+  // the plan IS the rate table at work.
+  planFuelStops: defineAction({
+    description:
+      "Plan a route's fuel purchases on ex-tax / IFTA-adjusted math: gallons per stop, true trip cost vs the naive pump-price plan, savings as a labelled estimate.",
+    request: z.object({
+      totalMiles: z.number().positive().max(20000),
+      segments: z
+        .array(z.object({ state: z.string().min(2).max(60), miles: z.number().nonnegative().max(20000) }))
+        .max(64)
+        .default([]),
+      stops: z
+        .array(
+          z.object({
+            id: z.string().min(1).max(120),
+            name: z.string().min(1).max(200),
+            state: z.string().min(2).max(60).nullable(),
+            alongMi: z.number().nonnegative().max(20000),
+            price: z.number().nullable(),
+            priceSource: z.string().max(240).nullable(),
+          }),
+        )
+        .max(240),
+      mpg: z.number().min(2).max(20),
+      tankCapacityGal: z.number().min(20).max(400),
+      startGallons: z.number().min(0).max(400),
+      reserveGallons: z.number().min(0).max(100).default(15),
+    }),
+    response: z.object({
+      locked: z.boolean(),
+      plan: z.string(),
+      result: z
+        .object({
+          purchases: z.array(
+            z.object({
+              stopId: z.string(),
+              name: z.string(),
+              state: z.string().nullable(),
+              alongMi: z.number(),
+              gallons: z.number(),
+              price: z.number().nullable(),
+              priceSource: z.string().nullable(),
+              basePrice: z.number().nullable(),
+              taxPerGal: z.number().nullable(),
+              surcharge: z.boolean(),
+              cost: z.number().nullable(),
+              why: z.string(),
+            }),
+          ),
+          verdicts: z.array(z.object({ stopId: z.string(), buyGallons: z.number(), why: z.string() })),
+          totals: z.object({
+            pumpCost: z.number(),
+            unpricedGallons: z.number(),
+            iftaSettlement: z.number().nullable(),
+            netTripCost: z.number().nullable(),
+            totalGallons: z.number(),
+          }),
+          naive: z.object({
+            purchases: z.array(
+              z.object({
+                stopId: z.string(),
+                name: z.string(),
+                gallons: z.number(),
+                price: z.number().nullable(),
+                cost: z.number().nullable(),
+              }),
+            ),
+            totals: z.object({
+              pumpCost: z.number(),
+              unpricedGallons: z.number(),
+              iftaSettlement: z.number().nullable(),
+              netTripCost: z.number().nullable(),
+              totalGallons: z.number(),
+            }),
+          }),
+          savingsEstimate: z.number().nullable(),
+          notes: z.array(z.string()),
+          segmentsSource: z.string(),
+          ratesAsOf: z.string(),
+          ratesLabel: z.string(),
+        })
+        .nullable(),
+    }),
+    async handler(ctx, args) {
+      const plan = await myPlan(ctx);
+      if (!isDiamondPlan(plan)) {
+        return { locked: true, plan, result: null };
+      }
+      // A price outside the plausible diesel band is not evidence —
+      // it becomes "no price on file" rather than a figure the plan
+      // could stand on.
+      const stops: FuelPlanStop[] = args.stops.map((s) => ({
+        id: s.id,
+        name: s.name,
+        state: s.state,
+        alongMi: s.alongMi,
+        price: s.price != null && s.price >= 0.5 && s.price <= 15 ? s.price : null,
+        priceSource: s.priceSource,
+      }));
+      const result: FuelPlan = planRouteFuel({
+        totalMiles: args.totalMiles,
+        segments: args.segments,
+        stops,
+        mpg: args.mpg,
+        tankCapacityGal: args.tankCapacityGal,
+        startGallons: args.startGallons,
+        reserveGallons: args.reserveGallons,
+      });
+      return {
+        locked: false,
+        plan,
+        result: {
+          purchases: result.purchases,
+          verdicts: result.verdicts,
+          totals: result.totals,
+          naive: {
+            purchases: result.naive.purchases.map((p) => ({
+              stopId: p.stopId,
+              name: p.name,
+              gallons: p.gallons,
+              price: p.price,
+              cost: p.cost,
+            })),
+            totals: result.naive.totals,
+          },
+          savingsEstimate: result.savingsEstimate,
+          notes: result.notes,
+          segmentsSource: result.segmentsSource,
+          ratesAsOf: result.ratesAsOf,
+          ratesLabel: result.ratesLabel,
+        },
+      };
+    },
+  }),
+
+  // ---- Fuel-card geofence checks (Wave 2 item 8) ------------------
+  //
+  // Every logged fuel purchase is compared against the truck's
+  // recorded position near its time: the station's location comes
+  // from the shared price layer (a coordinate-carrying report for
+  // the same station + state — the app's own matching rule), the
+  // truck's from its track (the reading nearest before the
+  // purchase, inside the printed freshness window). A purchase
+  // past the printed threshold opens a fuel_card_mismatch
+  // exception + in-app notification — a check request with
+  // evidence, never a decline or an accusation. Either side
+  // missing → "not_checked" with the reason, never a silent pass.
+  // A configured fuel-card partner's transactions run through the
+  // SAME evaluation (fuelCardPartnerFromEnv — production passes
+  // no transport, so unconfigured until a real agreement lands).
+  getFuelCardChecks: defineAction({
+    description:
+      "Check logged fuel purchases (and a connected fuel-card partner's transactions) against the truck's recorded position; past-threshold purchases are flagged as possible mismatches in the exception queue.",
+    request: z.object({}),
+    response: z.object({
+      partnerConfigured: z.boolean(),
+      partnerName: z.string().nullable(),
+      partnerError: z.string().nullable(),
+      thresholdMi: z.number(),
+      positionMaxAgeMin: z.number(),
+      checks: z.array(
+        z.object({
+          purchaseId: z.number().nullable(),
+          source: z.string(), // fuel_log | card_partner
+          partnerRef: z.string().nullable(),
+          station: z.string().nullable(),
+          state: z.string().nullable(),
+          purchasedAt: z.string(),
+          gallons: z.number().nullable(),
+          status: z.string(), // match | mismatch | not_checked
+          distanceMi: z.number().nullable(),
+          reason: z.string(),
+        }),
+      ),
+      flaggedCount: z.number(),
+    }),
+    async handler(ctx) {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const membership = await myMembership(ctx, me);
+      const companyId = membership?.company.id ?? null;
+      const now = Date.now();
+      const sinceMs = now - 90 * 86400000;
+
+      // The truck's recorded track over the window (plus the
+      // freshness reach-back before the oldest purchase).
+      const track = (
+        await db
+          .select()
+          .from(schema.trackPoints)
+          .where(
+            and(
+              eq(schema.trackPoints.username, me),
+              gte(schema.trackPoints.recordedAt, new Date(sinceMs - FUEL_POSITION_MAX_AGE_MIN * 60000)),
+            ),
+          )
+          .orderBy(asc(schema.trackPoints.recordedAt))
+      ).slice(-8000);
+      /** The truck's position at a moment: the nearest reading at
+       *  or before it, inside the freshness window — else null. */
+      const truckAt = (atMs: number): { lat: number; lon: number; at: Date } | null => {
+        let best: (typeof track)[number] | null = null;
+        for (const p of track) {
+          if (p.recordedAt.getTime() <= atMs) best = p;
+          else break;
+        }
+        if (!best) return null;
+        if (atMs - best.recordedAt.getTime() > FUEL_POSITION_MAX_AGE_MIN * 60000) return null;
+        return { lat: best.lat, lon: best.lon, at: best.recordedAt };
+      };
+
+      type CheckRow = {
+        purchaseId: number | null;
+        source: string;
+        partnerRef: string | null;
+        station: string | null;
+        state: string | null;
+        purchasedAt: string;
+        gallons: number | null;
+        status: string;
+        distanceMi: number | null;
+        reason: string;
+      };
+      const checks: CheckRow[] = [];
+      let flaggedCount = 0;
+
+      // -- The driver's logged purchases ---------------------------
+      const purchases = await db
+        .select()
+        .from(schema.fuelPurchases)
+        .where(gte(schema.fuelPurchases.purchasedAt, new Date(sinceMs)))
+        .orderBy(desc(schema.fuelPurchases.purchasedAt))
+        .limit(200);
+      // Coordinate-carrying price reports — the station locations
+      // on file. Matched by station name + state, the same rule
+      // the client matches prices by; the freshest report no older
+      // than the printed window at purchase time wins.
+      const coordReports = await db
+        .select()
+        .from(schema.fuelPriceReports)
+        .where(
+          and(
+            gte(schema.fuelPriceReports.reportedAt, new Date(sinceMs - FUEL_STATION_LOCATION_MAX_AGE_DAYS * 86400000)),
+            isNotNull(schema.fuelPriceReports.lat),
+            isNotNull(schema.fuelPriceReports.lon),
+          ),
+        )
+        .orderBy(desc(schema.fuelPriceReports.reportedAt))
+        .limit(1000);
+      const normName = (x: string) => x.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+      const stationLocation = (
+        station: string | null,
+        state: string,
+        atMs: number,
+      ): { lat: number; lon: number } | null => {
+        if (!station) return null;
+        const target = normName(station);
+        if (target.length < 4) return null;
+        for (const r of coordReports) {
+          if (r.lat == null || r.lon == null) continue;
+          if (!r.state || r.state.trim().toLowerCase() !== state.trim().toLowerCase()) continue;
+          const name = normName(r.station);
+          if (!(name.includes(target) || target.includes(name))) continue;
+          if (atMs - r.reportedAt.getTime() > FUEL_STATION_LOCATION_MAX_AGE_DAYS * 86400000) continue;
+          if (r.reportedAt.getTime() - atMs > 7 * 86400000) continue;
+          return { lat: r.lat, lon: r.lon };
+        }
+        return null;
+      };
+
+      for (const p of purchases) {
+        const atMs = p.purchasedAt.getTime();
+        const loc = stationLocation(p.station, p.state, atMs);
+        const truck = truckAt(atMs);
+        const result = evaluateFuelGeofence({
+          purchaseLat: loc?.lat ?? null,
+          purchaseLon: loc?.lon ?? null,
+          truckLat: truck?.lat ?? null,
+          truckLon: truck?.lon ?? null,
+        });
+        if (result.status === "mismatch" && truck && result.distanceMi != null) {
+          flaggedCount++;
+          await openFuelCardMismatchException(ctx, {
+            driverUsername: me,
+            companyId,
+            purchaseId: p.id,
+            partnerRef: null,
+            station: p.station,
+            state: p.state,
+            gallons: p.gallons,
+            purchasedAt: p.purchasedAt,
+            distanceMi: result.distanceMi,
+            truckAt: truck.at,
+            truckLat: truck.lat,
+            truckLon: truck.lon,
+          });
+        }
+        checks.push({
+          purchaseId: p.id,
+          source: "fuel_log",
+          partnerRef: null,
+          station: p.station,
+          state: p.state,
+          purchasedAt: p.purchasedAt.toISOString(),
+          gallons: p.gallons,
+          status: result.status,
+          distanceMi: result.distanceMi,
+          reason: result.reason,
+        });
+      }
+
+      // -- A connected fuel-card partner's transactions ------------
+      const partner = fuelCardPartnerFromEnv(process.env);
+      let partnerError: string | null = null;
+      if (partner) {
+        try {
+          const txns: FuelCardTransaction[] = await partner.fetchTransactions(new Date(sinceMs).toISOString());
+          for (const t of txns.slice(0, 200)) {
+            const atMs = new Date(t.at).getTime();
+            const truck = truckAt(atMs);
+            const result = evaluateFuelGeofence({
+              purchaseLat: t.lat,
+              purchaseLon: t.lon,
+              truckLat: truck?.lat ?? null,
+              truckLon: truck?.lon ?? null,
+            });
+            if (result.status === "mismatch" && truck && result.distanceMi != null) {
+              flaggedCount++;
+              await openFuelCardMismatchException(ctx, {
+                driverUsername: me,
+                companyId,
+                purchaseId: null,
+                partnerRef: t.partnerRef,
+                station: t.station,
+                state: t.state,
+                gallons: t.gallons,
+                purchasedAt: new Date(t.at),
+                distanceMi: result.distanceMi,
+                truckAt: truck.at,
+                truckLat: truck.lat,
+                truckLon: truck.lon,
+              });
+            }
+            checks.push({
+              purchaseId: null,
+              source: "card_partner",
+              partnerRef: t.partnerRef,
+              station: t.station,
+              state: t.state,
+              purchasedAt: t.at,
+              gallons: t.gallons,
+              status: result.status,
+              distanceMi: result.distanceMi,
+              reason: result.reason,
+            });
+          }
+        } catch (e) {
+          partnerError = e instanceof Error ? e.message : "The fuel-card partner didn't answer.";
+        }
+      }
+
+      checks.sort((a, b) => b.purchasedAt.localeCompare(a.purchasedAt));
+      return {
+        partnerConfigured: partner != null,
+        partnerName: partner?.name ?? null,
+        partnerError,
+        thresholdMi: FUEL_CARD_MISMATCH_THRESHOLD_MI,
+        positionMaxAgeMin: FUEL_POSITION_MAX_AGE_MIN,
+        checks,
+        flaggedCount,
       };
     },
   }),

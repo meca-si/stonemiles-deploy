@@ -114,7 +114,11 @@ function ExceptionCard({ item, onDone }: { item: ExceptionLike; onDone: () => vo
     <li className="rounded-lg bg-[var(--surface)] px-3 py-2.5 text-sm">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <span className="font-semibold">
-          Load #{item.loadId} — {item.kindLabel}
+          {item.kind === "fuel_card_mismatch"
+            ? item.loadId > 0
+              ? `Fuel purchase #${item.loadId} — ${item.kindLabel}`
+              : `Fuel card purchase — ${item.kindLabel}`
+            : `Load #${item.loadId} — ${item.kindLabel}`}
         </span>
         <span className="rounded-full bg-[var(--surface2)] px-2.5 py-0.5 text-xs font-bold text-[var(--accent)]">
           {severityLabel(item.severity)}
