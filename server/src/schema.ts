@@ -180,6 +180,7 @@ export const maintenanceLogAttachments = impl.maintenanceLogAttachments;
 export const vehiclePhotos = impl.vehiclePhotos;
 export const posterReferrals = impl.posterReferrals;
 export const sealedLanes = impl.sealedLanes;
+export const pointsSafetyHolds = impl.pointsSafetyHolds;
 export const dvirDefectLinks = impl.dvirDefectLinks;
 export const detentionRecords = impl.detentionRecords;
 export const breakdownLogs = impl.breakdownLogs;

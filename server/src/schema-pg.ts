@@ -129,6 +129,14 @@ export const profile = pgTable("profile", {
   trailerModel: text("trailer_model"),
   trailerVin: text("trailer_vin"),
   trailerPlate: text("trailer_plate"),
+  // Birthday (migration 0124, Rewards Layer 2): MONTH and DAY only —
+  // the year is never collected, so no column for it exists and a
+  // birth year is structurally impossible to store. Both null = the
+  // driver never set it (optional, like the truck identity above);
+  // the pair is validated together in saveProfile (a day with no
+  // month, or a day the month doesn't have, is refused).
+  birthMonth: integer("birth_month"),
+  birthDay: integer("birth_day"),
   // The driver's social handle (usernames are how people follow/DM/add).
   socialUsername: text("social_username").notNull().default("driver"),
   // Subscription plan recorded for the app-store release ("basic" |
@@ -467,7 +475,7 @@ export const pointsLog = pgTable("points_log", {
   username: text("username").notNull(),
   amount: integer("amount").notNull(),
   reason: text("reason").notNull(),
-  source: text("source").notNull(), // daily_* tasks | daily_fuel_receipt_bonus (+15 receipt bonus, fuelReceiptBonus.ts) | clean_streak | sealed_miles | rank_milestone | gift_in | gift_out | conversion | signup | subscription | renewal | referral | referral_milestone | clawback | lane1_* / lane2_* / lane3_* (the three earning lanes, pointsLanes.ts)
+  source: text("source").notNull(), // daily_* tasks | daily_fuel_receipt_bonus (+15 receipt bonus, fuelReceiptBonus.ts) | clean_streak | sealed_miles | rank_milestone | gift_in | gift_out | conversion | signup | subscription | renewal | referral | referral_milestone | clawback | lane1_* / lane2_* / lane3_* (the three earning lanes, pointsLanes.ts) | layer2_* (Rewards Layer 2 + safety net, pointsLayer2.ts)
   refKey: text("ref_key"), // dedupe key for automatic awards
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
     .notNull()
@@ -4514,6 +4522,31 @@ export const sealedLanes = pgTable("sealed_lanes", {
   firstUsername: text("first_username").notNull(),
   firstLoadId: integer("first_load_id").notNull(),
   firstSealedAt: timestamp("first_sealed_at", { withTimezone: true, mode: "date" }).notNull(),
+});
+
+// Rewards Layer 2 safety net (migration 0124, locked by x 2026-11-15 —
+// pointsLayer2.ts): suspected-farming holds. When the maintenance
+// evaluator sees a farming pattern (a pile of near-duplicate entries,
+// repeated odometer contradictions), it opens ONE hold row per
+// (username, kind) and the implicated awards WITHHOLD while the hold
+// is open — nothing is auto-banned and nothing is auto-forfeited
+// (proven multi-accounting forfeits stay a manual owner action,
+// House Rule 3). The owner sees open holds in the points safety list
+// and clears them by hand; clearing is the owner's call, recorded in
+// the chain. Global table (no profile_id): the points ledger it
+// guards is username-keyed and global too.
+export const pointsSafetyHolds = pgTable("points_safety_holds", {
+  id: serial("id").primaryKey(),
+  username: text("username").notNull(),
+  kind: text("kind").notNull(), // maintenance_duplicates | maintenance_odometer
+  detail: text("detail").notNull(),
+  status: text("status").notNull().default("open"), // open | cleared
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .$defaultFn(() => new Date()),
 });
 
 export const breakdownLogs = pgTable("breakdown_logs", {

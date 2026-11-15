@@ -58,6 +58,11 @@
 // Migration 0123 (trailer model) adds no table and no converted
 // column: the profile trailer_model column is plain text and rides
 // the unchanged text rule.
+// Migration 0124 (Rewards Layer 2) adds +1 table
+// (points_safety_holds) with +1 autoincrement PK and +2 timestamp_ms
+// (created/updated); the profile birth_month / birth_day columns are
+// plain integers and ride the unchanged integer rule (there is no
+// birth-year column by design).
 //
 //   bun run host/pg/transform-schema.ts
 
@@ -122,15 +127,15 @@ replaceAll(
   'integer mode "timestamp_ms" -> timestamp(tz, date)',
   /integer\(("[a-z0-9_]+"), \{ mode: "timestamp_ms" \}\)/g,
   'timestamp($1, { withTimezone: true, mode: "date" })',
-  316,
+  318,
 );
 replaceAll(
   "autoincrement PK -> serial",
   /integer\(("[a-z0-9_]+")\)\.primaryKey\(\{ autoIncrement: true \}\)/g,
   "serial($1).primaryKey()",
-  140,
+  141,
 );
-replaceAll("sqliteTable -> pgTable", /\bsqliteTable\(/g, "pgTable(", 172);
+replaceAll("sqliteTable -> pgTable", /\bsqliteTable\(/g, "pgTable(", 173);
 replaceAll("real -> doublePrecision", /\breal\(/g, "doublePrecision(", 183);
 
 // Leftovers: any of these means the source schema grew a shape this
