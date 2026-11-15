@@ -72,6 +72,9 @@ __export(exports_schema_sqlite, {
   docCopySettings: () => docCopySettings,
   docEmailDeliveries: () => docEmailDeliveries,
   documentSends: () => documentSends,
+  dqfAlertDismissals: () => dqfAlertDismissals,
+  dqfEntries: () => dqfEntries,
+  dqfFiles: () => dqfFiles,
   driverCodes: () => driverCodes,
   driverFleetStatus: () => driverFleetStatus,
   driverPositions: () => driverPositions,
@@ -261,6 +264,9 @@ __export(exports_schema_pg, {
   docCopySettings: () => docCopySettings2,
   docEmailDeliveries: () => docEmailDeliveries2,
   documentSends: () => documentSends2,
+  dqfAlertDismissals: () => dqfAlertDismissals2,
+  dqfEntries: () => dqfEntries2,
+  dqfFiles: () => dqfFiles2,
   driverCodes: () => driverCodes2,
   driverFleetStatus: () => driverFleetStatus2,
   driverPositions: () => driverPositions2,
@@ -10282,6 +10288,38 @@ var loadPaperwork = sqliteTable("load_paperwork", {
   createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
   updatedAt: integer3("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
 });
+var dqfFiles = sqliteTable("dqf_files", {
+  id: integer3("id").primaryKey({ autoIncrement: true }),
+  companyId: integer3("company_id").notNull(),
+  driverUsername: text2("driver_username").notNull(),
+  createdBy: text2("created_by").notNull(),
+  createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
+  updatedAt: integer3("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
+});
+var dqfEntries = sqliteTable("dqf_entries", {
+  id: integer3("id").primaryKey({ autoIncrement: true }),
+  fileId: integer3("file_id").notNull(),
+  kind: text2("kind").notNull(),
+  entryDate: text2("entry_date").notNull(),
+  expiresOn: text2("expires_on"),
+  payloadJson: text2("payload_json").notNull().default("{}"),
+  docBlobKey: text2("doc_blob_key"),
+  docMime: text2("doc_mime"),
+  recordedBy: text2("recorded_by").notNull(),
+  voidedAt: integer3("voided_at", { mode: "timestamp_ms" }),
+  voidedBy: text2("voided_by"),
+  createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
+});
+var dqfAlertDismissals = sqliteTable("dqf_alert_dismissals", {
+  id: integer3("id").primaryKey({ autoIncrement: true }),
+  companyId: integer3("company_id").notNull(),
+  driverUsername: text2("driver_username").notNull(),
+  itemKey: text2("item_key").notNull(),
+  threshold: integer3("threshold").notNull(),
+  expiresOn: text2("expires_on").notNull(),
+  dismissedBy: text2("dismissed_by").notNull(),
+  dismissedAt: integer3("dismissed_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
+});
 
 // src/schema-pg.ts
 var profile2 = pgTable("profile", {
@@ -12712,6 +12750,38 @@ var loadPaperwork2 = pgTable("load_paperwork", {
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date),
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
 });
+var dqfFiles2 = pgTable("dqf_files", {
+  id: serial("id").primaryKey(),
+  companyId: integer2("company_id").notNull(),
+  driverUsername: text("driver_username").notNull(),
+  createdBy: text("created_by").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
+});
+var dqfEntries2 = pgTable("dqf_entries", {
+  id: serial("id").primaryKey(),
+  fileId: integer2("file_id").notNull(),
+  kind: text("kind").notNull(),
+  entryDate: text("entry_date").notNull(),
+  expiresOn: text("expires_on"),
+  payloadJson: text("payload_json").notNull().default("{}"),
+  docBlobKey: text("doc_blob_key"),
+  docMime: text("doc_mime"),
+  recordedBy: text("recorded_by").notNull(),
+  voidedAt: timestamp("voided_at", { withTimezone: true, mode: "date" }),
+  voidedBy: text("voided_by"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
+});
+var dqfAlertDismissals2 = pgTable("dqf_alert_dismissals", {
+  id: serial("id").primaryKey(),
+  companyId: integer2("company_id").notNull(),
+  driverUsername: text("driver_username").notNull(),
+  itemKey: text("item_key").notNull(),
+  threshold: integer2("threshold").notNull(),
+  expiresOn: text("expires_on").notNull(),
+  dismissedBy: text("dismissed_by").notNull(),
+  dismissedAt: timestamp("dismissed_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
+});
 
 // src/schema.ts
 var impl = process.env.STONEMILES_DIALECT === "postgres" ? exports_schema_pg : exports_schema_sqlite;
@@ -12889,6 +12959,9 @@ var autoExceptions3 = impl.autoExceptions;
 var loadPaperwork3 = impl.loadPaperwork;
 var brokerBondAlertDismissals3 = impl.brokerBondAlertDismissals;
 var parkingReservations3 = impl.parkingReservations;
+var dqfFiles3 = impl.dqfFiles;
+var dqfEntries3 = impl.dqfEntries;
+var dqfAlertDismissals3 = impl.dqfAlertDismissals;
 var accounts3 = impl.accounts;
 var authSessions3 = impl.authSessions;
 var passwordResetTokens3 = impl.passwordResetTokens;
@@ -16646,7 +16719,8 @@ var EXCEPTION_LABELS = {
   missing_evidence: "No sealed record behind the share",
   low_confidence: "Status waiting on its seal",
   paperwork_no_recipient: "No paperwork address on file",
-  tender_blocked: "Tender held \u2014 broker identity check"
+  tender_blocked: "Tender held \u2014 broker identity check",
+  dq_blocked: "Dispatch held \u2014 driver not qualified"
 };
 function exceptionNotification(args) {
   const label = EXCEPTION_LABELS[args.kind];
@@ -17425,6 +17499,287 @@ function parkingPartnerFromEnv(env, transport) {
     async cancel(partnerRef) {
       await call(`/reservations/${encodeURIComponent(partnerRef)}`, "DELETE");
     }
+  };
+}
+
+// src/dqf.ts
+var DQF_ENTRY_KINDS = [
+  "application",
+  "employment_history",
+  "cdl",
+  "medical",
+  "medical_verification",
+  "road_test",
+  "mvr_review",
+  "clearinghouse_query",
+  "violation_record",
+  "training"
+];
+var DQF_ENTRY_LABELS = {
+  application: "Driver application",
+  employment_history: "Employment history",
+  cdl: "CDL record",
+  medical: "Medical certificate",
+  medical_verification: "Medical verification check",
+  road_test: "Road test certificate",
+  mvr_review: "MVR review",
+  clearinghouse_query: "Clearinghouse query",
+  violation_record: "Violations record",
+  training: "Training record"
+};
+var str = (v) => typeof v === "string" && v.trim() !== "" ? v.trim() : null;
+var dqfPayload = {
+  employer: (e) => str(e.payload.employer),
+  cdlState: (e) => str(e.payload.state),
+  cdlClass: (e) => str(e.payload.licenseClass),
+  examinerName: (e) => str(e.payload.examinerName),
+  registryNumber: (e) => str(e.payload.registryNumber),
+  reviewOutcome: (e) => str(e.payload.outcome),
+  queryType: (e) => str(e.payload.queryType),
+  queryResult: (e) => str(e.payload.result),
+  verifyOutcome: (e) => str(e.payload.outcome),
+  verifySource: (e) => str(e.payload.source),
+  topic: (e) => str(e.payload.topic),
+  description: (e) => str(e.payload.description)
+};
+function isYmd(s) {
+  return typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(`${s}T12:00:00.000Z`));
+}
+function addMonthsYmd(ymd, months) {
+  const [y, m, d] = ymd.split("-").map(Number);
+  const total = y * 12 + (m - 1) + months;
+  const ny = Math.floor(total / 12);
+  const nm = total % 12 + 1;
+  const lastDay = new Date(Date.UTC(ny, nm, 0)).getUTCDate();
+  const nd = Math.min(d, lastDay);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${ny}-${pad(nm)}-${pad(nd)}`;
+}
+function entriesEffectiveAt(entries, asOf) {
+  return entries.filter((e) => !e.voided && e.entryDate <= asOf);
+}
+function latestEntry(entries, kind) {
+  let best = null;
+  for (const e of entries) {
+    if (e.kind !== kind)
+      continue;
+    if (!best || e.entryDate > best.entryDate || e.entryDate === best.entryDate && e.id > best.id)
+      best = e;
+  }
+  return best;
+}
+function medicalVerificationStatus(entries, asOf, opts) {
+  const effective = entriesEffectiveAt(entries, asOf);
+  const med = latestEntry(effective, "medical");
+  if (!med) {
+    return { state: "on_file", label: "No medical certificate on file", checkedOn: null, source: null };
+  }
+  const checks = effective.filter((e) => e.kind === "medical_verification" && e.entryDate >= med.entryDate);
+  const latest = latestEntry(checks, "medical_verification");
+  if (!latest) {
+    return {
+      state: "on_file",
+      label: opts.seamConfigured ? "Medical certificate on file \u2014 not checked against the verification source yet" : "Medical certificate on file \u2014 electronic verification not connected",
+      checkedOn: null,
+      source: null
+    };
+  }
+  const outcome = dqfPayload.verifyOutcome(latest);
+  const source = dqfPayload.verifySource(latest);
+  if (outcome === "verified") {
+    return {
+      state: "verified",
+      label: `Medical status verified electronically${source ? ` via ${source}` : ""} on ${latest.entryDate}`,
+      checkedOn: latest.entryDate,
+      source
+    };
+  }
+  if (outcome === "not_found") {
+    return {
+      state: "not_found",
+      label: `Electronic verification on ${latest.entryDate} found no matching medical record \u2014 check the certificate details`,
+      checkedOn: latest.entryDate,
+      source
+    };
+  }
+  if (outcome === "mismatch") {
+    return {
+      state: "mismatch",
+      label: `Electronic verification on ${latest.entryDate} disagrees with the certificate on file \u2014 reconcile the record`,
+      checkedOn: latest.entryDate,
+      source
+    };
+  }
+  return { state: "on_file", label: "Medical certificate on file \u2014 electronic verification not connected", checkedOn: null, source: null };
+}
+function medicalVerifierFromEnv(env, transport) {
+  if (!env.MEDICAL_VERIFY_API_KEY || !transport)
+    return null;
+  return {
+    source: "medical-registry-provider",
+    check: (args) => transport(args)
+  };
+}
+var CFR = "49 CFR 391.51";
+function evaluateDqf(entries, asOf) {
+  const effective = entriesEffectiveAt(entries, asOf);
+  const reasons = [];
+  const checks = [];
+  if (effective.length === 0) {
+    reasons.push({ code: "no_file", detail: "No qualification file on record for this driver." });
+    const missing = (key, label) => ({
+      key,
+      label,
+      status: "missing",
+      detail: "Nothing on file.",
+      date: null
+    });
+    checks.push(missing("application", "Driver application"), missing("cdl", "CDL"), missing("medical", "Medical certificate"), missing("road_test", "Road test"), missing("mvr_review", "MVR review"), missing("clearinghouse", "Clearinghouse query"));
+    return { qualified: false, reasons, checks, fingerprint: "no_file" };
+  }
+  const application = latestEntry(effective, "application");
+  if (application) {
+    checks.push({ key: "application", label: "Driver application", status: "ok", detail: `Application on file since ${application.entryDate}.`, date: application.entryDate });
+  } else {
+    checks.push({ key: "application", label: "Driver application", status: "missing", detail: "No driver application on file.", date: null });
+    reasons.push({ code: "missing_application", detail: `No driver application on file (${CFR}).` });
+  }
+  const cdl = latestEntry(effective, "cdl");
+  if (!cdl) {
+    checks.push({ key: "cdl", label: "CDL", status: "missing", detail: "No CDL record on file.", date: null });
+    reasons.push({ code: "missing_cdl", detail: `No CDL record on file (${CFR}).` });
+  } else if (!cdl.expiresOn) {
+    checks.push({ key: "cdl", label: "CDL", status: "missing", detail: "The CDL record on file has no expiry date \u2014 its validity can't be shown.", date: cdl.entryDate });
+    reasons.push({ code: "missing_cdl", detail: "The CDL record on file has no expiry date \u2014 validity can't be shown." });
+  } else if (cdl.expiresOn < asOf) {
+    checks.push({ key: "cdl", label: "CDL", status: "expired", detail: `CDL expired on ${cdl.expiresOn}.`, date: cdl.expiresOn });
+    reasons.push({ code: "cdl_expired", detail: `CDL expired on ${cdl.expiresOn}.` });
+  } else {
+    checks.push({ key: "cdl", label: "CDL", status: "ok", detail: `CDL on file \u2014 expires ${cdl.expiresOn}.`, date: cdl.expiresOn });
+  }
+  const med = latestEntry(effective, "medical");
+  if (!med) {
+    checks.push({ key: "medical", label: "Medical certificate", status: "missing", detail: "No medical certificate on file.", date: null });
+    reasons.push({ code: "missing_medical", detail: `No medical certificate on file (${CFR}).` });
+  } else if (!med.expiresOn) {
+    checks.push({ key: "medical", label: "Medical certificate", status: "missing", detail: "The medical certificate on file has no expiry date \u2014 its validity can't be shown.", date: med.entryDate });
+    reasons.push({ code: "missing_medical", detail: "The medical certificate on file has no expiry date \u2014 validity can't be shown." });
+  } else if (med.expiresOn < asOf) {
+    checks.push({ key: "medical", label: "Medical certificate", status: "expired", detail: `Medical certificate expired on ${med.expiresOn}.`, date: med.expiresOn });
+    reasons.push({ code: "medical_expired", detail: `Medical certificate expired on ${med.expiresOn}.` });
+  } else {
+    checks.push({ key: "medical", label: "Medical certificate", status: "ok", detail: `Medical certificate on file \u2014 expires ${med.expiresOn}.`, date: med.expiresOn });
+  }
+  const roadTest = latestEntry(effective, "road_test");
+  if (roadTest) {
+    checks.push({ key: "road_test", label: "Road test", status: "ok", detail: `Road test certificate on file \u2014 ${roadTest.entryDate}.`, date: roadTest.entryDate });
+  } else {
+    checks.push({ key: "road_test", label: "Road test", status: "missing", detail: "No road test certificate on file.", date: null });
+    reasons.push({ code: "missing_road_test", detail: `No road test certificate on file (${CFR}).` });
+  }
+  const mvr = latestEntry(effective, "mvr_review");
+  if (!mvr) {
+    checks.push({ key: "mvr_review", label: "MVR review", status: "missing", detail: "No MVR review on file.", date: null });
+    reasons.push({ code: "missing_mvr", detail: `No MVR review on file (${CFR}).` });
+  } else {
+    const dueOn = addMonthsYmd(mvr.entryDate, 12);
+    if (dueOn < asOf) {
+      checks.push({ key: "mvr_review", label: "MVR review", status: "overdue", detail: `Last MVR review ${mvr.entryDate} \u2014 the annual review came due ${dueOn}.`, date: mvr.entryDate });
+      reasons.push({ code: "mvr_overdue", detail: `Annual MVR review overdue \u2014 last review ${mvr.entryDate}, due ${dueOn}.` });
+    } else {
+      checks.push({ key: "mvr_review", label: "MVR review", status: "ok", detail: `MVR reviewed ${mvr.entryDate} \u2014 next due ${dueOn}.`, date: mvr.entryDate });
+    }
+  }
+  const query = latestEntry(effective, "clearinghouse_query");
+  if (!query) {
+    checks.push({ key: "clearinghouse", label: "Clearinghouse query", status: "missing", detail: "No Clearinghouse query on file.", date: null });
+    reasons.push({ code: "missing_clearinghouse", detail: "No Clearinghouse query on file (49 CFR 382.701)." });
+  } else if (dqfPayload.queryResult(query) === "prohibited") {
+    checks.push({
+      key: "clearinghouse",
+      label: "Clearinghouse query",
+      status: "prohibited",
+      detail: `The Clearinghouse query recorded ${query.entryDate} shows this driver PROHIBITED.`,
+      date: query.entryDate
+    });
+    reasons.push({
+      code: "clearinghouse_prohibited",
+      detail: `Clearinghouse shows this driver PROHIBITED (query recorded ${query.entryDate}).`
+    });
+  } else {
+    const result = dqfPayload.queryResult(query);
+    checks.push({
+      key: "clearinghouse",
+      label: "Clearinghouse query",
+      status: "ok",
+      detail: result === "no_record" ? `Clearinghouse query recorded ${query.entryDate} \u2014 no record found, not prohibited.` : `Clearinghouse query recorded ${query.entryDate} \u2014 clear.`,
+      date: query.entryDate
+    });
+  }
+  return {
+    qualified: reasons.length === 0,
+    reasons,
+    checks,
+    fingerprint: reasons.map((r) => r.code).join("+") || "clean"
+  };
+}
+function dqBlockSummary(evaluation) {
+  return evaluation.reasons.map((r) => r.detail).join(" ");
+}
+function dqBlockNotification(args) {
+  return {
+    title: `Dispatch held \u2014 @${args.driverUsername} is not qualified`,
+    body: `${args.summary} The load was not assigned. Fix the qualification file and try again \u2014 the hold clears itself once the file checks out.`
+  };
+}
+var DQF_ALERT_LABELS = {
+  cdl: "CDL",
+  medical: "Medical certificate",
+  mvr_review: "MVR annual review"
+};
+function dqfAlertDates(entries, asOf) {
+  const effective = entriesEffectiveAt(entries, asOf);
+  const cdl = latestEntry(effective, "cdl");
+  const med = latestEntry(effective, "medical");
+  const mvr = latestEntry(effective, "mvr_review");
+  return {
+    cdl: cdl?.expiresOn ?? null,
+    medical: med?.expiresOn ?? null,
+    mvr_review: mvr ? addMonthsYmd(mvr.entryDate, 12) : null
+  };
+}
+function buildDqfAlertStatuses(entries, dismissals, nowMs) {
+  const asOf = new Date(nowMs).toISOString().slice(0, 10);
+  const dates = dqfAlertDates(entries, asOf);
+  const keys = ["cdl", "medical", "mvr_review"];
+  return keys.map((itemKey) => {
+    const expiresOn = dates[itemKey];
+    const daysLeft = expiresOn != null ? credentialDaysLeft(expiresOn, nowMs) : null;
+    const threshold = credentialThresholdFor(daysLeft);
+    return {
+      itemKey,
+      label: DQF_ALERT_LABELS[itemKey],
+      expiresOn,
+      daysLeft,
+      threshold,
+      dismissed: threshold != null && expiresOn != null && dismissals.some((d) => d.itemKey === itemKey && d.threshold === threshold && d.expiresOn === expiresOn)
+    };
+  });
+}
+function activeDqfAlerts(statuses) {
+  return statuses.filter((s) => s.threshold != null && !s.dismissed).sort((a, b) => (a.daysLeft ?? Infinity) - (b.daysLeft ?? Infinity));
+}
+function dqfAlertNotification(args) {
+  if (args.threshold === 0) {
+    return {
+      title: `@${args.driverUsername} \u2014 ${args.label} is past due`,
+      body: `${args.label} for @${args.driverUsername} came due${args.expiresOn ? ` on ${args.expiresOn}` : ""} and is past due \u2014 dispatch holds this driver until the qualification file is fixed.`
+    };
+  }
+  const days = args.daysLeft ?? args.threshold;
+  return {
+    title: `@${args.driverUsername} \u2014 ${args.label} due in ${days} day${days === 1 ? "" : "s"}`,
+    body: `${args.label} for @${args.driverUsername} comes due${args.expiresOn ? ` on ${args.expiresOn}` : ""} \u2014 ${days} day${days === 1 ? "" : "s"} left. Renew it and record the new date in the qualification file before dispatch holds the driver.`
   };
 }
 
@@ -21781,7 +22136,7 @@ async function evaluateLoadAutonomy(ctx, loadId) {
     },
     now
   });
-  const rows = (await db.select().from(autoExceptions3).where(eq(autoExceptions3.loadId, loadId))).filter((r) => r.kind !== "tender_blocked");
+  const rows = (await db.select().from(autoExceptions3).where(eq(autoExceptions3.loadId, loadId))).filter((r) => r.kind !== "tender_blocked" && r.kind !== "dq_blocked");
   let opened = 0;
   let cleared = 0;
   for (const cand of candidates) {
@@ -30267,6 +30622,249 @@ async function toBrokerLoad(ctx, row, account, pods) {
     updatedAt: row.updatedAt.toISOString()
   };
 }
+function toDqfEntryLike(row) {
+  let payload = {};
+  try {
+    const parsed = JSON.parse(row.payloadJson);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed))
+      payload = parsed;
+  } catch {}
+  return {
+    id: row.id,
+    kind: row.kind,
+    entryDate: row.entryDate,
+    expiresOn: row.expiresOn ?? null,
+    payload,
+    recordedBy: row.recordedBy,
+    recordedAt: row.createdAt.toISOString(),
+    voided: row.voidedAt != null,
+    hasDoc: row.docBlobKey != null
+  };
+}
+function dqfSeamConfigured() {
+  return medicalVerifierFromEnv(process.env) != null;
+}
+async function dqfFileRowFor(ctx, companyId, driverUsername) {
+  const db = ctx.db();
+  const rows = await db.select().from(dqfFiles3).where(and(eq(dqfFiles3.companyId, companyId), eq(dqfFiles3.driverUsername, driverUsername))).limit(1);
+  return rows[0] ?? null;
+}
+async function dqfEntriesForFile(ctx, fileId) {
+  const db = ctx.db();
+  return db.select().from(dqfEntries3).where(eq(dqfEntries3.fileId, fileId)).orderBy(asc(dqfEntries3.id));
+}
+async function dqfPictureFor(ctx, companyId, driverUsername) {
+  const db = ctx.db();
+  const file = await dqfFileRowFor(ctx, companyId, driverUsername);
+  const entryRows = file ? await dqfEntriesForFile(ctx, file.id) : [];
+  const entries = entryRows.map(toDqfEntryLike);
+  const today = new Date().toISOString().slice(0, 10);
+  const evaluation = evaluateDqf(entries, today);
+  const verification = medicalVerificationStatus(entries, today, { seamConfigured: dqfSeamConfigured() });
+  const dismissals = await db.select().from(dqfAlertDismissals3).where(and(eq(dqfAlertDismissals3.companyId, companyId), eq(dqfAlertDismissals3.driverUsername, driverUsername)));
+  const alerts = buildDqfAlertStatuses(entries, dismissals, Date.now());
+  return { file, entries, evaluation, verification, alerts };
+}
+async function dqfAccessFor(ctx, me, driverUsername) {
+  const mine = await myMembership(ctx, me);
+  if (driverUsername === me) {
+    if (!mine) {
+      return {
+        ok: false,
+        error: "You're not in a company \u2014 a qualification file lives inside a fleet. Join with your owner's driver code first, and your file opens there."
+      };
+    }
+    return { ok: true, companyId: mine.company.id, companyName: mine.company.name, isSelf: true, canManage: mine.role === "owner" || mine.role === "dispatch" };
+  }
+  if (!mine || mine.role !== "owner" && mine.role !== "dispatch") {
+    return { ok: false, error: "That qualification file isn't in your scope \u2014 a driver's file is theirs and their own fleet's desk's." };
+  }
+  const db = ctx.db();
+  const members = await db.select().from(companyMembers3).where(eq(companyMembers3.companyId, mine.company.id));
+  const target = members.find((m) => m.username === driverUsername);
+  if (!target) {
+    return { ok: false, error: `@${driverUsername} isn't a member of ${mine.company.name} \u2014 their qualification file lives with their own fleet.` };
+  }
+  return { ok: true, companyId: mine.company.id, companyName: mine.company.name, isSelf: false, canManage: true };
+}
+async function evaluateDqfAlertNotifications(ctx, companyId, driverUsername, entries) {
+  const db = ctx.db();
+  const dismissals = await db.select().from(dqfAlertDismissals3).where(and(eq(dqfAlertDismissals3.companyId, companyId), eq(dqfAlertDismissals3.driverUsername, driverUsername)));
+  const statuses = buildDqfAlertStatuses(entries, dismissals, Date.now());
+  const active = activeDqfAlerts(statuses);
+  if (active.length === 0)
+    return;
+  const members = await db.select().from(companyMembers3).where(eq(companyMembers3.companyId, companyId));
+  const targets = members.filter((m) => m.role === "owner" || m.role === "dispatch").map((m) => m.username);
+  if (targets.length === 0)
+    return;
+  const file = await dqfFileRowFor(ctx, companyId, driverUsername);
+  for (const s of active) {
+    const built = dqfAlertNotification({
+      driverUsername,
+      label: s.label,
+      threshold: s.threshold ?? 0,
+      daysLeft: s.daysLeft,
+      expiresOn: s.expiresOn
+    });
+    for (const username of targets) {
+      await recordNotificationSafe(ctx, {
+        username,
+        kind: "credential",
+        title: built.title,
+        body: built.body,
+        dedupeKey: `dqf:${companyId}:${driverUsername}:${s.itemKey}:${s.threshold ?? 0}:${s.expiresOn ?? ""}`,
+        refKind: "dqf",
+        refId: file?.id ?? null
+      });
+    }
+  }
+}
+async function openDqBlockException(ctx, args) {
+  const db = ctx.db();
+  const now = new Date;
+  const dedupeKey = `dq:${args.board.id}:dq_blocked`;
+  const summary = dqBlockSummary(args.evaluation);
+  const detail = `Dispatch held for @${args.driverUsername} \u2014 ${summary} The load stays on the board; fix the qualification file and try again.`;
+  const evidence = [
+    {
+      kind: "driver",
+      ref: args.driverUsername,
+      at: now.toISOString(),
+      note: `qualification screen at ${args.method}: ${args.evaluation.reasons.map((r) => r.code).join(", ")}`
+    }
+  ];
+  const rows = await db.select().from(autoExceptions3).where(eq(autoExceptions3.dedupeKey, dedupeKey)).orderBy(desc(autoExceptions3.id));
+  const open = rows.find((r) => r.status === "open");
+  if (open) {
+    await db.update(autoExceptions3).set({ severity: 3, detail, evidenceJson: JSON.stringify(evidence), fingerprint: args.evaluation.fingerprint, updatedAt: now }).where(eq(autoExceptions3.id, open.id));
+    return;
+  }
+  const latest = rows[0];
+  if (latest && latest.fingerprint === args.evaluation.fingerprint)
+    return;
+  const ins = await db.insert(autoExceptions3).values({
+    loadId: args.board.id,
+    kind: "dq_blocked",
+    severity: 3,
+    detail,
+    evidenceJson: JSON.stringify(evidence),
+    driverUsername: args.driverUsername,
+    companyId: args.companyId,
+    brokerAccountId: null,
+    status: "open",
+    dedupeKey,
+    fingerprint: args.evaluation.fingerprint,
+    createdAt: now,
+    updatedAt: now
+  }).returning({ id: autoExceptions3.id });
+  const exceptionId = ins[0]?.id;
+  const note = dqBlockNotification({ driverUsername: args.driverUsername, summary });
+  const targets = new Set([args.driverUsername]);
+  const members = await db.select().from(companyMembers3).where(eq(companyMembers3.companyId, args.companyId));
+  for (const m of members)
+    if (m.role === "owner" || m.role === "dispatch")
+      targets.add(m.username);
+  for (const username of targets) {
+    await recordNotificationSafe(ctx, {
+      username,
+      kind: "system",
+      title: note.title,
+      body: note.body,
+      dedupeKey: `exception:${exceptionId ?? dedupeKey}`,
+      refKind: "load",
+      refId: args.board.id
+    });
+  }
+}
+async function clearDqBlockException(ctx, boardLoadId) {
+  const db = ctx.db();
+  const now = new Date;
+  const open = await db.select().from(autoExceptions3).where(and(eq(autoExceptions3.dedupeKey, `dq:${boardLoadId}:dq_blocked`), eq(autoExceptions3.status, "open")));
+  for (const row of open) {
+    const hash = await appendChain(ctx, {
+      refKind: "load",
+      refId: null,
+      sessionId: null,
+      event: "exception_auto_cleared",
+      payload: { exceptionId: row.id, boardLoadId, kind: "dq_blocked", at: now.toISOString() }
+    });
+    await db.update(autoExceptions3).set({ status: "resolved", resolution: "condition_cleared", resolvedBy: "system", resolvedAt: now, chainHash: hash, updatedAt: now }).where(eq(autoExceptions3.id, row.id));
+  }
+}
+async function dqGateForBoardTake(ctx, args) {
+  const now = new Date;
+  const { evaluation } = await dqfPictureFor(ctx, args.companyId, args.driverUsername);
+  if (evaluation.qualified) {
+    await clearDqBlockException(ctx, args.board.id);
+    return { blocked: false };
+  }
+  await appendChain(ctx, {
+    refKind: "load",
+    refId: null,
+    sessionId: null,
+    event: "dq_blocked",
+    payload: {
+      companyId: args.companyId,
+      driver: args.driverUsername,
+      boardLoadId: args.board.id,
+      method: args.method,
+      reasons: evaluation.reasons.map((r) => r.code),
+      fingerprint: evaluation.fingerprint,
+      by: args.actor,
+      at: now.toISOString()
+    }
+  });
+  await openDqBlockException(ctx, {
+    companyId: args.companyId,
+    driverUsername: args.driverUsername,
+    board: args.board,
+    method: args.method,
+    evaluation
+  });
+  return { blocked: true, summary: dqBlockSummary(evaluation) };
+}
+var dqfEntryShape = object({
+  id: number2(),
+  kind: string2(),
+  kindLabel: string2(),
+  entryDate: string2(),
+  expiresOn: string2().nullable(),
+  payload: record(string2(), unknown()),
+  recordedBy: string2(),
+  recordedAt: string2(),
+  voided: boolean2(),
+  hasDoc: boolean2()
+});
+var dqfCheckShape = object({
+  key: string2(),
+  label: string2(),
+  status: string2(),
+  detail: string2(),
+  date: string2().nullable()
+});
+var dqfAlertShape = object({
+  itemKey: string2(),
+  label: string2(),
+  expiresOn: string2().nullable(),
+  daysLeft: number2().nullable(),
+  threshold: number2().nullable(),
+  dismissed: boolean2()
+});
+function dqfEntryToShape(e) {
+  return {
+    id: e.id,
+    kind: e.kind,
+    kindLabel: DQF_ENTRY_LABELS[e.kind] ?? e.kind,
+    entryDate: e.entryDate,
+    expiresOn: e.expiresOn,
+    payload: e.payload,
+    recordedBy: e.recordedBy,
+    recordedAt: e.recordedAt,
+    voided: e.voided,
+    hasDoc: e.hasDoc
+  };
+}
 var lastEiaAttemptAt = 0;
 var EIA_ATTEMPT_MIN_MS = 60 * 60000;
 async function loadEiaView(ctx, opts = {}) {
@@ -31180,6 +31778,75 @@ async function resolveLibraryDocument(ctx, ref) {
 `).slice(2) }]
     });
     return { ok: true, error: null, docKind: "detention_claim", title, filename: `detention-claim-${r.id}.pdf`, mime: "application/pdf", bytes };
+  }
+  if (kind === "dqf") {
+    const fileId = Number(parts[1]);
+    const asOf = parts[2] ?? "";
+    if (!Number.isInteger(fileId) || !isYmd(asOf))
+      return docRefused("qualification packet");
+    const files = await db.select().from(dqfFiles3).where(eq(dqfFiles3.id, fileId)).limit(1);
+    const file = files[0];
+    if (!file)
+      return docRefused("qualification packet");
+    const access = await dqfAccessFor(ctx, me, file.driverUsername);
+    if (!access.ok || access.companyId !== file.companyId)
+      return docRefused("qualification packet");
+    const entryRows = await dqfEntriesForFile(ctx, file.id);
+    const asOfEndMs = Date.parse(`${asOf}T23:59:59.999Z`);
+    const entries = entryRows.map((row) => {
+      const like = toDqfEntryLike(row);
+      return { ...like, voided: row.voidedAt != null && row.voidedAt.getTime() <= asOfEndMs };
+    });
+    const effective = entriesEffectiveAt(entries, asOf);
+    const evaluation = evaluateDqf(entries, asOf);
+    const verification = medicalVerificationStatus(entries, asOf, { seamConfigured: dqfSeamConfigured() });
+    const byKind = new Map;
+    for (const e of effective) {
+      const list = byKind.get(e.kind) ?? [];
+      list.push(e);
+      byKind.set(e.kind, list);
+    }
+    const entryLines = (e) => {
+      const lines = [
+        `${DQF_ENTRY_LABELS[e.kind] ?? e.kind} \u2014 dated ${e.entryDate}${e.expiresOn ? `, expires ${e.expiresOn}` : ""}`,
+        ...Object.entries(e.payload).map(([k, v]) => `  ${k}: ${typeof v === "string" ? v : JSON.stringify(v)}`),
+        `  Recorded by @${e.recordedBy} on ${e.recordedAt.slice(0, 10)}${e.hasDoc ? " \u2014 document attached in the vault" : ""}`
+      ];
+      return lines;
+    };
+    const kindOrder = [
+      "application",
+      "employment_history",
+      "cdl",
+      "medical",
+      "medical_verification",
+      "road_test",
+      "mvr_review",
+      "clearinghouse_query",
+      "violation_record",
+      "training"
+    ];
+    const title = `Driver qualification file - @${file.driverUsername} - as of ${asOf}`;
+    const bytes = libraryPdfBytes({
+      title,
+      subtitle: `${access.companyName} \u2014 the file as it stood on ${asOf}, from the recorded entries. Entries recorded after that date are not shown; nothing here is backdated.`,
+      sections: [
+        {
+          heading: `Qualification as of ${asOf}`,
+          lines: [
+            evaluation.qualified ? "QUALIFIED \u2014 every 49 CFR 391 item on file and current on this date." : "NOT QUALIFIED on this date:",
+            ...evaluation.reasons.map((r) => `  - ${r.detail}`),
+            ...evaluation.checks.map((c) => `${c.label}: ${c.detail}`),
+            `Medical verification: ${verification.label}`
+          ]
+        },
+        ...kindOrder.filter((k) => (byKind.get(k) ?? []).length > 0).map((k) => ({
+          heading: DQF_ENTRY_LABELS[k],
+          lines: (byKind.get(k) ?? []).flatMap(entryLines)
+        }))
+      ]
+    });
+    return { ok: true, error: null, docKind: "dqf_packet", title, filename: `dqf-${file.driverUsername}-${asOf}.pdf`, mime: "application/pdf", bytes };
   }
   if (kind === "invoice") {
     const id = Number(parts[1]);
@@ -37509,7 +38176,7 @@ var Actions = {
         supersededById: r.supersededById,
         supersedesId: r.supersedesId
       })));
-      const exRows = (await db.select().from(autoExceptions3).where(and(eq(autoExceptions3.loadId, args.loadId), eq(autoExceptions3.status, "open")))).filter((r) => r.kind !== "tender_blocked");
+      const exRows = (await db.select().from(autoExceptions3).where(and(eq(autoExceptions3.loadId, args.loadId), eq(autoExceptions3.status, "open")))).filter((r) => r.kind !== "tender_blocked" && r.kind !== "dq_blocked");
       const audiences = await autonomyAudiences(ctx, args.loadId, scope.via === "mine" ? scope.load : null);
       return {
         ok: true,
@@ -37578,6 +38245,10 @@ var Actions = {
             const posters = await db.select().from(brokerPosterLoads3).where(eq(brokerPosterLoads3.id, row.loadId)).limit(1);
             const p = posters[0];
             laneCache.set(row.loadId, p ? laneLabel(p.pickupCity, p.pickupState, p.deliveryCity, p.deliveryState) : null);
+          } else if (row.kind === "dq_blocked") {
+            const boards = await db.select().from(boardLoads3).where(eq(boardLoads3.id, row.loadId)).limit(1);
+            const b = boards[0];
+            laneCache.set(row.loadId, b ? laneLabel(b.pickupCity, b.pickupState, b.deliveryCity, b.deliveryState) : null);
           } else {
             const aud = await autonomyAudiences(ctx, row.loadId, null);
             laneCache.set(row.loadId, aud.lane);
@@ -38961,6 +39632,15 @@ Keep it for your records.
       if (standing.gate.blocked) {
         return { ok: false, error: gateRefusalMessage(standing.gate), loadId: null, tripQueueId: null };
       }
+      const dq = await dqGateForBoardTake(ctx, { companyId: mine.company.id, driverUsername: me, board: row, actor: me, method: "claim" });
+      if (dq.blocked) {
+        return {
+          ok: false,
+          error: `You're not clear to take this load \u2014 ${dq.summary} Open your qualification file in your desk, fix what's listed, and try again.`,
+          loadId: null,
+          tripQueueId: null
+        };
+      }
       const res = await takeBoardLoad(ctx, row, me, "claim", me);
       ctx.invalidateQueries();
       return res;
@@ -39004,6 +39684,15 @@ Keep it for your records.
         return {
           ok: false,
           error: `@${targetRow.username} can't take new board loads right now \u2014 ${gateRefusalMessage(targetStanding.gate)}`,
+          loadId: null,
+          tripQueueId: null
+        };
+      }
+      const dq = await dqGateForBoardTake(ctx, { companyId: mine.company.id, driverUsername: targetRow.username, board: row, actor: me, method: "assign" });
+      if (dq.blocked) {
+        return {
+          ok: false,
+          error: `@${targetRow.username} isn't qualified to take this load \u2014 ${dq.summary} Fix their qualification file and assign again.`,
           loadId: null,
           tripQueueId: null
         };
@@ -39094,6 +39783,15 @@ Keep it for your records.
       const standing = await feeStandingForCarrier(ctx, mine.company.id, me);
       if (standing.gate.blocked) {
         return { ok: false, error: gateRefusalMessage(standing.gate), loadId: null, tripQueueId: null };
+      }
+      const dq = await dqGateForBoardTake(ctx, { companyId: mine.company.id, driverUsername: me, board: row, actor: me, method: "accept" });
+      if (dq.blocked) {
+        return {
+          ok: false,
+          error: `You're not clear to take this load \u2014 ${dq.summary} Open your qualification file in your desk, fix what's listed, and try again.`,
+          loadId: null,
+          tripQueueId: null
+        };
       }
       const now = new Date;
       const flipped = await db.update(boardLoads3).set({ status: "taken", carrierOfRecord: me, updatedAt: now }).where(and(eq(boardLoads3.id, row.id), eq(boardLoads3.status, "assigned"), eq(boardLoads3.claimedBy, row.claimedBy ?? ""))).returning({ id: boardLoads3.id });
@@ -54611,6 +55309,392 @@ ${args.question}`, { schema: answerSchema });
       return { ok: true, error: null };
     }
   }),
+  getDqfFile: defineAction({
+    description: "One driver's qualification file: every recorded entry, today's qualification evaluation, the medical verification status, and the fleet expiry alerts for that driver.",
+    request: object({ driverUsername: string2().min(1).max(60).nullable().default(null) }),
+    response: object({
+      ok: boolean2(),
+      error: string2().nullable(),
+      fileId: number2().nullable(),
+      companyName: string2().nullable(),
+      driverUsername: string2().nullable(),
+      qualified: boolean2(),
+      reasons: array(object({ code: string2(), detail: string2() })),
+      checks: array(dqfCheckShape),
+      medicalVerification: object({
+        state: string2(),
+        label: string2(),
+        checkedOn: string2().nullable(),
+        source: string2().nullable()
+      }),
+      seamConfigured: boolean2(),
+      entries: array(dqfEntryShape),
+      alerts: array(dqfAlertShape)
+    }),
+    async handler(ctx, args) {
+      const fail = {
+        ok: false,
+        fileId: null,
+        companyName: null,
+        driverUsername: null,
+        qualified: false,
+        reasons: [],
+        checks: [],
+        medicalVerification: { state: "on_file", label: "", checkedOn: null, source: null },
+        seamConfigured: dqfSeamConfigured(),
+        entries: [],
+        alerts: []
+      };
+      const me = await myUsername(ctx);
+      const target = (args.driverUsername ?? me).trim();
+      const access = await dqfAccessFor(ctx, me, target);
+      if (!access.ok)
+        return { ...fail, error: access.error };
+      const pic = await dqfPictureFor(ctx, access.companyId, target);
+      if (access.canManage) {
+        await evaluateDqfAlertNotifications(ctx, access.companyId, target, pic.entries);
+      }
+      return {
+        ok: true,
+        error: null,
+        fileId: pic.file?.id ?? null,
+        companyName: access.companyName,
+        driverUsername: target,
+        qualified: pic.evaluation.qualified,
+        reasons: pic.evaluation.reasons,
+        checks: pic.evaluation.checks,
+        medicalVerification: pic.verification,
+        seamConfigured: dqfSeamConfigured(),
+        entries: pic.entries.map(dqfEntryToShape),
+        alerts: pic.alerts
+      };
+    }
+  }),
+  saveDqfEntry: defineAction({
+    description: "Record one entry in a driver's qualification file (creates the file on first entry). Sealed. An attached document rides the vault blob path.",
+    request: object({
+      driverUsername: string2().min(1).max(60),
+      kind: _enum(DQF_ENTRY_KINDS),
+      entryDate: string2().regex(/^\d{4}-\d{2}-\d{2}$/),
+      expiresOn: string2().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().default(null),
+      payloadJson: string2().max(4000).default("{}"),
+      dataBase64: string2().max(14000000).nullable().default(null),
+      mime: string2().max(100).nullable().default(null)
+    }),
+    response: object({ ok: boolean2(), error: string2().nullable(), entryId: number2().nullable() }),
+    async handler(ctx, args) {
+      const me = await myUsername(ctx);
+      const target = args.driverUsername.trim();
+      const access = await dqfAccessFor(ctx, me, target);
+      if (!access.ok)
+        return { ok: false, error: access.error, entryId: null };
+      if (!isYmd(args.entryDate))
+        return { ok: false, error: "That entry date isn't a real date \u2014 pick it again.", entryId: null };
+      if (args.expiresOn != null && !isYmd(args.expiresOn))
+        return { ok: false, error: "That expiry date isn't a real date \u2014 pick it again.", entryId: null };
+      let payload = {};
+      try {
+        const parsed = JSON.parse(args.payloadJson);
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+          throw new Error("not an object");
+        payload = parsed;
+      } catch {
+        return { ok: false, error: "Those entry details didn't parse \u2014 nothing was recorded.", entryId: null };
+      }
+      if (args.kind === "clearinghouse_query") {
+        const result = typeof payload.result === "string" ? payload.result : null;
+        if (result !== "clear" && result !== "prohibited" && result !== "no_record")
+          return { ok: false, error: "Pick the Clearinghouse result the query came back with \u2014 clear, prohibited, or no record found.", entryId: null };
+      }
+      if (args.kind === "medical_verification") {
+        return {
+          ok: false,
+          error: "A verification check is recorded by the verification source itself \u2014 use \u201CCheck medical status\u201D and the answer lands here. Nothing was recorded.",
+          entryId: null
+        };
+      }
+      const db = ctx.db();
+      let file = await dqfFileRowFor(ctx, access.companyId, target);
+      if (!file) {
+        await db.insert(dqfFiles3).values({ companyId: access.companyId, driverUsername: target, createdBy: me });
+        const created = await dqfFileRowFor(ctx, access.companyId, target);
+        if (!created)
+          throw new Error("saveDqfEntry: file insert returned no row");
+        file = created;
+        await appendChain(ctx, {
+          refKind: "driver",
+          refId: null,
+          sessionId: null,
+          event: "dqf_file_created",
+          payload: { fileId: file.id, companyId: access.companyId, driver: target, by: me, at: new Date().toISOString() }
+        });
+      }
+      let blobKey = null;
+      if (args.dataBase64 && args.mime) {
+        blobKey = `dqf-doc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        await ctx.blobs.put(blobKey, base64ToBytes(args.dataBase64), { contentType: args.mime });
+      }
+      const ins = await db.insert(dqfEntries3).values({
+        fileId: file.id,
+        kind: args.kind,
+        entryDate: args.entryDate,
+        expiresOn: args.expiresOn,
+        payloadJson: JSON.stringify(payload),
+        docBlobKey: blobKey,
+        docMime: args.mime,
+        recordedBy: me
+      }).returning({ id: dqfEntries3.id });
+      const entryId = ins[0]?.id;
+      if (entryId == null)
+        throw new Error("saveDqfEntry: insert returned no rows");
+      await db.update(dqfFiles3).set({ updatedAt: new Date }).where(eq(dqfFiles3.id, file.id));
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "dqf_entry_recorded",
+        payload: {
+          fileId: file.id,
+          entryId,
+          companyId: access.companyId,
+          driver: target,
+          kind: args.kind,
+          entryDate: args.entryDate,
+          expiresOn: args.expiresOn,
+          hasDoc: blobKey != null,
+          by: me,
+          at: new Date().toISOString()
+        }
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null, entryId };
+    }
+  }),
+  voidDqfEntry: defineAction({
+    description: "Void a wrong qualification entry (it stays on the record, marked void, and stops counting). The correction is a new entry recorded alongside.",
+    request: object({ entryId: number2().int().positive() }),
+    response: object({ ok: boolean2(), error: string2().nullable() }),
+    async handler(ctx, args) {
+      const me = await myUsername(ctx);
+      const db = ctx.db();
+      const rows = await db.select().from(dqfEntries3).where(eq(dqfEntries3.id, args.entryId)).limit(1);
+      const row = rows[0];
+      if (!row)
+        return { ok: false, error: "That entry isn't on file." };
+      const files = await db.select().from(dqfFiles3).where(eq(dqfFiles3.id, row.fileId)).limit(1);
+      const file = files[0];
+      if (!file)
+        return { ok: false, error: "That entry isn't on file." };
+      const access = await dqfAccessFor(ctx, me, file.driverUsername);
+      if (!access.ok || access.companyId !== file.companyId)
+        return { ok: false, error: "That entry isn't in your scope." };
+      if (row.voidedAt != null)
+        return { ok: true, error: null };
+      const now = new Date;
+      await db.update(dqfEntries3).set({ voidedAt: now, voidedBy: me }).where(eq(dqfEntries3.id, row.id));
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "dqf_entry_voided",
+        payload: { fileId: file.id, entryId: row.id, driver: file.driverUsername, kind: row.kind, by: me, at: now.toISOString() }
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
+    }
+  }),
+  verifyDqfMedical: defineAction({
+    description: "Check a driver's medical status against the electronic verification source. Unconfigured: records nothing, stamps nothing, and says so plainly.",
+    request: object({ driverUsername: string2().min(1).max(60) }),
+    response: object({
+      ok: boolean2(),
+      configured: boolean2(),
+      error: string2().nullable(),
+      state: string2(),
+      label: string2()
+    }),
+    async handler(ctx, args) {
+      const me = await myUsername(ctx);
+      const target = args.driverUsername.trim();
+      const access = await dqfAccessFor(ctx, me, target);
+      if (!access.ok)
+        return { ok: false, configured: dqfSeamConfigured(), error: access.error, state: "on_file", label: "" };
+      const pic = await dqfPictureFor(ctx, access.companyId, target);
+      const verifier = medicalVerifierFromEnv(process.env);
+      if (!verifier) {
+        await appendChain(ctx, {
+          refKind: "driver",
+          refId: null,
+          sessionId: null,
+          event: "dqf_medical_check",
+          payload: { companyId: access.companyId, driver: target, outcome: "not_configured", by: me, at: new Date().toISOString() }
+        });
+        return {
+          ok: true,
+          configured: false,
+          error: null,
+          state: pic.verification.state,
+          label: "Electronic verification isn't connected yet \u2014 the medical certificate is on file, and its status reads \u201Con file\u201D until a verification source is connected. Nothing was stamped."
+        };
+      }
+      const med = pic.entries.filter((e) => e.kind === "medical" && !e.voided).sort((a, b) => b.entryDate.localeCompare(a.entryDate))[0];
+      const check = await verifier.check({
+        registryNumber: med ? typeof med.payload.registryNumber === "string" ? med.payload.registryNumber : null : null,
+        examinerName: med ? typeof med.payload.examinerName === "string" ? med.payload.examinerName : null : null,
+        expiresOn: med?.expiresOn ?? null
+      });
+      if (!check) {
+        return { ok: false, configured: true, error: "The verification source didn't answer \u2014 nothing was stamped. Try again later.", state: pic.verification.state, label: pic.verification.label };
+      }
+      if (pic.file) {
+        const db = ctx.db();
+        await db.insert(dqfEntries3).values({
+          fileId: pic.file.id,
+          kind: "medical_verification",
+          entryDate: check.checkedAt.slice(0, 10),
+          expiresOn: null,
+          payloadJson: JSON.stringify({ outcome: check.outcome, source: check.source }),
+          docBlobKey: null,
+          docMime: null,
+          recordedBy: me
+        });
+      }
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "dqf_medical_check",
+        payload: { companyId: access.companyId, driver: target, outcome: check.outcome, source: check.source, by: me, at: new Date().toISOString() }
+      });
+      const after = await dqfPictureFor(ctx, access.companyId, target);
+      ctx.invalidateQueries();
+      return { ok: true, configured: true, error: null, state: after.verification.state, label: after.verification.label };
+    }
+  }),
+  getFleetDqf: defineAction({
+    description: "The fleet qualification board (owner/dispatch): every company driver's qualification status, reasons, and expiry alerts. Records the alert notifications on first sight.",
+    request: object({}),
+    response: object({
+      ok: boolean2(),
+      error: string2().nullable(),
+      companyName: string2().nullable(),
+      drivers: array(object({
+        username: string2(),
+        role: string2(),
+        hasFile: boolean2(),
+        qualified: boolean2(),
+        reasons: array(object({ code: string2(), detail: string2() })),
+        medicalVerificationLabel: string2(),
+        alerts: array(dqfAlertShape)
+      }))
+    }),
+    async handler(ctx) {
+      const me = await myUsername(ctx);
+      const mine = await myMembership(ctx, me);
+      if (!mine || mine.role !== "owner" && mine.role !== "dispatch") {
+        return {
+          ok: false,
+          error: "The fleet qualification board is for the owner and dispatch \u2014 your own qualification file is in your desk.",
+          companyName: null,
+          drivers: []
+        };
+      }
+      const db = ctx.db();
+      const members = await db.select().from(companyMembers3).where(eq(companyMembers3.companyId, mine.company.id));
+      const drivers = [];
+      for (const m of members) {
+        if (m.role === "dispatch")
+          continue;
+        const pic = await dqfPictureFor(ctx, mine.company.id, m.username);
+        await evaluateDqfAlertNotifications(ctx, mine.company.id, m.username, pic.entries);
+        drivers.push({
+          username: m.username,
+          role: m.role,
+          hasFile: pic.file != null,
+          qualified: pic.evaluation.qualified,
+          reasons: pic.evaluation.reasons,
+          medicalVerificationLabel: pic.verification.label,
+          alerts: pic.alerts
+        });
+      }
+      drivers.sort((a, b) => Number(a.qualified) - Number(b.qualified) || a.username.localeCompare(b.username));
+      return { ok: true, error: null, companyName: mine.company.name, drivers };
+    }
+  }),
+  dismissDqfAlert: defineAction({
+    description: "Dismiss one fleet DQF expiry alert for its current threshold (recorded against the item's current date; the next threshold still fires, and a renewal re-arms).",
+    request: object({
+      driverUsername: string2().min(1).max(60),
+      itemKey: _enum(["cdl", "medical", "mvr_review"]),
+      threshold: number2().int()
+    }),
+    response: object({ ok: boolean2(), error: string2().nullable() }),
+    async handler(ctx, args) {
+      const me = await myUsername(ctx);
+      const target = args.driverUsername.trim();
+      const access = await dqfAccessFor(ctx, me, target);
+      if (!access.ok)
+        return { ok: false, error: access.error };
+      const pic = await dqfPictureFor(ctx, access.companyId, target);
+      const status = pic.alerts.find((s) => s.itemKey === args.itemKey);
+      if (!status || status.expiresOn == null)
+        return { ok: false, error: "No date is on file for that item \u2014 there's no alert to dismiss." };
+      if (status.threshold == null)
+        return { ok: false, error: "That item isn't in an alert window right now." };
+      if (args.threshold !== status.threshold)
+        return { ok: false, error: "That alert has moved on \u2014 refresh and dismiss the one showing now." };
+      if (!status.dismissed) {
+        const db = ctx.db();
+        await db.insert(dqfAlertDismissals3).values({
+          companyId: access.companyId,
+          driverUsername: target,
+          itemKey: status.itemKey,
+          threshold: status.threshold,
+          expiresOn: status.expiresOn,
+          dismissedBy: me
+        });
+        await appendChain(ctx, {
+          refKind: "driver",
+          refId: null,
+          sessionId: null,
+          event: "dqf_alert_dismissed",
+          payload: {
+            companyId: access.companyId,
+            driver: target,
+            itemKey: status.itemKey,
+            threshold: status.threshold,
+            expiresOn: status.expiresOn,
+            by: me,
+            at: new Date().toISOString()
+          }
+        });
+      }
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
+    }
+  }),
+  getDqfEntryDoc: defineAction({
+    description: "Get a qualification entry's attached document (vault blob) for viewing \u2014 the driver themselves or their fleet's desk only.",
+    request: object({ entryId: number2().int().positive() }),
+    response: object({ url: string2().nullable(), mime: string2().nullable() }),
+    async handler(ctx, args) {
+      const me = await myUsername(ctx);
+      const db = ctx.db();
+      const rows = await db.select().from(dqfEntries3).where(eq(dqfEntries3.id, args.entryId)).limit(1);
+      const row = rows[0];
+      if (!row || !row.docBlobKey)
+        return { url: null, mime: null };
+      const files = await db.select().from(dqfFiles3).where(eq(dqfFiles3.id, row.fileId)).limit(1);
+      const file = files[0];
+      if (!file)
+        return { url: null, mime: null };
+      const access = await dqfAccessFor(ctx, me, file.driverUsername);
+      if (!access.ok || access.companyId !== file.companyId)
+        return { url: null, mime: null };
+      const url = await ctx.blobs.getUrl(row.docBlobKey);
+      return { url, mime: row.docMime };
+    }
+  }),
   getNotifications: defineAction({
     description: "The caller's notification center: newest first, with the unread count and the honest phone-push status.",
     request: object({ limit: number2().int().positive().max(100).default(50) }),
@@ -60688,6 +61772,18 @@ ${args.question}`, { schema: answerSchema });
       const standing = await feeStandingForCarrierGlobal(ctx, me);
       if (standing.gate.blocked) {
         return { ok: false, error: gateRefusalMessage(standing.gate), loadId: null, tripQueueId: null };
+      }
+      const openMine = await myMembership(ctx, me);
+      if (openMine) {
+        const dq = await dqGateForBoardTake(ctx, { companyId: openMine.company.id, driverUsername: me, board: row, actor: me, method: "claim" });
+        if (dq.blocked) {
+          return {
+            ok: false,
+            error: `You're not clear to take this load \u2014 ${dq.summary} Open your qualification file in your desk, fix what's listed, and try again.`,
+            loadId: null,
+            tripQueueId: null
+          };
+        }
       }
       const res = await takeBoardLoad(ctx, row, me, "claim", me);
       ctx.invalidateQueries();

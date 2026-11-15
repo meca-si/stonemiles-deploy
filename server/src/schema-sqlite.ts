@@ -5250,3 +5250,76 @@ export const loadPaperwork = sqliteTable("load_paperwork", {
     .$defaultFn(() => new Date()),
 });
 
+// ---- Driver qualification files (migration 0133, Wave 2 item 6) ----------
+// The 49 CFR 391.51 file, per (company, driver). dqf_files is the
+// folder; dqf_entries are the recorded facts inside it — one row
+// per fact (application, CDL record, medical certificate, road
+// test, MVR review, Clearinghouse query, employment history,
+// violations, training, medical verification checks). Every rule
+// (qualification, alerts, the audit packet) is derived from the
+// entries by the pure evaluator in dqf.ts; nothing about a
+// driver's standing is stored as a claim. Entries are corrected
+// by voiding (voided_at) + recording a new entry — the void and
+// the replacement both stay on the record and in the chain.
+// Company-scoped like auto_exceptions / broker_accounts (no
+// profile_id): access is membership-checked in actions.ts.
+export const dqfFiles = sqliteTable("dqf_files", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  companyId: integer("company_id").notNull(),
+  driverUsername: text("driver_username").notNull(),
+  createdBy: text("created_by").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+export const dqfEntries = sqliteTable("dqf_entries", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  fileId: integer("file_id").notNull(),
+  // application | employment_history | cdl | medical |
+  // medical_verification | road_test | mvr_review |
+  // clearinghouse_query | violation_record | training
+  kind: text("kind").notNull(),
+  // YYYY-MM-DD — the date the recorded fact is ABOUT (the query
+  // date, the review date, the certificate's issue date).
+  entryDate: text("entry_date").notNull(),
+  // YYYY-MM-DD — set only where the fact itself expires (CDL,
+  // medical certificate).
+  expiresOn: text("expires_on"),
+  // Kind-specific recorded facts (JSON) — fleet/driver-entered,
+  // read defensively by dqf.ts; never a computed claim.
+  payloadJson: text("payload_json").notNull().default("{}"),
+  // The supporting document in the vault, when one was attached.
+  docBlobKey: text("doc_blob_key"),
+  docMime: text("doc_mime"),
+  recordedBy: text("recorded_by").notNull(),
+  // Correction discipline: a wrong entry is voided, never edited
+  // or deleted — the evaluator ignores voided entries.
+  voidedAt: integer("voided_at", { mode: "timestamp_ms" }),
+  voidedBy: text("voided_by"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+// DQF fleet-alert dismissals (migration 0133): the credential
+// dismissal pattern carried to the fleet side — one row per
+// (company, driver, item, threshold, date) dismissed. Keyed on
+// the DATE, so a renewal (a new expiry / review date) re-arms
+// every threshold. Dismissing silences the nag, never the fact:
+// the qualification board keeps showing the real state.
+export const dqfAlertDismissals = sqliteTable("dqf_alert_dismissals", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  companyId: integer("company_id").notNull(),
+  driverUsername: text("driver_username").notNull(),
+  itemKey: text("item_key").notNull(), // cdl | medical | mvr_review
+  threshold: integer("threshold").notNull(), // 60 | 30 | 7 | 0 (past due)
+  expiresOn: text("expires_on").notNull(), // YYYY-MM-DD the dismissal applies to
+  dismissedBy: text("dismissed_by").notNull(),
+  dismissedAt: integer("dismissed_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});

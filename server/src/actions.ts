@@ -296,6 +296,23 @@ import {
   parkingPartnerFromEnv,
 } from "./parking";
 import {
+  activeDqfAlerts,
+  buildDqfAlertStatuses,
+  dqBlockNotification,
+  dqBlockSummary,
+  dqfAlertNotification,
+  DQF_ENTRY_KINDS,
+  DQF_ENTRY_LABELS,
+  entriesEffectiveAt,
+  evaluateDqf,
+  isYmd,
+  medicalVerificationStatus,
+  medicalVerifierFromEnv,
+  type DqfEntryKind,
+  type DqfEntryLike,
+  type DqfEvaluation,
+} from "./dqf";
+import {
   canDetentionClaimMove,
   detentionClaimPack,
   facilityDetentionStats,
@@ -2680,10 +2697,12 @@ async function evaluateLoadAutonomy(
 
   // Tender-block rows (kind tender_blocked) share this table but
   // are managed by the broker tender flow, not by derivation —
-  // their loadId is a broker poster load id. Derivation never
-  // refreshes or auto-clears them.
+  // their loadId is a broker poster load id. DQ-block rows (kind
+  // dq_blocked, Wave 2 item 6) are the same shape: managed by the
+  // claim/assign/accept funnels, their loadId is a BOARD load id.
+  // Derivation never refreshes or auto-clears either kind.
   const rows = (await db.select().from(schema.autoExceptions).where(eq(schema.autoExceptions.loadId, loadId))).filter(
-    (r) => r.kind !== "tender_blocked",
+    (r) => r.kind !== "tender_blocked" && r.kind !== "dq_blocked",
   );
   let opened = 0;
   let cleared = 0;
@@ -15448,6 +15467,382 @@ async function toBrokerLoad(
   };
 }
 
+// ---- Driver qualification files (migration 0133, Wave 2 item 6) ----------
+// The database half of dqf.ts. The file rides dqf_files +
+// dqf_entries, keyed by (company, driver); the rules (evaluation,
+// medical verification status, fleet alerts) are pure in dqf.ts.
+// STANDING HONESTY: every fact here was recorded by the fleet or
+// the driver from their own paperwork and their own FMCSA runs —
+// a Clearinghouse entry is the fleet's record of a query THEY
+// ran, and the medical verification seam is unconfigured in this
+// build (no registry transport is connected), so no medical
+// record is ever stamped verified here. Notifications are in-app
+// only — no email exists anywhere in this section.
+
+type DqfFileRow = typeof schema.dqfFiles.$inferSelect;
+type DqfEntryRow = typeof schema.dqfEntries.$inferSelect;
+
+function toDqfEntryLike(row: DqfEntryRow): DqfEntryLike {
+  let payload: Record<string, unknown> = {};
+  try {
+    const parsed = JSON.parse(row.payloadJson) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) payload = parsed as Record<string, unknown>;
+  } catch { /* a malformed payload reads as no facts — never a guess */ }
+  return {
+    id: row.id,
+    kind: row.kind,
+    entryDate: row.entryDate,
+    expiresOn: row.expiresOn ?? null,
+    payload,
+    recordedBy: row.recordedBy,
+    recordedAt: row.createdAt.toISOString(),
+    voided: row.voidedAt != null,
+    hasDoc: row.docBlobKey != null,
+  };
+}
+
+function dqfSeamConfigured(): boolean {
+  return medicalVerifierFromEnv(process.env) != null;
+}
+
+async function dqfFileRowFor(ctx: Ctx, companyId: number, driverUsername: string): Promise<DqfFileRow | null> {
+  const db = ctx.db<typeof schema>();
+  const rows = await db
+    .select()
+    .from(schema.dqfFiles)
+    .where(and(eq(schema.dqfFiles.companyId, companyId), eq(schema.dqfFiles.driverUsername, driverUsername)))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+async function dqfEntriesForFile(ctx: Ctx, fileId: number): Promise<DqfEntryRow[]> {
+  const db = ctx.db<typeof schema>();
+  return db
+    .select()
+    .from(schema.dqfEntries)
+    .where(eq(schema.dqfEntries.fileId, fileId))
+    .orderBy(asc(schema.dqfEntries.id));
+}
+
+/** A driver's whole DQF picture in one company's scope: the file
+ * row (or null), every entry, today's evaluation, the medical
+ * verification status, and the fleet alert statuses. */
+async function dqfPictureFor(
+  ctx: Ctx,
+  companyId: number,
+  driverUsername: string,
+): Promise<{
+  file: DqfFileRow | null;
+  entries: DqfEntryLike[];
+  evaluation: DqfEvaluation;
+  verification: ReturnType<typeof medicalVerificationStatus>;
+  alerts: ReturnType<typeof buildDqfAlertStatuses>;
+}> {
+  const db = ctx.db<typeof schema>();
+  const file = await dqfFileRowFor(ctx, companyId, driverUsername);
+  const entryRows = file ? await dqfEntriesForFile(ctx, file.id) : [];
+  const entries = entryRows.map(toDqfEntryLike);
+  const today = new Date().toISOString().slice(0, 10);
+  const evaluation = evaluateDqf(entries, today);
+  const verification = medicalVerificationStatus(entries, today, { seamConfigured: dqfSeamConfigured() });
+  const dismissals = await db
+    .select()
+    .from(schema.dqfAlertDismissals)
+    .where(and(eq(schema.dqfAlertDismissals.companyId, companyId), eq(schema.dqfAlertDismissals.driverUsername, driverUsername)));
+  const alerts = buildDqfAlertStatuses(entries, dismissals, Date.now());
+  return { file, entries, evaluation, verification, alerts };
+}
+
+/** Who may see / write a driver's DQF, resolved against the
+ * caller's seat: the driver themselves (their own company's file),
+ * or the owner/dispatch of the company the driver belongs to.
+ * Anyone else gets the same plain refusal — another fleet's files
+ * are invisible here. */
+async function dqfAccessFor(
+  ctx: Ctx,
+  me: string,
+  driverUsername: string,
+): Promise<
+  | { ok: true; companyId: number; companyName: string; isSelf: boolean; canManage: boolean }
+  | { ok: false; error: string }
+> {
+  const mine = await myMembership(ctx, me);
+  if (driverUsername === me) {
+    if (!mine) {
+      return {
+        ok: false,
+        error: "You're not in a company — a qualification file lives inside a fleet. Join with your owner's driver code first, and your file opens there.",
+      };
+    }
+    return { ok: true, companyId: mine.company.id, companyName: mine.company.name, isSelf: true, canManage: mine.role === "owner" || mine.role === "dispatch" };
+  }
+  if (!mine || (mine.role !== "owner" && mine.role !== "dispatch")) {
+    return { ok: false, error: "That qualification file isn't in your scope — a driver's file is theirs and their own fleet's desk's." };
+  }
+  const db = ctx.db<typeof schema>();
+  const members = await db
+    .select()
+    .from(schema.companyMembers)
+    .where(eq(schema.companyMembers.companyId, mine.company.id));
+  const target = members.find((m) => m.username === driverUsername);
+  if (!target) {
+    return { ok: false, error: `@${driverUsername} isn't a member of ${mine.company.name} — their qualification file lives with their own fleet.` };
+  }
+  return { ok: true, companyId: mine.company.id, companyName: mine.company.name, isSelf: false, canManage: true };
+}
+
+/** Record the fleet-side DQF alerts into the desk's notification
+ * centers the first time each threshold is seen (kind "credential",
+ * dedupe "ever" per (company, driver, item, threshold, date) — the
+ * credential engine's semantics). A dismissed alert never records.
+ * In-app only. Best-effort: the center never breaks the read. */
+async function evaluateDqfAlertNotifications(
+  ctx: Ctx,
+  companyId: number,
+  driverUsername: string,
+  entries: DqfEntryLike[],
+): Promise<void> {
+  const db = ctx.db<typeof schema>();
+  const dismissals = await db
+    .select()
+    .from(schema.dqfAlertDismissals)
+    .where(and(eq(schema.dqfAlertDismissals.companyId, companyId), eq(schema.dqfAlertDismissals.driverUsername, driverUsername)));
+  const statuses = buildDqfAlertStatuses(entries, dismissals, Date.now());
+  const active = activeDqfAlerts(statuses);
+  if (active.length === 0) return;
+  const members = await db
+    .select()
+    .from(schema.companyMembers)
+    .where(eq(schema.companyMembers.companyId, companyId));
+  const targets = members.filter((m) => m.role === "owner" || m.role === "dispatch").map((m) => m.username);
+  if (targets.length === 0) return;
+  const file = await dqfFileRowFor(ctx, companyId, driverUsername);
+  for (const s of active) {
+    const built = dqfAlertNotification({
+      driverUsername,
+      label: s.label,
+      threshold: s.threshold ?? 0,
+      daysLeft: s.daysLeft,
+      expiresOn: s.expiresOn,
+    });
+    for (const username of targets) {
+      await recordNotificationSafe(ctx, {
+        username,
+        kind: "credential",
+        title: built.title,
+        body: built.body,
+        dedupeKey: `dqf:${companyId}:${driverUsername}:${s.itemKey}:${s.threshold ?? 0}:${s.expiresOn ?? ""}`,
+        refKind: "dqf",
+        refId: file?.id ?? null,
+      });
+    }
+  }
+}
+
+/** Open (or refresh) the fleet's DQ-block exception for one board
+ * load, and notify the driver + their desk. Mirrors the tender
+ * block's episode rules: one open row per board load; a
+ * human-closed episode with the same fingerprint stays closed. */
+async function openDqBlockException(
+  ctx: Ctx,
+  args: {
+    companyId: number;
+    driverUsername: string;
+    board: BoardLoadRow;
+    method: "claim" | "assign" | "accept";
+    evaluation: DqfEvaluation;
+  },
+): Promise<void> {
+  const db = ctx.db<typeof schema>();
+  const now = new Date();
+  const dedupeKey = `dq:${args.board.id}:dq_blocked`;
+  const summary = dqBlockSummary(args.evaluation);
+  const detail = `Dispatch held for @${args.driverUsername} — ${summary} The load stays on the board; fix the qualification file and try again.`;
+  const evidence = [
+    {
+      kind: "driver" as const,
+      ref: args.driverUsername,
+      at: now.toISOString(),
+      note: `qualification screen at ${args.method}: ${args.evaluation.reasons.map((r) => r.code).join(", ")}`,
+    },
+  ];
+  const rows = await db
+    .select()
+    .from(schema.autoExceptions)
+    .where(eq(schema.autoExceptions.dedupeKey, dedupeKey))
+    .orderBy(desc(schema.autoExceptions.id));
+  const open = rows.find((r) => r.status === "open");
+  if (open) {
+    await db
+      .update(schema.autoExceptions)
+      .set({ severity: 3, detail, evidenceJson: JSON.stringify(evidence), fingerprint: args.evaluation.fingerprint, updatedAt: now })
+      .where(eq(schema.autoExceptions.id, open.id));
+    return;
+  }
+  const latest = rows[0];
+  if (latest && latest.fingerprint === args.evaluation.fingerprint) return; // same episode, human-closed — stays closed
+  const ins = await db
+    .insert(schema.autoExceptions)
+    .values({
+      loadId: args.board.id,
+      kind: "dq_blocked",
+      severity: 3,
+      detail,
+      evidenceJson: JSON.stringify(evidence),
+      driverUsername: args.driverUsername,
+      companyId: args.companyId,
+      brokerAccountId: null,
+      status: "open",
+      dedupeKey,
+      fingerprint: args.evaluation.fingerprint,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .returning({ id: schema.autoExceptions.id });
+  const exceptionId = ins[0]?.id;
+  const note = dqBlockNotification({ driverUsername: args.driverUsername, summary });
+  const targets = new Set<string>([args.driverUsername]);
+  const members = await db
+    .select()
+    .from(schema.companyMembers)
+    .where(eq(schema.companyMembers.companyId, args.companyId));
+  for (const m of members) if (m.role === "owner" || m.role === "dispatch") targets.add(m.username);
+  for (const username of targets) {
+    await recordNotificationSafe(ctx, {
+      username,
+      kind: "system",
+      title: note.title,
+      body: note.body,
+      dedupeKey: `exception:${exceptionId ?? dedupeKey}`,
+      refKind: "load",
+      refId: args.board.id,
+    });
+  }
+}
+
+/** Close this board load's open DQ-block exception because a later
+ * screen passed — sealed, like every autonomy clearing. */
+async function clearDqBlockException(ctx: Ctx, boardLoadId: number): Promise<void> {
+  const db = ctx.db<typeof schema>();
+  const now = new Date();
+  const open = await db
+    .select()
+    .from(schema.autoExceptions)
+    .where(
+      and(
+        eq(schema.autoExceptions.dedupeKey, `dq:${boardLoadId}:dq_blocked`),
+        eq(schema.autoExceptions.status, "open"),
+      ),
+    );
+  for (const row of open) {
+    const hash = await appendChain(ctx, {
+      refKind: "load",
+      refId: null,
+      sessionId: null,
+      event: "exception_auto_cleared",
+      payload: { exceptionId: row.id, boardLoadId, kind: "dq_blocked", at: now.toISOString() },
+    });
+    await db
+      .update(schema.autoExceptions)
+      .set({ status: "resolved", resolution: "condition_cleared", resolvedBy: "system", resolvedAt: now, chainHash: hash, updatedAt: now })
+      .where(eq(schema.autoExceptions.id, row.id));
+  }
+}
+
+/** THE DQF GATE (compliance autopilot): run where a driver is
+ * bound to a board load — claim, assign, accept. Stands on the
+ * recorded qualification file alone. A pass clears any open block
+ * for the board load; a block seals dq_blocked, notifies the
+ * driver + desk, opens the fleet's exception, and binds NOTHING.
+ * Load CREATION is never gated — a solo driver building their own
+ * loads is not an assignment. */
+async function dqGateForBoardTake(
+  ctx: Ctx,
+  args: {
+    companyId: number;
+    driverUsername: string;
+    board: BoardLoadRow;
+    actor: string;
+    method: "claim" | "assign" | "accept";
+  },
+): Promise<{ blocked: false } | { blocked: true; summary: string }> {
+  const now = new Date();
+  const { evaluation } = await dqfPictureFor(ctx, args.companyId, args.driverUsername);
+  if (evaluation.qualified) {
+    await clearDqBlockException(ctx, args.board.id);
+    return { blocked: false };
+  }
+  await appendChain(ctx, {
+    refKind: "load",
+    refId: null,
+    sessionId: null,
+    event: "dq_blocked",
+    payload: {
+      companyId: args.companyId,
+      driver: args.driverUsername,
+      boardLoadId: args.board.id,
+      method: args.method,
+      reasons: evaluation.reasons.map((r) => r.code),
+      fingerprint: evaluation.fingerprint,
+      by: args.actor,
+      at: now.toISOString(),
+    },
+  });
+  await openDqBlockException(ctx, {
+    companyId: args.companyId,
+    driverUsername: args.driverUsername,
+    board: args.board,
+    method: args.method,
+    evaluation,
+  });
+  return { blocked: true, summary: dqBlockSummary(evaluation) };
+}
+
+const dqfEntryShape = z.object({
+  id: z.number(),
+  kind: z.string(),
+  kindLabel: z.string(),
+  entryDate: z.string(),
+  expiresOn: z.string().nullable(),
+  payload: z.record(z.string(), z.unknown()),
+  recordedBy: z.string(),
+  recordedAt: z.string(),
+  voided: z.boolean(),
+  hasDoc: z.boolean(),
+});
+
+const dqfCheckShape = z.object({
+  key: z.string(),
+  label: z.string(),
+  status: z.string(),
+  detail: z.string(),
+  date: z.string().nullable(),
+});
+
+const dqfAlertShape = z.object({
+  itemKey: z.string(),
+  label: z.string(),
+  expiresOn: z.string().nullable(),
+  daysLeft: z.number().nullable(),
+  threshold: z.number().nullable(),
+  dismissed: z.boolean(),
+});
+
+function dqfEntryToShape(e: DqfEntryLike): z.infer<typeof dqfEntryShape> {
+  return {
+    id: e.id,
+    kind: e.kind,
+    kindLabel: DQF_ENTRY_LABELS[e.kind as DqfEntryKind] ?? e.kind,
+    entryDate: e.entryDate,
+    expiresOn: e.expiresOn,
+    payload: e.payload,
+    recordedBy: e.recordedBy,
+    recordedAt: e.recordedAt,
+    voided: e.voided,
+    hasDoc: e.hasDoc,
+  };
+}
+
 // ---- EIA weekly diesel averages (auto-refresh, 2026-10-30) ------------------
 //
 // The stored snapshot in eia_diesel_snapshots is the ONLY EIA source
@@ -16746,6 +17141,88 @@ async function resolveLibraryDocument(ctx: Ctx, ref: string): Promise<ResolvedLi
       sections: [{ heading: "Detention claim", lines: pack.text.split("\n").slice(2) }],
     });
     return { ok: true, error: null, docKind: "detention_claim", title, filename: `detention-claim-${r.id}.pdf`, mime: "application/pdf", bytes };
+  }
+
+  if (kind === "dqf") {
+    // The DQF audit packet (Wave 2 item 6): the driver's complete
+    // qualification file AS OF a chosen date — what was on file
+    // and valid ON that date, from the entries' own effective /
+    // expiry dates (the pure evaluator at that date, entries
+    // recorded later invisible, entries voided only after that
+    // date still standing as they stood then). This is the
+    // roadside / audit answer. Scope: the driver themselves or
+    // their fleet's owner/dispatch — any other ref answers
+    // exactly like a file that doesn't exist.
+    const fileId = Number(parts[1]);
+    const asOf = parts[2] ?? "";
+    if (!Number.isInteger(fileId) || !isYmd(asOf)) return docRefused("qualification packet");
+    const files = await db.select().from(schema.dqfFiles).where(eq(schema.dqfFiles.id, fileId)).limit(1);
+    const file = files[0];
+    if (!file) return docRefused("qualification packet");
+    const access = await dqfAccessFor(ctx, me, file.driverUsername);
+    if (!access.ok || access.companyId !== file.companyId) return docRefused("qualification packet");
+    const entryRows = await dqfEntriesForFile(ctx, file.id);
+    const asOfEndMs = Date.parse(`${asOf}T23:59:59.999Z`);
+    const entries = entryRows.map((row) => {
+      const like = toDqfEntryLike(row);
+      // As-of voiding: an entry voided only AFTER the as-of date
+      // still stood on that date.
+      return { ...like, voided: row.voidedAt != null && row.voidedAt.getTime() <= asOfEndMs };
+    });
+    const effective = entriesEffectiveAt(entries, asOf);
+    const evaluation = evaluateDqf(entries, asOf);
+    const verification = medicalVerificationStatus(entries, asOf, { seamConfigured: dqfSeamConfigured() });
+    const byKind = new Map<string, DqfEntryLike[]>();
+    for (const e of effective) {
+      const list = byKind.get(e.kind) ?? [];
+      list.push(e);
+      byKind.set(e.kind, list);
+    }
+    const entryLines = (e: DqfEntryLike): string[] => {
+      const lines = [
+        `${DQF_ENTRY_LABELS[e.kind as DqfEntryKind] ?? e.kind} — dated ${e.entryDate}${e.expiresOn ? `, expires ${e.expiresOn}` : ""}`,
+        ...Object.entries(e.payload).map(([k, v]) => `  ${k}: ${typeof v === "string" ? v : JSON.stringify(v)}`),
+        `  Recorded by @${e.recordedBy} on ${e.recordedAt.slice(0, 10)}${e.hasDoc ? " — document attached in the vault" : ""}`,
+      ];
+      return lines;
+    };
+    const kindOrder: DqfEntryKind[] = [
+      "application",
+      "employment_history",
+      "cdl",
+      "medical",
+      "medical_verification",
+      "road_test",
+      "mvr_review",
+      "clearinghouse_query",
+      "violation_record",
+      "training",
+    ];
+    const title = `Driver qualification file - @${file.driverUsername} - as of ${asOf}`;
+    const bytes = libraryPdfBytes({
+      title,
+      subtitle: `${access.companyName} — the file as it stood on ${asOf}, from the recorded entries. Entries recorded after that date are not shown; nothing here is backdated.`,
+      sections: [
+        {
+          heading: `Qualification as of ${asOf}`,
+          lines: [
+            evaluation.qualified
+              ? "QUALIFIED — every 49 CFR 391 item on file and current on this date."
+              : "NOT QUALIFIED on this date:",
+            ...evaluation.reasons.map((r) => `  - ${r.detail}`),
+            ...evaluation.checks.map((c) => `${c.label}: ${c.detail}`),
+            `Medical verification: ${verification.label}`,
+          ],
+        },
+        ...kindOrder
+          .filter((k) => (byKind.get(k) ?? []).length > 0)
+          .map((k) => ({
+            heading: DQF_ENTRY_LABELS[k],
+            lines: (byKind.get(k) ?? []).flatMap(entryLines),
+          })),
+      ],
+    });
+    return { ok: true, error: null, docKind: "dqf_packet", title, filename: `dqf-${file.driverUsername}-${asOf}.pdf`, mime: "application/pdf", bytes };
   }
 
   if (kind === "invoice") {
@@ -24720,7 +25197,7 @@ export const Actions = {
           .select()
           .from(schema.autoExceptions)
           .where(and(eq(schema.autoExceptions.loadId, args.loadId), eq(schema.autoExceptions.status, "open")))
-      ).filter((r) => r.kind !== "tender_blocked");
+      ).filter((r) => r.kind !== "tender_blocked" && r.kind !== "dq_blocked");
       const audiences = await autonomyAudiences(ctx, args.loadId, scope.via === "mine" ? scope.load : null);
       return {
         ok: true,
@@ -24813,6 +25290,19 @@ export const Actions = {
             laneCache.set(
               row.loadId,
               p ? laneLabel(p.pickupCity, p.pickupState, p.deliveryCity, p.deliveryState) : null,
+            );
+          } else if (row.kind === "dq_blocked") {
+            // The row's loadId is a BOARD load id — its lane comes
+            // from the board row the dispatch was held on.
+            const boards = await db
+              .select()
+              .from(schema.boardLoads)
+              .where(eq(schema.boardLoads.id, row.loadId))
+              .limit(1);
+            const b = boards[0];
+            laneCache.set(
+              row.loadId,
+              b ? laneLabel(b.pickupCity, b.pickupState, b.deliveryCity, b.deliveryState) : null,
             );
           } else {
             const aud = await autonomyAudiences(ctx, row.loadId, null);
@@ -26518,6 +27008,20 @@ export const Actions = {
       if (standing.gate.blocked) {
         return { ok: false, error: gateRefusalMessage(standing.gate), loadId: null, tripQueueId: null };
       }
+      // DQF gate (Wave 2 item 6): a driver whose qualification
+      // file doesn't check out — expired CDL/medical, overdue MVR
+      // review, a prohibited Clearinghouse record, or no file at
+      // all — cannot be bound to a load. The block seals, notifies,
+      // and lands in the fleet's exception queue.
+      const dq = await dqGateForBoardTake(ctx, { companyId: mine.company.id, driverUsername: me, board: row, actor: me, method: "claim" });
+      if (dq.blocked) {
+        return {
+          ok: false,
+          error: `You're not clear to take this load — ${dq.summary} Open your qualification file in your desk, fix what's listed, and try again.`,
+          loadId: null,
+          tripQueueId: null,
+        };
+      }
       const res = await takeBoardLoad(ctx, row, me, "claim", me);
       ctx.invalidateQueries();
       return res;
@@ -26577,6 +27081,19 @@ export const Actions = {
         return {
           ok: false,
           error: `@${targetRow.username} can't take new board loads right now — ${gateRefusalMessage(targetStanding.gate)}`,
+          loadId: null,
+          tripQueueId: null,
+        };
+      }
+      // DQF gate (Wave 2 item 6): dispatch cannot hand a load to a
+      // driver whose qualification file doesn't check out — the
+      // refusal names the recorded reasons, seals, and lands in
+      // the fleet's exception queue.
+      const dq = await dqGateForBoardTake(ctx, { companyId: mine.company.id, driverUsername: targetRow.username, board: row, actor: me, method: "assign" });
+      if (dq.blocked) {
+        return {
+          ok: false,
+          error: `@${targetRow.username} isn't qualified to take this load — ${dq.summary} Fix their qualification file and assign again.`,
           loadId: null,
           tripQueueId: null,
         };
@@ -26692,6 +27209,19 @@ export const Actions = {
       const standing = await feeStandingForCarrier(ctx, mine.company.id, me);
       if (standing.gate.blocked) {
         return { ok: false, error: gateRefusalMessage(standing.gate), loadId: null, tripQueueId: null };
+      }
+      // DQF gate (Wave 2 item 6): accepting binds the driver to
+      // the load, so the qualification screen runs again here — a
+      // file that lapsed (or was never built) since the assignment
+      // holds the accept with the recorded reasons.
+      const dq = await dqGateForBoardTake(ctx, { companyId: mine.company.id, driverUsername: me, board: row, actor: me, method: "accept" });
+      if (dq.blocked) {
+        return {
+          ok: false,
+          error: `You're not clear to take this load — ${dq.summary} Open your qualification file in your desk, fix what's listed, and try again.`,
+          loadId: null,
+          tripQueueId: null,
+        };
       }
       // Flip assigned → taken FIRST (one conditional update — of any
       // racing answers exactly one lands), then create the driver's
@@ -46187,6 +46717,420 @@ export const Actions = {
     },
   }),
 
+  // ---- Driver qualification files (Wave 2 item 6, migration 0133) -----------
+  // The 49 CFR 391 file as actions: read a driver's file (the
+  // driver, or their fleet's owner/dispatch), record an entry,
+  // void a wrong one, run the medical verification seam, the
+  // fleet qualification board, and the fleet-alert dismissals.
+  // The dispatch BLOCK itself lives in the claim/assign/accept
+  // funnels (dqGateForBoardTake). The as-of-date audit packet
+  // resolves through the Library doors (ref dqf:{fileId}:{date}).
+
+  getDqfFile: defineAction({
+    description: "One driver's qualification file: every recorded entry, today's qualification evaluation, the medical verification status, and the fleet expiry alerts for that driver.",
+    request: z.object({ driverUsername: z.string().min(1).max(60).nullable().default(null) }),
+    response: z.object({
+      ok: z.boolean(),
+      error: z.string().nullable(),
+      fileId: z.number().nullable(),
+      companyName: z.string().nullable(),
+      driverUsername: z.string().nullable(),
+      qualified: z.boolean(),
+      reasons: z.array(z.object({ code: z.string(), detail: z.string() })),
+      checks: z.array(dqfCheckShape),
+      medicalVerification: z.object({
+        state: z.string(),
+        label: z.string(),
+        checkedOn: z.string().nullable(),
+        source: z.string().nullable(),
+      }),
+      seamConfigured: z.boolean(),
+      entries: z.array(dqfEntryShape),
+      alerts: z.array(dqfAlertShape),
+    }),
+    async handler(ctx, args) {
+      const fail = {
+        ok: false,
+        fileId: null,
+        companyName: null,
+        driverUsername: null,
+        qualified: false,
+        reasons: [],
+        checks: [],
+        medicalVerification: { state: "on_file", label: "", checkedOn: null, source: null },
+        seamConfigured: dqfSeamConfigured(),
+        entries: [],
+        alerts: [],
+      };
+      const me = await myUsername(ctx);
+      const target = (args.driverUsername ?? me).trim();
+      const access = await dqfAccessFor(ctx, me, target);
+      if (!access.ok) return { ...fail, error: access.error };
+      const pic = await dqfPictureFor(ctx, access.companyId, target);
+      // The fleet board read is also the alert producer for this
+      // driver (desk seats only — a driver reading their own file
+      // gets their credential alerts through the credential door).
+      if (access.canManage) {
+        await evaluateDqfAlertNotifications(ctx, access.companyId, target, pic.entries);
+      }
+      return {
+        ok: true,
+        error: null,
+        fileId: pic.file?.id ?? null,
+        companyName: access.companyName,
+        driverUsername: target,
+        qualified: pic.evaluation.qualified,
+        reasons: pic.evaluation.reasons,
+        checks: pic.evaluation.checks,
+        medicalVerification: pic.verification,
+        seamConfigured: dqfSeamConfigured(),
+        entries: pic.entries.map(dqfEntryToShape),
+        alerts: pic.alerts,
+      };
+    },
+  }),
+
+  saveDqfEntry: defineAction({
+    description: "Record one entry in a driver's qualification file (creates the file on first entry). Sealed. An attached document rides the vault blob path.",
+    request: z.object({
+      driverUsername: z.string().min(1).max(60),
+      kind: z.enum(DQF_ENTRY_KINDS),
+      entryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      expiresOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().default(null),
+      payloadJson: z.string().max(4000).default("{}"),
+      dataBase64: z.string().max(14_000_000).nullable().default(null),
+      mime: z.string().max(100).nullable().default(null),
+    }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable(), entryId: z.number().nullable() }),
+    async handler(ctx, args) {
+      const me = await myUsername(ctx);
+      const target = args.driverUsername.trim();
+      const access = await dqfAccessFor(ctx, me, target);
+      if (!access.ok) return { ok: false, error: access.error, entryId: null };
+      if (!isYmd(args.entryDate)) return { ok: false, error: "That entry date isn't a real date — pick it again.", entryId: null };
+      if (args.expiresOn != null && !isYmd(args.expiresOn))
+        return { ok: false, error: "That expiry date isn't a real date — pick it again.", entryId: null };
+      let payload: Record<string, unknown> = {};
+      try {
+        const parsed = JSON.parse(args.payloadJson) as unknown;
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("not an object");
+        payload = parsed as Record<string, unknown>;
+      } catch {
+        return { ok: false, error: "Those entry details didn't parse — nothing was recorded.", entryId: null };
+      }
+      // A Clearinghouse result and a verification outcome are
+      // claims about an outside system — they must carry one of
+      // the recorded values, never free text.
+      if (args.kind === "clearinghouse_query") {
+        const result = typeof payload.result === "string" ? payload.result : null;
+        if (result !== "clear" && result !== "prohibited" && result !== "no_record")
+          return { ok: false, error: "Pick the Clearinghouse result the query came back with — clear, prohibited, or no record found.", entryId: null };
+      }
+      if (args.kind === "medical_verification") {
+        return {
+          ok: false,
+          error: "A verification check is recorded by the verification source itself — use “Check medical status” and the answer lands here. Nothing was recorded.",
+          entryId: null,
+        };
+      }
+      const db = ctx.db<typeof schema>();
+      let file = await dqfFileRowFor(ctx, access.companyId, target);
+      if (!file) {
+        await db
+          .insert(schema.dqfFiles)
+          .values({ companyId: access.companyId, driverUsername: target, createdBy: me });
+        const created = await dqfFileRowFor(ctx, access.companyId, target);
+        if (!created) throw new Error("saveDqfEntry: file insert returned no row");
+        file = created;
+        await appendChain(ctx, {
+          refKind: "driver",
+          refId: null,
+          sessionId: null,
+          event: "dqf_file_created",
+          payload: { fileId: file.id, companyId: access.companyId, driver: target, by: me, at: new Date().toISOString() },
+        });
+      }
+      let blobKey: string | null = null;
+      if (args.dataBase64 && args.mime) {
+        blobKey = `dqf-doc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        await ctx.blobs.put(blobKey, base64ToBytes(args.dataBase64), { contentType: args.mime });
+      }
+      const ins = await db
+        .insert(schema.dqfEntries)
+        .values({
+          fileId: file.id,
+          kind: args.kind,
+          entryDate: args.entryDate,
+          expiresOn: args.expiresOn,
+          payloadJson: JSON.stringify(payload),
+          docBlobKey: blobKey,
+          docMime: args.mime,
+          recordedBy: me,
+        })
+        .returning({ id: schema.dqfEntries.id });
+      const entryId = ins[0]?.id;
+      if (entryId == null) throw new Error("saveDqfEntry: insert returned no rows");
+      await db
+        .update(schema.dqfFiles)
+        .set({ updatedAt: new Date() })
+        .where(eq(schema.dqfFiles.id, file.id));
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "dqf_entry_recorded",
+        payload: {
+          fileId: file.id,
+          entryId,
+          companyId: access.companyId,
+          driver: target,
+          kind: args.kind,
+          entryDate: args.entryDate,
+          expiresOn: args.expiresOn,
+          hasDoc: blobKey != null,
+          by: me,
+          at: new Date().toISOString(),
+        },
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null, entryId };
+    },
+  }),
+
+  voidDqfEntry: defineAction({
+    description: "Void a wrong qualification entry (it stays on the record, marked void, and stops counting). The correction is a new entry recorded alongside.",
+    request: z.object({ entryId: z.number().int().positive() }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable() }),
+    async handler(ctx, args) {
+      const me = await myUsername(ctx);
+      const db = ctx.db<typeof schema>();
+      const rows = await db.select().from(schema.dqfEntries).where(eq(schema.dqfEntries.id, args.entryId)).limit(1);
+      const row = rows[0];
+      if (!row) return { ok: false, error: "That entry isn't on file." };
+      const files = await db.select().from(schema.dqfFiles).where(eq(schema.dqfFiles.id, row.fileId)).limit(1);
+      const file = files[0];
+      if (!file) return { ok: false, error: "That entry isn't on file." };
+      const access = await dqfAccessFor(ctx, me, file.driverUsername);
+      if (!access.ok || access.companyId !== file.companyId) return { ok: false, error: "That entry isn't in your scope." };
+      if (row.voidedAt != null) return { ok: true, error: null };
+      const now = new Date();
+      await db
+        .update(schema.dqfEntries)
+        .set({ voidedAt: now, voidedBy: me })
+        .where(eq(schema.dqfEntries.id, row.id));
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "dqf_entry_voided",
+        payload: { fileId: file.id, entryId: row.id, driver: file.driverUsername, kind: row.kind, by: me, at: now.toISOString() },
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
+    },
+  }),
+
+  verifyDqfMedical: defineAction({
+    description: "Check a driver's medical status against the electronic verification source. Unconfigured: records nothing, stamps nothing, and says so plainly.",
+    request: z.object({ driverUsername: z.string().min(1).max(60) }),
+    response: z.object({
+      ok: z.boolean(),
+      configured: z.boolean(),
+      error: z.string().nullable(),
+      state: z.string(),
+      label: z.string(),
+    }),
+    async handler(ctx, args) {
+      const me = await myUsername(ctx);
+      const target = args.driverUsername.trim();
+      const access = await dqfAccessFor(ctx, me, target);
+      if (!access.ok) return { ok: false, configured: dqfSeamConfigured(), error: access.error, state: "on_file", label: "" };
+      const pic = await dqfPictureFor(ctx, access.companyId, target);
+      const verifier = medicalVerifierFromEnv(process.env);
+      if (!verifier) {
+        // The broker-identity honesty rule: a check that never ran
+        // seals as not_configured and stamps NOTHING.
+        await appendChain(ctx, {
+          refKind: "driver",
+          refId: null,
+          sessionId: null,
+          event: "dqf_medical_check",
+          payload: { companyId: access.companyId, driver: target, outcome: "not_configured", by: me, at: new Date().toISOString() },
+        });
+        return {
+          ok: true,
+          configured: false,
+          error: null,
+          state: pic.verification.state,
+          label: "Electronic verification isn't connected yet — the medical certificate is on file, and its status reads “on file” until a verification source is connected. Nothing was stamped.",
+        };
+      }
+      // Configured path (no transport is wired in this build, so
+      // this is unreachable in production): the source's answer is
+      // recorded as a medical_verification entry — the only way
+      // such an entry ever comes to exist.
+      const med = pic.entries.filter((e) => e.kind === "medical" && !e.voided).sort((a, b) => b.entryDate.localeCompare(a.entryDate))[0];
+      const check = await verifier.check({
+        registryNumber: med ? (typeof med.payload.registryNumber === "string" ? med.payload.registryNumber : null) : null,
+        examinerName: med ? (typeof med.payload.examinerName === "string" ? med.payload.examinerName : null) : null,
+        expiresOn: med?.expiresOn ?? null,
+      });
+      if (!check) {
+        return { ok: false, configured: true, error: "The verification source didn't answer — nothing was stamped. Try again later.", state: pic.verification.state, label: pic.verification.label };
+      }
+      if (pic.file) {
+        const db = ctx.db<typeof schema>();
+        await db.insert(schema.dqfEntries).values({
+          fileId: pic.file.id,
+          kind: "medical_verification",
+          entryDate: check.checkedAt.slice(0, 10),
+          expiresOn: null,
+          payloadJson: JSON.stringify({ outcome: check.outcome, source: check.source }),
+          docBlobKey: null,
+          docMime: null,
+          recordedBy: me,
+        });
+      }
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "dqf_medical_check",
+        payload: { companyId: access.companyId, driver: target, outcome: check.outcome, source: check.source, by: me, at: new Date().toISOString() },
+      });
+      const after = await dqfPictureFor(ctx, access.companyId, target);
+      ctx.invalidateQueries();
+      return { ok: true, configured: true, error: null, state: after.verification.state, label: after.verification.label };
+    },
+  }),
+
+  getFleetDqf: defineAction({
+    description: "The fleet qualification board (owner/dispatch): every company driver's qualification status, reasons, and expiry alerts. Records the alert notifications on first sight.",
+    request: z.object({}),
+    response: z.object({
+      ok: z.boolean(),
+      error: z.string().nullable(),
+      companyName: z.string().nullable(),
+      drivers: z.array(
+        z.object({
+          username: z.string(),
+          role: z.string(),
+          hasFile: z.boolean(),
+          qualified: z.boolean(),
+          reasons: z.array(z.object({ code: z.string(), detail: z.string() })),
+          medicalVerificationLabel: z.string(),
+          alerts: z.array(dqfAlertShape),
+        }),
+      ),
+    }),
+    async handler(ctx) {
+      const me = await myUsername(ctx);
+      const mine = await myMembership(ctx, me);
+      if (!mine || (mine.role !== "owner" && mine.role !== "dispatch")) {
+        return {
+          ok: false,
+          error: "The fleet qualification board is for the owner and dispatch — your own qualification file is in your desk.",
+          companyName: null,
+          drivers: [],
+        };
+      }
+      const db = ctx.db<typeof schema>();
+      const members = await db
+        .select()
+        .from(schema.companyMembers)
+        .where(eq(schema.companyMembers.companyId, mine.company.id));
+      const drivers = [];
+      for (const m of members) {
+        if (m.role === "dispatch") continue; // dispatch doesn't haul — no DQF
+        const pic = await dqfPictureFor(ctx, mine.company.id, m.username);
+        await evaluateDqfAlertNotifications(ctx, mine.company.id, m.username, pic.entries);
+        drivers.push({
+          username: m.username,
+          role: m.role,
+          hasFile: pic.file != null,
+          qualified: pic.evaluation.qualified,
+          reasons: pic.evaluation.reasons,
+          medicalVerificationLabel: pic.verification.label,
+          alerts: pic.alerts,
+        });
+      }
+      drivers.sort((a, b) => Number(a.qualified) - Number(b.qualified) || a.username.localeCompare(b.username));
+      return { ok: true, error: null, companyName: mine.company.name, drivers };
+    },
+  }),
+
+  dismissDqfAlert: defineAction({
+    description: "Dismiss one fleet DQF expiry alert for its current threshold (recorded against the item's current date; the next threshold still fires, and a renewal re-arms).",
+    request: z.object({
+      driverUsername: z.string().min(1).max(60),
+      itemKey: z.enum(["cdl", "medical", "mvr_review"]),
+      threshold: z.number().int(),
+    }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable() }),
+    async handler(ctx, args) {
+      const me = await myUsername(ctx);
+      const target = args.driverUsername.trim();
+      const access = await dqfAccessFor(ctx, me, target);
+      if (!access.ok) return { ok: false, error: access.error };
+      const pic = await dqfPictureFor(ctx, access.companyId, target);
+      const status = pic.alerts.find((s) => s.itemKey === args.itemKey);
+      if (!status || status.expiresOn == null)
+        return { ok: false, error: "No date is on file for that item — there's no alert to dismiss." };
+      if (status.threshold == null)
+        return { ok: false, error: "That item isn't in an alert window right now." };
+      if (args.threshold !== status.threshold)
+        return { ok: false, error: "That alert has moved on — refresh and dismiss the one showing now." };
+      if (!status.dismissed) {
+        const db = ctx.db<typeof schema>();
+        await db.insert(schema.dqfAlertDismissals).values({
+          companyId: access.companyId,
+          driverUsername: target,
+          itemKey: status.itemKey,
+          threshold: status.threshold,
+          expiresOn: status.expiresOn,
+          dismissedBy: me,
+        });
+        await appendChain(ctx, {
+          refKind: "driver",
+          refId: null,
+          sessionId: null,
+          event: "dqf_alert_dismissed",
+          payload: {
+            companyId: access.companyId,
+            driver: target,
+            itemKey: status.itemKey,
+            threshold: status.threshold,
+            expiresOn: status.expiresOn,
+            by: me,
+            at: new Date().toISOString(),
+          },
+        });
+      }
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
+    },
+  }),
+
+  getDqfEntryDoc: defineAction({
+    description: "Get a qualification entry's attached document (vault blob) for viewing — the driver themselves or their fleet's desk only.",
+    request: z.object({ entryId: z.number().int().positive() }),
+    response: z.object({ url: z.string().nullable(), mime: z.string().nullable() }),
+    async handler(ctx, args) {
+      const me = await myUsername(ctx);
+      const db = ctx.db<typeof schema>();
+      const rows = await db.select().from(schema.dqfEntries).where(eq(schema.dqfEntries.id, args.entryId)).limit(1);
+      const row = rows[0];
+      if (!row || !row.docBlobKey) return { url: null, mime: null };
+      const files = await db.select().from(schema.dqfFiles).where(eq(schema.dqfFiles.id, row.fileId)).limit(1);
+      const file = files[0];
+      if (!file) return { url: null, mime: null };
+      const access = await dqfAccessFor(ctx, me, file.driverUsername);
+      if (!access.ok || access.companyId !== file.companyId) return { url: null, mime: null };
+      const url = await ctx.blobs.getUrl(row.docBlobKey);
+      return { url, mime: row.docMime };
+    },
+  }),
+
   // ---- Notification center + push plumbing (TMS queue item 9, migration 0128) --
   // The center's rows are recorded by the producers themselves —
   // sendChatMessage (DMs/dispatch), submitBrokerUpload (load
@@ -53364,6 +54308,23 @@ export const Actions = {
       const standing = await feeStandingForCarrierGlobal(ctx, me);
       if (standing.gate.blocked) {
         return { ok: false, error: gateRefusalMessage(standing.gate), loadId: null, tripQueueId: null };
+      }
+      // DQF gate (Wave 2 item 6): the Open Board claim binds the
+      // driver the same way a fleet claim does, so the screen runs
+      // against the driver's own company's qualification file. A
+      // vetted account with no company has no fleet scope to hold
+      // a file in — nothing to screen against (noted in dqf.ts).
+      const openMine = await myMembership(ctx, me);
+      if (openMine) {
+        const dq = await dqGateForBoardTake(ctx, { companyId: openMine.company.id, driverUsername: me, board: row, actor: me, method: "claim" });
+        if (dq.blocked) {
+          return {
+            ok: false,
+            error: `You're not clear to take this load — ${dq.summary} Open your qualification file in your desk, fix what's listed, and try again.`,
+            loadId: null,
+            tripQueueId: null,
+          };
+        }
       }
       const res = await takeBoardLoad(ctx, row, me, "claim", me);
       ctx.invalidateQueries();

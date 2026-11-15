@@ -31,6 +31,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type ApiResponse } from "./api";
 import { FleetBoardPanel } from "./FleetBoard";
 import { ExceptionQueuePanel } from "./AutonomyPanel";
+import { FleetDqfPanel } from "./DqfPanel";
 
 type DeskData = ApiResponse<typeof api, "getDispatchDesk">;
 type DeskClient = DeskData["clients"][number];
@@ -410,6 +411,9 @@ export function DispatchDesk({
 
             {/* Exception queue — held-back automatic status (Wave 2 item 1) */}
             <ExceptionQueuePanel />
+
+            {/* Driver qualification files — 49 CFR 391 (Wave 2 item 6) */}
+            <FleetDqfPanel />
 
             {/* Client book */}
             <section className="mt-3 rounded-xl border border-[var(--glass-border)] bg-[var(--surface2)] px-3 py-3" aria-label="Client fleets">

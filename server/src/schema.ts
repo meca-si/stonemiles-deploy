@@ -195,6 +195,9 @@ export const autoExceptions = impl.autoExceptions;
 export const loadPaperwork = impl.loadPaperwork;
 export const brokerBondAlertDismissals = impl.brokerBondAlertDismissals;
 export const parkingReservations = impl.parkingReservations;
+export const dqfFiles = impl.dqfFiles;
+export const dqfEntries = impl.dqfEntries;
+export const dqfAlertDismissals = impl.dqfAlertDismissals;
 
 // Auth (Phase 2b, added at the Phase 2 merge): account + session tables.
 export const accounts = impl.accounts;

@@ -60,7 +60,8 @@ export type ExceptionKind =
   | "missing_evidence"
   | "low_confidence"
   | "paperwork_no_recipient"
-  | "tender_blocked";
+  | "tender_blocked"
+  | "dq_blocked";
 
 /** An auto-status is only published at or above this confidence. */
 export const CONFIDENCE_THRESHOLD = 0.8;
@@ -545,6 +546,11 @@ export const EXCEPTION_LABELS: Record<ExceptionKind, string> = {
   // actions.ts opens/closes these rows itself (its loadId carries
   // the BROKER POSTER load id); the evaluator leaves them alone.
   tender_blocked: "Tender held — broker identity check",
+  // Dispatch held by the DQF gate (Wave 2 item 6). NOT derived by
+  // evaluateLoadAutonomy — the claim/assign/accept funnels in
+  // actions.ts open/close these rows themselves (their loadId
+  // carries the BOARD load id); the evaluator leaves them alone.
+  dq_blocked: "Dispatch held — driver not qualified",
 };
 
 /** Notification-center copy for a newly opened exception. Lane and

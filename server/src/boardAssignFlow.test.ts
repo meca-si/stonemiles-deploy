@@ -124,6 +124,28 @@ async function addMember(companyId: number, username: string, role: string) {
   await getDb().insert(schema.companyMembers).values({ companyId, username, role });
 }
 
+/** A complete, current DQF for a test driver (Wave 2 item 6's
+ * dispatch gate reads the recorded file at claim/assign/accept —
+ * these flows bind drivers to loads, so their files stand here). */
+async function seedDqf(companyId: number, username: string) {
+  const db = getDb();
+  const f = await db
+    .insert(schema.dqfFiles)
+    .values({ companyId, driverUsername: username, createdBy: username })
+    .returning({ id: schema.dqfFiles.id });
+  const fileId = f[0]!.id;
+  const d = (days: number) => new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
+  const rows = [
+    { kind: "application", entryDate: d(-300), expiresOn: null, payloadJson: "{}" },
+    { kind: "cdl", entryDate: d(-600), expiresOn: d(400), payloadJson: JSON.stringify({ state: "AL", licenseClass: "A" }) },
+    { kind: "medical", entryDate: d(-100), expiresOn: d(400), payloadJson: JSON.stringify({ examinerName: "Dr. A", registryNumber: "12345" }) },
+    { kind: "road_test", entryDate: d(-299), expiresOn: null, payloadJson: "{}" },
+    { kind: "mvr_review", entryDate: d(-30), expiresOn: null, payloadJson: JSON.stringify({ outcome: "acceptable" }) },
+    { kind: "clearinghouse_query", entryDate: d(-301), expiresOn: null, payloadJson: JSON.stringify({ queryType: "pre_employment", result: "clear" }) },
+  ];
+  for (const r of rows) await db.insert(schema.dqfEntries).values({ fileId, recordedBy: username, ...r });
+}
+
 // Users + fleets ------------------------------------------------------------
 const owner1 = await seedUser("owner1");
 const driverA = await seedUser("drivera");
@@ -137,8 +159,11 @@ const claimer = await seedUser("claimer"); // vetted owner-operator: Diamond, no
 const fleet1 = await seedFleet(owner1, "Fleet One LLC");
 await addMember(fleet1, driverA.username, "driver");
 await addMember(fleet1, driverB.username, "driver");
+await seedDqf(fleet1, driverA.username);
+await seedDqf(fleet1, driverB.username);
 const fleet2 = await seedFleet(owner2, "Fleet Two LLC");
 await addMember(fleet2, driverC.username, "driver");
+await seedDqf(fleet2, driverC.username);
 
 const owner1Ctx = ctxFor(owner1);
 const aCtx = ctxFor(driverA);
@@ -811,6 +836,7 @@ async function bookLoadForFreshDriver(): Promise<{ boardId: number; loadId: numb
   freshN++;
   const u = await seedUser(`freshdrv${freshN}`);
   await addMember(fleet1, u.username, "driver");
+  await seedDqf(fleet1, u.username); // the DQF gate (Wave 2 item 6) reads the file at assign/accept, same as the fee gate
   const ctx = ctxFor(u);
   const booked = await bookLoadFor(ctx, u.username);
   return { ...booked, ctx };

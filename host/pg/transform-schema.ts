@@ -98,6 +98,12 @@
 // driver-recorded detention terms; reservation stop lat/lon +
 // miles-along-route); the claim-status / claim-recipient /
 // reservation status / partner columns are plain text.
+// Migration 0133 (DQF manager) adds +3 tables (dqf_files,
+// dqf_entries, dqf_alert_dismissals), +3 autoincrement PKs, +5
+// timestamp_ms (file created/updated; entry voided/created;
+// dismissal dismissed_at); the entry dates ride as YYYY-MM-DD
+// text (the credential-alert convention) and the remaining new
+// columns are plain integer/text.
 //
 //   bun run host/pg/transform-schema.ts
 
@@ -162,15 +168,15 @@ replaceAll(
   'integer mode "timestamp_ms" -> timestamp(tz, date)',
   /integer\(("[a-z0-9_]+"), \{ mode: "timestamp_ms" \}\)/g,
   'timestamp($1, { withTimezone: true, mode: "date" })',
-  354,
+  359,
 );
 replaceAll(
   "autoincrement PK -> serial",
   /integer\(("[a-z0-9_]+")\)\.primaryKey\(\{ autoIncrement: true \}\)/g,
   "serial($1).primaryKey()",
-  149,
+  152,
 );
-replaceAll("sqliteTable -> pgTable", /\bsqliteTable\(/g, "pgTable(", 184);
+replaceAll("sqliteTable -> pgTable", /\bsqliteTable\(/g, "pgTable(", 187);
 replaceAll("real -> doublePrecision", /\breal\(/g, "doublePrecision(", 192);
 
 // Leftovers: any of these means the source schema grew a shape this

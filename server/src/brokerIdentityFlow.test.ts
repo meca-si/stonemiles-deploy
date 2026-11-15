@@ -144,9 +144,31 @@ const brokerAUser = await seedUser("brokera");
 const brokerBUser = await seedUser("brokerb");
 const carrier = await seedUser("carrierx");
 
+/** A complete, current DQF for a test driver (Wave 2 item 6's
+ * dispatch gate reads the recorded file at claim/assign/accept —
+ * these flows bind drivers to loads, so their files stand here). */
+async function seedDqf(companyId: number, username: string) {
+  const f = await db
+    .insert(schema.dqfFiles)
+    .values({ companyId, driverUsername: username, createdBy: username })
+    .returning({ id: schema.dqfFiles.id });
+  const fileId = f[0]!.id;
+  const rows = [
+    { kind: "application", entryDate: dateOnly(-300 * DAY), expiresOn: null, payloadJson: "{}" },
+    { kind: "cdl", entryDate: dateOnly(-600 * DAY), expiresOn: dateOnly(400 * DAY), payloadJson: JSON.stringify({ state: "AL", licenseClass: "A" }) },
+    { kind: "medical", entryDate: dateOnly(-100 * DAY), expiresOn: dateOnly(400 * DAY), payloadJson: JSON.stringify({ examinerName: "Dr. A", registryNumber: "12345" }) },
+    { kind: "road_test", entryDate: dateOnly(-299 * DAY), expiresOn: null, payloadJson: "{}" },
+    { kind: "mvr_review", entryDate: dateOnly(-30 * DAY), expiresOn: null, payloadJson: JSON.stringify({ outcome: "acceptable" }) },
+    { kind: "clearinghouse_query", entryDate: dateOnly(-301 * DAY), expiresOn: null, payloadJson: JSON.stringify({ queryType: "pre_employment", result: "clear" }) },
+  ];
+  for (const r of rows) await db.insert(schema.dqfEntries).values({ fileId, recordedBy: username, ...r });
+}
+
 const deskFleet = await seedFleet(deskOwner, "Desk Fleet LLC");
 await db.insert(schema.companyMembers).values({ companyId: deskFleet, username: deskDriver.username, role: "driver" });
-await seedFleet(carrier, "Carrier Fleet LLC");
+await seedDqf(deskFleet, deskDriver.username);
+const carrierFleet = await seedFleet(carrier, "Carrier Fleet LLC");
+await seedDqf(carrierFleet, carrier.username);
 
 const deskCtx = ctxFor(deskOwner);
 const deskDriverCtx = ctxFor(deskDriver);

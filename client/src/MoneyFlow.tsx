@@ -19,6 +19,7 @@ import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fileToBase64 } from "@hatch/space-sdk/client";
 import { api } from "./api";
+import { MyDqfCard } from "./DqfPanel";
 import { t as tt, type Lang } from "./i18n";
 import { Section, XBar, downloadTextFile, money } from "./NextLevel";
 import {
@@ -1677,6 +1678,9 @@ export function MoneyFlowHub({ setBanner, mpg, onOpenBreakdownHelp, onOpenParkin
     <>
       <div id="doc-expiry" className="scroll-mt-4">
         <ExpiryWalletPanel setBanner={setBanner} lang={lang} />
+      </div>
+      <div id="my-dqf" className="scroll-mt-4">
+        <MyDqfCard />
       </div>
       <div id="owed-board" className="scroll-mt-4">
         <OwedBoardPanel setBanner={setBanner} lang={lang} />
