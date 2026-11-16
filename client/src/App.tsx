@@ -4415,6 +4415,12 @@ export function App() {
   const [exploreSuggestions, setExploreSuggestions] = useState<GeoHit[]>([]);
   const suggestSeqRef = useRef(0);
   const suggestSuppressRef = useRef(false);
+  // Overall budget for one Explore chip load, across BOTH rungs
+  // of the ladder in fetchExplorePois (see the deadline comment
+  // there): the server rung may use ~45 s of it, and a healthy but
+  // slow Parking answer measured 33 s — 55 s keeps those landing
+  // while guaranteeing the busy note always ends.
+  const EXPLORE_LOAD_DEADLINE_MS = 55_000;
   const fetchExplorePois = async (cat: ExploreCategory) => {
     const seq = ++exploreSeqRef.current;
     const c = posRef.current ?? destination ?? { lat: 39.8, lon: -98.5 };
@@ -4451,33 +4457,58 @@ export function App() {
     };
     setExploreBusy(true);
     setExplorePoisNote(null);
-    try {
-      // Two-rung ladder (fix, 2026-11-06 — "Not loading fuel
-      // stations", the busy note sat forever). Rung 1: the app's
-      // server runs the same query (api.getExplorePois) — it sends
-      // a proper user-agent, which overpass-api.de accepts, and
-      // races the instances; the phone webview's own user-agent is
-      // REFUSED by overpass-api.de (HTTP 406) and the mirrors hang,
-      // so the phone-only sequential chain could burn ~80 s and
-      // still land nothing — the speed-limit ladder's diagnosis
-      // (2026-10-29) in a second feature. Rung 2: the phone's
-      // direct failover, for when the server can't be reached but
-      // the phone's network can. Either rung's elements shape into
-      // pins by the one path below.
-      type PoiElement = { type: string; lat?: number; lon?: number; center?: { lat: number; lon: number }; tags?: Record<string, string> };
-      let elements: PoiElement[] | null = null;
+    const catLabel = EXPLORE_CATEGORIES.find((x) => x.key === cat)?.label ?? cat;
+    type PoiElement = { type: string; lat?: number; lon?: number; center?: { lat: number; lon: number }; tags?: Record<string, string> };
+    // Two-rung ladder (fix, 2026-11-06 — "Not loading fuel
+    // stations", the busy note sat forever). Rung 1: the app's
+    // server runs the same query (api.getExplorePois) — it sends
+    // a proper user-agent, which overpass-api.de accepts, and
+    // races the instances; the phone webview's own user-agent is
+    // REFUSED by overpass-api.de (HTTP 406) and the mirrors hang,
+    // so the phone-only sequential chain could burn ~80 s and
+    // still land nothing — the speed-limit ladder's diagnosis
+    // (2026-10-29) in a second feature. Rung 2: the phone's
+    // direct failover, for when the server can't be reached but
+    // the phone's network can. Either rung's elements shape into
+    // pins by the one path below.
+    const loadElements = async (): Promise<PoiElement[]> => {
       try {
         const res = await api.getExplorePois({ lat: c.lat, lon: c.lon, category: cat });
-        if (res.available) elements = res.elements;
+        if (res.available) return res.elements;
       } catch {
         // Server rung unreachable — the direct chain below decides.
       }
+      const q = `[out:json][timeout:25];(${parts[cat]});out center tags 60;`;
+      const data = (await overpass(q, 35000)) as { elements?: PoiElement[] };
+      return data.elements ?? [];
+    };
+    try {
+      // ONE overall deadline over BOTH rungs (Parking pins hang,
+      // verified live 2026-11-16): each rung is capped on its own
+      // (server race ~45 s; direct chain up to 4 × 20 s), but the
+      // stack had no total budget and no timeout state, and the
+      // Parking query is the heaviest of the chips — its node+way
+      // amenity=parking scan measured 33 s on the only responsive
+      // Overpass instance, on a night that instance also answered
+      // HTTP 502 and both mirrors hung past 50 s — so the busy
+      // note could sit for ~2 minutes, indistinguishable from a
+      // hang. Now the whole load gets EXPLORE_LOAD_DEADLINE_MS,
+      // raced with the speed-limit ladder's raceDeadline (resolves
+      // null when the budget runs out): long enough for the server
+      // rung's full chance (a slow-but-healthy 33 s answer still
+      // lands), short enough that a sick night ends on the honest
+      // timeout state below instead of spinning. A late ladder
+      // result is discarded by the race — every state write sits
+      // after this await, so it can never overwrite that state.
+      const elements = await raceDeadline(loadElements(), EXPLORE_LOAD_DEADLINE_MS);
       if (seq !== exploreSeqRef.current) return;
-      if (!elements) {
-        const q = `[out:json][timeout:25];(${parts[cat]});out center tags 60;`;
-        const data = (await overpass(q, 35000)) as { elements?: PoiElement[] };
-        if (seq !== exploreSeqRef.current) return;
-        elements = data.elements ?? [];
+      if (elements === null) {
+        // The deadline ran out — the honest timeout state. The
+        // finally below clears the busy flag, so the "Loading
+        // pins…" note can never be the resting state again.
+        setExplorePois([]);
+        setExplorePoisNote(`${catLabel} pins are taking too long to load from the map data — tap the chip again to retry.`);
+        return;
       }
       const pois: ExplorePoi[] = [];
       for (const el of elements) {
@@ -4507,7 +4538,6 @@ export function App() {
       pois.sort((a, b) => haversineMi(c, a) - haversineMi(c, b));
       const top = pois.slice(0, 40);
       setExplorePois(top);
-      const catLabel = EXPLORE_CATEGORIES.find((x) => x.key === cat)?.label ?? cat;
       setExplorePoisNote(
         (top.length > 0
           ? `${top.length} ${catLabel.toLowerCase()} within ~15 mi — tap a pin, then Route.`
