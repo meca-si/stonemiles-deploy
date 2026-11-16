@@ -96,6 +96,7 @@ import {
   type PlacardLane,
 } from "./placard";
 import { BIG_PROMPT_TIMEOUT_MS, BigPromptTracker } from "./bigPrompt";
+import { DutyPromptTracker, ON_DUTY_DEFAULT_STAGE } from "./dutyPrompt";
 import {
   WEIGH_PROMPT_TIMEOUT_MS,
   WEIGH_THANKS_MS,
@@ -2754,94 +2755,112 @@ export function App() {
       }
     })();
   };
-  // ---- HOS auto-swap (x's rule, 2026-10-24) -------------------------------
-  // The ONE automatic duty change, and the standing exception to the
-  // "duty never auto-switches" rule (that rule still governs the 1-mile
-  // trip-start prompt, which asks and never guesses): while GPS is live,
-  // no movement for 2 minutes swaps Driving / On Duty → Off Duty, and
-  // still no movement at 10 minutes swaps → Sleeper Berth. Moving again
-  // (>= 3 mph) resets the stillness timer and both stages. Every swap is
-  // sealed with source "auto_no_movement" so it never reads as a tap.
-  const hosStillRef = useRef<{ since: number; stage: number } | null>(null);
-  const hosAutoBusyRef = useRef(false);
+  // ---- HOS stopped prompt + on-duty default (B1, 2026-11-15) ------------
+  // The federal pattern (49 CFR Part 395 Appendix A §4.4.1.2),
+  // replacing the retired Oct 24 auto-swap (2 min → Off Duty,
+  // 10 min → Sleeper — an automatic rest status could falsify the
+  // log of a driver who was fueling or loading, all of it On Duty
+  // under §395.2). Now: Driving + stopped 5 consecutive minutes →
+  // the "Still driving?" prompt (dutyPrompt.ts owns the machine);
+  // the driver answers with a task pick (→ On Duty with that
+  // confirmed remark), Off Duty / Sleeper (their own tap), or
+  // "Still driving" (no re-prompt until the truck moves and stops
+  // again). No answer in 1 minute → the ONE automatic change left:
+  // On-Duty Not Driving, sealed source "auto_no_movement", stage
+  // "on_duty_default", with the server's explicit default remark.
+  // Nothing ever auto-sets Off Duty or Sleeper Berth, and while
+  // the driver is On Duty with a task remark nothing fires at all.
+  // The 1-mile trip-start prompt is untouched — it still asks and
+  // never guesses.
+  const dutyPromptTrackerRef = useRef<DutyPromptTracker | null>(null);
+  if (dutyPromptTrackerRef.current == null) dutyPromptTrackerRef.current = new DutyPromptTracker();
+  const hosDefaultBusyRef = useRef(false);
   const currentDutyRef = useRef<string | null>(null);
   const lastSpeedRef = useRef<number | null>(null);
+  const [hosPromptAt, setHosPromptAt] = useState<number | null>(null);
+  const hosPromptShownRef = useRef(false);
   useEffect(() => {
     currentDutyRef.current = currentDutyState;
-    if (currentDutyState === "sleeper") hosStillRef.current = null;
   }, [currentDutyState]);
-  const runHosAutoSwapCheck = (mph: number | null) => {
-    if (mph != null && mph >= 3) {
-      // Moving again — the stillness clock and both stages reset.
-      hosStillRef.current = null;
-      return;
-    }
-    if (mph == null || mph >= 2) return; // not clearly stopped — hold the timer as-is
-    const duty = currentDutyRef.current;
-    if (!duty || duty === "sleeper") {
-      if (duty === "sleeper") hosStillRef.current = null;
-      return;
-    }
-    if (!hosStillRef.current) {
-      hosStillRef.current = { since: Date.now(), stage: 0 };
-      return;
-    }
-    if (hosAutoBusyRef.current) return;
-    const stillMs = Date.now() - hosStillRef.current.since;
-    const stillSinceIso = new Date(hosStillRef.current.since).toISOString();
-    const fireSwap = (state: "off_duty" | "sleeper", stage: "off_duty_2min" | "sleeper_10min", stageNo: number) => {
-      hosAutoBusyRef.current = true;
-      hosStillRef.current = { since: hosStillRef.current!.since, stage: stageNo };
-      void (async () => {
-        // Same 395.8(c) place stamp as a manual tap — the swap seals
-        // with the city + state where it happened (best effort; the
-        // remark stays the server's explicit auto default: nobody
-        // pretends the driver picked a reason for an automatic swap).
-        const place = await resolveDutyPlace();
-        try {
-          await api.setDuty({ state, locationLabel: place.locationLabel, city: place.city, usState: place.usState, source: "auto_no_movement", autoStage: stage, stillSince: stillSinceIso });
-          queryClient.invalidateQueries({ queryKey: ["duty"] });
-          const msg =
-            state === "off_duty"
-              ? "Auto-swap: no movement for 2 minutes — duty status swapped to Off Duty and stamped auto in the sealed log. Still stopped at 10 minutes swaps to Sleeper Berth."
-              : "Auto-swap: no movement for 10 minutes — duty status swapped to Sleeper Berth and stamped auto in the sealed log.";
-          setBanner(msg);
-          if (settingsRef.current.voiceAlerts && settingsRef.current.notifyHos) speak(msg);
-          aiLog("HOS auto-swap", msg);
-        } catch {
-          if (!navigator.onLine) {
-            // Offline (queue item 7): capture the swap on-device with
-            // its stage + stillness stamp — it seals on reconnect,
-            // flagged as an offline capture. The stage stays advanced:
-            // the capture IS the swap now, and the pending merge
-            // already runs the clocks on it.
-            enqueueCapture({
-              captureId: newCaptureId(),
-              kind: "duty",
-              capturedAt: new Date().toISOString(),
-              state,
-              locationLabel: place.locationLabel,
-              source: "auto_no_movement",
-              autoStage: stage,
-              stillSince: stillSinceIso,
-              city: place.city,
-              usState: place.usState,
-            });
-            aiLog("HOS auto-swap (offline capture)", `Auto-swap to ${state} captured on-device at the ${stage} stage — will seal on reconnect.`);
-          } else {
-            // The swap didn't seal — allow a later check to retry the stage.
-            if (hosStillRef.current) hosStillRef.current = { since: hosStillRef.current.since, stage: stageNo - 1 };
-          }
-        } finally {
-          hosAutoBusyRef.current = false;
+  const fireHosOnDutyDefault = (stillSinceMs: number) => {
+    if (hosDefaultBusyRef.current) return;
+    hosDefaultBusyRef.current = true;
+    const stillSinceIso = new Date(stillSinceMs).toISOString();
+    void (async () => {
+      // Same 395.8(c) place stamp as a manual tap — the default
+      // seals with the city + state where it happened (best
+      // effort; the remark is the server's explicit default:
+      // nobody pretends the driver picked a reason).
+      const place = await resolveDutyPlace();
+      try {
+        await api.setDuty({ state: "on_duty", locationLabel: place.locationLabel, city: place.city, usState: place.usState, source: "auto_no_movement", autoStage: ON_DUTY_DEFAULT_STAGE, stillSince: stillSinceIso });
+        queryClient.invalidateQueries({ queryKey: ["duty"] });
+        const msg = "Stopped 5 minutes with no answer — duty status set to On Duty (not driving), the federal default, and stamped as an automatic default in the sealed log. If you're resting, tap Off Duty or Sleeper yourself — the app never picks a rest status for you.";
+        setBanner(msg);
+        if (settingsRef.current.voiceAlerts && settingsRef.current.notifyHos) speak(msg);
+        aiLog("HOS on-duty default", msg);
+      } catch {
+        if (!navigator.onLine) {
+          // Offline (queue item 7): capture the default on-device
+          // with its stillness stamp — it seals on reconnect,
+          // flagged as an offline capture, and the pending merge
+          // already runs the clocks on it.
+          enqueueCapture({
+            captureId: newCaptureId(),
+            kind: "duty",
+            capturedAt: new Date().toISOString(),
+            state: "on_duty",
+            locationLabel: place.locationLabel,
+            source: "auto_no_movement",
+            autoStage: ON_DUTY_DEFAULT_STAGE,
+            stillSince: stillSinceIso,
+            city: place.city,
+            usState: place.usState,
+          });
+          aiLog("HOS on-duty default (offline capture)", "On-duty default captured on-device — will seal on reconnect.");
         }
-      })();
-    };
-    if (stillMs >= 10 * 60000 && hosStillRef.current.stage < 2) {
-      fireSwap("sleeper", "sleeper_10min", 2);
-    } else if (stillMs >= 2 * 60000 && hosStillRef.current.stage < 1 && (duty === "driving" || duty === "on_duty")) {
-      fireSwap("off_duty", "off_duty_2min", 1);
+        // An online failure just leaves the tracker in "defaulted";
+        // the status stays Driving on the record, and the driver
+        // can set the proper status with the duty buttons.
+      } finally {
+        hosDefaultBusyRef.current = false;
+      }
+    })();
+  };
+  const runHosStoppedCheck = (mph: number | null) => {
+    const r = dutyPromptTrackerRef.current!.evaluate({ duty: currentDutyRef.current, mph, nowMs: Date.now() });
+    if (r.promptVisible !== hosPromptShownRef.current) {
+      hosPromptShownRef.current = r.promptVisible;
+      setHosPromptAt(r.promptVisible ? r.promptAtMs : null);
+      if (r.promptVisible && settingsRef.current.voiceAlerts && settingsRef.current.notifyHos) {
+        speak("Still driving? You've been stopped five minutes. Tap what you're doing, or your status goes to On Duty in one minute.");
+      }
     }
+    if (r.fireDefault && r.stillSinceMs != null) fireHosOnDutyDefault(r.stillSinceMs);
+  };
+  // Prompt answers. A task pick seals On Duty with the driver's
+  // confirmed remark through the same path as the duty buttons
+  // (pre-trip / post-trip picks open their checklist, per the
+  // remark-to-checklist rule). Off Duty / Sleeper seal as the
+  // driver's own tap, no pick — the server stamps its plain
+  // default remark rather than inventing a reason.
+  const answerHosPromptTask = (pick: DutyRemarkPick) => {
+    dutyPromptTrackerRef.current!.answerWithChange();
+    hosPromptShownRef.current = false;
+    setHosPromptAt(null);
+    setDutyFromClocks("on_duty", pick);
+  };
+  const answerHosPromptStatus = (state: "off_duty" | "sleeper") => {
+    dutyPromptTrackerRef.current!.answerWithChange();
+    hosPromptShownRef.current = false;
+    setHosPromptAt(null);
+    setDutyFromClocks(state);
+  };
+  const answerHosPromptStillDriving = () => {
+    dutyPromptTrackerRef.current!.answerStillDriving();
+    hosPromptShownRef.current = false;
+    setHosPromptAt(null);
+    setBanner("Still driving — staying in Driving. The app won't ask again until the truck moves and stops again.");
   };
   // (The heartbeat effect that re-checks the stillness clock lives below,
   // after the gpsOn state is declared.)
@@ -3500,13 +3519,14 @@ export function App() {
   // always the CLEANED stream; there is no second raw path.
   const [gpsFilter] = useState(() => createGpsFixFilter());
   const [gpsOn, setGpsOn] = useState(false);
-  // HOS auto-swap heartbeat: the swap must fire even when GPS fixes go
-  // sparse while stopped, so a slow timer re-checks the stillness clock
-  // off the last known speed (the check itself lives with the duty code
-  // above; it no-ops without a stopped truck and a live duty status).
+  // HOS stopped-prompt heartbeat: the prompt (and its 1-minute
+  // default) must fire even when GPS fixes go sparse while stopped,
+  // so a slow timer re-checks the stillness clock off the last known
+  // speed (the check itself lives with the duty code above; it
+  // no-ops without a stopped truck in Driving).
   useEffect(() => {
     if (!gpsOn) return;
-    const t = setInterval(() => runHosAutoSwapCheck(lastSpeedRef.current), 15000);
+    const t = setInterval(() => runHosStoppedCheck(lastSpeedRef.current), 15000);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gpsOn]);
@@ -6006,8 +6026,9 @@ export function App() {
     const mph = filtered.speedMph;
     setSpeedMph(mph);
     lastSpeedRef.current = mph;
-    // HOS auto-swap: 2 min with no movement → Off Duty, 10 min → Sleeper.
-    runHosAutoSwapCheck(mph);
+    // HOS stopped prompt: 5 min still in Driving → prompt; 1 min
+    // unanswered → the on-duty default (dutyPrompt.ts).
+    runHosStoppedCheck(mph);
     setHeading(gp.coords.heading);
     setGpsError(null);
 
@@ -8532,7 +8553,7 @@ export function App() {
   // receives it). selectAutoAddStops (autoAddStops.ts) turns that
   // plan into waypoints; routing through them is planRoute's via
   // support. Nothing here ever touches HOS duty status — the picks
-  // are advisory waypoints, and the stop-based auto-swap rules are a
+  // are advisory waypoints, and the stopped-duty prompt rules are a
   // separate mechanism, untouched.
   useEffect(() => {
     autoStopsRef.current = autoStops;
@@ -13884,6 +13905,21 @@ export function App() {
           </div>
         </div>
       )}
+      {/* HOS stopped prompt (B1 federal pattern, 2026-11-15):
+          Driving + 5 minutes stopped → this card, on every tab.
+          A task pick seals On Duty with the confirmed remark; Off
+          Duty / Sleeper are the driver's own taps; "Still driving"
+          latches until the truck moves again. Unanswered for the
+          federal 1 minute, the on-duty default seals itself and
+          this card is gone (the tracker fired it). */}
+      {hosPromptAt != null && (
+        <HosStoppedPrompt
+          promptAtMs={hosPromptAt}
+          onTask={answerHosPromptTask}
+          onStatus={answerHosPromptStatus}
+          onStillDriving={answerHosPromptStillDriving}
+        />
+      )}
       {/* Auto-add stops card (2026-11-13): the announcement + control
           surface for the planner's picks. Applied stops list as ON
           the route, each with its one-tap Remove; picks computed
@@ -17184,7 +17220,8 @@ export function App() {
               <div className="glass-pill rounded-2xl px-4 py-2.5 text-sm" role="status">
                 🚚 Moving while {currentDutyState === "sleeper" ? "Sleeper Berth" : "Off Duty"} by your choice —
                 logged as chosen. Your HOS clocks follow the status you picked. (The one automatic change in
-                the app is the stopped auto-swap: 2 min stopped → Off Duty, 10 min → Sleeper Berth.)
+                the app is the stopped default: 5 min stopped in Driving with the prompt unanswered → On Duty —
+                never a rest status.)
               </div>
             )}
             <BackgroundPanel
@@ -27875,8 +27912,9 @@ function DutyRemarkRow({
  *  the log with the city + state at the change. Tapping a status opens
  *  its remark row (one more tap — a quick-pick reason, optional note);
  *  tapping a reason fires the change. The one automatic change is the
- *  stopped auto-swap noted under the buttons (2 min → Off Duty, 10 min →
- *  Sleeper), sealed as "auto" with the system's own default remark. */
+ *  federal stopped default noted under the buttons (5 min stopped in
+ *  Driving, prompt unanswered for 1 min → On Duty), sealed as an
+ *  automatic default with the system's own default remark. */
 function DutyButtons({
   currentDuty,
   onSetDuty,
@@ -27928,10 +27966,98 @@ function DutyButtons({
         />
       )}
       <p className="mt-2 text-[11px] leading-relaxed text-[var(--dim)]">
-        ⏱️ Auto-swap is on: stopped with no movement for <strong className="text-[var(--text)]">2 min → Off Duty</strong>,{" "}
-        <strong className="text-[var(--text)]">10 min → Sleeper Berth</strong> — stamped “auto” in the sealed log.
-        Moving again resets the timer.
+        ⏱️ Stopped in Driving for <strong className="text-[var(--text)]">5 min</strong>, the app asks what
+        you&apos;re doing — tap the task and it seals <strong className="text-[var(--text)]">On Duty</strong> with
+        your reason. No answer in <strong className="text-[var(--text)]">1 min</strong> and it seals On Duty on
+        its own (the federal default, 49 CFR 395 App. A). Off Duty and Sleeper are only ever your own tap.
       </p>
+    </div>
+  );
+}
+
+/** The "Still driving?" prompt (B1 federal pattern, 2026-11-15 —
+ *  49 CFR Part 395 Appendix A §4.4.1.2): shown when the truck has
+ *  been stopped 5 consecutive minutes in Driving. The task picks
+ *  seal On Duty with the driver's confirmed remark; Off Duty and
+ *  Sleeper Berth are the driver's own taps; "Still driving" holds
+ *  Driving with no re-prompt until the truck moves and stops
+ *  again. The card counts down the federal 1-minute response
+ *  window; when it lapses the App's tracker fires the on-duty
+ *  default and unmounts this card. */
+function HosStoppedPrompt({
+  promptAtMs,
+  onTask,
+  onStatus,
+  onStillDriving,
+}: {
+  promptAtMs: number;
+  onTask: (pick: DutyRemarkPick) => void;
+  onStatus: (state: "off_duty" | "sleeper") => void;
+  onStillDriving: () => void;
+}) {
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const leftS = Math.max(0, Math.ceil((promptAtMs + 60_000 - nowMs) / 1000));
+  return (
+    <div className="shrink-0 px-3 pt-2">
+      <div className="glass-pill animate-rise rounded-2xl px-4 py-3" role="alert" aria-label="Still driving? You have been stopped for five minutes">
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="font-condensed text-lg font-bold">🚛 Still driving?</span>
+          <span className="text-xs font-bold text-[var(--dim)]">
+            Stopped 5 min · On Duty default in {leftS}s if unanswered
+          </span>
+        </div>
+        <p className="mt-1 text-sm leading-relaxed">
+          You&apos;re stopped but still in Driving. Tap what you&apos;re doing — it seals{" "}
+          <strong>On Duty</strong> with your reason (fueling, loading, and inspections are On Duty time):
+        </p>
+        <div className="mt-2 grid grid-cols-2 gap-1.5">
+          {DUTY_REMARKS.map((r) => (
+            <button
+              key={r.key}
+              type="button"
+              aria-label={`I'm doing: ${r.label} — switch to On Duty`}
+              onClick={() => onTask({ remark: r.key, note: null })}
+              className="btn-press min-h-[44px] rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-left text-sm font-bold"
+            >
+              <span aria-hidden>{r.icon}</span> {r.label}
+            </button>
+          ))}
+        </div>
+        <div className="mt-2 grid grid-cols-3 gap-1.5">
+          <button
+            type="button"
+            aria-label="Still driving — stay in Driving"
+            onClick={onStillDriving}
+            className="btn-neon btn-press min-h-[48px] rounded-lg px-2 py-2 text-sm font-bold"
+          >
+            🚚 Still driving
+          </button>
+          <button
+            type="button"
+            aria-label="Switch to Off Duty — my own choice"
+            onClick={() => onStatus("off_duty")}
+            className="btn-press min-h-[48px] rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-2 text-sm font-bold"
+          >
+            🌙 Off Duty
+          </button>
+          <button
+            type="button"
+            aria-label="Switch to Sleeper Berth — my own choice"
+            onClick={() => onStatus("sleeper")}
+            className="btn-press min-h-[48px] rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-2 text-sm font-bold"
+          >
+            🛏️ Sleeper Berth
+          </button>
+        </div>
+        <p className="mt-1.5 text-[11px] leading-relaxed text-[var(--dim)]">
+          Off Duty and Sleeper are never set automatically — only by your tap. No answer in a minute seals
+          On Duty (not driving) as an automatic default, per 49 CFR 395 Appendix A.
+        </p>
+      </div>
     </div>
   );
 }
@@ -30511,7 +30637,7 @@ const FAQ_ITEMS: { q: string; a: string }[] = [
   { q: "What does Diamond Driver add?", a: "The full service at $199/yr billed annually (or $19.99/mo): everything in Gold plus parking & fuel assistance — full (the Diamond standard: the full Fuel Coach with live speed/idle coaching and full per-load debriefs, the full Net-Price Fuel Planner with net-of-tax ranking and the lane plan before, during, and after each load, and HOS-aware parking planning — end-of-day parking lined up against your HOS clocks, parking intel, and saved spots), ELD connections (Samsara / Motive), the Safety Academy and owner training videos, the Settlement Checker, OS/OW Permit Mode (scan a state oversize/overweight permit, file the docket, and drive the state-approved route as a locked corridor with restriction placards and an off-route alert), the Worth-It Advisor, Meca Co-Pilot briefings, white-glove import, priority help, and AI driver learning (opt-in). The Owner plan adds the whole company system on top — and Owner drivers get Diamond included (features only for those seats — see the House Rules in the Wallet)." },
   { q: "What does the Owner plan cost?", a: "$499/yr paid annually upfront for up to 3 trucks, with the first dispatch seat included (2 months free on the base; $49.99/mo if you bill monthly instead — that's $599.88/yr). Each driver beyond 3 trucks and each dispatch seat beyond the first adds $99/yr on annual billing — $9.99/mo each on monthly. Example: 5 trucks + 2 dispatch seats = $796/yr billed annually, or $79.96/mo. A yearly rate is frozen for your full year, even if prices rise. All of it is billed to the fleet owner — drivers and dispatchers on a Fleet plan pay nothing themselves; their Diamond access rides on the owner's plan (features only for those seats — see the House Rules in the Wallet). No hardware, no contract. Billing starts at the app-store release." },
   { q: "How do my miles get recorded — GPS or ELD?", a: "Today, GPS from your phone while the app is on screen — honest estimates, labelled as such. When the ELD/tablet connection goes live, the ELD odometer becomes the source of record and GPS is the backup. If you call out odometer readings yourself, those get stamped in alongside." },
-  { q: "Does STONEMILES change my duty status on its own?", a: "At a trip start, never — and in exactly one other case, yes, by a set rule. Movement starts the trip log; you decide the duty status. When a trip auto-starts at 1 mile of movement, the app asks: Drive, On Duty (not driving), Stay Sleeper Berth, or Stay Off Duty. If you don't answer, the status stays exactly as it was and the record stamps “duty prompt shown — no answer, status unchanged”. The one automatic change is the stopped auto-swap: with GPS live, 2 minutes with no movement swaps Driving or On Duty to Off Duty, and 10 minutes with no movement swaps to Sleeper Berth. Every auto-swap is stamped “auto” in the sealed log with the time the truck stopped, and moving again resets the timer. Nothing else about your duty status ever changes without your tap." },
+  { q: "Does STONEMILES change my duty status on its own?", a: "At a trip start, never — and in exactly one other case, yes, by the federal rule. Movement starts the trip log; you decide the duty status. When a trip auto-starts at 1 mile of movement, the app asks: Drive, On Duty (not driving), Stay Sleeper Berth, or Stay Off Duty. If you don't answer, the status stays exactly as it was and the record stamps “duty prompt shown — no answer, status unchanged”. The one automatic change is the stopped default from 49 CFR 395 Appendix A: with GPS live, 5 minutes stopped in Driving brings up a “Still driving?” prompt — tap what you're doing (fueling, loading, an inspection) and it seals On Duty with your reason, or tap Off Duty / Sleeper yourself. If the prompt goes unanswered for 1 minute, the status seals to On Duty (not driving), stamped as an automatic default in the sealed log with the time the truck stopped. Off Duty and Sleeper Berth are NEVER set automatically — a stopped driver may be working, and the app won't invent a rest. Moving again resets the timer. Nothing else about your duty status ever changes without your tap." },
   { q: "Who can fix my HOS log if I forgot to change status?", a: "It depends on your role. A fleet owner can fix their drivers' past HOS entries — that's exactly the forgotten-status case — and an owner-operator can fix their own. Employee drivers can't edit HOS log history at all: your past entries are locked, so if you forgot to change status, ask your fleet owner to fix it. A fix never rewrites the record: the original entry stays sealed, and the correction lands as a new sealed entry showing the original status, the corrected status, who made the fix, their role, and the reason — visible to you in the HOS log's fix history." },
   { q: "Does tracking work with my phone locked?", a: "In this web build, honestly: no. Tracking runs while the app is open and on screen — iOS Safari stops location when the screen locks, and that's an iOS system limit no web app can switch off. The Drive tab's “Keep screen awake while driving” toggle holds the screen on during a trip where the browser supports it. Closed-app or locked time is never filled in: it lands on your sheet as a labelled gap (the straight-line distance shows separately as an estimate, never counted in miles or pay), and if the app closes mid-trip you're offered a one-tap resume. Locked-phone background tracking arrives with the native app — see About → Native app for the exact wrap spec." },
   { q: "Can my company see my wallet?", a: "No. Never. The company system and the wallet are completely separate — there is no wallet data in any company screen, export, log, or notification, and no setting that changes that. Your owner and dispatch see work data only: duty logs, trip sheets, load paperwork, and your position while on duty. Your balances, sends, swaps, and cash-outs are yours alone, and the app shows you an access log of who viewed your work records and when." },
@@ -32972,7 +33098,12 @@ function DetentionDaysBlock() {
  *  history at all — their panel says so plainly and shows any fix the
  *  owner made, with the owner's name and reason. A fix never rewrites
  *  the sealed original: it lands as a sealed correction, and the entry
- *  list shows original → corrected. */
+ *  list shows original → corrected. B2 (2026-11-15): a correction
+ *  SOMEONE ELSE made to a driver's entry waits for that driver's
+ *  review — pending, it changes nothing (the original stands);
+ *  acknowledged, it takes effect; disputed with a note, the original
+ *  remains the operative record and the dispute shows everywhere,
+ *  the DOT packet included. Self-fixes skip review. */
 function HosLogPanel({ setBanner }: { setBanner: (s: string | null) => void }) {
   const queryClient = useQueryClient();
   const dutyQuery = useQuery({ queryKey: ["duty"], queryFn: () => api.listDuty({ limit: 200 }) });
@@ -32983,6 +33114,35 @@ function HosLogPanel({ setBanner }: { setBanner: (s: string | null) => void }) {
   const [formAt, setFormAt] = useState("");
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
+  const [disputeFor, setDisputeFor] = useState<number | null>(null);
+  const [disputeNote, setDisputeNote] = useState("");
+  const [reviewing, setReviewing] = useState(false);
+  const reviewCorrection = (correctionId: number, decision: "acknowledge" | "dispute") => {
+    const note = disputeNote.trim();
+    if (decision === "dispute" && note.length < 3) {
+      setBanner("A dispute needs a short note — say what the entry should show and why. It goes to the owner with the dispute.");
+      return;
+    }
+    setReviewing(true);
+    void api
+      .reviewDutyCorrection({ correctionId, decision, note: decision === "dispute" ? note : null })
+      .then((res) => {
+        if (res.ok) {
+          setBanner(
+            decision === "dispute"
+              ? "Dispute sealed — the correction does NOT take effect, your original entry stands, and the dispute (with your note) shows everywhere the correction appears, the DOT packet included."
+              : "Acknowledged — the correction now stands in your log, sealed with your acknowledgement.",
+          );
+          setDisputeFor(null);
+          setDisputeNote("");
+          queryClient.invalidateQueries({ queryKey: ["duty"] });
+        } else {
+          setBanner(res.error ?? "That review didn't save.");
+        }
+      })
+      .catch(() => setBanner("That review didn't save — check your connection and try again."))
+      .finally(() => setReviewing(false));
+  };
   const data = dutyQuery.data;
   const access = data?.editAccess;
   const events = data?.events ?? [];
@@ -33043,13 +33203,28 @@ function HosLogPanel({ setBanner }: { setBanner: (s: string | null) => void }) {
         <span className="text-xs text-[var(--dim)]">Originals stay sealed — fixes are added, never overwritten</span>
       </div>
 
-      {/* Auto-swap rule — the one automatic duty change, stated plainly. */}
+      {/* The federal stopped pattern — the one automatic duty change, stated plainly. */}
       <p className="mt-2 rounded-xl bg-[var(--surface2)] px-3 py-2.5 text-sm leading-relaxed">
-        ⏱️ <strong>Auto-swap is on:</strong> with GPS live, no movement for{" "}
-        <strong>2 minutes → Off Duty</strong>, still no movement at <strong>10 minutes → Sleeper Berth</strong>.
-        Each swap is stamped “auto” in the entries below with the time the truck stopped. Moving again resets the
-        timer. Trip starts still ask — this swap only fires when the truck is standing still.
+        ⏱️ <strong>The stopped rule (49 CFR 395, Appendix A):</strong> stopped in Driving for{" "}
+        <strong>5 minutes</strong>, the app asks what you&apos;re doing — a task tap seals{" "}
+        <strong>On Duty</strong> with your reason. No answer in <strong>1 minute</strong> seals On Duty on its
+        own, stamped “auto default” below with the time the truck stopped. <strong>Off Duty and Sleeper Berth
+        are never automatic</strong> — they&apos;re always your own tap, because a stopped driver may be
+        fueling or loading, and that&apos;s On Duty time. Moving again resets the timer.
       </p>
+
+      {/* B2: corrections to MY log awaiting my review — surfaced
+          here, next to the log they would change, so a pending
+          correction is never a surprise at certification time.
+          Reviewing is acknowledge/dispute, never a hard gate. */}
+      {(data?.pendingReviewCount ?? 0) > 0 && (
+        <p className="mt-2 rounded-xl bg-amber-900/40 px-3 py-2.5 text-sm font-semibold text-amber-200" role="status">
+          ⏳ {data!.pendingReviewCount} correction{data!.pendingReviewCount === 1 ? "" : "s"} to your log{" "}
+          {data!.pendingReviewCount === 1 ? "is" : "are"} awaiting your review in the fix history below —{" "}
+          {data!.pendingReviewCount === 1 ? "it doesn't" : "they don't"} take effect until you acknowledge{" "}
+          {data!.pendingReviewCount === 1 ? "it" : "them"}, and disputing keeps your original entry standing.
+        </p>
+      )}
 
       {!access ? (
         <p className="mt-2 text-sm text-[var(--dim)]">Loading your HOS log…</p>
@@ -33058,7 +33233,8 @@ function HosLogPanel({ setBanner }: { setBanner: (s: string | null) => void }) {
           👑 <strong>You're the fleet owner{access.companyName ? ` of ${access.companyName}` : ""}:</strong> you can
           fix HOS entries when a driver forgot to change status — your drivers' logs and your own. Pick whose log
           below; every fix seals with the original kept, your name, and your reason, and the driver sees it in
-          their fix history.
+          their fix history. A fix to a driver's log takes effect once the driver acknowledges it — they can
+          dispute it with a note instead, and then their original entry stands (49 CFR 395.30).
         </p>
       ) : access.canEditOwn ? (
         <p className="mt-2 rounded-xl bg-[var(--surface2)] px-3 py-2.5 text-sm leading-relaxed">
@@ -33070,7 +33246,8 @@ function HosLogPanel({ setBanner }: { setBanner: (s: string | null) => void }) {
           🔒 <strong>Your HOS log is locked for editing.</strong> Employee drivers can't change past duty
           entries — that's what keeps the log trustworthy. If you forgot to change status, tell your fleet
           owner: they can fix it from their side, and the fix shows in the history below with their name and
-          reason. You can still set your <strong>current</strong> status anytime with the duty buttons above.
+          reason — and it only takes effect once you acknowledge it here; dispute it with a note and your
+          original entry stands. You can still set your <strong>current</strong> status anytime with the duty buttons above.
         </p>
       )}
 
@@ -33132,13 +33309,19 @@ function HosLogPanel({ setBanner }: { setBanner: (s: string | null) => void }) {
                       </span>
                       <span className="flex shrink-0 items-center gap-1.5">
                         {ev.source === "auto_no_movement" && (
-                          <span className="rounded-full bg-[var(--surface)] px-2 py-0.5 text-[10px] font-bold text-[var(--accent)]">AUTO-SWAP</span>
+                          <span className="rounded-full bg-[var(--surface)] px-2 py-0.5 text-[10px] font-bold text-[var(--accent)]">AUTO DEFAULT</span>
                         )}
                         {ev.source === "pretrip_checklist" && (
                           <span className="rounded-full bg-[var(--surface)] px-2 py-0.5 text-[10px] font-bold text-[var(--accent)]">PRE-TRIP START</span>
                         )}
                         {ev.edited && (
                           <span className="rounded-full bg-[var(--surface)] px-2 py-0.5 text-[10px] font-bold text-[var(--accent)]">FIXED</span>
+                        )}
+                        {ev.correctionReview === "pending" && (
+                          <span className="rounded-full bg-amber-900/60 px-2 py-0.5 text-[10px] font-bold text-amber-200">FIX PENDING REVIEW</span>
+                        )}
+                        {ev.correctionReview === "disputed" && (
+                          <span className="rounded-full bg-red-900/60 px-2 py-0.5 text-[10px] font-bold text-red-200">FIX DISPUTED</span>
                         )}
                         {canEdit && !editing && (
                           <button
@@ -33166,6 +33349,18 @@ function HosLogPanel({ setBanner }: { setBanner: (s: string | null) => void }) {
                           ? ` — was ${dutyLabel(ev.originalState)} at ${new Date(ev.originalAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
                           : ""}
                         {ev.editReason ? ` · Reason: ${ev.editReason}` : ""}. Original preserved in the sealed records.
+                      </p>
+                    )}
+                    {ev.correctionReview === "pending" && (
+                      <p className="mt-1 text-xs font-semibold leading-relaxed text-amber-200">
+                        ⏳ A correction to this entry is awaiting your review in the fix history below — this
+                        original entry stands until you acknowledge it.
+                      </p>
+                    )}
+                    {ev.correctionReview === "disputed" && (
+                      <p className="mt-1 text-xs font-semibold leading-relaxed text-red-200">
+                        ⚠ You disputed a correction to this entry — this original entry is the operative
+                        record. The dispute shows in the fix history below and in the DOT packet.
                       </p>
                     )}
                     {editing && (
@@ -33258,6 +33453,79 @@ function HosLogPanel({ setBanner }: { setBanner: (s: string | null) => void }) {
                   Fixed by @{ed.editedBy} ({ed.editedByRole === "owner" ? "fleet owner" : ed.editedByRole === "owner_operator" ? "owner-operator" : ed.editedByRole}) on{" "}
                   {new Date(ed.editedAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} · Reason: {ed.reason}
                 </span>
+                {ed.reviewState === "pending" && (
+                  <span className="mt-1 block font-bold text-amber-200">
+                    ⏳ Driver review: PENDING — this correction is not in effect; the original entry stands
+                    until @{ed.targetUsername} acknowledges it.
+                  </span>
+                )}
+                {ed.reviewState === "acknowledged" && (
+                  <span className="mt-1 block font-bold text-emerald-300">
+                    ✓ Driver review: acknowledged by @{ed.reviewedBy ?? ed.targetUsername} — the correction stands.
+                  </span>
+                )}
+                {ed.reviewState === "disputed" && (
+                  <span className="mt-1 block font-bold text-red-200">
+                    ⚠ Driver review: DISPUTED by @{ed.reviewedBy ?? ed.targetUsername} — the original entry
+                    remains the operative record.
+                    {ed.disputeNote ? <span className="block font-normal">Driver&apos;s note: “{ed.disputeNote}”</span> : null}
+                  </span>
+                )}
+                {ed.reviewState === "pending" && access && ed.targetUsername.toLowerCase() === access.myUsername.toLowerCase() && (
+                  <span className="mt-2 block">
+                    {disputeFor === ed.id ? (
+                      <>
+                        <input
+                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-2 text-sm text-[var(--text)]"
+                          placeholder="What should the entry show, and why? (goes to the owner with the dispute)"
+                          value={disputeNote}
+                          onChange={(e) => setDisputeNote(e.target.value)}
+                          aria-label="Your dispute note for this correction"
+                        />
+                        <span className="mt-1.5 flex gap-2">
+                          <button
+                            type="button"
+                            disabled={reviewing}
+                            className="btn-press flex-1 rounded-lg bg-red-900/70 py-2 text-sm font-bold text-red-100 disabled:opacity-50"
+                            aria-label="Seal my dispute of this correction"
+                            onClick={() => reviewCorrection(ed.id, "dispute")}
+                          >
+                            {reviewing ? "Sealing…" : "Seal the dispute"}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn-press rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 font-bold"
+                            aria-label="Cancel disputing this correction"
+                            onClick={() => { setDisputeFor(null); setDisputeNote(""); }}
+                          >
+                            Cancel
+                          </button>
+                        </span>
+                      </>
+                    ) : (
+                      <span className="flex gap-2">
+                        <button
+                          type="button"
+                          disabled={reviewing}
+                          className="btn-neon btn-press flex-1 rounded-lg py-2 text-sm font-bold disabled:opacity-50"
+                          aria-label="Acknowledge this correction to my log"
+                          onClick={() => reviewCorrection(ed.id, "acknowledge")}
+                        >
+                          ✓ Acknowledge — the fix stands
+                        </button>
+                        <button
+                          type="button"
+                          disabled={reviewing}
+                          className="btn-press flex-1 rounded-lg border border-red-300/50 bg-red-900/40 py-2 text-sm font-bold text-red-100 disabled:opacity-50"
+                          aria-label="Dispute this correction to my log"
+                          onClick={() => { setDisputeFor(ed.id); setDisputeNote(""); }}
+                        >
+                          ⚠ Dispute it
+                        </button>
+                      </span>
+                    )}
+                  </span>
+                )}
               </li>
             ))}
           </ul>
@@ -35038,10 +35306,12 @@ function DriverPanel({
           Movement starts the trip log; you decide the duty status — when a trip auto-starts at 1 mile, the app
           asks and your answer (or no answer) is stamped into the sealed record.{" "}
           <strong className="text-[var(--text)]">
-            The one automatic change is the stopped auto-swap: 2 minutes with no movement → Off Duty, 10 minutes
-            with no movement → Sleeper Berth
+            The one automatic change is the federal stopped default: 5 minutes stopped in Driving brings up the
+            “Still driving?” prompt, and if it goes unanswered for 1 minute the status seals to On Duty (not
+            driving)
           </strong>{" "}
-          — each swap is stamped “auto” in the sealed log, and moving again resets the timer. Past entries can
+          — stamped as an automatic default in the sealed log, and moving again resets the timer. Off Duty and
+          Sleeper Berth are only ever your own tap. Past entries can
           only be fixed by a fleet owner or an owner-operator — employee drivers' HOS history is locked (see
           HOS log &amp; fixes under Hours).
         </p>

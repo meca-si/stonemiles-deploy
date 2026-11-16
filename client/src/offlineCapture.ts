@@ -34,7 +34,12 @@ export interface DutyCapture {
   state: DutyStateName;
   locationLabel: string | null;
   source: "manual" | "auto_no_movement";
-  autoStage: "off_duty_2min" | "sleeper_10min" | null;
+  /** The only automatic stage (B1 federal pattern): the stopped
+   *  5-minute on-duty default. Captures queued by older builds may
+   *  still carry the retired off_duty_2min / sleeper_10min stages
+   *  as plain strings — the server refuses those pairings and the
+   *  flush surfaces the refusal once. */
+  autoStage: "on_duty_default" | null;
   stillSince: string | null;
   /** Remark + 395.8(c) place stamp captured with the change
    *  (2026-11-15). Optional: captures queued by older builds carry

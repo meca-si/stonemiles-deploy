@@ -6,10 +6,13 @@
  *
  * THE GUARANTEE: a sealed duty_change NEVER lacks a remark. The
  * driver-facing buttons always collect a quick-pick (one extra tap,
- * free text optional). Any path that cannot ask — the no-movement
- * auto-swap, an offline capture sealed later, an older client — gets
- * an explicit system default here, stamped remarkSource "default" so
- * the record never dresses a system reason up as the driver's words.
+ * free text optional). Any path that cannot ask — the federal
+ * stopped-default (B1, 2026-11-15: 5 minutes stopped in Driving,
+ * prompted, no answer in 1 minute → On Duty, per 49 CFR Part 395
+ * Appendix A §4.4.1.2), an offline capture sealed later, an older
+ * client — gets an explicit system default here, stamped
+ * remarkSource "default" so the record never dresses a system
+ * reason up as the driver's words.
  * A remark the driver actually picked (or a note they typed) stamps
  * remarkSource "driver".
  *
@@ -78,12 +81,13 @@ export function resolveDutyRemark(input: {
     return { remark: "pretrip", remarkNote: null, remarkSource: "default" };
   }
   if (input.source === "auto_no_movement") {
+    // The ONE automatic change left (B1 federal pattern): stopped
+    // 5 minutes in Driving, prompted, no response in 1 minute →
+    // On-Duty Not Driving. The default remark names the federal
+    // default for what it is — never a reason the driver gave.
     return {
       remark: "other",
-      remarkNote:
-        input.autoStage === "sleeper_10min"
-          ? "Auto — no movement for 10 minutes (swapped to Sleeper Berth)"
-          : "Auto — no movement for 2 minutes (swapped to Off Duty)",
+      remarkNote: "Stopped 5 min — no response; on-duty default",
       remarkSource: "default",
     };
   }

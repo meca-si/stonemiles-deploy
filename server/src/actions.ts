@@ -1043,18 +1043,27 @@ async function recordNotificationSafe(
   }
 }
 
-/** The auto-swap pairing rule, shared by setDuty and the offline
- * sync: an automatic change only ever lands on Off Duty (2-minute
- * stage) or Sleeper Berth (10-minute stage). */
+/** The automatic-change pairing rule, shared by setDuty and the
+ * offline sync (B1 federal pattern, owner's ruling 2026-11-15,
+ * superseding the Oct 24 2-min/10-min auto-swap): the ONLY
+ * automatic duty change is the 49 CFR Part 395 Appendix A
+ * §4.4.1.2 stopped default — Driving, stopped 5 minutes, prompted,
+ * no response in 1 minute → On-Duty Not Driving, stage
+ * "on_duty_default". Nothing automatic ever lands on Off Duty or
+ * Sleeper Berth; those are always the driver's own tap. Any other
+ * pairing (including the retired off_duty_2min / sleeper_10min
+ * stages an older client may still queue offline) is refused. */
 function dutyAutoSwapPairingOk(
   state: string,
   autoStage: string | null | undefined,
 ): boolean {
-  return (
-    (autoStage === "off_duty_2min" && state === "off_duty") ||
-    (autoStage === "sleeper_10min" && state === "sleeper")
-  );
+  return autoStage === "on_duty_default" && state === "on_duty";
 }
+
+/** The refusal line for a pairing-breaking automatic change —
+ * one wording for the live path and the offline sync. */
+const DUTY_AUTO_REFUSAL =
+  "Automatic duty change refused: the only automatic change is the stopped 5-minute on-duty default (On Duty after the prompt goes unanswered) — Off Duty and Sleeper Berth are always the driver's own tap.";
 
 /** Seal one duty change into the chain — THE path, used by the live
  * setDuty action, by syncDutyCapture for changes captured offline,
@@ -4779,6 +4788,13 @@ async function maybeEmailPayStubCopy(
 // and the reason. The EFFECTIVE timeline (what the clocks, the driver
 // panel, and the DOT packet read) applies corrections on top of the
 // originals, so both are always visible and auditable.
+// B2 (owner's ruling 2026-11-15, 49 CFR 395.30 doctrine): a correction
+// SOMEONE ELSE made to a driver's entry is not final on the editor's
+// seal — it waits in a pending state until the driver acknowledges it
+// (then it applies) or disputes it with a note (then the original
+// remains the operative record and the dispute prints everywhere the
+// correction appears, the DOT packet included). Self-corrections are
+// exempt. See reviewDutyCorrection + duty_correction_reviews.
 type HosEditAccess = {
   myUsername: string;
   myRole: string; // owner | driver | dispatch | owner_operator
@@ -4830,7 +4846,21 @@ type DutyEventEffective = {
   editReason: string | null;
   originalState: string | null;
   originalAt: string | null;
+  /** B2 driver review (2026-11-15): the review state of the
+   *  latest correction SOMEONE ELSE made to this entry — "pending"
+   *  (sealed, awaiting the driver's acknowledge/dispute; the
+   *  original entry still stands) or "disputed" (the driver
+   *  disputed it; the original remains the operative record).
+   *  Null when no outside correction is outstanding — none made,
+   *  all acknowledged, or self-edits only (exempt from review). */
+  correctionReview: "pending" | "disputed" | null;
 };
+
+/** B2 review states. "pending" / "acknowledged" / "disputed" for
+ *  a correction someone else made to a driver's entry; null when
+ *  the correction is the driver's own self-edit (exempt — it
+ *  stands on its own seal, no review step). */
+type DutyCorrectionReviewState = "pending" | "acknowledged" | "disputed" | null;
 
 type DutyCorrection = {
   id: number;
@@ -4844,18 +4874,37 @@ type DutyCorrection = {
   editedBy: string;
   editedByRole: string;
   editedAt: string;
+  reviewState: DutyCorrectionReviewState;
+  /** The driver's dispute note — read from the review table,
+   *  never from a chain payload (note bodies stay off-chain). */
+  disputeNote: string | null;
+  reviewedBy: string | null;
+  reviewedAt: string | null;
 };
 
-/** The effective duty timeline: sealed duty_change rows with every
- *  sealed duty_correction applied in chain order (latest correction of
- *  an entry wins for the effective state/time; every correction stays
- *  in the returned edits list). Old rows without a username belong to
- *  the local driver (single-driver staging records predate the field). */
+/** The effective duty timeline: sealed duty_change rows with sealed
+ *  duty_corrections applied in chain order — with the B2 review
+ *  gate (owner's ruling 2026-11-15): a correction SOMEONE ELSE made
+ *  to a driver's entry applies ONLY once the driver acknowledges
+ *  it. While it is pending, and after a dispute, the ORIGINAL
+ *  entry remains the operative record and the correction rides
+ *  along visibly (pending / disputed) in the edits list, the log
+ *  views, and the DOT packet — never hidden, never silently in
+ *  force. A driver's own self-correction is exempt and applies on
+ *  its seal, exactly as before. Old rows without a username belong
+ *  to the local driver (single-driver staging records predate the
+ *  field). */
 async function effectiveDutyTimeline(
   ctx: Ctx,
 ): Promise<{ events: DutyEventEffective[]; edits: DutyCorrection[] }> {
   const db = ctx.db<typeof schema>();
   const chain = await db.select().from(schema.chainLog).orderBy(asc(schema.chainLog.id));
+  // Review decisions: the duty_correction_reviews row is the
+  // working record (and the only home of the dispute note); the
+  // duty_correction_review chain seal is its audit twin. Keyed by
+  // the correction's chain row id.
+  const reviewRows = await db.select().from(schema.dutyCorrectionReviews);
+  const reviewByCorrection = new Map(reviewRows.map((r) => [r.correctionId, r]));
   const byId = new Map<number, DutyEventEffective>();
   const edits: DutyCorrection[] = [];
   for (const r of chain) {
@@ -4892,6 +4941,7 @@ async function effectiveDutyTimeline(
             editReason: null,
             originalState: null,
             originalAt: null,
+            correctionReview: null,
           });
         }
       } catch {
@@ -4918,31 +4968,65 @@ async function effectiveDutyTimeline(
           p.originalState &&
           p.originalAt
         ) {
+          const targetUsername = p.targetUsername ?? "";
+          const editedBy = p.editedBy ?? "";
+          // B2: a self-correction is exempt (reviewState null) and
+          // applies on its seal. Someone else's correction applies
+          // only once acknowledged; pending or disputed, the
+          // original entry stands and the correction stays visible.
+          const isSelfEdit =
+            targetUsername !== "" &&
+            editedBy !== "" &&
+            targetUsername.toLowerCase() === editedBy.toLowerCase();
+          const review = reviewByCorrection.get(r.id);
+          const reviewState: DutyCorrectionReviewState = isSelfEdit
+            ? null
+            : review
+              ? review.state === "disputed"
+                ? "disputed"
+                : "acknowledged"
+              : "pending";
           edits.push({
             id: r.id,
-            targetUsername: p.targetUsername ?? "",
+            targetUsername,
             originalEventId: p.originalEventId,
             originalState: p.originalState,
             originalAt: p.originalAt,
             correctedState: p.correctedState,
             correctedAt: p.correctedAt,
             reason: p.reason ?? "",
-            editedBy: p.editedBy ?? "",
+            editedBy,
             editedByRole: p.editedByRole ?? "",
             editedAt: p.at ?? r.createdAt.toISOString(),
+            reviewState,
+            disputeNote: review?.disputeNote ?? null,
+            reviewedBy: review?.reviewedBy ?? null,
+            reviewedAt: review ? review.reviewedAt.toISOString() : null,
           });
           const ev = byId.get(p.originalEventId);
           if (ev) {
-            if (!ev.edited) {
-              ev.originalState = ev.state;
-              ev.originalAt = ev.at;
+            if (reviewState === "pending" || reviewState === "disputed") {
+              // Not in force — the original stands. The entry
+              // carries the outstanding state so every view marks
+              // it; the latest such correction wins the marker.
+              ev.correctionReview = reviewState;
+            } else {
+              // In force — corrections ride in chain order, so an
+              // applied correction clears any earlier outstanding
+              // marker: the marker always reads the LATEST
+              // correction's state.
+              ev.correctionReview = null;
+              if (!ev.edited) {
+                ev.originalState = ev.state;
+                ev.originalAt = ev.at;
+              }
+              ev.state = p.correctedState;
+              ev.at = p.correctedAt;
+              ev.edited = true;
+              ev.editedBy = p.editedBy ?? null;
+              ev.editedByRole = p.editedByRole ?? null;
+              ev.editReason = p.reason ?? null;
             }
-            ev.state = p.correctedState;
-            ev.at = p.correctedAt;
-            ev.edited = true;
-            ev.editedBy = p.editedBy ?? null;
-            ev.editedByRole = p.editedByRole ?? null;
-            ev.editReason = p.reason ?? null;
           }
         }
       } catch {
@@ -9898,8 +9982,9 @@ async function dutyPicture(
   ctx: Ctx,
 ): Promise<{ state: string | null; onDuty: boolean; tripActive: boolean }> {
   const db = ctx.db<typeof schema>();
-  // Effective timeline, so a sealed HOS correction (or an auto-swap to
-  // Off Duty) is what governs the on-duty / location-privacy picture.
+  // Effective timeline, so a sealed HOS correction (or the stopped
+  // on-duty default) is what governs the on-duty / location-privacy
+  // picture.
   const { events } = await effectiveDutyTimeline(ctx);
   const state = events.length > 0 ? (events[events.length - 1]?.state ?? null) : null;
   const queue = await db.select().from(schema.tripQueue);
@@ -21330,9 +21415,21 @@ async function buildInspectionPacket(
   };
   const promptNotes: { at: string; note: string }[] = [];
   for (const ed of effTimeline.edits) {
+    // B2 review state prints with the correction — a dispute is
+    // never hidden from the officer's packet, and a correction
+    // still awaiting the driver's review says plainly that the
+    // original entry stands until acknowledged.
+    const reviewLine =
+      ed.reviewState === "pending"
+        ? " Driver review: PENDING — the driver has not yet acknowledged this correction; the original entry remains the operative record until they do."
+        : ed.reviewState === "disputed"
+          ? ` Driver review: DISPUTED by @${ed.reviewedBy ?? ed.targetUsername}${ed.disputeNote ? ` — driver’s note: “${ed.disputeNote}”` : ""}. The original entry remains the operative record.`
+          : ed.reviewState === "acknowledged"
+            ? ` Driver review: acknowledged by @${ed.reviewedBy ?? ed.targetUsername}.`
+            : "";
     promptNotes.push({
       at: ed.correctedAt,
-      note: `HOS log edited by @${ed.editedBy} (${ed.editedByRole === "owner" ? "fleet owner" : ed.editedByRole === "owner_operator" ? "owner-operator" : ed.editedByRole}): ${editStateName[ed.originalState] ?? ed.originalState} at ${new Date(ed.originalAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} corrected to ${editStateName[ed.correctedState] ?? ed.correctedState} — reason: ${ed.reason}. The original entry is preserved in the sealed records.`,
+      note: `HOS log edited by @${ed.editedBy} (${ed.editedByRole === "owner" ? "fleet owner" : ed.editedByRole === "owner_operator" ? "owner-operator" : ed.editedByRole}): ${editStateName[ed.originalState] ?? ed.originalState} at ${new Date(ed.originalAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} corrected to ${editStateName[ed.correctedState] ?? ed.correctedState} — reason: ${ed.reason}. The original entry is preserved in the sealed records.${reviewLine}`,
     });
   }
   for (const r of chain) {
@@ -34352,6 +34449,10 @@ export const Actions = {
       // original duty_change stays sealed and the correction rides
       // beside it. The latest corrections are listed with both sides.
       const chain = await db.select().from(schema.chainLog).orderBy(desc(schema.chainLog.id)).limit(1000);
+      // B2: the review state rides with each correction here too —
+      // a dispute is never hidden on any surface that prints the fix.
+      const reviewRowsAll = await db.select().from(schema.dutyCorrectionReviews);
+      const reviewById = new Map(reviewRowsAll.map((r) => [r.correctionId, r]));
       const corrections: string[] = [];
       for (const r of chain) {
         if (r.event !== "duty_correction") continue;
@@ -34361,8 +34462,17 @@ export const Actions = {
             correctedState?: string; correctedAt?: string; reason?: string;
             editedBy?: string; editedByRole?: string; at?: string;
           };
+          const isSelf = (p.targetUsername ?? "").toLowerCase() === (p.editedBy ?? "").toLowerCase();
+          const rev = reviewById.get(r.id);
+          const reviewText = isSelf
+            ? ""
+            : rev
+              ? rev.state === "disputed"
+                ? ` · driver review: DISPUTED${rev.disputeNote ? ` — “${rev.disputeNote}”` : ""}; the original entry remains the operative record`
+                : " · driver review: acknowledged"
+              : " · driver review: PENDING — the original entry remains the operative record until the driver acknowledges";
           corrections.push(
-            `${p.at ? new Date(p.at).toLocaleString() : r.createdAt.toLocaleString()} · @${p.targetUsername ?? "?"}: ${p.originalState ?? "?"} at ${p.originalAt ?? "?"} → corrected to ${p.correctedState ?? "?"} at ${p.correctedAt ?? "?"} · by @${p.editedBy ?? "?"} (${p.editedByRole ?? "?"}) · reason: ${p.reason ?? "—"} · the ORIGINAL entry stays sealed, unedited`,
+            `${p.at ? new Date(p.at).toLocaleString() : r.createdAt.toLocaleString()} · @${p.targetUsername ?? "?"}: ${p.originalState ?? "?"} at ${p.originalAt ?? "?"} → corrected to ${p.correctedState ?? "?"} at ${p.correctedAt ?? "?"} · by @${p.editedBy ?? "?"} (${p.editedByRole ?? "?"}) · reason: ${p.reason ?? "—"} · the ORIGINAL entry stays sealed, unedited${reviewText}`,
           );
         } catch { /* skip malformed payloads */ }
         if (corrections.length >= 20) break;
@@ -36256,12 +36366,15 @@ export const Actions = {
       locationLabel: z.string().max(120).nullable().optional(),
       // How this change happened. "manual" = the driver's own tap (the
       // default; older clients send nothing). "auto_no_movement" = the
-      // HOS auto-swap (x's rule, 2026-10-24): no movement for 2 minutes
-      // swaps Driving / On Duty → Off Duty, and no movement for 10
-      // minutes swaps → Sleeper Berth. The source is sealed into the
-      // record so an auto-swap is never mistaken for a driver's tap.
+      // ONE automatic change (B1 federal pattern, 2026-11-15): the
+      // 49 CFR Part 395 Appendix A §4.4.1.2 stopped default — Driving,
+      // stopped 5 minutes, prompted, no response in 1 minute →
+      // On-Duty Not Driving (autoStage "on_duty_default"). Nothing
+      // automatic ever lands on Off Duty or Sleeper Berth. The source
+      // is sealed into the record so the default is never mistaken
+      // for a driver's tap.
       source: z.enum(["manual", "auto_no_movement"]).optional(),
-      autoStage: z.enum(["off_duty_2min", "sleeper_10min"]).nullable().optional(),
+      autoStage: z.enum(["on_duty_default"]).nullable().optional(),
       stillSince: z.string().max(40).nullable().optional(),
       // The carrier-required remark (2026-11-15): the quick-pick key
       // the driver tapped in the duty buttons (dutyRemarks.ts) plus
@@ -36279,9 +36392,10 @@ export const Actions = {
     async handler(ctx, args) {
       const me = await myUsername(ctx);
       const source = args.source ?? "manual";
-      // An auto-swap only ever lands on Off Duty (2-min stage) or
-      // Sleeper Berth (10-min stage) — refuse any other pairing so a
-      // client bug can never auto-drive someone's log.
+      // The only automatic change is the stopped on-duty default —
+      // refuse any other pairing so a client bug can never
+      // auto-drive someone's log (or auto-rest them: an automatic
+      // Off Duty / Sleeper would falsify the record).
       if (source === "auto_no_movement" && !dutyAutoSwapPairingOk(args.state, args.autoStage)) {
         const hash = await appendChain(ctx, {
           refKind: "driver",
@@ -36292,7 +36406,7 @@ export const Actions = {
             username: me,
             attemptedState: args.state,
             autoStage: args.autoStage ?? null,
-            reason: "Auto-swap refused: stage/state pairing is not the 2-min Off Duty or 10-min Sleeper rule.",
+            reason: DUTY_AUTO_REFUSAL,
             at: new Date().toISOString(),
           },
         });
@@ -36327,8 +36441,9 @@ export const Actions = {
   // IDEMPOTENT by (driver, captureId): the offline_captures row is
   // written with the seal, so a re-sync after a lost response
   // returns the original hash and seals nothing twice. A capture
-  // that breaks the auto-swap pairing rule is REFUSED and recorded
-  // as refused (terminal — the client drops it and shows why).
+  // that breaks the automatic-change pairing rule is REFUSED and
+  // recorded as refused (terminal — the client drops it and shows
+  // why).
   syncDutyCapture: defineAction({
     description: "Sync one duty change captured offline: seals it into the chain at its captured time, flagged as an offline capture. Idempotent per capture id.",
     request: z.object({
@@ -36336,7 +36451,7 @@ export const Actions = {
       state: z.enum(["off_duty", "sleeper", "on_duty", "driving"]),
       locationLabel: z.string().max(120).nullable().optional(),
       source: z.enum(["manual", "auto_no_movement"]).optional(),
-      autoStage: z.enum(["off_duty_2min", "sleeper_10min"]).nullable().optional(),
+      autoStage: z.enum(["on_duty_default"]).nullable().optional(),
       stillSince: z.string().max(40).nullable().optional(),
       // Remark + place stamp captured on the device with the change
       // (2026-11-15). Optional: captures queued by older builds seal
@@ -36384,7 +36499,7 @@ export const Actions = {
       }
       const source = args.source ?? "manual";
       if (source === "auto_no_movement" && !dutyAutoSwapPairingOk(args.state, args.autoStage)) {
-        const error = "Auto-swap refused: stage/state pairing is not the 2-min Off Duty or 10-min Sleeper rule.";
+        const error = DUTY_AUTO_REFUSAL;
         await db.insert(schema.offlineCaptures).values({
           username: me,
           captureId: args.captureId,
@@ -36446,6 +36561,7 @@ export const Actions = {
           editReason: z.string().nullable(),
           originalState: z.string().nullable(),
           originalAt: z.string().nullable(),
+          correctionReview: z.enum(["pending", "disputed"]).nullable(),
         }),
       ),
       edits: z.array(
@@ -36461,8 +36577,16 @@ export const Actions = {
           editedBy: z.string(),
           editedByRole: z.string(),
           editedAt: z.string(),
+          reviewState: z.enum(["pending", "acknowledged", "disputed"]).nullable(),
+          disputeNote: z.string().nullable(),
+          reviewedBy: z.string().nullable(),
+          reviewedAt: z.string().nullable(),
         }),
       ),
+      // B2: corrections to the CALLER's own log still awaiting
+      // their acknowledge/dispute — the certification surfaces
+      // show the count so a pending correction is never a surprise.
+      pendingReviewCount: z.number(),
       editAccess: z.object({
         myUsername: z.string(),
         myRole: z.string(),
@@ -36499,8 +36623,12 @@ export const Actions = {
           editReason: e.editReason,
           originalState: e.originalState,
           originalAt: e.originalAt,
+          correctionReview: e.correctionReview,
         })),
         edits,
+        pendingReviewCount: edits.filter(
+          (e) => e.reviewState === "pending" && e.targetUsername.toLowerCase() === me.toLowerCase(),
+        ).length,
         editAccess: access,
       };
     },
@@ -36621,8 +36749,136 @@ export const Actions = {
           at: new Date().toISOString(),
         },
       });
+      if (!isOwn) {
+        // B2 (2026-11-15): someone else's correction waits for the
+        // driver's acknowledge/dispute before it stands — tell the
+        // driver in-app (notification center only, never email).
+        const corrRows = await db
+          .select({ id: schema.chainLog.id })
+          .from(schema.chainLog)
+          .where(eq(schema.chainLog.hash, hash))
+          .limit(1);
+        await recordNotificationSafe(ctx, {
+          username: target,
+          kind: "hos",
+          title: "Your HOS log was corrected — review it",
+          body: `@${me} corrected one of your duty entries (${originalState} → ${args.correctedState}). It doesn't take effect until you acknowledge it — open Driver → Hours → HOS log & fixes to acknowledge or dispute it.`,
+          dedupeKey: `duty-correction:${corrRows[0]?.id ?? hash}`,
+          refKind: "driver",
+          refId: corrRows[0]?.id ?? null,
+        });
+      }
       ctx.invalidateQueries();
       return { ok: true, error: null, hash };
+    },
+  }),
+
+  // B2 driver review (owner's ruling 2026-11-15): the driver a
+  // correction targets acknowledges it (the correction then stands
+  // final and applies to the effective timeline) or disputes it
+  // (a note is required; the correction stays visibly DISPUTED and
+  // the original entry remains the operative record). Only the
+  // targeted driver can review, and exactly once. The decision
+  // seals into the chain carrying ids + state ONLY — the dispute
+  // note lives in the duty_correction_reviews table and the
+  // editor's notification, never in a chain payload.
+  reviewDutyCorrection: defineAction({
+    description: "Acknowledge or dispute an owner's correction to your own HOS log entry.",
+    request: z.object({
+      correctionId: z.number().int().positive(),
+      decision: z.enum(["acknowledge", "dispute"]),
+      note: z.string().max(500).nullable().optional(),
+    }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable() }),
+    async handler(ctx, args): Promise<{ ok: boolean; error: string | null }> {
+      const db = ctx.db<typeof schema>();
+      const me = await myUsername(ctx);
+      const rows = await db
+        .select()
+        .from(schema.chainLog)
+        .where(eq(schema.chainLog.id, args.correctionId))
+        .limit(1);
+      const row = rows[0];
+      if (!row || row.event !== "duty_correction") {
+        return { ok: false, error: "That correction couldn't be found in the sealed records — reopen the log and try again." };
+      }
+      let target = "";
+      let editedBy = "";
+      let originalState = "";
+      let correctedState = "";
+      try {
+        const p = JSON.parse(row.payload) as {
+          targetUsername?: string;
+          editedBy?: string;
+          originalState?: string;
+          correctedState?: string;
+        };
+        target = p.targetUsername ?? "";
+        editedBy = p.editedBy ?? "";
+        originalState = p.originalState ?? "";
+        correctedState = p.correctedState ?? "";
+      } catch {
+        return { ok: false, error: "That correction's sealed record couldn't be read — nothing was changed." };
+      }
+      if (target.toLowerCase() !== me.toLowerCase()) {
+        return { ok: false, error: "Only the driver this correction targets can review it." };
+      }
+      if (editedBy.toLowerCase() === me.toLowerCase()) {
+        return { ok: false, error: "That's your own correction — it stands on its own seal and needs no review." };
+      }
+      const prior = await db
+        .select()
+        .from(schema.dutyCorrectionReviews)
+        .where(eq(schema.dutyCorrectionReviews.correctionId, args.correctionId))
+        .limit(1);
+      if (prior[0]) {
+        return {
+          ok: false,
+          error: `You already ${prior[0].state === "disputed" ? "disputed" : "acknowledged"} this correction — a correction is reviewed once, and the record keeps it that way.`,
+        };
+      }
+      const note = (args.note ?? "").trim().slice(0, 500);
+      if (args.decision === "dispute" && note.length < 3) {
+        return { ok: false, error: "A dispute needs a short note — say what the entry should show and why. It goes to the owner with the dispute." };
+      }
+      const state = args.decision === "dispute" ? "disputed" : "acknowledged";
+      const now = new Date();
+      await db.insert(schema.dutyCorrectionReviews).values({
+        correctionId: args.correctionId,
+        targetUsername: target,
+        editorUsername: editedBy,
+        state,
+        disputeNote: state === "disputed" ? note : null,
+        reviewedBy: me,
+        reviewedAt: now,
+        createdAt: now,
+      });
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "duty_correction_review",
+        payload: {
+          correctionId: args.correctionId,
+          targetUsername: target,
+          reviewedBy: me,
+          reviewState: state,
+          at: now.toISOString(),
+        },
+      });
+      if (state === "disputed" && editedBy) {
+        await recordNotificationSafe(ctx, {
+          username: editedBy,
+          kind: "hos",
+          title: "A driver disputed your HOS log correction",
+          body: `@${me} disputed your correction (${originalState} → ${correctedState}) and the original entry stands. Their note: “${note}”`,
+          dedupeKey: `duty-correction-dispute:${args.correctionId}`,
+          refKind: "driver",
+          refId: args.correctionId,
+        });
+      }
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
     },
   }),
 

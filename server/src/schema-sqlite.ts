@@ -5950,3 +5950,30 @@ export const trailerReadings = sqliteTable("trailer_readings", {
     .notNull()
     .$defaultFn(() => new Date()),
 });
+
+// Driver review of an owner/dispatch HOS log correction (migration
+// 0140, audit B2 — owner's ruling 2026-11-15): when a fleet owner or
+// dispatch seat corrects ANOTHER driver's log entry, the correction
+// waits for the driver's acknowledge/dispute before it stands. The
+// review DECISION itself seals into the chain
+// (duty_correction_review: ids + state only); this row is the
+// review surface's working record and the ONLY place the driver's
+// dispute note lives — note bodies never ride chain payloads (the
+// pulse-survey house pattern). One row per correction: a correction
+// is reviewed exactly once.
+export const dutyCorrectionReviews = sqliteTable("duty_correction_reviews", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  /** Chain row id of the duty_correction this review decides. */
+  correctionId: integer("correction_id").notNull().unique(),
+  targetUsername: text("target_username").notNull(),
+  editorUsername: text("editor_username").notNull(),
+  state: text("state").notNull(), // acknowledged | disputed
+  disputeNote: text("dispute_note"),
+  reviewedBy: text("reviewed_by").notNull(),
+  reviewedAt: integer("reviewed_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  createdAt: integer("created_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});

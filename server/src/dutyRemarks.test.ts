@@ -52,13 +52,11 @@ describe("resolveDutyRemark", () => {
     expect(r).toEqual({ remark: "other", remarkNote: null, remarkSource: "default" });
   });
 
-  test("the auto-swap default names the stage honestly", () => {
-    const off = resolveDutyRemark({ source: "auto_no_movement", autoStage: "off_duty_2min" });
-    expect(off.remarkSource).toBe("default");
-    expect(off.remarkNote).toContain("2 minutes");
-    const slp = resolveDutyRemark({ source: "auto_no_movement", autoStage: "sleeper_10min" });
-    expect(slp.remarkNote).toContain("10 minutes");
-    expect(slp.remarkNote).toContain("Sleeper");
+  test("the stopped-default remark names the federal default honestly (B1)", () => {
+    const r = resolveDutyRemark({ source: "auto_no_movement", autoStage: "on_duty_default" });
+    expect(r.remark).toBe("other");
+    expect(r.remarkSource).toBe("default");
+    expect(r.remarkNote).toBe("Stopped 5 min — no response; on-duty default");
   });
 
   test("the pre-trip stamp's remark is the pre-trip itself", () => {

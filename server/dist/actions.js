@@ -86,6 +86,7 @@ __export(exports_schema_sqlite, {
   driverLoadHandbacks: () => driverLoadHandbacks,
   driverPositions: () => driverPositions,
   driverWeighStations: () => driverWeighStations,
+  dutyCorrectionReviews: () => dutyCorrectionReviews,
   dvirDefectLinks: () => dvirDefectLinks,
   dvirReports: () => dvirReports,
   earningPoolBackingLedger: () => earningPoolBackingLedger,
@@ -298,6 +299,7 @@ __export(exports_schema_pg, {
   driverLoadHandbacks: () => driverLoadHandbacks2,
   driverPositions: () => driverPositions2,
   driverWeighStations: () => driverWeighStations2,
+  dutyCorrectionReviews: () => dutyCorrectionReviews2,
   dvirDefectLinks: () => dvirDefectLinks2,
   dvirReports: () => dvirReports2,
   earningPoolBackingLedger: () => earningPoolBackingLedger2,
@@ -10658,6 +10660,17 @@ var trailerReadings = sqliteTable("trailer_readings", {
   recordedAt: integer3("recorded_at", { mode: "timestamp_ms" }).notNull(),
   createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
 });
+var dutyCorrectionReviews = sqliteTable("duty_correction_reviews", {
+  id: integer3("id").primaryKey({ autoIncrement: true }),
+  correctionId: integer3("correction_id").notNull().unique(),
+  targetUsername: text2("target_username").notNull(),
+  editorUsername: text2("editor_username").notNull(),
+  state: text2("state").notNull(),
+  disputeNote: text2("dispute_note"),
+  reviewedBy: text2("reviewed_by").notNull(),
+  reviewedAt: integer3("reviewed_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
+  createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
+});
 
 // src/schema-pg.ts
 var profile2 = pgTable("profile", {
@@ -13415,6 +13428,17 @@ var trailerReadings2 = pgTable("trailer_readings", {
   recordedAt: timestamp("recorded_at", { withTimezone: true, mode: "date" }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
 });
+var dutyCorrectionReviews2 = pgTable("duty_correction_reviews", {
+  id: serial("id").primaryKey(),
+  correctionId: integer2("correction_id").notNull().unique(),
+  targetUsername: text("target_username").notNull(),
+  editorUsername: text("editor_username").notNull(),
+  state: text("state").notNull(),
+  disputeNote: text("dispute_note"),
+  reviewedBy: text("reviewed_by").notNull(),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
+});
 
 // src/schema.ts
 var impl = process.env.STONEMILES_DIALECT === "postgres" ? exports_schema_pg : exports_schema_sqlite;
@@ -13615,6 +13639,7 @@ var exonerationVaultEntries3 = impl.exonerationVaultEntries;
 var faultReports3 = impl.faultReports;
 var trailerConnections3 = impl.trailerConnections;
 var trailerReadings3 = impl.trailerReadings;
+var dutyCorrectionReviews3 = impl.dutyCorrectionReviews;
 var accounts3 = impl.accounts;
 var authSessions3 = impl.authSessions;
 var passwordResetTokens3 = impl.passwordResetTokens;
@@ -16907,7 +16932,7 @@ function resolveDutyRemark(input) {
   if (input.source === "auto_no_movement") {
     return {
       remark: "other",
-      remarkNote: input.autoStage === "sleeper_10min" ? "Auto \u2014 no movement for 10 minutes (swapped to Sleeper Berth)" : "Auto \u2014 no movement for 2 minutes (swapped to Off Duty)",
+      remarkNote: "Stopped 5 min \u2014 no response; on-duty default",
       remarkSource: "default"
     };
   }
@@ -24576,8 +24601,9 @@ async function recordNotificationSafe(ctx, args) {
   } catch {}
 }
 function dutyAutoSwapPairingOk(state, autoStage) {
-  return autoStage === "off_duty_2min" && state === "off_duty" || autoStage === "sleeper_10min" && state === "sleeper";
+  return autoStage === "on_duty_default" && state === "on_duty";
 }
+var DUTY_AUTO_REFUSAL = "Automatic duty change refused: the only automatic change is the stopped 5-minute on-duty default (On Duty after the prompt goes unanswered) \u2014 Off Duty and Sleeper Berth are always the driver's own tap.";
 async function sealDutyChange(ctx, me, args) {
   const remark = resolveDutyRemark({
     remark: args.remark,
@@ -27070,6 +27096,8 @@ async function hosEditAccess(ctx, me) {
 async function effectiveDutyTimeline(ctx) {
   const db = ctx.db();
   const chain = await db.select().from(chainLog3).orderBy(asc(chainLog3.id));
+  const reviewRows = await db.select().from(dutyCorrectionReviews3);
+  const reviewByCorrection = new Map(reviewRows.map((r) => [r.correctionId, r]));
   const byId = new Map;
   const edits = [];
   for (const r of chain) {
@@ -27094,7 +27122,8 @@ async function effectiveDutyTimeline(ctx) {
             editedByRole: null,
             editReason: null,
             originalState: null,
-            originalAt: null
+            originalAt: null,
+            correctionReview: null
           });
         }
       } catch {}
@@ -27102,31 +27131,45 @@ async function effectiveDutyTimeline(ctx) {
       try {
         const p = JSON.parse(r.payload);
         if (p.originalEventId != null && p.correctedState && p.correctedAt && p.originalState && p.originalAt) {
+          const targetUsername = p.targetUsername ?? "";
+          const editedBy = p.editedBy ?? "";
+          const isSelfEdit = targetUsername !== "" && editedBy !== "" && targetUsername.toLowerCase() === editedBy.toLowerCase();
+          const review = reviewByCorrection.get(r.id);
+          const reviewState = isSelfEdit ? null : review ? review.state === "disputed" ? "disputed" : "acknowledged" : "pending";
           edits.push({
             id: r.id,
-            targetUsername: p.targetUsername ?? "",
+            targetUsername,
             originalEventId: p.originalEventId,
             originalState: p.originalState,
             originalAt: p.originalAt,
             correctedState: p.correctedState,
             correctedAt: p.correctedAt,
             reason: p.reason ?? "",
-            editedBy: p.editedBy ?? "",
+            editedBy,
             editedByRole: p.editedByRole ?? "",
-            editedAt: p.at ?? r.createdAt.toISOString()
+            editedAt: p.at ?? r.createdAt.toISOString(),
+            reviewState,
+            disputeNote: review?.disputeNote ?? null,
+            reviewedBy: review?.reviewedBy ?? null,
+            reviewedAt: review ? review.reviewedAt.toISOString() : null
           });
           const ev = byId.get(p.originalEventId);
           if (ev) {
-            if (!ev.edited) {
-              ev.originalState = ev.state;
-              ev.originalAt = ev.at;
+            if (reviewState === "pending" || reviewState === "disputed") {
+              ev.correctionReview = reviewState;
+            } else {
+              ev.correctionReview = null;
+              if (!ev.edited) {
+                ev.originalState = ev.state;
+                ev.originalAt = ev.at;
+              }
+              ev.state = p.correctedState;
+              ev.at = p.correctedAt;
+              ev.edited = true;
+              ev.editedBy = p.editedBy ?? null;
+              ev.editedByRole = p.editedByRole ?? null;
+              ev.editReason = p.reason ?? null;
             }
-            ev.state = p.correctedState;
-            ev.at = p.correctedAt;
-            ev.edited = true;
-            ev.editedBy = p.editedBy ?? null;
-            ev.editedByRole = p.editedByRole ?? null;
-            ev.editReason = p.reason ?? null;
           }
         }
       } catch {}
@@ -38150,9 +38193,10 @@ async function buildInspectionPacket(ctx, args) {
   };
   const promptNotes = [];
   for (const ed of effTimeline.edits) {
+    const reviewLine = ed.reviewState === "pending" ? " Driver review: PENDING \u2014 the driver has not yet acknowledged this correction; the original entry remains the operative record until they do." : ed.reviewState === "disputed" ? ` Driver review: DISPUTED by @${ed.reviewedBy ?? ed.targetUsername}${ed.disputeNote ? ` \u2014 driver\u2019s note: \u201C${ed.disputeNote}\u201D` : ""}. The original entry remains the operative record.` : ed.reviewState === "acknowledged" ? ` Driver review: acknowledged by @${ed.reviewedBy ?? ed.targetUsername}.` : "";
     promptNotes.push({
       at: ed.correctedAt,
-      note: `HOS log edited by @${ed.editedBy} (${ed.editedByRole === "owner" ? "fleet owner" : ed.editedByRole === "owner_operator" ? "owner-operator" : ed.editedByRole}): ${editStateName[ed.originalState] ?? ed.originalState} at ${new Date(ed.originalAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} corrected to ${editStateName[ed.correctedState] ?? ed.correctedState} \u2014 reason: ${ed.reason}. The original entry is preserved in the sealed records.`
+      note: `HOS log edited by @${ed.editedBy} (${ed.editedByRole === "owner" ? "fleet owner" : ed.editedByRole === "owner_operator" ? "owner-operator" : ed.editedByRole}): ${editStateName[ed.originalState] ?? ed.originalState} at ${new Date(ed.originalAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} corrected to ${editStateName[ed.correctedState] ?? ed.correctedState} \u2014 reason: ${ed.reason}. The original entry is preserved in the sealed records.${reviewLine}`
     });
   }
   for (const r of chain) {
@@ -48421,13 +48465,18 @@ Keep it for your records.
         }
       }
       const chain = await db.select().from(chainLog3).orderBy(desc(chainLog3.id)).limit(1000);
+      const reviewRowsAll = await db.select().from(dutyCorrectionReviews3);
+      const reviewById = new Map(reviewRowsAll.map((r) => [r.correctionId, r]));
       const corrections = [];
       for (const r of chain) {
         if (r.event !== "duty_correction")
           continue;
         try {
           const p = JSON.parse(r.payload);
-          corrections.push(`${p.at ? new Date(p.at).toLocaleString() : r.createdAt.toLocaleString()} \xB7 @${p.targetUsername ?? "?"}: ${p.originalState ?? "?"} at ${p.originalAt ?? "?"} \u2192 corrected to ${p.correctedState ?? "?"} at ${p.correctedAt ?? "?"} \xB7 by @${p.editedBy ?? "?"} (${p.editedByRole ?? "?"}) \xB7 reason: ${p.reason ?? "\u2014"} \xB7 the ORIGINAL entry stays sealed, unedited`);
+          const isSelf = (p.targetUsername ?? "").toLowerCase() === (p.editedBy ?? "").toLowerCase();
+          const rev = reviewById.get(r.id);
+          const reviewText = isSelf ? "" : rev ? rev.state === "disputed" ? ` \xB7 driver review: DISPUTED${rev.disputeNote ? ` \u2014 \u201C${rev.disputeNote}\u201D` : ""}; the original entry remains the operative record` : " \xB7 driver review: acknowledged" : " \xB7 driver review: PENDING \u2014 the original entry remains the operative record until the driver acknowledges";
+          corrections.push(`${p.at ? new Date(p.at).toLocaleString() : r.createdAt.toLocaleString()} \xB7 @${p.targetUsername ?? "?"}: ${p.originalState ?? "?"} at ${p.originalAt ?? "?"} \u2192 corrected to ${p.correctedState ?? "?"} at ${p.correctedAt ?? "?"} \xB7 by @${p.editedBy ?? "?"} (${p.editedByRole ?? "?"}) \xB7 reason: ${p.reason ?? "\u2014"} \xB7 the ORIGINAL entry stays sealed, unedited${reviewText}`);
         } catch {}
         if (corrections.length >= 20)
           break;
@@ -49966,7 +50015,7 @@ ${args.question}`, { schema: answerSchema });
       state: _enum(["off_duty", "sleeper", "on_duty", "driving"]),
       locationLabel: string2().max(120).nullable().optional(),
       source: _enum(["manual", "auto_no_movement"]).optional(),
-      autoStage: _enum(["off_duty_2min", "sleeper_10min"]).nullable().optional(),
+      autoStage: _enum(["on_duty_default"]).nullable().optional(),
       stillSince: string2().max(40).nullable().optional(),
       remark: string2().max(40).nullable().optional(),
       remarkNote: string2().max(200).nullable().optional(),
@@ -49987,7 +50036,7 @@ ${args.question}`, { schema: answerSchema });
             username: me,
             attemptedState: args.state,
             autoStage: args.autoStage ?? null,
-            reason: "Auto-swap refused: stage/state pairing is not the 2-min Off Duty or 10-min Sleeper rule.",
+            reason: DUTY_AUTO_REFUSAL,
             at: new Date().toISOString()
           }
         });
@@ -50017,7 +50066,7 @@ ${args.question}`, { schema: answerSchema });
       state: _enum(["off_duty", "sleeper", "on_duty", "driving"]),
       locationLabel: string2().max(120).nullable().optional(),
       source: _enum(["manual", "auto_no_movement"]).optional(),
-      autoStage: _enum(["off_duty_2min", "sleeper_10min"]).nullable().optional(),
+      autoStage: _enum(["on_duty_default"]).nullable().optional(),
       stillSince: string2().max(40).nullable().optional(),
       remark: string2().max(40).nullable().optional(),
       remarkNote: string2().max(200).nullable().optional(),
@@ -50054,7 +50103,7 @@ ${args.question}`, { schema: answerSchema });
       }
       const source = args.source ?? "manual";
       if (source === "auto_no_movement" && !dutyAutoSwapPairingOk(args.state, args.autoStage)) {
-        const error = "Auto-swap refused: stage/state pairing is not the 2-min Off Duty or 10-min Sleeper rule.";
+        const error = DUTY_AUTO_REFUSAL;
         await db.insert(offlineCaptures3).values({
           username: me,
           captureId: args.captureId,
@@ -50112,7 +50161,8 @@ ${args.question}`, { schema: answerSchema });
         editedByRole: string2().nullable(),
         editReason: string2().nullable(),
         originalState: string2().nullable(),
-        originalAt: string2().nullable()
+        originalAt: string2().nullable(),
+        correctionReview: _enum(["pending", "disputed"]).nullable()
       })),
       edits: array(object({
         id: number2(),
@@ -50125,8 +50175,13 @@ ${args.question}`, { schema: answerSchema });
         reason: string2(),
         editedBy: string2(),
         editedByRole: string2(),
-        editedAt: string2()
+        editedAt: string2(),
+        reviewState: _enum(["pending", "acknowledged", "disputed"]).nullable(),
+        disputeNote: string2().nullable(),
+        reviewedBy: string2().nullable(),
+        reviewedAt: string2().nullable()
       })),
+      pendingReviewCount: number2(),
       editAccess: object({
         myUsername: string2(),
         myRole: string2(),
@@ -50159,9 +50214,11 @@ ${args.question}`, { schema: answerSchema });
           editedByRole: e.editedByRole,
           editReason: e.editReason,
           originalState: e.originalState,
-          originalAt: e.originalAt
+          originalAt: e.originalAt,
+          correctionReview: e.correctionReview
         })),
         edits,
+        pendingReviewCount: edits.filter((e) => e.reviewState === "pending" && e.targetUsername.toLowerCase() === me.toLowerCase()).length,
         editAccess: access
       };
     }
@@ -50253,8 +50310,106 @@ ${args.question}`, { schema: answerSchema });
           at: new Date().toISOString()
         }
       });
+      if (!isOwn) {
+        const corrRows = await db.select({ id: chainLog3.id }).from(chainLog3).where(eq(chainLog3.hash, hash)).limit(1);
+        await recordNotificationSafe(ctx, {
+          username: target,
+          kind: "hos",
+          title: "Your HOS log was corrected \u2014 review it",
+          body: `@${me} corrected one of your duty entries (${originalState} \u2192 ${args.correctedState}). It doesn't take effect until you acknowledge it \u2014 open Driver \u2192 Hours \u2192 HOS log & fixes to acknowledge or dispute it.`,
+          dedupeKey: `duty-correction:${corrRows[0]?.id ?? hash}`,
+          refKind: "driver",
+          refId: corrRows[0]?.id ?? null
+        });
+      }
       ctx.invalidateQueries();
       return { ok: true, error: null, hash };
+    }
+  }),
+  reviewDutyCorrection: defineAction({
+    description: "Acknowledge or dispute an owner's correction to your own HOS log entry.",
+    request: object({
+      correctionId: number2().int().positive(),
+      decision: _enum(["acknowledge", "dispute"]),
+      note: string2().max(500).nullable().optional()
+    }),
+    response: object({ ok: boolean2(), error: string2().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const me = await myUsername(ctx);
+      const rows = await db.select().from(chainLog3).where(eq(chainLog3.id, args.correctionId)).limit(1);
+      const row = rows[0];
+      if (!row || row.event !== "duty_correction") {
+        return { ok: false, error: "That correction couldn't be found in the sealed records \u2014 reopen the log and try again." };
+      }
+      let target = "";
+      let editedBy = "";
+      let originalState = "";
+      let correctedState = "";
+      try {
+        const p = JSON.parse(row.payload);
+        target = p.targetUsername ?? "";
+        editedBy = p.editedBy ?? "";
+        originalState = p.originalState ?? "";
+        correctedState = p.correctedState ?? "";
+      } catch {
+        return { ok: false, error: "That correction's sealed record couldn't be read \u2014 nothing was changed." };
+      }
+      if (target.toLowerCase() !== me.toLowerCase()) {
+        return { ok: false, error: "Only the driver this correction targets can review it." };
+      }
+      if (editedBy.toLowerCase() === me.toLowerCase()) {
+        return { ok: false, error: "That's your own correction \u2014 it stands on its own seal and needs no review." };
+      }
+      const prior = await db.select().from(dutyCorrectionReviews3).where(eq(dutyCorrectionReviews3.correctionId, args.correctionId)).limit(1);
+      if (prior[0]) {
+        return {
+          ok: false,
+          error: `You already ${prior[0].state === "disputed" ? "disputed" : "acknowledged"} this correction \u2014 a correction is reviewed once, and the record keeps it that way.`
+        };
+      }
+      const note = (args.note ?? "").trim().slice(0, 500);
+      if (args.decision === "dispute" && note.length < 3) {
+        return { ok: false, error: "A dispute needs a short note \u2014 say what the entry should show and why. It goes to the owner with the dispute." };
+      }
+      const state = args.decision === "dispute" ? "disputed" : "acknowledged";
+      const now = new Date;
+      await db.insert(dutyCorrectionReviews3).values({
+        correctionId: args.correctionId,
+        targetUsername: target,
+        editorUsername: editedBy,
+        state,
+        disputeNote: state === "disputed" ? note : null,
+        reviewedBy: me,
+        reviewedAt: now,
+        createdAt: now
+      });
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: null,
+        sessionId: null,
+        event: "duty_correction_review",
+        payload: {
+          correctionId: args.correctionId,
+          targetUsername: target,
+          reviewedBy: me,
+          reviewState: state,
+          at: now.toISOString()
+        }
+      });
+      if (state === "disputed" && editedBy) {
+        await recordNotificationSafe(ctx, {
+          username: editedBy,
+          kind: "hos",
+          title: "A driver disputed your HOS log correction",
+          body: `@${me} disputed your correction (${originalState} \u2192 ${correctedState}) and the original entry stands. Their note: \u201C${note}\u201D`,
+          dedupeKey: `duty-correction-dispute:${args.correctionId}`,
+          refKind: "driver",
+          refId: args.correctionId
+        });
+      }
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
     }
   }),
   logSealedEvent: defineAction({

@@ -186,17 +186,19 @@ describe("offline duty sync (item 7)", () => {
   });
 
   test("a pairing-breaking auto-swap capture is refused once and stays refused", async () => {
+    // B1: the on-duty default stage may only land on on_duty —
+    // an automatic change aimed at Driving breaks the pairing.
     const bad = {
       captureId: "cap-duty-bad",
       state: "driving" as const,
       source: "auto_no_movement" as const,
-      autoStage: "off_duty_2min" as const,
+      autoStage: "on_duty_default" as const,
       stillSince: isoAgo(1),
       capturedAt: isoAgo(1),
     };
     const r1 = await Actions.syncDutyCapture.handler(aliceCtx, bad);
     expect(r1.status).toBe("refused");
-    expect(r1.error).toContain("Auto-swap refused");
+    expect(r1.error).toContain("Automatic duty change refused");
     const r2 = await Actions.syncDutyCapture.handler(aliceCtx, bad);
     expect(r2.status).toBe("refused");
     expect(r2.duplicate).toBe(true);

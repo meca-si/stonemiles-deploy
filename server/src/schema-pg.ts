@@ -5950,3 +5950,23 @@ export const trailerReadings = pgTable("trailer_readings", {
     .notNull()
     .$defaultFn(() => new Date()),
 });
+
+// Driver review of an owner/dispatch HOS log correction (migration
+// 0033, audit B2 — owner's ruling 2026-11-15): PG twin of the SQLite
+// table in schema-sqlite.ts. The review decision seals into the
+// chain (ids + state only); the dispute note lives only here.
+export const dutyCorrectionReviews = pgTable("duty_correction_reviews", {
+  id: serial("id").primaryKey(),
+  correctionId: integer("correction_id").notNull().unique(),
+  targetUsername: text("target_username").notNull(),
+  editorUsername: text("editor_username").notNull(),
+  state: text("state").notNull(), // acknowledged | disputed
+  disputeNote: text("dispute_note"),
+  reviewedBy: text("reviewed_by").notNull(),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});

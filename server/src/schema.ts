@@ -218,6 +218,7 @@ export const exonerationVaultEntries = impl.exonerationVaultEntries;
 export const faultReports = impl.faultReports;
 export const trailerConnections = impl.trailerConnections;
 export const trailerReadings = impl.trailerReadings;
+export const dutyCorrectionReviews = impl.dutyCorrectionReviews;
 
 // Auth (Phase 2b, added at the Phase 2 merge): account + session tables.
 export const accounts = impl.accounts;
