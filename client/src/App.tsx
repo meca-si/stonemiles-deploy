@@ -185,6 +185,7 @@ import {
 } from "./hazardReport";
 import { LoadTrailerSection, TrailerToolsPanel, WindAdvisoryBanner } from "./TrailerPanel";
 import { TOOL_GROUPS, type ToolItem } from "./toolDirectory";
+import { WORKSPACES } from "./workspaces";
 import { onAnchorReveal, revealAnchor } from "./anchorReveal";
 import { asLang, destForLocalizedQuery, destLabel, localeFor, pairText, t as tt, type Lang } from "./i18n";
 import { BusinessProfilePanel, MONEY_HUB_ANCHOR_SECTION, MoneyFlowHub, MoneyOverviewPanel, SettlementCheckPanel, type MoneyHubSection } from "./MoneyFlow";
@@ -16263,7 +16264,8 @@ export function App() {
               aria-label={tr("Start a route — where are you headed", "Iniciar una ruta — ¿a dónde vas")}
               onClick={() => { tapFx(); openRoutePlanner(); }}
             >
-              <span className="block font-condensed text-3xl font-bold leading-none">🗺️ {tr("Start a route", "Iniciar una ruta")}</span>
+              <span className="block text-xs font-bold uppercase tracking-widest text-black/60">{tr("Planner workspace — routes + next load", "Espacio del planificador — rutas + próxima carga")}</span>
+              <span className="mt-1 block font-condensed text-3xl font-bold leading-none">🗺️ {tr("Start a route", "Iniciar una ruta")}</span>
               <span className="mt-1 block text-sm font-semibold">{tr("Where are you headed? Starts from where you are now.", "¿A dónde vas? Comienza desde donde estás ahora.")}</span>
               <span className="mt-2 flex items-center gap-2 rounded-xl bg-black/25 px-3 py-2.5 text-base font-semibold">
                 <span aria-hidden>🔍</span>
@@ -16498,6 +16500,35 @@ export function App() {
               </button>
             </div>
 
+            {/* THE FIVE WORKSPACES (x's order, 2026-11-15: the app
+                calls its five areas WORKSPACES, matching the
+                marketing). Five doors, one per workspace, each landing
+                on the workspace's existing home through the same jump
+                machinery as everything else on Today — naming +
+                grouping only, no tool moves. */}
+            <section className="glass-panel p-3.5" aria-label={tr("Your five workspaces", "Tus cinco espacios de trabajo")}>
+              <h2 className="font-condensed text-xl font-semibold">{tr("🏢 Your workspaces", "🏢 Tus espacios de trabajo")}</h2>
+              <p className="mt-0.5 text-sm text-[var(--dim)]">{tr("Five workspaces, one app — each door opens its home", "Cinco espacios, una app — cada puerta abre su inicio")}</p>
+              <div className="mt-2.5 grid grid-cols-2 gap-2">
+                {WORKSPACES.map((ws) => (
+                  <button
+                    key={ws.id}
+                    type="button"
+                    className="btn-press min-h-[64px] rounded-xl bg-[var(--surface2)] border border-[var(--border)] px-3 py-2.5 text-left"
+                    aria-label={tr(`Open the ${ws.name} workspace — ${ws.tagEn}`, `Abrir el espacio ${ws.name} — ${ws.tagEs}`)}
+                    onClick={() => {
+                      tapFx();
+                      if (ws.tab) { if (consoleActive) setConsoleOpen(false); setTab(ws.tab); }
+                      else if (ws.dest) goMecaDest(ws.dest as MecaDestId);
+                    }}
+                  >
+                    <span className="block font-condensed text-lg font-bold leading-tight">{ws.icon} {ws.name}</span>
+                    <span className="block text-xs leading-snug text-[var(--dim)]">{tr(ws.tagEn, ws.tagEs)}</span>
+                  </button>
+                ))}
+              </div>
+            </section>
+
             {/* FIND A TOOL — the whole app, grouped (dashboard cleanup,
                 2026-11-06). One row per group; a tap lands on that
                 group in the More directory, and the tool's own row is
@@ -16643,7 +16674,7 @@ export function App() {
             <div className="sticky top-2 z-20 flex gap-1 overflow-x-auto rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-1 shadow-lg" role="tablist" aria-label={tr("Money sections", "Secciones de dinero")}>
               {([
                 { key: "overview", label: tr("🏠 Overview", "🏠 Resumen") },
-                { key: "pay", label: tr("💵 Pay", "💵 Pagos") },
+                { key: "pay", label: tr("💵 Pay workspace", "💵 Espacio de pagos") },
                 { key: "billing", label: tr("🧾 Billing", "🧾 Facturación") },
                 { key: "records", label: tr("🗂️ Records", "🗂️ Registros") },
                 { key: "loads", label: tr("📦 Loads", "📦 Cargas") },
@@ -16714,6 +16745,11 @@ export function App() {
             )}
             {moneyView === "pay" && (
               <>
+            {/* PAY WORKSPACE (Five Workspaces naming pass,
+                2026-11-15): the Money tab's Pay section is the Pay
+                workspace's home — Pay Book, Money overview, My
+                Settlement and the settlement check live here. */}
+            <p className="px-1 text-xs font-bold uppercase tracking-widest text-[var(--dim)]">{tr("💵 Pay workspace — earned, owed, checked", "💵 Espacio de pagos — ganado, debido, verificado")}</p>
             <MoneyPanel setBanner={setBanner} lang={lang} />
             <PayBookPanel setBanner={setBanner} openSignal={payBookJumpNonce} lang={lang} />
             {/* Security Pack 2 step-up: settlement views need a fresh PIN. */}
@@ -35902,8 +35938,12 @@ function DriverPanel({
           </div>
         )}
         {pointsQuery.data?.lanes && (
-          <div id="points-lanes" className="mt-3 rounded-xl bg-[var(--surface2)] p-3" aria-label="How to earn — the three points lanes">
-            <div className="flex items-baseline justify-between gap-2">
+          <div id="points-lanes" className="mt-3 rounded-xl bg-[var(--surface2)] p-3" aria-label="Rewards workspace — how to earn points">
+            {/* REWARDS WORKSPACE (Five Workspaces naming pass,
+                2026-11-15): the points / how-to-earn home carries
+                the Rewards workspace label. */}
+            <p className="text-xs font-bold uppercase tracking-widest text-[var(--dim)]">🏆 Rewards workspace — points for the work</p>
+            <div className="mt-2 flex items-baseline justify-between gap-2">
               <span className="text-xs font-bold uppercase tracking-wide text-[var(--dim)]">How to earn — three more lanes</span>
               <span className="font-condensed text-sm font-bold">
                 {pointsQuery.data.lanes.totals.lane1 + pointsQuery.data.lanes.totals.lane2 + pointsQuery.data.lanes.totals.lane3} pts earned

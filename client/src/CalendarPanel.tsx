@@ -248,7 +248,13 @@ export function CalendarPanel({ onOpenCredential }: { onOpenCredential: () => vo
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-2">
-        <h2 className="font-condensed text-2xl font-bold">📅 Calendar</h2>
+        <div>
+          <h2 className="font-condensed text-2xl font-bold">📅 Calendar</h2>
+          {/* SCHEDULE WORKSPACE (Five Workspaces naming pass,
+              2026-11-15): the Calendar tab is the Schedule
+              workspace's home — calendar + home time. */}
+          <p className="text-xs font-bold uppercase tracking-widest text-[var(--dim)]">Schedule workspace — calendar + home time</p>
+        </div>
         {isDesk && (
           <div className="flex rounded-full border border-[var(--border)] bg-[var(--surface)] p-0.5" role="tablist" aria-label="Calendar view owner">
             <button type="button" className={`rounded-full px-3 py-1.5 text-xs font-bold ${!fleetMode ? "bg-[var(--accent)] text-white" : "text-[var(--dim)]"}`} onClick={() => setFleetMode(false)}>

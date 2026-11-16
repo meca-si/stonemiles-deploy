@@ -346,7 +346,11 @@ export function IftaPanel({ setBanner, lang = "en" }: { setBanner: Banner; lang?
   const r = q.data;
   return (
     <Section title={tt(lang, "money.ifta")} ariaLabel="IFTA complete">
-      <p className="text-sm text-[var(--dim)]">
+      {/* FUEL WORKSPACE (Five Workspaces naming pass, 2026-11-15):
+          this section — IFTA, the fuel log and the fuel-card
+          checks — is the Fuel workspace's home. */}
+      <p className="text-xs font-bold uppercase tracking-widest text-[var(--dim)]">⛽ Fuel workspace — cheapest stops, true cost</p>
+      <p className="mt-2 text-sm text-[var(--dim)]">
         The gap in every other IFTA tool, closed: miles by state from your sealed trip sheets AND fuel bought by state from your sealed fuel purchases, one fleet MPG, and a per-state tax estimate — tax owed per state = (state miles ÷ MPG) × the state's rate, minus the tax you already paid on fuel bought in that state.
       </p>
       <p className="mt-2 rounded-xl bg-amber-900/40 px-3 py-2 text-sm font-semibold text-amber-200">
