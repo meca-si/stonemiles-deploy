@@ -210,7 +210,10 @@ export function LibraryPanel({ setBanner, lang = "en" }: { setBanner: (s: string
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="font-condensed text-2xl font-bold">📚 Library</h2>
+        {/* RECORDS WORKSPACE label (2026-11-15): the Records door on
+            Today lands here — the Library is the Records home. */}
+        <p className="text-xs font-bold uppercase tracking-widest text-[var(--dim)]">📁 Records workspace — paperwork, sealed + proven</p>
+        <h2 className="mt-1 font-condensed text-2xl font-bold">📚 Library</h2>
         <p className="text-sm text-[var(--dim)]">
           Every record in one home — delivered loads, statements, fuel tax by state, filings, your documents, and the
           sealed files behind them. This is a view over the same sealed records the rest of the app keeps; nothing here

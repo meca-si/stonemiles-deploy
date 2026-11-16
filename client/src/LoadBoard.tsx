@@ -1563,6 +1563,9 @@ export function FleetLoadBoardPanel({
   return (
     <div className="space-y-3">
       <section className="glass-panel p-3.5" aria-label="Fleet load board header">
+        {/* TEAM WORKSPACE label (2026-11-15): the Team door on Today
+            lands here — the fleet board is the team's shared home. */}
+        <p className="mb-1 text-xs font-bold uppercase tracking-widest text-[var(--dim)]">👥 Team workspace — messages, fleet + shares</p>
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <h2 className="font-condensed text-2xl font-bold">🏢 {data.companyName} — Load Board</h2>
           <span className="rounded-full bg-[var(--surface2)] px-2.5 py-1 text-xs font-bold">

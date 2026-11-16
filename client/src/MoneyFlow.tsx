@@ -2223,6 +2223,10 @@ export function MoneyFlowHub({ setBanner, mpg, onOpenBreakdownHelp, onOpenParkin
       {show("truck") && (
         <>
           <div id="maintenance" className="scroll-mt-4">
+            {/* TRUCK WORKSPACE label (2026-11-15): the Truck door on
+                Today lands on this anchor — the Money tab's Truck
+                section is the truck's working home. */}
+            <p className="mb-2 text-xs font-bold uppercase tracking-widest text-[var(--dim)]">🚛 Truck workspace — your rig, kept ready</p>
             <MaintenancePanel setBanner={setBanner} lang={lang} />
           </div>
           <div id="maintenance-log" className="scroll-mt-4">

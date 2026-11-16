@@ -16264,7 +16264,7 @@ export function App() {
               aria-label={tr("Start a route — where are you headed", "Iniciar una ruta — ¿a dónde vas")}
               onClick={() => { tapFx(); openRoutePlanner(); }}
             >
-              <span className="block text-xs font-bold uppercase tracking-widest text-black/60">{tr("Planner workspace — routes + next load", "Espacio del planificador — rutas + próxima carga")}</span>
+              <span className="block text-xs font-bold uppercase tracking-widest text-black/60">{tr("Planner workspace — plan the run: routes, parking, stops", "Espacio del planificador — planifica el viaje: rutas, estacionamiento, paradas")}</span>
               <span className="mt-1 block font-condensed text-3xl font-bold leading-none">🗺️ {tr("Start a route", "Iniciar una ruta")}</span>
               <span className="mt-1 block text-sm font-semibold">{tr("Where are you headed? Starts from where you are now.", "¿A dónde vas? Comienza desde donde estás ahora.")}</span>
               <span className="mt-2 flex items-center gap-2 rounded-xl bg-black/25 px-3 py-2.5 text-base font-semibold">
@@ -16500,15 +16500,16 @@ export function App() {
               </button>
             </div>
 
-            {/* THE FIVE WORKSPACES (x's order, 2026-11-15: the app
-                calls its five areas WORKSPACES, matching the
-                marketing). Five doors, one per workspace, each landing
-                on the workspace's existing home through the same jump
-                machinery as everything else on Today — naming +
-                grouping only, no tool moves. */}
-            <section className="glass-panel p-3.5" aria-label={tr("Your five workspaces", "Tus cinco espacios de trabajo")}>
+            {/* THE TEN WORKSPACES (x's orders, 2026-11-15: the app
+                calls its areas WORKSPACES, matching the marketing —
+                the headline five first, then every feature area that
+                stands on its own). Ten doors, one per workspace, each
+                landing on the workspace's existing home through the
+                same jump machinery as everything else on Today —
+                naming + grouping only, no tool moves. */}
+            <section className="glass-panel p-3.5" aria-label={tr("Your ten workspaces", "Tus diez espacios de trabajo")}>
               <h2 className="font-condensed text-xl font-semibold">{tr("🏢 Your workspaces", "🏢 Tus espacios de trabajo")}</h2>
-              <p className="mt-0.5 text-sm text-[var(--dim)]">{tr("Five workspaces, one app — each door opens its home", "Cinco espacios, una app — cada puerta abre su inicio")}</p>
+              <p className="mt-0.5 text-sm text-[var(--dim)]">{tr("Ten workspaces, one app — each door opens its home", "Diez espacios, una app — cada puerta abre su inicio")}</p>
               <div className="mt-2.5 grid grid-cols-2 gap-2">
                 {WORKSPACES.map((ws) => (
                   <button
@@ -16892,6 +16893,9 @@ export function App() {
 
         {tab === "drive" && (
           <div className="animate-rise space-y-3 px-3 py-3">
+            {/* DRIVE WORKSPACE label (2026-11-15): the Drive door on
+                Today lands here — the GPS / cab home carries its name. */}
+            <p className="px-1 text-xs font-bold uppercase tracking-widest text-[var(--dim)]">{tr("🧭 Drive workspace — truck GPS, cab mode, hours clock", "🧭 Espacio de conducción — GPS del camión, modo cabina, reloj de horas")}</p>
             {offlineLoadCard}
             {driveModeUi ? (
               <>
@@ -18322,6 +18326,10 @@ export function App() {
 
         {tab === "routes" && (
           <div className="animate-rise space-y-3 px-3 py-3">
+            {/* PLANNER WORKSPACE label (2026-11-15): the Planner door
+                on Today lands here — the route-planner home carries
+                its name, same eyebrow as the Today Start-a-route card. */}
+            <p className="px-1 text-xs font-bold uppercase tracking-widest text-[var(--dim)]">{tr("Planner workspace — plan the run: routes, parking, stops", "Espacio del planificador — planifica el viaje: rutas, estacionamiento, paradas")}</p>
             <div className="flex items-center justify-between glass-panel px-4 py-3">
               <div className="min-w-0">
                 <div className="text-xs font-semibold uppercase tracking-wide text-[var(--dim)]">Routing</div>
@@ -19167,6 +19175,9 @@ export function App() {
 
         {tab === "loads" && (
           <div className="animate-rise space-y-3 px-3 py-3">
+            {/* LOADS WORKSPACE label (2026-11-15): the Loads door on
+                Today lands here — the tab's home carries its name. */}
+            <p className="px-1 text-xs font-bold uppercase tracking-widest text-[var(--dim)]">{tr("📦 Loads workspace — find it, book it, haul it", "📦 Espacio de cargas — encuéntrala, resérvala, llévala")}</p>
             {/* LOADS — simple first: the active load and its one next
                 step. The tracker, the full list, the paperwork, and the
                 Worth-It Advisor all live below, one tap down. */}
@@ -33061,6 +33072,17 @@ const DRV_CATS = [
 ] as const;
 type DrvCat = (typeof DRV_CATS)[number]["key"];
 
+/** Which Driver-hub category each deep-link anchor lives in. An
+ *  anchor inside a category block does not exist until that category
+ *  is showing, so DriverPanel registers a reveal opener per entry:
+ *  a jump to the anchor flips the category first, then the scroll
+ *  lands (the Money hub's MONEY_HUB_ANCHOR_SECTION pattern, one hub
+ *  over). points-lanes is the one gated anchor today — the Rewards
+ *  workspace door lands there. */
+const DRIVER_HUB_ANCHOR_CATEGORY: Record<string, DrvCat> = {
+  "points-lanes": "rewards",
+};
+
 /**
  * Detention by day, from the driver's own sealed detention arrival/departure
  * records — dwell past the free window at the driver's own rate setting.
@@ -35110,6 +35132,16 @@ function DriverPanel({
   const [convTotp, setConvTotp] = useState("");
   const [convStepUpMsg, setConvStepUpMsg] = useState<string | null>(null);
   const [drvCat, setDrvCat] = useState<DrvCat>("today");
+  // Deep-link reveals (2026-11-15): an anchor that lives inside a
+  // category block only exists once that category is showing — flip
+  // the category on reveal so jumps (the Rewards workspace door,
+  // Ask Meca, the tool directory) land ON the block, not the hub top.
+  useEffect(() => {
+    const offs = Object.entries(DRIVER_HUB_ANCHOR_CATEGORY).map(([anchor, cat]) =>
+      onAnchorReveal(anchor, () => setDrvCat(cat)),
+    );
+    return () => offs.forEach((off) => off());
+  }, []);
   const lastDutyLocRef = useRef<string | null>(null);
   const lastDutyStateRef = useRef<string | null>(null);
   const setDutyMut = useMutation({

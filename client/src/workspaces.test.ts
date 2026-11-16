@@ -1,22 +1,38 @@
-// workspaces.test.ts — the Five Workspaces contract (x's order,
-// 2026-11-15: the app calls its five areas WORKSPACES, matching the
-// marketing). Pins: exactly the five workspaces in the Reel's order,
-// the Reel card's names + taglines verbatim, and exactly one real
-// landing per door — a Meca destination id App's goMecaDest performs
-// (the same ids the tool directory ships) or the calendar tab.
+// workspaces.test.ts — the Ten Workspaces contract (x's orders,
+// 2026-11-15: the app calls its areas WORKSPACES, matching the
+// marketing — five headline doors first, then every feature area
+// that stands on its own). Pins: exactly the ten workspaces in the
+// canonical order (the driver's day), the names + taglines verbatim,
+// exactly one real landing per door — a Meca destination id App's
+// goMecaDest performs (the same ids the tool directory ships) or the
+// calendar tab — a non-empty grouping list per door, and the reveal
+// wiring that makes the hub-gated landings actually land (a door
+// whose target lives behind a hub category/section needs the reveal
+// registry to switch that category/section before the scroll).
 
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { WORKSPACES } from "./workspaces";
 import { ALL_TOOL_ITEMS } from "./toolDirectory";
 
-describe("five workspaces — names and taglines", () => {
-  test("exactly the five, in the Reel's order, with the Reel's wording", () => {
-    expect(WORKSPACES.map((w) => w.name)).toEqual(["PAY", "FUEL", "PLANNER", "SCHEDULE", "REWARDS"]);
+const appSource = readFileSync(`${import.meta.dir}/App.tsx`, "utf8");
+const moneySource = readFileSync(`${import.meta.dir}/MoneyFlow.tsx`, "utf8");
+
+describe("ten workspaces — names and taglines", () => {
+  test("exactly the ten, in canonical order, with the canonical wording", () => {
+    expect(WORKSPACES.map((w) => w.name)).toEqual([
+      "LOADS", "DRIVE", "PLANNER", "FUEL", "PAY", "RECORDS", "TRUCK", "SCHEDULE", "TEAM", "REWARDS",
+    ]);
     expect(WORKSPACES.map((w) => w.tagEn)).toEqual([
-      "earned, owed, checked",
+      "find it, book it, haul it",
+      "truck GPS, cab mode, hours clock",
+      "plan the run: routes, parking, stops",
       "cheapest stops, true cost",
-      "routes + next load",
+      "earned, owed, checked",
+      "paperwork, sealed + proven",
+      "your rig, kept ready",
       "calendar + home time",
+      "messages, fleet + shares",
       "points for the work",
     ]);
     for (const w of WORKSPACES) {
@@ -24,9 +40,16 @@ describe("five workspaces — names and taglines", () => {
       expect(w.tagEs.length).toBeGreaterThan(0);
     }
   });
+
+  test("every door carries a non-empty grouping list", () => {
+    for (const w of WORKSPACES) {
+      expect(w.tools.length, w.id).toBeGreaterThan(0);
+      for (const t of w.tools) expect(t.trim().length).toBeGreaterThan(0);
+    }
+  });
 });
 
-describe("five workspaces — landings", () => {
+describe("ten workspaces — landings", () => {
   test("every door has exactly one landing, and dests are real Meca destinations", () => {
     const knownDests = new Set(ALL_TOOL_ITEMS.map((i) => i.dest).filter(Boolean));
     for (const w of WORKSPACES) {
@@ -36,5 +59,34 @@ describe("five workspaces — landings", () => {
     // The Schedule door opens the calendar tab itself — the
     // workspace's home is a top-level tab, not a panel.
     expect(WORKSPACES.find((w) => w.id === "schedule")?.tab).toBe("calendar");
+  });
+
+  test("no two doors share a landing", () => {
+    const landings = WORKSPACES.map((w) => w.dest ?? `tab:${w.tab}`);
+    expect(new Set(landings).size).toBe(landings.length);
+  });
+});
+
+describe("ten workspaces — hub-gated landings actually land", () => {
+  test("the Rewards door's anchor switches the Driver hub category first", () => {
+    // points-lanes lives inside DriverPanel's Rewards category — the
+    // element does not exist until the category shows. The hub must
+    // register a reveal opener that flips the category (the Money
+    // hub's anchor→section pattern, one hub over).
+    expect(appSource).toContain('"points-lanes": "rewards"');
+    expect(appSource).toContain("onAnchorReveal(anchor, () => setDrvCat(cat))");
+  });
+
+  test("the Truck door's anchor switches the Money hub section first", () => {
+    // maintenance lives inside the Money hub's Truck section — the
+    // anchor→section map must carry it, or the scroll lands nowhere.
+    expect(moneySource).toContain('maintenance: "truck"');
+  });
+
+  test("the Records and Fuel doors' anchors are ExpandRow reveal targets", () => {
+    // library-panel / ifta-panel live in folded rows on the Driver
+    // tab — the rows must register those anchors as reveal ids.
+    expect(appSource).toContain('revealIds={["library-panel", "doc-vault", "tax-records", "tax-worksheet"]}');
+    expect(appSource).toContain('revealIds={["ifta-panel"]}');
   });
 });
