@@ -11,6 +11,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fileToBase64 } from "@hatch/space-sdk/client";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { api, type ApiResponse } from "./api";
+import { onAnchorReveal } from "./anchorReveal";
 import { t as tt, type Lang } from "./i18n";
 import { qrGrid } from "./qrcode";
 import { apptBehaviourLabel, groupVisitsByFacility } from "./extras";
@@ -342,10 +343,20 @@ export function IftaPanel({ setBanner, lang = "en" }: { setBanner: Banner; lang?
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [quarter, setQuarter] = useState(Math.floor(now.getMonth() / 3) + 1);
+  // FUEL WORKSPACE reveal (Ten Workspaces polish, 2026-11-15): the
+  // Fuel door's jump fires the "ifta-panel" reveal, which opens the
+  // Driver-tab row around this panel — but the Section below is a
+  // second fold inside it, and the workspace eyebrow is the Section's
+  // first line. The reveal opens the Section too, so the door lands
+  // ON the Fuel workspace home. This panel mounts a tick after the
+  // reveal fires (the row opens first); the registry's sticky memory
+  // runs this opener on registration, same as the Rewards door's fix.
+  const [sectionOpen, setSectionOpen] = useState(false);
+  useEffect(() => onAnchorReveal("ifta-panel", () => setSectionOpen(true)), []);
   const q = useQuery({ queryKey: ["ifta-report", year, quarter], queryFn: () => api.getIftaReport({ year, quarter }) });
   const r = q.data;
   return (
-    <Section title={tt(lang, "money.ifta")} ariaLabel="IFTA complete">
+    <Section title={tt(lang, "money.ifta")} ariaLabel="IFTA complete" open={sectionOpen} onOpenChange={setSectionOpen}>
       {/* FUEL WORKSPACE (Five Workspaces naming pass, 2026-11-15):
           this section — IFTA, the fuel log and the fuel-card
           checks — is the Fuel workspace's home. */}

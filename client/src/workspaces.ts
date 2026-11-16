@@ -54,7 +54,10 @@ export const WORKSPACES: WorkspaceDoor[] = [
     tagEn: "truck GPS, cab mode, hours clock",
     tagEs: "GPS del camión, modo cabina, reloj de horas",
     tools: ["Truck GPS routing", "Cab mode", "HOS status + hours clock", "DVIR", "Dashcam", "Road alerts", "Route weather while driving"],
-    // The Drive tab — the live map / GPS home.
+    // The Drive tab — the live map / GPS home. The tab's panels live
+    // in a sheet that starts closed, so the door's reveal also opens
+    // the sheet (the "drive-panel" opener in App) — the eyebrow is
+    // the sheet's first line.
     dest: "drive",
   },
   {
@@ -78,6 +81,9 @@ export const WORKSPACES: WorkspaceDoor[] = [
     // The IFTA + fuel-log home on the Driver tab — the Fuel
     // workspace's labelled home (the net-price planner lives on the
     // Drive tab's route, the fuel-card checks inside this section).
+    // The door's reveal opens the Driver-tab row AND the IFTA
+    // Complete section inside it — the eyebrow is that section's
+    // first line.
     dest: "ifta",
   },
   {

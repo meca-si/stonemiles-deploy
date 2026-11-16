@@ -17,6 +17,7 @@ import { ALL_TOOL_ITEMS } from "./toolDirectory";
 
 const appSource = readFileSync(`${import.meta.dir}/App.tsx`, "utf8");
 const moneySource = readFileSync(`${import.meta.dir}/MoneyFlow.tsx`, "utf8");
+const nextLevelSource = readFileSync(`${import.meta.dir}/NextLevel.tsx`, "utf8");
 
 describe("ten workspaces — names and taglines", () => {
   test("exactly the ten, in canonical order, with the canonical wording", () => {
@@ -88,5 +89,26 @@ describe("ten workspaces — hub-gated landings actually land", () => {
     // tab — the rows must register those anchors as reveal ids.
     expect(appSource).toContain('revealIds={["library-panel", "doc-vault", "tax-records", "tax-worksheet"]}');
     expect(appSource).toContain('revealIds={["ifta-panel"]}');
+  });
+
+  test("the Drive door's reveal opens the Drive panel sheet", () => {
+    // The Drive tab's panels live in a sheet that starts closed and
+    // the workspace eyebrow is the sheet's first line — opening the
+    // tab alone lands on the bare map. The jump must fire the
+    // drive-panel reveal, App must register an opener that opens the
+    // sheet, and the sheet content must carry the anchor id the
+    // scroll lands on.
+    expect(appSource).toContain('scrollToAnchor("drive-panel", 700)');
+    expect(appSource).toContain('onAnchorReveal("drive-panel", () => { setTab("drive"); setDrivePanelOpen(true); })');
+    expect(appSource).toContain('id="drive-panel"');
+  });
+
+  test("the Fuel door's reveal also opens the IFTA Complete section", () => {
+    // ifta-panel opens the Driver-tab row, but the Fuel eyebrow is
+    // the first line inside IftaPanel's own Section fold — the panel
+    // must register a reveal opener for the same anchor that opens
+    // that Section, and pass the Section controlled open state.
+    expect(nextLevelSource).toContain('onAnchorReveal("ifta-panel", () => setSectionOpen(true))');
+    expect(nextLevelSource).toContain("open={sectionOpen} onOpenChange={setSectionOpen}");
   });
 });

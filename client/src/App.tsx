@@ -4288,6 +4288,13 @@ export function App() {
   // from Drive; Routes/Stops keep their strip because their panels
   // are the work surface there.
   const [drivePanelOpen, setDrivePanelOpen] = useState(false);
+  // Deep-link reveal (Ten Workspaces polish, 2026-11-15): the Drive
+  // workspace door lands on the Drive tab, but the panels — the
+  // workspace eyebrow first among them — live in this sheet, closed.
+  // A jump to the "drive-panel" anchor opens the sheet first, so the
+  // door lands ON the Drive workspace home, not the bare map (the
+  // Rewards door's category-switch pattern, one surface over).
+  useEffect(() => onAnchorReveal("drive-panel", () => { setTab("drive"); setDrivePanelOpen(true); }), []);
   // ---- Go trip sheet (x's order 2026-11-09, from his Apple Maps
   // screenshots): the Go trip bar is a PULL-UP TAB — grab handle on
   // top, tap or swipe up and it opens the trip sheet (destination,
@@ -10642,7 +10649,7 @@ export function App() {
     const exitConsole = () => { if (consoleActive) setConsoleOpen(false); };
     switch (dest) {
       case "today": exitConsole(); setTab("today"); break;
-      case "drive": exitConsole(); setTab("drive"); break;
+      case "drive": exitConsole(); setTab("drive"); scrollToAnchor("drive-panel", 700); break;
       case "explore":
         exitConsole();
         setTab("drive");
@@ -16892,9 +16899,12 @@ export function App() {
         )}
 
         {tab === "drive" && (
-          <div className="animate-rise space-y-3 px-3 py-3">
+          <div id="drive-panel" className="animate-rise space-y-3 scroll-mt-4 px-3 py-3">
             {/* DRIVE WORKSPACE label (2026-11-15): the Drive door on
-                Today lands here — the GPS / cab home carries its name. */}
+                Today lands here — the GPS / cab home carries its name.
+                The div carries the "drive-panel" anchor: the door's
+                reveal opens the panel sheet, then the scroll lands
+                here, on the eyebrow. */}
             <p className="px-1 text-xs font-bold uppercase tracking-widest text-[var(--dim)]">{tr("🧭 Drive workspace — truck GPS, cab mode, hours clock", "🧭 Espacio de conducción — GPS del camión, modo cabina, reloj de horas")}</p>
             {offlineLoadCard}
             {driveModeUi ? (
