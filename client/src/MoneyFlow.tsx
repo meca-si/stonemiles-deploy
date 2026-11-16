@@ -485,6 +485,400 @@ export function SettlementPanel({ lang = "en" }: { setBanner: Banner; lang?: Lan
   );
 }
 
+// ---------- 2c) Settlement check — should-paid vs did-paid, AUTOMATIC -----------
+// Owner's build (2026-11-15): every Pay Book entry is checked
+// AUTOMATICALLY against the driver's sealed loads (server:
+// settlementCheck.ts — badges ride listPayEntries, this panel is
+// the detail behind getSettlementCheck). The window anchors only
+// to the entry's actual pay date and the payer's PAY LAG (the
+// driver's own per-carrier setting, default 0 = same week —
+// arrears are never assumed, and no weekday is ever assumed), and
+// it is PRINTED on the result. VERIFY + EDIT: the driver can set
+// the payer's lag, override THIS settlement's window, and hold
+// loads out / pull loads in — edits are stored per entry, take
+// effect on the next read, and an edited check is labelled as
+// edited on its face. Overrides never touch sealed loads or the
+// entry's own figures. The check reads the settlement AS RECORDED
+// in the Pay Book — it does not read the carrier's statement.
+
+const CHECK_STATUS_STYLE: Record<string, string> = {
+  matches: "bg-emerald-500/15 text-emerald-300",
+  short: "bg-red-500/15 text-red-300",
+  over: "bg-sky-500/15 text-sky-300",
+  no_data: "bg-[var(--surface)] text-[var(--dim)]",
+};
+
+export function SettlementCheckPanel({ setBanner }: { setBanner: Banner }) {
+  const queryClient = useQueryClient();
+  const listQ = useQuery({ queryKey: ["pay-entries"], queryFn: () => api.listPayEntries({ limit: 300 }) });
+  const entries = (listQ.data?.entries ?? []).filter((e) => !e.isForm);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const selId = selectedId ?? entries[0]?.id ?? null;
+  const [editingWindow, setEditingWindow] = useState(false);
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [lagInput, setLagInput] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const q = useQuery({
+    queryKey: ["settlement-check", selId],
+    queryFn: () => api.getSettlementCheck({ payEntryId: selId! }),
+    enabled: selId != null,
+  });
+  const d = q.data;
+  const shownLag = lagInput ?? d?.lagDays ?? 0;
+
+  const pickEntry = (id: number) => {
+    setSelectedId(id);
+    setEditingWindow(false);
+    setLagInput(null);
+  };
+
+  const refresh = () => {
+    void queryClient.invalidateQueries({ queryKey: ["pay-entries"] });
+    void queryClient.invalidateQueries({ queryKey: ["settlement-check"] });
+  };
+
+  // Save one piece of this entry's override, preserving the rest.
+  const saveOverride = (patch: Partial<{ windowFromMs: number | null; windowToMs: number | null; excludedLoadIds: number[]; includedLoadIds: number[] }>) => {
+    if (!d?.entry) return;
+    const cur = d.override;
+    setBusy(true);
+    void api.setSettlementCheckOverride({
+      payEntryId: d.entry.id,
+      windowFromMs: patch.windowFromMs !== undefined ? patch.windowFromMs : cur?.windowFromIso ? Date.parse(cur.windowFromIso) : null,
+      windowToMs: patch.windowToMs !== undefined ? patch.windowToMs : cur?.windowToIso ? Date.parse(cur.windowToIso) : null,
+      excludedLoadIds: patch.excludedLoadIds ?? cur?.excludedLoadIds ?? [],
+      includedLoadIds: patch.includedLoadIds ?? cur?.includedLoadIds ?? [],
+    })
+      .then((r) => {
+        if (r.ok) refresh();
+        else setBanner(r.error ?? "That edit didn't save.");
+      })
+      .catch(() => setBanner("That edit didn't save — try again."))
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <Section title="🧾 Settlement check — should vs did" ariaLabel="Settlement check — what you should have been paid vs what the settlement paid">
+      <p className="text-sm text-[var(--dim)]">
+        Every settlement in your Pay Book is checked <strong className="text-[var(--text)]">automatically</strong>: what your{" "}
+        <strong className="text-[var(--text)]">sealed loads</strong> in its window should have paid you (your Settings → My pay setting) against what the settlement{" "}
+        <strong className="text-[var(--text)]">actually paid</strong> — a shortage is flagged with the amount. The check reads the settlement{" "}
+        <strong className="text-[var(--text)]">as recorded in your Pay Book</strong> (logged by hand or filed from a stub) — it doesn't read the carrier's statement itself.
+      </p>
+      {listQ.isLoading && <p className="mt-3 text-sm text-[var(--dim)]">Reading your Pay Book…</p>}
+      {!listQ.isLoading && entries.length === 0 && (
+        <p className="mt-3 rounded-xl bg-[var(--surface2)] px-3 py-2.5 text-sm">
+          No pay recorded yet — log a settlement in your Pay Book and its check runs itself here: expected pay from your sealed loads vs the settlement's gross, deductions itemized, and any shortage flagged in plain dollars.
+        </p>
+      )}
+      {entries.length > 0 && (
+        <div className="mt-3">
+          <label className={labelCls} htmlFor="settlement-check-entry">Settlement to check</label>
+          <select
+            id="settlement-check-entry"
+            className={inputCls}
+            value={selId ?? ""}
+            onChange={(ev) => pickEntry(Number(ev.target.value))}
+          >
+            {entries.map((e) => (
+              <option key={e.id} value={e.id}>
+                {e.payer} · {money(e.gross)} · paid {new Date(e.paidAt).toLocaleDateString()}
+                {e.check ? (e.check.status === "short" ? ` · SHORT ${money(-e.check.difference)}` : e.check.status === "over" ? ` · OVER ${money(e.check.difference)}` : e.check.status === "matches" ? " · ✓ matches" : " · not enough data") : ""}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+      {selId != null && q.isLoading && <p className="mt-3 text-sm text-[var(--dim)]">Running the check…</p>}
+      {d && !d.found && (
+        <p className="mt-3 rounded-xl bg-[var(--surface2)] px-3 py-2.5 text-sm">That entry isn't in your Pay Book anymore — pick another settlement above.</p>
+      )}
+      {d && d.found && d.entry && (
+        <div className="mt-3 space-y-3">
+          <div className={`rounded-xl px-3 py-2.5 text-sm font-bold ${CHECK_STATUS_STYLE[d.status] ?? CHECK_STATUS_STYLE.no_data}`}>
+            {d.status === "matches" && <>✓ Matches — this settlement covers what your sealed loads in the window should have paid.</>}
+            {d.status === "short" && <>SHORT {money(d.shortBy)} — this settlement paid less than your sealed loads say it should have.</>}
+            {d.status === "over" && <>OVER {money(d.overBy)} — this settlement paid more than your sealed loads in the window figure. Worth a look: a load may be missing from the app, or the window may be off.</>}
+            {d.status === "no_data" && <>{d.statusReason ?? "Not enough data to run this check yet."}</>}
+          </div>
+          {d.adjusted && d.adjustmentNotes.length > 0 && (
+            <div className="rounded-xl border border-amber-400/40 bg-amber-400/10 px-3 py-2.5 text-xs leading-relaxed">
+              <div className="font-bold uppercase tracking-wide">Edited by you</div>
+              {d.adjustmentNotes.map((n) => (
+                <p key={n} className="mt-0.5">{n}</p>
+              ))}
+              <button
+                type="button"
+                className="mt-1.5 font-bold underline"
+                disabled={busy}
+                aria-label="Clear all my edits on this check"
+                onClick={() => {
+                  if (!d.entry) return;
+                  setBusy(true);
+                  void api.clearSettlementCheckOverride({ payEntryId: d.entry.id })
+                    .then((r) => {
+                      if (r.ok) refresh();
+                      else setBanner(r.error ?? "Those edits didn't clear.");
+                    })
+                    .catch(() => setBanner("Those edits didn't clear — try again."))
+                    .finally(() => setBusy(false));
+                }}
+              >
+                Clear all my edits — back to the raw automatic check
+              </button>
+            </div>
+          )}
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <div className="rounded-xl bg-[var(--surface2)] px-2 py-2.5">
+              <div className="font-condensed text-xl font-bold">{money(d.expectedTotal)}</div>
+              <div className="text-[11px] text-[var(--dim)]">expected — sealed loads</div>
+            </div>
+            <div className="rounded-xl bg-[var(--surface2)] px-2 py-2.5">
+              <div className="font-condensed text-xl font-bold">{money(d.actualGross)}</div>
+              <div className="text-[11px] text-[var(--dim)]">settlement gross</div>
+            </div>
+            <div className="rounded-xl bg-[var(--surface2)] px-2 py-2.5">
+              <div className="font-condensed text-xl font-bold">{d.status === "no_data" ? "—" : `${d.difference > 0 ? "+" : d.difference < 0 ? "−" : ""}${money(Math.abs(d.difference))}`}</div>
+              <div className="text-[11px] text-[var(--dim)]">difference</div>
+            </div>
+          </div>
+          {d.window && (
+            <div className="rounded-xl bg-[var(--surface2)] px-3 py-2.5 text-xs leading-relaxed text-[var(--dim)]">
+              {d.window.basis}
+              {!editingWindow && (
+                <>
+                  {" "}
+                  <button
+                    type="button"
+                    className="font-bold text-[var(--text)] underline"
+                    aria-label="Adjust this settlement's window dates"
+                    onClick={() => {
+                      setFromDate(d.window!.fromIso.slice(0, 10));
+                      setToDate(d.window!.toIso.slice(0, 10));
+                      setEditingWindow(true);
+                    }}
+                  >
+                    Adjust dates
+                  </button>
+                  {d.override?.windowFromIso && (
+                    <>
+                      {" · "}
+                      <button
+                        type="button"
+                        className="font-bold text-[var(--text)] underline"
+                        disabled={busy}
+                        aria-label="Back to the automatic window"
+                        onClick={() => saveOverride({ windowFromMs: null, windowToMs: null })}
+                      >
+                        Back to automatic
+                      </button>
+                    </>
+                  )}
+                </>
+              )}
+              {editingWindow && (
+                <div className="mt-2 flex flex-wrap items-end gap-2">
+                  <span className="min-w-[130px] flex-1">
+                    <label className={labelCls} htmlFor="settlement-check-from">From</label>
+                    <input id="settlement-check-from" type="date" className={inputCls} value={fromDate} onChange={(ev) => setFromDate(ev.target.value)} />
+                  </span>
+                  <span className="min-w-[130px] flex-1">
+                    <label className={labelCls} htmlFor="settlement-check-to">Through</label>
+                    <input id="settlement-check-to" type="date" className={inputCls} value={toDate} onChange={(ev) => setToDate(ev.target.value)} />
+                  </span>
+                  <button
+                    type="button"
+                    className={smallBtn}
+                    disabled={busy}
+                    aria-label="Save these window dates for this settlement's check"
+                    onClick={() => {
+                      const f = Date.parse(`${fromDate}T00:00:00.000Z`);
+                      const t = Date.parse(`${toDate}T00:00:00.000Z`) + 86399999;
+                      if (!Number.isFinite(f) || !Number.isFinite(t) || f > t) {
+                        setBanner("Pick a from date and a through date, from first.");
+                        return;
+                      }
+                      saveOverride({ windowFromMs: f, windowToMs: t });
+                      setEditingWindow(false);
+                    }}
+                  >
+                    Save dates
+                  </button>
+                  <button type="button" className={smallBtn} aria-label="Cancel adjusting the dates" onClick={() => setEditingWindow(false)}>Cancel</button>
+                </div>
+              )}
+            </div>
+          )}
+          {/* Pay lag — set once per carrier; drives every automatic window for that payer. */}
+          <div className="rounded-xl bg-[var(--surface2)] px-3 py-2.5">
+            <div className="text-xs font-bold uppercase tracking-wide text-[var(--dim)]">How long after the work does {d.entry.payer} pay?</div>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <button type="button" className={`${smallBtn} ${shownLag === 0 ? "ring-2 ring-[var(--accent)]" : ""}`} aria-label="Set pay lag to 0 days — same week" onClick={() => setLagInput(0)}>Same week · 0</button>
+              <button type="button" className={`${smallBtn} ${shownLag === 7 ? "ring-2 ring-[var(--accent)]" : ""}`} aria-label="Set pay lag to 7 days — a week in the hole" onClick={() => setLagInput(7)}>A week in the hole · 7</button>
+              <span className="flex items-center gap-1.5 text-sm">
+                <input
+                  type="number"
+                  min={0}
+                  max={30}
+                  className="w-20 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-2 py-2"
+                  aria-label="Custom pay lag in days, 0 to 30"
+                  value={shownLag}
+                  onChange={(ev) => setLagInput(Math.min(30, Math.max(0, Math.round(Number(ev.target.value) || 0))))}
+                />
+                days
+              </span>
+              <button
+                type="button"
+                className={smallBtn}
+                disabled={busy || shownLag === d.lagDays}
+                aria-label={`Save the pay lag for ${d.entry.payer}`}
+                onClick={() => {
+                  setBusy(true);
+                  void api.setPayerPayLag({ payer: d.entry!.payer, lagDays: shownLag })
+                    .then(() => {
+                      setBanner(`Pay lag for ${d.entry!.payer} set to ${shownLag} day${shownLag === 1 ? "" : "s"} — its settlement checks now run on that lag.`);
+                      setLagInput(null);
+                      refresh();
+                    })
+                    .catch(() => setBanner("That pay lag didn't save — try again."))
+                    .finally(() => setBusy(false));
+                }}
+              >
+                {busy ? "Saving…" : "Save lag"}
+              </button>
+            </div>
+            <p className="mt-1.5 text-xs text-[var(--dim)]">Set it once per carrier — it drives the automatic window on every {d.entry.payer} settlement, badges included. The window is never picked to fit the numbers; it comes from this setting.</p>
+          </div>
+          {d.lines.length > 0 && (
+            <div className="space-y-2">
+              {d.lines.map((l) => (
+                <div key={l.loadId} className="rounded-xl bg-[var(--surface2)] px-3 py-2.5 text-sm">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="font-bold">Load #{l.loadId} · {l.label}{l.pulledIn ? " · pulled in by you" : ""}</span>
+                    <span className="shrink-0 font-condensed text-lg font-bold">{l.expectedPay != null ? money(l.expectedPay) : "not figured"}</span>
+                  </div>
+                  <div className="text-xs text-[var(--dim)]">Delivered {new Date(l.deliveredAtIso).toLocaleDateString()}</div>
+                  <div className="mt-0.5 text-xs">{l.basisNote}</div>
+                  <button
+                    type="button"
+                    className="mt-1.5 text-xs font-bold underline"
+                    disabled={busy}
+                    aria-label={l.pulledIn ? `Remove load ${l.loadId} from this check` : `Hold load ${l.loadId} out of this check`}
+                    onClick={() => {
+                      if (l.pulledIn) saveOverride({ includedLoadIds: (d.override?.includedLoadIds ?? []).filter((id) => id !== l.loadId) });
+                      else saveOverride({ excludedLoadIds: [...(d.override?.excludedLoadIds ?? []), l.loadId] });
+                    }}
+                  >
+                    {l.pulledIn ? "Remove from this check" : "Hold out of this check"}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          {d.lines.length === 0 && d.status === "no_data" && (
+            <p className="rounded-xl bg-[var(--surface2)] px-3 py-2.5 text-sm">No sealed loads counted in this check — when a delivery seals inside the window, or you pull one in below, this check figures itself.</p>
+          )}
+          {d.heldOut.length > 0 && (
+            <div className="space-y-2">
+              <div className="text-xs font-bold uppercase tracking-wide text-[var(--dim)]">Held out of this check by you</div>
+              {d.heldOut.map((l) => (
+                <div key={l.loadId} className="rounded-xl bg-[var(--surface2)] px-3 py-2.5 text-sm opacity-80">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="font-bold">Load #{l.loadId} · {l.label}</span>
+                    <span className="shrink-0 font-condensed text-lg font-bold">{l.expectedPay != null ? money(l.expectedPay) : "not figured"}</span>
+                  </div>
+                  <div className="text-xs text-[var(--dim)]">Delivered {new Date(l.deliveredAtIso).toLocaleDateString()} · in the window, but not counted</div>
+                  <button
+                    type="button"
+                    className="mt-1.5 text-xs font-bold underline"
+                    disabled={busy}
+                    aria-label={`Put load ${l.loadId} back into this check`}
+                    onClick={() => saveOverride({ excludedLoadIds: (d.override?.excludedLoadIds ?? []).filter((id) => id !== l.loadId) })}
+                  >
+                    Put back in this check
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          {d.otherLoads.length > 0 && (
+            <div className="space-y-2">
+              <div className="text-xs font-bold uppercase tracking-wide text-[var(--dim)]">Other sealed loads near this window — pull one in if it was paid on this settlement</div>
+              {d.otherLoads.map((l) => (
+                <div key={l.loadId} className="rounded-xl bg-[var(--surface2)] px-3 py-2.5 text-sm">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="font-bold">Load #{l.loadId} · {l.label}</span>
+                    <span className="shrink-0 font-condensed text-lg font-bold">{l.expectedPay != null ? money(l.expectedPay) : "not figured"}</span>
+                  </div>
+                  <div className="text-xs text-[var(--dim)]">Delivered {new Date(l.deliveredAtIso).toLocaleDateString()}</div>
+                  <button
+                    type="button"
+                    className="mt-1.5 text-xs font-bold underline"
+                    disabled={busy}
+                    aria-label={`Pull load ${l.loadId} into this check`}
+                    onClick={() => saveOverride({ includedLoadIds: [...(d.override?.includedLoadIds ?? []), l.loadId] })}
+                  >
+                    Pull into this check
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          {d.unfigured.length > 0 && (
+            <p className="text-xs leading-relaxed text-[var(--dim)]">
+              {d.unfigured.length} load{d.unfigured.length === 1 ? " is" : "s are"} not figured and NOT counted in the expected total — {d.unfigured.map((u) => `Load #${u.loadId}: ${u.reason}`).join(" ")}
+            </p>
+          )}
+          {d.deductionBreakdown.length > 0 && (
+            <div className="rounded-xl bg-[var(--surface2)] px-3 py-2.5">
+              <div className="text-xs font-bold uppercase tracking-wide text-[var(--dim)]">What came out of this settlement</div>
+              {d.itemizedLines.length > 0 && (
+                <div className="mt-2 space-y-1">
+                  {d.itemizedLines.map((l, i) => (
+                    <div key={`${l.label}-${i}`} className="flex items-baseline justify-between text-sm">
+                      <span>{l.label} <span className="text-xs text-[var(--dim)]">· {l.category}</span></span>
+                      <span className="tnum">{money(l.amount)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="mt-2 space-y-1 border-t border-[var(--border)] pt-2">
+                {d.deductionBreakdown.map((b) => (
+                  <div key={b.category} className="flex items-baseline justify-between text-sm">
+                    <span className="font-semibold">{b.category}</span>
+                    <span className="tnum">{money(b.amount)}</span>
+                  </div>
+                ))}
+                <div className="flex items-baseline justify-between text-sm font-bold">
+                  <span>Total taken out</span>
+                  <span className="tnum">{money(d.totalDeductions + d.withheld)}</span>
+                </div>
+              </div>
+            </div>
+          )}
+          <div className="grid grid-cols-2 gap-2 text-center">
+            <div className="rounded-xl bg-[var(--surface2)] px-2 py-2.5">
+              <div className="font-condensed text-xl font-bold">{money(d.expectedNet)}</div>
+              <div className="text-[11px] text-[var(--dim)]">you should have kept</div>
+            </div>
+            <div className="rounded-xl bg-[var(--surface2)] px-2 py-2.5">
+              <div className="font-condensed text-xl font-bold">{money(d.actualNet)}</div>
+              <div className="text-[11px] text-[var(--dim)]">you actually kept</div>
+            </div>
+          </div>
+          {d.perDiem > 0 && (
+            <p className="text-xs text-[var(--dim)]">Plus {money(d.perDiem)} per diem on this settlement — non-taxable, paid separately, never counted in the gross or the nets above.</p>
+          )}
+          {!d.entryMathOk && <p className="rounded-xl bg-red-500/10 px-3 py-2.5 text-xs leading-relaxed text-red-300">{d.entryMathNote}</p>}
+          <p className="text-[11px] leading-relaxed text-[var(--dim)]">{d.note}</p>
+        </div>
+      )}
+    </Section>
+  );
+}
+
 // ---------- 3) True rate per load ------------------------------------------------
 
 export function TrueRatePanel({ setBanner, mpg, lang = "en" }: { setBanner: Banner; mpg: number; lang?: Lang }) {

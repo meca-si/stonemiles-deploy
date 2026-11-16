@@ -225,6 +225,17 @@ settlementLineFor,
 settlementTotals,
 } from "./settlement";
 import {
+EMPTY_CHECK_OVERRIDE,
+applyLoadOverrides,
+computeSettlementCheck,
+payerKeyOf,
+settlementWindowFor,
+type CheckOverride,
+type SettlementCheck,
+type SettlementCheckExpectedLine,
+type SettlementWindow,
+} from "./settlementCheck";
+import {
 DEFAULT_DUE_DAYS,
 buildProfitLoss,
 formatInvoiceNumber,
@@ -7574,6 +7585,179 @@ async function payEntryOwnedBy(ctx: Ctx, entryId: number, username: string) {
     if (d?.recipientUsername === username) return row;
   }
   return null;
+}
+
+/** The caller's OWN sealed loads delivered inside [fromMs, toMs],
+ *  figured line by line under their My Pay setting — the expected
+ *  side of the settlement check (settlementCheck.ts). Same
+ *  load-selection discipline as getMySettlement (sealed loads only,
+ *  host-scoped reads), narrowed to the window. Read-only. */
+async function settlementExpectedLines(
+  ctx: Ctx,
+  fromMs: number,
+  toMs: number,
+): Promise<{
+  setting: { payBasis: string; driverCpm: number | null; driverPayPct: number | null };
+  companyName: string | null;
+  lines: SettlementCheckExpectedLine[];
+}> {
+  const db = ctx.db<typeof schema>();
+  const profRows = await db
+    .select()
+    .from(schema.profile)
+    .where(eq(schema.profile.id, myProfileId(ctx)))
+    .limit(1);
+  const prof = profRows[0];
+  const setting = {
+    payBasis: prof?.payBasis ?? "cpm",
+    driverCpm: prof?.driverCpm ?? null,
+    driverPayPct: prof?.driverPayPct ?? null,
+  };
+  const loads = await db.select().from(schema.loads).orderBy(desc(schema.loads.id));
+  const pods = await podStatusByLoad(ctx);
+  const place = (c: string | null, s: string | null) => (c ? (s ? `${c}, ${s}` : c) : (s ?? "—"));
+  const lines: SettlementCheckExpectedLine[] = [];
+  for (const l of loads) {
+    const pod = pods.get(l.id);
+    if (!pod?.sealed || !pod.sealedAt) continue; // sealed loads only
+    const ms = Date.parse(pod.sealedAt);
+    if (ms < fromMs || ms > toMs) continue;
+    const line = settlementLineFor(setting, {
+      rate: l.rate ?? null,
+      extraCharges: l.extraCharges ?? 0,
+      loadedMiles: l.loadedMiles ?? null,
+    });
+    const lane = `${place(l.pickupCity, l.pickupState)} → ${place(l.deliveryCity, l.deliveryState)}`;
+    lines.push({
+      loadId: l.id,
+      label: lane === "— → —" ? (l.shipper ?? `Load #${l.id}`) : lane,
+      deliveredAtMs: ms,
+      expectedPay: line.pay,
+      basisNote: line.basisNote,
+    });
+  }
+  // Newest delivery first — the driver reads their latest pay at the top.
+  lines.sort((a, b) => b.deliveredAtMs - a.deliveredAtMs || b.loadId - a.loadId);
+  return { setting, companyName: prof?.companyName ?? null, lines };
+}
+
+/** Every payer lag the caller has set, keyed by normalized payer.
+ *  A payer with no row reads as lag 0 (same week) at the call
+ *  sites — the check NEVER assumes a week in the hole. */
+async function payLagMapFor(ctx: Ctx, username: string): Promise<Map<string, number>> {
+  const db = ctx.db<typeof schema>();
+  const rows = (await db.select().from(schema.payerPayLag)).filter((r) => r.username === username);
+  return new Map(rows.map((r) => [r.payerKey, Math.min(30, Math.max(0, Math.round(r.lagDays)))]));
+}
+
+/** Parse a stored JSON load-id array (check overrides); anything
+ *  unreadable reads as no ids — an override can steer a check, it
+ *  can never break one. */
+function parseLoadIdList(raw: string | null | undefined): number[] {
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    const out: number[] = [];
+    for (const v of parsed) {
+      const n = typeof v === "number" ? Math.round(v) : NaN;
+      if (Number.isFinite(n) && n > 0 && !out.includes(n)) out.push(n);
+      if (out.length >= 200) break;
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+/** Every check override the caller has stored, by pay entry id. */
+async function checkOverridesFor(ctx: Ctx, username: string): Promise<Map<number, CheckOverride>> {
+  const db = ctx.db<typeof schema>();
+  const rows = (await db.select().from(schema.payEntryCheckOverrides)).filter((r) => r.username === username);
+  const map = new Map<number, CheckOverride>();
+  for (const r of rows) {
+    map.set(r.payEntryId, {
+      windowFromMs: r.windowFromAt ? r.windowFromAt.getTime() : null,
+      windowToMs: r.windowToAt ? r.windowToAt.getTime() : null,
+      excludedLoadIds: parseLoadIdList(r.excludedLoadIds),
+      includedLoadIds: parseLoadIdList(r.includedLoadIds),
+    });
+  }
+  return map;
+}
+
+type PayEntryRow = typeof schema.payEntries.$inferSelect;
+
+function entryFiguresOf(row: PayEntryRow) {
+  return {
+    gross: row.gross,
+    federalWithheld: row.federalWithheld,
+    stateWithheld: row.stateWithheld,
+    otherDeductions: row.otherDeductions,
+    deductionLines: parseDeductionLines(row.deductionLines),
+    perDiem: row.perDiem ?? 0,
+  };
+}
+
+interface EntryCheckComputation {
+  window: SettlementWindow;
+  lines: SettlementCheckExpectedLine[];
+  heldOut: SettlementCheckExpectedLine[];
+  pulledIn: SettlementCheckExpectedLine[];
+  check: SettlementCheck;
+}
+
+/**
+ * The automatic settlement check for EVERY one of the caller's
+ * non-form Pay Book entries, computed lazily from current records
+ * (nothing stored, nothing sealed): entries group by payer and
+ * chain in pay-date order — each window starts where the previous
+ * same-payer window effectively ended, so no day is double-counted
+ * or skipped at any pay lag, on any payday rhythm. Per-entry
+ * overrides (window + load hold-outs/pull-ins) apply on top and
+ * are labelled in the result. The sealed-load lines are figured
+ * ONCE for the whole set.
+ */
+async function computeEntryChecks(
+  ctx: Ctx,
+  username: string,
+  rows: readonly PayEntryRow[],
+): Promise<Map<number, EntryCheckComputation>> {
+  const out = new Map<number, EntryCheckComputation>();
+  const targets = rows.filter((r) => !r.isForm);
+  if (targets.length === 0) return out;
+  const lagMap = await payLagMapFor(ctx, username);
+  const overrideMap = await checkOverridesFor(ctx, username);
+  const { lines: allLines } = await settlementExpectedLines(ctx, 0, Number.MAX_SAFE_INTEGER);
+  const groups = new Map<string, PayEntryRow[]>();
+  for (const r of targets) {
+    const key = payerKeyOf(r.payer);
+    const g = groups.get(key) ?? [];
+    g.push(r);
+    groups.set(key, g);
+  }
+  for (const group of groups.values()) {
+    group.sort((a, b) => a.paidAt.getTime() - b.paidAt.getTime() || a.id - b.id);
+    let prevEnd: number | null = null;
+    for (const r of group) {
+      const ov = overrideMap.get(r.id) ?? EMPTY_CHECK_OVERRIDE;
+      const window = settlementWindowFor(r.payer, r.paidAt.getTime(), prevEnd, lagMap.get(payerKeyOf(r.payer)) ?? 0, {
+        overrideWindow:
+          ov.windowFromMs != null && ov.windowToMs != null ? { fromMs: ov.windowFromMs, toMs: ov.windowToMs } : null,
+        recordedPeriod: null, // no entry records its own period yet; when one does, it wins here
+      });
+      prevEnd = window.toMs; // chaining runs on EFFECTIVE ends, overrides included
+      const windowLines = allLines.filter((l) => l.deliveredAtMs >= window.fromMs && l.deliveredAtMs <= window.toMs);
+      const applied = applyLoadOverrides(windowLines, allLines, ov);
+      const check = computeSettlementCheck(applied.lines, entryFiguresOf(r), {
+        windowAdjusted: window.adjustedByDriver,
+        heldOut: applied.heldOut,
+        pulledIn: applied.pulledIn,
+      });
+      out.set(r.id, { window, lines: applied.lines, heldOut: applied.heldOut, pulledIn: applied.pulledIn, check });
+    }
+  }
+  return out;
 }
 
 function payEntryLabel(row: typeof schema.payEntries.$inferSelect): string {
@@ -48275,6 +48459,23 @@ export const Actions = {
           stubSha256: z.string().nullable(),
           source: z.string().nullable(),
           deliveryId: z.number().nullable(),
+          // SETTLEMENT CHECK BADGE (owner's build, 2026-11-15): the
+          // entry's automatic should-vs-did verdict, computed lazily
+          // on this read from the caller's current sealed records —
+          // nothing stored, nothing sealed. Only ever computed for
+          // the CALLER'S OWN non-form entries; anything else carries
+          // null, never another driver's check.
+          check: z
+            .object({
+              status: z.string(),
+              difference: z.number(),
+              expectedTotal: z.number(),
+              lagDays: z.number(),
+              windowFromIso: z.string(),
+              windowToIso: z.string(),
+              reason: z.string().nullable(),
+            })
+            .nullable(),
         }),
       ),
     }),
@@ -48285,6 +48486,35 @@ export const Actions = {
         .from(schema.payEntries)
         .orderBy(desc(schema.payEntries.id))
         .limit(args.limit);
+      // Automatic per-settlement checks for the caller's own
+      // entries (computeEntryChecks — chained windows, pay lag,
+      // per-entry overrides, all lazy on this read). Computed over
+      // the caller's FULL entry history so chaining is right even
+      // when this page of the list is a subset; badges attach only
+      // to the caller's own non-form rows.
+      const me = await myUsername(ctx);
+      const badges = new Map<
+        number,
+        { status: string; difference: number; expectedTotal: number; lagDays: number; windowFromIso: string; windowToIso: string; reason: string | null }
+      >();
+      const ownRows = rows.filter((r) => !r.isForm && r.username === me);
+      if (ownRows.length > 0) {
+        const mine = (await db.select().from(schema.payEntries)).filter((e) => e.username === me);
+        const computations = await computeEntryChecks(ctx, me, mine);
+        for (const r of ownRows) {
+          const comp = computations.get(r.id);
+          if (!comp) continue;
+          badges.set(r.id, {
+            status: comp.check.status,
+            difference: comp.check.difference,
+            expectedTotal: comp.check.expectedTotal,
+            lagDays: comp.window.lagDays,
+            windowFromIso: new Date(comp.window.fromMs).toISOString(),
+            windowToIso: new Date(comp.window.toMs).toISOString(),
+            reason: comp.check.statusReason,
+          });
+        }
+      }
       return {
         entries: rows.map((r) => ({
           id: r.id,
@@ -48304,6 +48534,7 @@ export const Actions = {
           stubSha256: r.stubSha256,
           source: r.source,
           deliveryId: r.deliveryId,
+          check: badges.get(r.id) ?? null,
         })),
       };
     },
@@ -55395,6 +55626,384 @@ export const Actions = {
         figured: totals.figured,
         unfigured: totals.unfigured,
       };
+    },
+  }),
+
+  // ---- Settlement check (owner's build, 2026-11-15) -------------------------
+  // Should-paid vs did-paid, AUTOMATIC per settlement: this action
+  // is the DETAIL view behind the badge every Pay Book entry carries
+  // in listPayEntries. It compares the caller's sealed loads in the
+  // coverage window (figured under their My Pay setting) against ONE
+  // of their own Pay Book entries as recorded — hand-logged or
+  // stub-filed; it does NOT read a carrier statement itself.
+  // The window defaults to the deterministic automatic window
+  // (settlementCheck.ts: ends at pay date − the payer's PAY LAG —
+  // the driver's own per-carrier setting, default 0, never an
+  // assumed week in the hole — and chains from the previous
+  // same-payer settlement's window end) and is PRINTED in the
+  // result, lag included; fromMs/toMs override it when a carrier's
+  // period doesn't match. Read-only: seals nothing, writes nothing. Ownership via
+  // payEntryOwnedBy — a foreign or missing entry answers exactly
+  // like "not found" and leaks nothing.
+
+  // ---- Payer pay lag (settlement check settings) ----------------------------
+  // How long after a work period each payer settles it — set once
+  // per carrier by the driver, then it drives every automatic
+  // settlement-check window for that payer. 0 = same week,
+  // 7 = a week in the hole, up to 30. Default (unset) is 0: the
+  // check never assumes arrears. A plain settings write (like the
+  // My Pay setting) — nothing seals; changing it simply re-runs
+  // that payer's checks on the next read, because every check is
+  // computed lazily from current records.
+
+  getPayerPayLag: defineAction({
+    description: "The caller's pay-lag setting for one payer (days after the work period the payer settles; 0 = same week, also the unset default).",
+    request: z.object({ payer: z.string().min(1).max(120) }),
+    response: z.object({ payer: z.string(), lagDays: z.number(), isSet: z.boolean() }),
+    async handler(ctx, args) {
+      const me = await myUsername(ctx);
+      const db = ctx.db<typeof schema>();
+      const key = payerKeyOf(args.payer);
+      const rows = (await db.select().from(schema.payerPayLag)).filter(
+        (r) => r.username === me && r.payerKey === key,
+      );
+      return { payer: args.payer, lagDays: rows[0]?.lagDays ?? 0, isSet: rows.length > 0 };
+    },
+  }),
+
+  setPayerPayLag: defineAction({
+    description: "Set the caller's pay lag for one payer (0–30 days). Drives every automatic settlement-check window for that payer from the next read.",
+    request: z.object({ payer: z.string().min(1).max(120), lagDays: z.number().int().min(0).max(30) }),
+    response: z.object({ ok: z.literal(true), payer: z.string(), lagDays: z.number() }),
+    async handler(ctx, args) {
+      const me = await myUsername(ctx);
+      const db = ctx.db<typeof schema>();
+      const key = payerKeyOf(args.payer);
+      const rows = (await db.select().from(schema.payerPayLag)).filter(
+        (r) => r.username === me && r.payerKey === key,
+      );
+      if (rows[0]) {
+        await db
+          .update(schema.payerPayLag)
+          .set({ lagDays: args.lagDays, payer: args.payer.trim(), updatedAt: new Date() })
+          .where(eq(schema.payerPayLag.id, rows[0].id));
+      } else {
+        await db.insert(schema.payerPayLag).values({
+          username: me,
+          payerKey: key,
+          payer: args.payer.trim(),
+          lagDays: args.lagDays,
+        });
+      }
+      ctx.invalidateQueries();
+      return { ok: true as const, payer: args.payer, lagDays: args.lagDays };
+    },
+  }),
+
+  getSettlementCheck: defineAction({
+    description: "The caller's own settlement cross-check for one Pay Book entry: expected pay from their sealed loads in the window (automatic — pay-lag chained — with any stored per-entry overrides applied and labelled) vs the entry's recorded gross, with deductions reconciled. Read-only.",
+    request: z.object({
+      payEntryId: z.number().int().positive(),
+    }),
+    response: z.object({
+      found: z.boolean(),
+      entry: z
+        .object({
+          id: z.number(),
+          payer: z.string(),
+          kind: z.string(),
+          paidAtIso: z.string(),
+          gross: z.number(),
+        })
+        .nullable(),
+      payBasis: z.string(),
+      driverCpm: z.number().nullable(),
+      driverPayPct: z.number().nullable(),
+      lagDays: z.number(),
+      window: z
+        .object({ fromIso: z.string(), toIso: z.string(), basis: z.string(), automatic: z.boolean() })
+        .nullable(),
+      override: z
+        .object({
+          windowFromIso: z.string().nullable(),
+          windowToIso: z.string().nullable(),
+          excludedLoadIds: z.array(z.number()),
+          includedLoadIds: z.array(z.number()),
+        })
+        .nullable(),
+      adjusted: z.boolean(),
+      adjustmentNotes: z.array(z.string()),
+      lines: z.array(
+        z.object({
+          loadId: z.number(),
+          label: z.string(),
+          deliveredAtIso: z.string(),
+          expectedPay: z.number().nullable(),
+          basisNote: z.string(),
+          pulledIn: z.boolean(),
+        }),
+      ),
+      heldOut: z.array(
+        z.object({
+          loadId: z.number(),
+          label: z.string(),
+          deliveredAtIso: z.string(),
+          expectedPay: z.number().nullable(),
+          basisNote: z.string(),
+        }),
+      ),
+      otherLoads: z.array(
+        z.object({
+          loadId: z.number(),
+          label: z.string(),
+          deliveredAtIso: z.string(),
+          expectedPay: z.number().nullable(),
+          basisNote: z.string(),
+        }),
+      ),
+      unfigured: z.array(z.object({ loadId: z.number(), label: z.string(), reason: z.string() })),
+      expectedTotal: z.number(),
+      actualGross: z.number(),
+      difference: z.number(),
+      status: z.string(),
+      statusReason: z.string().nullable(),
+      shortBy: z.number(),
+      overBy: z.number(),
+      totalDeductions: z.number(),
+      withheld: z.number(),
+      itemizedLines: z.array(z.object({ label: z.string(), amount: z.number(), category: z.string() })),
+      deductionBreakdown: z.array(z.object({ category: z.string(), amount: z.number() })),
+      actualNet: z.number(),
+      expectedNet: z.number(),
+      perDiem: z.number(),
+      entryMathOk: z.boolean(),
+      entryMathNote: z.string(),
+      note: z.string(),
+    }),
+    async handler(ctx, args) {
+      const empty = {
+        found: false,
+        entry: null,
+        payBasis: "cpm",
+        driverCpm: null,
+        driverPayPct: null,
+        lagDays: 0,
+        window: null,
+        override: null,
+        adjusted: false,
+        adjustmentNotes: [],
+        lines: [],
+        heldOut: [],
+        otherLoads: [],
+        unfigured: [],
+        expectedTotal: 0,
+        actualGross: 0,
+        difference: 0,
+        status: "no_data",
+        statusReason: null,
+        shortBy: 0,
+        overBy: 0,
+        totalDeductions: 0,
+        withheld: 0,
+        itemizedLines: [],
+        deductionBreakdown: [],
+        actualNet: 0,
+        expectedNet: 0,
+        perDiem: 0,
+        entryMathOk: true,
+        entryMathNote: "",
+        note: "That pay entry isn't in your Pay Book.",
+      };
+      const me = await myUsername(ctx);
+      const row = await payEntryOwnedBy(ctx, args.payEntryId, me);
+      if (!row) return empty;
+
+      const db = ctx.db<typeof schema>();
+      const profRows = await db
+        .select()
+        .from(schema.profile)
+        .where(eq(schema.profile.id, myProfileId(ctx)))
+        .limit(1);
+      const prof = profRows[0];
+      const entryOut = {
+        id: row.id,
+        payer: row.payer,
+        kind: row.kind,
+        paidAtIso: row.paidAt.toISOString(),
+        gross: row.gross,
+      };
+      if (row.isForm) {
+        // A year-end form is paperwork, not a settlement — it is
+        // never checked, and the answer says so plainly.
+        return {
+          ...empty,
+          found: true,
+          entry: entryOut,
+          payBasis: prof?.payBasis ?? "cpm",
+          driverCpm: prof?.driverCpm ?? null,
+          driverPayPct: prof?.driverPayPct ?? null,
+          statusReason: "This is a year-end form entry, not a settlement — forms are paperwork and are never checked.",
+          note: "Year-end forms record the paperwork itself; the paychecks that carried the money are the entries that get checked.",
+        };
+      }
+
+      // The check is computed over the caller's OWN entry history
+      // (payEntries is username-keyed — scope applied here, the
+      // getMoneyOverview pattern; the checked entry itself is
+      // included in case it reached the caller via a delivery), so
+      // its window chains correctly off its payer's earlier
+      // settlements, with its stored overrides applied.
+      const mine = (await db.select().from(schema.payEntries)).filter((e) => e.username === me);
+      if (!mine.some((e) => e.id === row.id)) mine.push(row);
+      const computations = await computeEntryChecks(ctx, me, mine);
+      const comp = computations.get(row.id);
+      if (!comp) return empty;
+      const c = comp.check;
+      const w = comp.window;
+      const overrideMap = await checkOverridesFor(ctx, me);
+      const ov = overrideMap.get(row.id) ?? null;
+
+      // Nearby sealed loads the driver could pull into this check:
+      // not counted, not held out, delivered within 30 days either
+      // side of the window. Bounded and read-only.
+      const { lines: allLines } = await settlementExpectedLines(ctx, 0, Number.MAX_SAFE_INTEGER);
+      const countedIds = new Set(comp.lines.map((l) => l.loadId));
+      const heldOutIds = new Set(comp.heldOut.map((l) => l.loadId));
+      const DAY = 86400000;
+      const otherLoads = allLines
+        .filter(
+          (l) =>
+            !countedIds.has(l.loadId) &&
+            !heldOutIds.has(l.loadId) &&
+            l.deliveredAtMs >= w.fromMs - 30 * DAY &&
+            l.deliveredAtMs <= w.toMs + 30 * DAY,
+        )
+        .slice(0, 50);
+      const lineOut = (l: SettlementCheckExpectedLine) => ({
+        loadId: l.loadId,
+        label: l.label,
+        deliveredAtIso: new Date(l.deliveredAtMs).toISOString(),
+        expectedPay: l.expectedPay,
+        basisNote: l.basisNote,
+      });
+      const pulledInIds = new Set(comp.pulledIn.map((l) => l.loadId));
+      return {
+        found: true,
+        entry: entryOut,
+        payBasis: prof?.payBasis ?? "cpm",
+        driverCpm: prof?.driverCpm ?? null,
+        driverPayPct: prof?.driverPayPct ?? null,
+        lagDays: w.lagDays,
+        window: {
+          fromIso: new Date(w.fromMs).toISOString(),
+          toIso: new Date(w.toMs).toISOString(),
+          basis: w.basis,
+          automatic: !w.adjustedByDriver && !w.recorded,
+        },
+        override: ov
+          ? {
+              windowFromIso: ov.windowFromMs != null ? new Date(ov.windowFromMs).toISOString() : null,
+              windowToIso: ov.windowToMs != null ? new Date(ov.windowToMs).toISOString() : null,
+              excludedLoadIds: [...ov.excludedLoadIds],
+              includedLoadIds: [...ov.includedLoadIds],
+            }
+          : null,
+        adjusted: c.adjusted,
+        adjustmentNotes: c.adjustmentNotes,
+        lines: comp.lines.map((l) => ({ ...lineOut(l), pulledIn: pulledInIds.has(l.loadId) })),
+        heldOut: comp.heldOut.map(lineOut),
+        otherLoads: otherLoads.map(lineOut),
+        unfigured: c.unfigured,
+        expectedTotal: c.expectedTotal,
+        actualGross: c.actualGross,
+        difference: c.difference,
+        status: c.status,
+        statusReason: c.statusReason,
+        shortBy: c.shortBy,
+        overBy: c.overBy,
+        totalDeductions: c.totalDeductions,
+        withheld: c.withheld,
+        itemizedLines: c.itemizedLines,
+        deductionBreakdown: c.deductionBreakdown,
+        actualNet: c.actualNet,
+        expectedNet: c.expectedNet,
+        perDiem: c.perDiem,
+        entryMathOk: c.entryMathOk,
+        entryMathNote: c.entryMathNote,
+        note: "This check compares what your sealed loads in the window should have paid you (your My Pay setting) against this settlement as recorded in your Pay Book — logged by hand or filed from a stub. It doesn't read the carrier's statement itself. Your edits (window, held-out or pulled-in loads, the payer's pay lag) steer only this check — they never touch a sealed load or the entry's own figures — and an edited check is labelled as edited on its face.",
+      };
+    },
+  }),
+
+  // ---- Settlement check overrides (verify + edit) ---------------------------
+  // The driver's edits to ONE entry's check: a window override and
+  // load hold-outs / pull-ins, stored per entry and applied on the
+  // lazy recompute — so they take effect immediately, badges
+  // included. Ownership via payEntryOwnedBy, mirroring
+  // updatePayEntryDeductions: a foreign or missing entry answers
+  // like a missing one. Overrides never touch sealed loads or the
+  // entry's own figures (the Pay Book has its own edit path).
+
+  setSettlementCheckOverride: defineAction({
+    description: "Save the caller's check overrides for one of their Pay Book entries: window override (both dates or neither) plus held-out and pulled-in load ids.",
+    request: z.object({
+      payEntryId: z.number().int().positive(),
+      windowFromMs: z.number().nullable(),
+      windowToMs: z.number().nullable(),
+      excludedLoadIds: z.array(z.number().int().positive()).max(200),
+      includedLoadIds: z.array(z.number().int().positive()).max(200),
+    }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable() }),
+    async handler(ctx, args) {
+      const me = await myUsername(ctx);
+      const row = await payEntryOwnedBy(ctx, args.payEntryId, me);
+      if (!row) return { ok: false, error: "That pay entry no longer exists." };
+      if ((args.windowFromMs == null) !== (args.windowToMs == null)) {
+        return { ok: false, error: "Set both window dates, or clear both to use the automatic window." };
+      }
+      if (args.windowFromMs != null && args.windowToMs != null && args.windowFromMs > args.windowToMs) {
+        return { ok: false, error: "The window's first day has to come before its last day." };
+      }
+      const db = ctx.db<typeof schema>();
+      const existing = (await db.select().from(schema.payEntryCheckOverrides)).filter(
+        (r) => r.username === me && r.payEntryId === args.payEntryId,
+      );
+      const values = {
+        windowFromAt: args.windowFromMs != null ? new Date(args.windowFromMs) : null,
+        windowToAt: args.windowToMs != null ? new Date(args.windowToMs) : null,
+        excludedLoadIds: args.excludedLoadIds.length ? JSON.stringify([...new Set(args.excludedLoadIds)]) : null,
+        includedLoadIds: args.includedLoadIds.length ? JSON.stringify([...new Set(args.includedLoadIds)]) : null,
+      };
+      if (existing[0]) {
+        await db
+          .update(schema.payEntryCheckOverrides)
+          .set({ ...values, updatedAt: new Date() })
+          .where(eq(schema.payEntryCheckOverrides.id, existing[0].id));
+      } else {
+        await db.insert(schema.payEntryCheckOverrides).values({ username: me, payEntryId: args.payEntryId, ...values });
+      }
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
+    },
+  }),
+
+  clearSettlementCheckOverride: defineAction({
+    description: "Clear all of the caller's check overrides for one Pay Book entry — its check returns to the raw automatic computation.",
+    request: z.object({ payEntryId: z.number().int().positive() }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable() }),
+    async handler(ctx, args) {
+      const me = await myUsername(ctx);
+      const row = await payEntryOwnedBy(ctx, args.payEntryId, me);
+      if (!row) return { ok: false, error: "That pay entry no longer exists." };
+      const db = ctx.db<typeof schema>();
+      const existing = (await db.select().from(schema.payEntryCheckOverrides)).filter(
+        (r) => r.username === me && r.payEntryId === args.payEntryId,
+      );
+      if (existing[0]) {
+        await db.delete(schema.payEntryCheckOverrides).where(eq(schema.payEntryCheckOverrides.id, existing[0].id));
+      }
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
     },
   }),
 

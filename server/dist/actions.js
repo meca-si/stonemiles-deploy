@@ -146,8 +146,10 @@ __export(exports_schema_sqlite, {
   passportPrefs: () => passportPrefs,
   passwordResetTokens: () => passwordResetTokens,
   payEntries: () => payEntries,
+  payEntryCheckOverrides: () => payEntryCheckOverrides,
   payStubDeliveries: () => payStubDeliveries,
   payStubEmailDeliveries: () => payStubEmailDeliveries,
+  payerPayLag: () => payerPayLag,
   paymentLedger: () => paymentLedger,
   paymentPackets: () => paymentPackets,
   perfEvents: () => perfEvents,
@@ -359,8 +361,10 @@ __export(exports_schema_pg, {
   passportPrefs: () => passportPrefs2,
   passwordResetTokens: () => passwordResetTokens2,
   payEntries: () => payEntries2,
+  payEntryCheckOverrides: () => payEntryCheckOverrides2,
   payStubDeliveries: () => payStubDeliveries2,
   payStubEmailDeliveries: () => payStubEmailDeliveries2,
+  payerPayLag: () => payerPayLag2,
   paymentLedger: () => paymentLedger2,
   paymentPackets: () => paymentPackets2,
   perfEvents: () => perfEvents2,
@@ -5382,6 +5386,21 @@ class ExtraConfigColumn extends PgColumn {
     return this;
   }
 }
+
+class IndexedColumn {
+  static [entityKind] = "IndexedColumn";
+  constructor(name, keyAsName, type, indexConfig) {
+    this.name = name;
+    this.keyAsName = keyAsName;
+    this.type = type;
+    this.indexConfig = indexConfig;
+  }
+  name;
+  keyAsName;
+  type;
+  indexConfig;
+}
+
 class PgArrayBuilder extends PgColumnBuilder {
   static [entityKind] = "PgArrayBuilder";
   constructor(name, baseBuilder, size) {
@@ -7868,6 +7887,49 @@ function sqliteTableBase(name, columns, extraConfig, schema, baseName = name) {
 var sqliteTable = (name, columns, extraConfig) => {
   return sqliteTableBase(name, columns, extraConfig);
 };
+
+// ../node_modules/drizzle-orm/sqlite-core/indexes.js
+class IndexBuilderOn {
+  constructor(name, unique) {
+    this.name = name;
+    this.unique = unique;
+  }
+  static [entityKind] = "SQLiteIndexBuilderOn";
+  on(...columns) {
+    return new IndexBuilder(this.name, columns, this.unique);
+  }
+}
+
+class IndexBuilder {
+  static [entityKind] = "SQLiteIndexBuilder";
+  config;
+  constructor(name, columns, unique) {
+    this.config = {
+      name,
+      columns,
+      unique,
+      where: undefined
+    };
+  }
+  where(condition) {
+    this.config.where = condition;
+    return this;
+  }
+  build(table) {
+    return new Index(this.config, table);
+  }
+}
+
+class Index {
+  static [entityKind] = "SQLiteIndex";
+  config;
+  constructor(config, table) {
+    this.config = { ...config, table };
+  }
+}
+function uniqueIndex(name) {
+  return new IndexBuilderOn(name, true);
+}
 
 // ../node_modules/drizzle-orm/sqlite-core/primary-keys.js
 function primaryKey2(...config) {
@@ -10671,6 +10733,108 @@ var dutyCorrectionReviews = sqliteTable("duty_correction_reviews", {
   reviewedAt: integer3("reviewed_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
   createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
 });
+var payerPayLag = sqliteTable("payer_pay_lag", {
+  id: integer3("id").primaryKey({ autoIncrement: true }),
+  username: text2("username").notNull(),
+  payerKey: text2("payer_key").notNull(),
+  payer: text2("payer").notNull(),
+  lagDays: integer3("lag_days").notNull().default(0),
+  createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
+  updatedAt: integer3("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
+}, (t) => [uniqueIndex("payer_pay_lag_username_payer_key_unique").on(t.username, t.payerKey)]);
+var payEntryCheckOverrides = sqliteTable("pay_entry_check_overrides", {
+  id: integer3("id").primaryKey({ autoIncrement: true }),
+  username: text2("username").notNull(),
+  payEntryId: integer3("pay_entry_id").notNull(),
+  windowFromAt: integer3("window_from_at", { mode: "timestamp_ms" }),
+  windowToAt: integer3("window_to_at", { mode: "timestamp_ms" }),
+  excludedLoadIds: text2("excluded_load_ids"),
+  includedLoadIds: text2("included_load_ids"),
+  createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
+  updatedAt: integer3("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
+}, (t) => [uniqueIndex("pay_entry_check_overrides_username_entry_unique").on(t.username, t.payEntryId)]);
+
+// ../node_modules/drizzle-orm/pg-core/indexes.js
+class IndexBuilderOn2 {
+  constructor(unique, name) {
+    this.unique = unique;
+    this.name = name;
+  }
+  static [entityKind] = "PgIndexBuilderOn";
+  on(...columns) {
+    return new IndexBuilder2(columns.map((it) => {
+      if (is(it, SQL)) {
+        return it;
+      }
+      it = it;
+      const clonedIndexedColumn = new IndexedColumn(it.name, !!it.keyAsName, it.columnType, it.indexConfig);
+      it.indexConfig = JSON.parse(JSON.stringify(it.defaultConfig));
+      return clonedIndexedColumn;
+    }), this.unique, false, this.name);
+  }
+  onOnly(...columns) {
+    return new IndexBuilder2(columns.map((it) => {
+      if (is(it, SQL)) {
+        return it;
+      }
+      it = it;
+      const clonedIndexedColumn = new IndexedColumn(it.name, !!it.keyAsName, it.columnType, it.indexConfig);
+      it.indexConfig = it.defaultConfig;
+      return clonedIndexedColumn;
+    }), this.unique, true, this.name);
+  }
+  using(method, ...columns) {
+    return new IndexBuilder2(columns.map((it) => {
+      if (is(it, SQL)) {
+        return it;
+      }
+      it = it;
+      const clonedIndexedColumn = new IndexedColumn(it.name, !!it.keyAsName, it.columnType, it.indexConfig);
+      it.indexConfig = JSON.parse(JSON.stringify(it.defaultConfig));
+      return clonedIndexedColumn;
+    }), this.unique, true, this.name, method);
+  }
+}
+
+class IndexBuilder2 {
+  static [entityKind] = "PgIndexBuilder";
+  config;
+  constructor(columns, unique, only, name, method = "btree") {
+    this.config = {
+      name,
+      columns,
+      unique,
+      only,
+      method
+    };
+  }
+  concurrently() {
+    this.config.concurrently = true;
+    return this;
+  }
+  with(obj) {
+    this.config.with = obj;
+    return this;
+  }
+  where(condition) {
+    this.config.where = condition;
+    return this;
+  }
+  build(table) {
+    return new Index2(this.config, table);
+  }
+}
+
+class Index2 {
+  static [entityKind] = "PgIndex";
+  config;
+  constructor(config, table) {
+    this.config = { ...config, table };
+  }
+}
+function uniqueIndex2(name) {
+  return new IndexBuilderOn2(true, name);
+}
 
 // src/schema-pg.ts
 var profile2 = pgTable("profile", {
@@ -13439,6 +13603,26 @@ var dutyCorrectionReviews2 = pgTable("duty_correction_reviews", {
   reviewedAt: timestamp("reviewed_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
 });
+var payerPayLag2 = pgTable("payer_pay_lag", {
+  id: serial("id").primaryKey(),
+  username: text("username").notNull(),
+  payerKey: text("payer_key").notNull(),
+  payer: text("payer").notNull(),
+  lagDays: integer2("lag_days").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
+}, (t) => [uniqueIndex2("payer_pay_lag_username_payer_key_unique").on(t.username, t.payerKey)]);
+var payEntryCheckOverrides2 = pgTable("pay_entry_check_overrides", {
+  id: serial("id").primaryKey(),
+  username: text("username").notNull(),
+  payEntryId: integer2("pay_entry_id").notNull(),
+  windowFromAt: timestamp("window_from_at", { withTimezone: true, mode: "date" }),
+  windowToAt: timestamp("window_to_at", { withTimezone: true, mode: "date" }),
+  excludedLoadIds: text("excluded_load_ids"),
+  includedLoadIds: text("included_load_ids"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
+}, (t) => [uniqueIndex2("pay_entry_check_overrides_username_entry_unique").on(t.username, t.payEntryId)]);
 
 // src/schema.ts
 var impl = process.env.STONEMILES_DIALECT === "postgres" ? exports_schema_pg : exports_schema_sqlite;
@@ -13640,6 +13824,8 @@ var faultReports3 = impl.faultReports;
 var trailerConnections3 = impl.trailerConnections;
 var trailerReadings3 = impl.trailerReadings;
 var dutyCorrectionReviews3 = impl.dutyCorrectionReviews;
+var payerPayLag3 = impl.payerPayLag;
+var payEntryCheckOverrides3 = impl.payEntryCheckOverrides;
 var accounts3 = impl.accounts;
 var authSessions3 = impl.authSessions;
 var passwordResetTokens3 = impl.passwordResetTokens;
@@ -17068,8 +17254,172 @@ function settlementTotals(lines) {
   };
 }
 
-// src/invoicing.ts
+// src/settlementCheck.ts
+var SETTLEMENT_MATCH_TOLERANCE = 1;
+var DAY_MS6 = 86400000;
 var round24 = (n) => Math.round(n * 100) / 100;
+function computeSettlementCheck(expectedLines, entry, adjustments) {
+  const lines = [...expectedLines];
+  const unfigured = lines.filter((l) => l.expectedPay == null).map((l) => ({ loadId: l.loadId, label: l.label, reason: l.basisNote }));
+  const figured = lines.filter((l) => l.expectedPay != null);
+  const expectedTotal = fromCents(figured.reduce((s, l) => s + toCents(l.expectedPay ?? 0), 0));
+  const actualGross = round24(entry.gross);
+  const difference = round24(actualGross - expectedTotal);
+  let status;
+  let statusReason = null;
+  if (figured.length === 0) {
+    status = "no_data";
+    statusReason = lines.length === 0 ? "No sealed loads delivered in that window \u2014 there's nothing to check this settlement against yet." : "None of the sealed loads in that window could be figured \u2014 each one says why below, and nothing is guessed in.";
+  } else if (Math.abs(difference) <= SETTLEMENT_MATCH_TOLERANCE) {
+    status = "matches";
+  } else if (difference < 0) {
+    status = "short";
+  } else {
+    status = "over";
+  }
+  const itemizedLines = (entry.deductionLines ?? []).filter((l) => toCents(l.amount) > 0).map((l) => ({ label: l.label, amount: round24(l.amount), category: classifyDeductionLabel(l.label) }));
+  const itemizedC = itemizedLines.reduce((s, l) => s + toCents(l.amount), 0);
+  const otherC = toCents(entry.otherDeductions);
+  const withheldC = toCents(entry.federalWithheld) + toCents(entry.stateWithheld);
+  const catCents = new Map;
+  const add = (c, cents) => {
+    if (cents !== 0)
+      catCents.set(c, (catCents.get(c) ?? 0) + cents);
+  };
+  for (const l of itemizedLines)
+    add(l.category, toCents(l.amount));
+  const remainderC = otherC - itemizedC;
+  if (remainderC > 0)
+    add("Other", remainderC);
+  add("Taxes withheld", withheldC);
+  const deductionBreakdown = [...catCents.entries()].map(([category, c]) => ({ category, amount: fromCents(c) })).sort((a, b) => b.amount - a.amount);
+  const totalDeductions = fromCents(otherC);
+  const withheld = fromCents(withheldC);
+  const actualNet = round24(actualGross - totalDeductions - withheld);
+  const expectedNet = round24(expectedTotal - totalDeductions - withheld);
+  const entryMathOk = itemizedC <= otherC;
+  const entryMathNote = entryMathOk ? "This entry's figures reconcile." : "Heads up: this entry's itemized deduction lines add up to more than its recorded deductions total \u2014 the entry's own figures don't reconcile. Edit the entry's deductions in the Pay Book to fix the record.";
+  const heldOut = (adjustments?.heldOut ?? []).map((l) => ({ loadId: l.loadId, label: l.label }));
+  const pulledIn = (adjustments?.pulledIn ?? []).map((l) => ({ loadId: l.loadId, label: l.label }));
+  const adjustmentNotes = [];
+  if (adjustments?.windowAdjusted) {
+    adjustmentNotes.push("Window adjusted by driver \u2014 these dates are the driver's, not the automatic window.");
+  }
+  if (heldOut.length > 0) {
+    adjustmentNotes.push(`${heldOut.length} load${heldOut.length === 1 ? "" : "s"} held out by driver (${heldOut.map((l) => `Load #${l.loadId}`).join(", ")}) \u2014 not counted in the expected total.`);
+  }
+  if (pulledIn.length > 0) {
+    adjustmentNotes.push(`${pulledIn.length} load${pulledIn.length === 1 ? "" : "s"} pulled in by driver (${pulledIn.map((l) => `Load #${l.loadId}`).join(", ")}) \u2014 counted in the expected total.`);
+  }
+  const adjusted = adjustmentNotes.length > 0;
+  return {
+    lines,
+    unfigured,
+    figuredCount: figured.length,
+    expectedTotal,
+    actualGross,
+    difference,
+    status,
+    statusReason,
+    shortBy: status === "short" ? round24(-difference) : 0,
+    overBy: status === "over" ? round24(difference) : 0,
+    totalDeductions,
+    withheld,
+    itemizedLines,
+    deductionBreakdown,
+    actualNet,
+    expectedNet,
+    perDiem: round24(entry.perDiem ?? 0),
+    entryMathOk,
+    entryMathNote,
+    adjusted,
+    adjustmentNotes,
+    heldOut,
+    pulledIn
+  };
+}
+function startOfDayMs(ms) {
+  const d = new Date(ms);
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+}
+var MONTHS3 = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function dayLabel(ms) {
+  const d = new Date(ms);
+  return `${MONTHS3[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`;
+}
+function payLagPhrase(lagDays) {
+  if (lagDays === 0)
+    return "pays the same week (0-day lag)";
+  if (lagDays === 7)
+    return "pays a week in the hole (7-day lag)";
+  return `pays ${lagDays} days after the work (${lagDays}-day lag)`;
+}
+function payerKeyOf(payer) {
+  return payer.trim().toLowerCase();
+}
+function settlementWindowFor(payer, paidAtMs, prevWindowEndMs, lagDays, opts) {
+  const lag = Math.min(30, Math.max(0, Math.round(lagDays)));
+  if (opts?.recordedPeriod) {
+    const rp = opts.recordedPeriod;
+    return {
+      fromMs: rp.fromMs,
+      toMs: rp.toMs,
+      lagDays: 0,
+      recorded: true,
+      adjustedByDriver: false,
+      basis: `Window: ${dayLabel(rp.fromMs)} \u2013 ${dayLabel(rp.toMs)} \xB7 the period recorded on this ${payer} settlement itself \u2014 a recorded period always wins over pay-lag math.`
+    };
+  }
+  const endDayStart = startOfDayMs(paidAtMs) - lag * DAY_MS6;
+  const autoToMs = endDayStart + DAY_MS6 - 1;
+  let autoFromMs;
+  if (prevWindowEndMs != null) {
+    autoFromMs = prevWindowEndMs + 1;
+    if (autoFromMs > endDayStart)
+      autoFromMs = endDayStart;
+  } else {
+    autoFromMs = endDayStart - 6 * DAY_MS6;
+  }
+  if (opts?.overrideWindow) {
+    const ow = opts.overrideWindow;
+    return {
+      fromMs: ow.fromMs,
+      toMs: ow.toMs,
+      lagDays: lag,
+      recorded: false,
+      adjustedByDriver: true,
+      basis: `Window: ${dayLabel(ow.fromMs)} \u2013 ${dayLabel(ow.toMs)} \xB7 adjusted by driver for this settlement. The automatic window would be ${dayLabel(autoFromMs)} \u2013 ${dayLabel(endDayStart)} \xB7 ${payer} ${payLagPhrase(lag)}.`
+    };
+  }
+  const chainNote = prevWindowEndMs != null ? " Starts the day after your previous settlement's window ended, so no day is counted twice or skipped." : ` Your first ${payer} settlement on record \u2014 the window covers the seven days ending ${dayLabel(endDayStart)}.`;
+  return {
+    fromMs: autoFromMs,
+    toMs: autoToMs,
+    lagDays: lag,
+    recorded: false,
+    adjustedByDriver: false,
+    basis: `Window: ${dayLabel(autoFromMs)} \u2013 ${dayLabel(endDayStart)} \xB7 ${payer} ${payLagPhrase(lag)}.${chainNote}`
+  };
+}
+var EMPTY_CHECK_OVERRIDE = {
+  windowFromMs: null,
+  windowToMs: null,
+  excludedLoadIds: [],
+  includedLoadIds: []
+};
+function applyLoadOverrides(windowLines, allLines, override) {
+  const excluded = new Set(override.excludedLoadIds);
+  const included = new Set(override.includedLoadIds);
+  const heldOut = windowLines.filter((l) => excluded.has(l.loadId));
+  const kept = windowLines.filter((l) => !excluded.has(l.loadId));
+  const inWindow = new Set(windowLines.map((l) => l.loadId));
+  const pulledIn = allLines.filter((l) => included.has(l.loadId) && !inWindow.has(l.loadId) && !excluded.has(l.loadId));
+  const lines = [...kept, ...pulledIn].sort((a, b) => b.deliveredAtMs - a.deliveredAtMs || b.loadId - a.loadId);
+  return { lines, heldOut: [...heldOut], pulledIn: [...pulledIn] };
+}
+
+// src/invoicing.ts
+var round25 = (n) => Math.round(n * 100) / 100;
 var CLAIM_KIND_LABELS = {
   tonu: "TONU (truck ordered, not used)",
   layover: "Layover",
@@ -17079,14 +17429,14 @@ function claimKindLabel(kind) {
   return CLAIM_KIND_LABELS[kind] ?? kind;
 }
 function invoiceLinesFor(load, claims) {
-  const freight = load.rate != null ? round24(load.rate + (load.extraCharges ?? 0)) : null;
+  const freight = load.rate != null ? round25(load.rate + (load.extraCharges ?? 0)) : null;
   const lines = [];
   if (freight != null) {
-    lines.push({ label: "Freight", amount: round24(load.rate) });
+    lines.push({ label: "Freight", amount: round25(load.rate) });
     if ((load.extraCharges ?? 0) > 0) {
       lines.push({
         label: `Additional charges${load.extraChargesNote ? ` \u2014 ${load.extraChargesNote}` : ""}`,
-        amount: round24(load.extraCharges)
+        amount: round25(load.extraCharges)
       });
     }
   }
@@ -17094,7 +17444,7 @@ function invoiceLinesFor(load, claims) {
   for (const c of claims) {
     if (!Number.isFinite(c.amount))
       continue;
-    byKind.set(c.kind, round24((byKind.get(c.kind) ?? 0) + c.amount));
+    byKind.set(c.kind, round25((byKind.get(c.kind) ?? 0) + c.amount));
   }
   let claimsTotal = 0;
   for (const [kind, amt] of byKind) {
@@ -17103,8 +17453,8 @@ function invoiceLinesFor(load, claims) {
     lines.push({ label: claimKindLabel(kind), amount: amt });
     claimsTotal += amt;
   }
-  claimsTotal = round24(claimsTotal);
-  const amount = freight != null ? round24(freight + claimsTotal) : null;
+  claimsTotal = round25(claimsTotal);
+  const amount = freight != null ? round25(freight + claimsTotal) : null;
   return { lines, freight, claimsTotal, amount };
 }
 function formatInvoiceNumber(year, seq) {
@@ -17200,11 +17550,11 @@ function buildProfitLoss(input) {
       incomeByLoad.set(l.loadId, null);
     } else {
       incomeFreight += l.gross;
-      incomeByLoad.set(l.loadId, round24(l.gross + l.claimsTotal));
+      incomeByLoad.set(l.loadId, round25(l.gross + l.claimsTotal));
     }
   }
-  incomeFreight = round24(incomeFreight);
-  incomeClaims = round24(incomeClaims);
+  incomeFreight = round25(incomeFreight);
+  incomeClaims = round25(incomeClaims);
   const taggedByLoad = new Map;
   const byCategory = new Map;
   let unassignedExpenses = 0;
@@ -17213,30 +17563,30 @@ function buildProfitLoss(input) {
     if (!inPeriod(e.spentAtMs, period) || !Number.isFinite(e.amount))
       continue;
     expenseTotal += e.amount;
-    byCategory.set(e.category, round24((byCategory.get(e.category) ?? 0) + e.amount));
+    byCategory.set(e.category, round25((byCategory.get(e.category) ?? 0) + e.amount));
     if (e.loadId != null && loadsIn.some((l) => l.loadId === e.loadId)) {
-      taggedByLoad.set(e.loadId, round24((taggedByLoad.get(e.loadId) ?? 0) + e.amount));
+      taggedByLoad.set(e.loadId, round25((taggedByLoad.get(e.loadId) ?? 0) + e.amount));
     } else {
       unassignedExpenses += e.amount;
     }
   }
-  expenseTotal = round24(expenseTotal);
-  unassignedExpenses = round24(unassignedExpenses);
-  const fuelTotal = round24(input.fuelPurchases.filter((f) => inPeriod(f.purchasedAtMs, period)).reduce((s, f) => s + (Number.isFinite(f.total) ? f.total : 0), 0));
-  const maintTotal = round24(input.maintenance.filter((m) => inPeriod(m.performedAtMs, period)).reduce((s, m) => s + (Number.isFinite(m.cost) ? m.cost : 0), 0));
+  expenseTotal = round25(expenseTotal);
+  unassignedExpenses = round25(unassignedExpenses);
+  const fuelTotal = round25(input.fuelPurchases.filter((f) => inPeriod(f.purchasedAtMs, period)).reduce((s, f) => s + (Number.isFinite(f.total) ? f.total : 0), 0));
+  const maintTotal = round25(input.maintenance.filter((m) => inPeriod(m.performedAtMs, period)).reduce((s, m) => s + (Number.isFinite(m.cost) ? m.cost : 0), 0));
   const costLines = [];
   if (fuelTotal > 0)
     costLines.push({ key: "fuel_purchases", label: "Fuel purchases", amount: fuelTotal });
-  const catLines = [...byCategory.entries()].map(([category, amount]) => ({ key: `expense:${category}`, label: PL_EXPENSE_LABELS[category] ?? category, amount: round24(amount) })).sort((a, b) => b.amount - a.amount || a.label.localeCompare(b.label));
+  const catLines = [...byCategory.entries()].map(([category, amount]) => ({ key: `expense:${category}`, label: PL_EXPENSE_LABELS[category] ?? category, amount: round25(amount) })).sort((a, b) => b.amount - a.amount || a.label.localeCompare(b.label));
   costLines.push(...catLines);
   if (maintTotal > 0)
     costLines.push({ key: "maintenance_log", label: "Maintenance log", amount: maintTotal });
-  const costsTotal = round24(costLines.reduce((s, l) => s + l.amount, 0));
-  const incomeTotal = round24(incomeFreight + incomeClaims);
+  const costsTotal = round25(costLines.reduce((s, l) => s + l.amount, 0));
+  const incomeTotal = round25(incomeFreight + incomeClaims);
   const perLoad = loadsIn.map((l) => {
     const income = incomeByLoad.get(l.loadId) ?? null;
     const costs = taggedByLoad.get(l.loadId) ?? 0;
-    return { loadId: l.loadId, income, costs, net: income != null ? round24(income - costs) : null };
+    return { loadId: l.loadId, income, costs, net: income != null ? round25(income - costs) : null };
   }).sort((a, b) => a.loadId - b.loadId);
   return {
     period,
@@ -17246,7 +17596,7 @@ function buildProfitLoss(input) {
     unfiguredLoads,
     costLines,
     costsTotal,
-    net: round24(incomeTotal - costsTotal),
+    net: round25(incomeTotal - costsTotal),
     perLoad,
     unassignedExpenses
   };
@@ -17331,12 +17681,12 @@ function trackShareStateFor(args) {
 
 // src/recordsBundle.ts
 var money2 = (n) => n.toLocaleString("en-US", { style: "currency", currency: "USD" });
-var MONTHS3 = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+var MONTHS4 = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 function bundleDate(iso) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime()))
     return iso.slice(0, 10);
-  return `${MONTHS3[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`;
+  return `${MONTHS4[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`;
 }
 function bundleDateTime(iso) {
   const d = new Date(iso);
@@ -18393,12 +18743,12 @@ function bondNotification(args) {
     body: `Your BMC-84 broker bond expires${args.expiresOn ? ` on ${args.expiresOn}` : ""} \u2014 ${days} day${days === 1 ? "" : "s"} left. Renew it and update the expiry date on your broker identity before tenders are held.`
   };
 }
-var MONTHS4 = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+var MONTHS5 = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 function monthYearOf(yyyyMmDd) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(yyyyMmDd.trim());
   if (!m)
     return null;
-  const month = MONTHS4[Number(m[2]) - 1];
+  const month = MONTHS5[Number(m[2]) - 1];
   if (!month)
     return null;
   return `${month} ${m[1]}`;
@@ -19346,7 +19696,7 @@ function simulatedTrailerReadings(now) {
 }
 
 // src/factoring.ts
-var round25 = (n) => Math.round(n * 100) / 100;
+var round26 = (n) => Math.round(n * 100) / 100;
 var FACTOR_STATUS_LABELS = {
   none: "Not packaged",
   packaged: "Packaged \u2014 ready to send",
@@ -19438,15 +19788,15 @@ function buildArSummary(invoices, nowMs) {
       key: b.key,
       label: b.label,
       count: byKey.get(b.key).count,
-      total: round25(byKey.get(b.key).total)
+      total: round26(byKey.get(b.key).total)
     })),
     outstandingCount,
-    outstandingTotal: round25(outstandingTotal),
+    outstandingTotal: round26(outstandingTotal),
     factoredCount,
-    factoredTotal: round25(factoredTotal),
+    factoredTotal: round26(factoredTotal),
     packagedCount,
     paidCount,
-    paidTotal: round25(paidTotal),
+    paidTotal: round26(paidTotal),
     settledFactoredCount,
     draftCount
   };
@@ -19511,7 +19861,7 @@ function brokerCreditSummary(facts) {
 }
 
 // src/fuelOptimizer.ts
-var round26 = (n) => Math.round(n * 100) / 100;
+var round27 = (n) => Math.round(n * 100) / 100;
 var round3 = (n) => Math.round(n * 1000) / 1000;
 var DIESEL_PRICE_BAND = { min: 0.5, max: 15 };
 var sanePrice = (price) => price != null && Number.isFinite(price) && price >= DIESEL_PRICE_BAND.min && price <= DIESEL_PRICE_BAND.max ? price : null;
@@ -19678,7 +20028,7 @@ function simulate(input, stops, rank) {
         basePrice: stop.base,
         taxPerGal: stop.tax,
         surcharge: stop.surcharge,
-        cost: stop.price != null ? round26(buy * stop.price) : null,
+        cost: stop.price != null ? round27(buy * stop.price) : null,
         why
       };
       purchases.push(purchase);
@@ -19705,11 +20055,11 @@ function simulate(input, stops, rank) {
       credit += p.gallons * p.taxPerGal;
     }
   }
-  const iftaSettlement = settlementKnown ? round26(owed - credit) : null;
-  const pumpCost = round26(purchases.reduce((sum, p) => sum + (p.cost ?? 0), 0));
+  const iftaSettlement = settlementKnown ? round27(owed - credit) : null;
+  const pumpCost = round27(purchases.reduce((sum, p) => sum + (p.cost ?? 0), 0));
   const unpricedGallons = round3(purchases.filter((p) => p.price == null).reduce((sum, p) => sum + p.gallons, 0));
   const totalGallons = round3(purchases.reduce((sum, p) => sum + p.gallons, 0));
-  const netTripCost = iftaSettlement != null && unpricedGallons === 0 ? round26(pumpCost + iftaSettlement) : null;
+  const netTripCost = iftaSettlement != null && unpricedGallons === 0 ? round27(pumpCost + iftaSettlement) : null;
   const verdicts = stops.map((s) => {
     const bought = boughtAt.get(s.id);
     if (bought)
@@ -19763,7 +20113,7 @@ function planRouteFuel(input) {
   const effective = { ...input, segments };
   const optimized = simulate(effective, stops, "base");
   const naive = simulate(effective, stops, "pump");
-  const savingsEstimate = optimized.totals.netTripCost != null && naive.totals.netTripCost != null ? round26(naive.totals.netTripCost - optimized.totals.netTripCost) : null;
+  const savingsEstimate = optimized.totals.netTripCost != null && naive.totals.netTripCost != null ? round27(naive.totals.netTripCost - optimized.totals.netTripCost) : null;
   const notes = [];
   notes.push("Every price in this plan is an estimate from your fuel log and labelled driver reports \u2014 no live feed, and no price is invented for a stop that has none.");
   if (optimized.purchases.length === 0 && optimized.rangeGaps.length === 0) {
@@ -20222,7 +20572,7 @@ function dqfAlertNotification(args) {
 }
 
 // src/homeTime.ts
-var DAY_MS6 = 86400000;
+var DAY_MS7 = 86400000;
 var HOUR_MS2 = 3600000;
 var RETURN_ALLOWANCE_SAME_STATE_MS = 6 * HOUR_MS2;
 var RETURN_ALLOWANCE_OUT_OF_STATE_MS = 24 * HOUR_MS2;
@@ -20265,7 +20615,7 @@ function commitmentDeadlines(c, fromMs, toMs) {
     const anchor = ms(c.anchorAt);
     const n = c.everyNDays;
     if (anchor != null && n != null && Number.isFinite(n) && n >= 1) {
-      const step = Math.floor(n) * DAY_MS6;
+      const step = Math.floor(n) * DAY_MS7;
       const kMin = Math.ceil((fromMs - anchor) / step);
       const kMax = Math.floor((toMs - 1 - anchor) / step);
       for (let k = kMin;k <= kMax; k++)
@@ -20276,10 +20626,10 @@ function commitmentDeadlines(c, fromMs, toMs) {
     d.setUTCHours(0, 0, 0, 0);
     let t = d.getTime();
     while (new Date(t).getUTCDay() !== 6)
-      t += DAY_MS6;
+      t += DAY_MS7;
     if (t < fromMs)
-      t += 7 * DAY_MS6;
-    for (;t < toMs; t += 7 * DAY_MS6)
+      t += 7 * DAY_MS7;
+    for (;t < toMs; t += 7 * DAY_MS7)
       push(t);
   }
   return out.sort((a, b) => a - b);
@@ -20293,7 +20643,7 @@ function allDeadlines(commitments, fromMs, toMs) {
   return out.sort((a, b) => a.deadlineAt - b.deadlineAt);
 }
 function nextHomeDeadline(commitments, nowMs) {
-  const all = allDeadlines(commitments, nowMs - DEADLINE_LOOKBACK_MS, nowMs + 366 * DAY_MS6);
+  const all = allDeadlines(commitments, nowMs - DEADLINE_LOOKBACK_MS, nowMs + 366 * DAY_MS7);
   return all[0] ?? null;
 }
 function describeCommitment(c) {
@@ -20470,7 +20820,7 @@ function retentionSignals(f) {
   }
   return out;
 }
-var PULSE_EPISODE_MS = 14 * DAY_MS6;
+var PULSE_EPISODE_MS = 14 * DAY_MS7;
 var PULSE_MIN_RESPONDENTS = 3;
 var PULSE_QUESTIONS = [
   { key: "home_time", label: "How is home time holding up lately?", low: "Rough", high: "Great" },
@@ -20628,7 +20978,7 @@ function facilityDetentionStats(visits) {
 }
 
 // src/accounting.ts
-var round27 = (n) => Math.round(n * 100) / 100;
+var round28 = (n) => Math.round(n * 100) / 100;
 var ACCOUNTING_PROVIDERS = [
   { kind: "quickbooks", name: "QuickBooks Online" },
   { kind: "xero", name: "Xero" }
@@ -20641,8 +20991,8 @@ function mapInvoiceToProvider(inv) {
   return {
     docNumber: inv.number,
     customerName: inv.billToCompany?.trim() || inv.billToName,
-    lines: inv.lines.filter((l) => Number.isFinite(l.amount)).map((l) => ({ description: l.label, amount: round27(l.amount) })),
-    amount: round27(inv.amount),
+    lines: inv.lines.filter((l) => Number.isFinite(l.amount)).map((l) => ({ description: l.label, amount: round28(l.amount) })),
+    amount: round28(inv.amount),
     issueDate: ymd(inv.issuedAtIso),
     dueDate: ymd(inv.dueAtIso),
     status: inv.status === "paid" ? "paid" : "issued",
@@ -20651,7 +21001,7 @@ function mapInvoiceToProvider(inv) {
 }
 function mapPaymentToProvider(pay, link) {
   return {
-    amount: round27(pay.amount),
+    amount: round28(pay.amount),
     paidDate: ymd(pay.paidAtIso) ?? "",
     invoiceDocNumber: link.invoiceDocNumber,
     providerInvoiceId: link.providerInvoiceId,
@@ -20659,8 +21009,8 @@ function mapPaymentToProvider(pay, link) {
   };
 }
 function mapSettlementToProvider(s) {
-  const net = s.net != null && Number.isFinite(s.net) ? round27(s.net) : null;
-  const gross = s.gross != null && Number.isFinite(s.gross) ? round27(s.gross) : null;
+  const net = s.net != null && Number.isFinite(s.net) ? round28(s.net) : null;
+  const gross = s.gross != null && Number.isFinite(s.gross) ? round28(s.gross) : null;
   const amount = net ?? gross;
   if (amount == null)
     return null;
@@ -20671,7 +21021,7 @@ function mapSettlementToProvider(s) {
       lines = parsed.map((raw) => {
         const r = raw ?? {};
         const description = typeof r.description === "string" && r.description.trim() ? r.description.trim() : typeof r.label === "string" && r.label.trim() ? r.label.trim() : null;
-        const amt = typeof r.amount === "number" && Number.isFinite(r.amount) ? round27(r.amount) : null;
+        const amt = typeof r.amount === "number" && Number.isFinite(r.amount) ? round28(r.amount) : null;
         return description && amt != null ? { description, amount: amt } : null;
       }).filter((l) => l != null);
     }
@@ -21721,7 +22071,7 @@ function cleanReferenceNumber(input) {
 }
 
 // src/driverCalendar.ts
-var DAY_MS7 = 86400000;
+var DAY_MS8 = 86400000;
 var HOUR_MS3 = 3600000;
 var DEFAULT_DISPATCH_MODE = "offered";
 var DEFAULT_SAFETY_WINDOW_HOURS = 24;
@@ -21794,7 +22144,7 @@ var OFF_DUTY_REQUEST_LABELS = {
   reset: "34-hour reset"
 };
 var RESET_MIN_MS = 34 * HOUR_MS3;
-var OFF_DUTY_MAX_MS = 60 * DAY_MS7;
+var OFF_DUTY_MAX_MS = 60 * DAY_MS8;
 function validateOffDutyRequest(input) {
   if (typeof input.type !== "string" || !OFF_DUTY_REQUEST_TYPES.includes(input.type)) {
     return { ok: false, error: "Pick what the time off is for \u2014 home time, medical, family, personal, or a 34-hour reset." };
@@ -21830,8 +22180,8 @@ function projectPaydays(settings, fromMs, toMs) {
   if (settings.payCycleKind === "weekly") {
     let t = utcDayStart(fromMs);
     while (new Date(t).getUTCDay() !== settings.payWeekday)
-      t += DAY_MS7;
-    for (;t < toMs; t += 7 * DAY_MS7)
+      t += DAY_MS8;
+    for (;t < toMs; t += 7 * DAY_MS8)
       out.push(t);
     return out;
   }
@@ -21841,7 +22191,7 @@ function projectPaydays(settings, fromMs, toMs) {
     const anchor = utcDayStart(expiryInstantMs(settings.payAnchorOn));
     if (!Number.isFinite(anchor))
       return [];
-    const step = 14 * DAY_MS7;
+    const step = 14 * DAY_MS8;
     const kMin = Math.ceil((utcDayStart(fromMs) - anchor) / step);
     const kMax = Math.floor((utcDayStart(toMs) - anchor) / step);
     for (let k = kMin;k <= kMax; k++) {
@@ -21869,7 +22219,7 @@ function credentialCalendarMarkers(statuses, fromMs, toMs, nowMs) {
       out.push({ credentialKey: s.key, label: s.label, kind: "expiry", atMs: expiryMs, daysBefore: 0, expiresOn: s.expiresOn, daysLeft });
     }
     for (const d of CREDENTIAL_WARNING_DAYS) {
-      const atMs = expiryMs - d * DAY_MS7;
+      const atMs = expiryMs - d * DAY_MS8;
       if (atMs >= fromMs && atMs < toMs) {
         out.push({ credentialKey: s.key, label: s.label, kind: "warning", atMs, daysBefore: d, expiresOn: s.expiresOn, daysLeft });
       }
@@ -23742,7 +24092,7 @@ var EIA_SEED = {
   source: "EIA weekly on-highway diesel averages via the Oct 22, 2026 research snapshot (seed \u2014 awaiting the first live weekly refresh)",
   fetchedAt: new Date("2026-10-22T12:00:00Z")
 };
-var MONTHS5 = [
+var MONTHS6 = [
   "Jan",
   "Feb",
   "Mar",
@@ -23758,7 +24108,7 @@ var MONTHS5 = [
 ];
 function eiaWeekLabel(weekOfIso) {
   const [y = 1970, m = 1, d = 1] = weekOfIso.split("-").map(Number);
-  return `week of ${MONTHS5[(m - 1 + 12) % 12]} ${d}, ${y}`;
+  return `week of ${MONTHS6[(m - 1 + 12) % 12]} ${d}, ${y}`;
 }
 function parseEiaDieselPage(html, seriesId) {
   if (!html || !seriesId)
@@ -23916,7 +24266,7 @@ function orderedEquipment(rec) {
     ...rec[key]
   }));
 }
-var MONTHS6 = [
+var MONTHS7 = [
   "Jan",
   "Feb",
   "Mar",
@@ -23932,7 +24282,7 @@ var MONTHS6 = [
 ];
 function marketPulseEndingShort(weekEndingIso) {
   const [, m = 1, d = 1] = weekEndingIso.split("-").map(Number);
-  return `${MONTHS6[(m - 1 + 12) % 12]} ${d}`;
+  return `${MONTHS7[(m - 1 + 12) % 12]} ${d}`;
 }
 function marketPulseWeekLabel(weekEndingIso, weekNumber) {
   const [y = 1970] = weekEndingIso.split("-").map(Number);
@@ -28703,6 +29053,129 @@ async function payEntryOwnedBy(ctx, entryId, username) {
       return row;
   }
   return null;
+}
+async function settlementExpectedLines(ctx, fromMs, toMs) {
+  const db = ctx.db();
+  const profRows = await db.select().from(profile3).where(eq(profile3.id, myProfileId(ctx))).limit(1);
+  const prof = profRows[0];
+  const setting = {
+    payBasis: prof?.payBasis ?? "cpm",
+    driverCpm: prof?.driverCpm ?? null,
+    driverPayPct: prof?.driverPayPct ?? null
+  };
+  const loads = await db.select().from(loads3).orderBy(desc(loads3.id));
+  const pods = await podStatusByLoad(ctx);
+  const place = (c, s) => c ? s ? `${c}, ${s}` : c : s ?? "\u2014";
+  const lines = [];
+  for (const l of loads) {
+    const pod = pods.get(l.id);
+    if (!pod?.sealed || !pod.sealedAt)
+      continue;
+    const ms = Date.parse(pod.sealedAt);
+    if (ms < fromMs || ms > toMs)
+      continue;
+    const line = settlementLineFor(setting, {
+      rate: l.rate ?? null,
+      extraCharges: l.extraCharges ?? 0,
+      loadedMiles: l.loadedMiles ?? null
+    });
+    const lane = `${place(l.pickupCity, l.pickupState)} \u2192 ${place(l.deliveryCity, l.deliveryState)}`;
+    lines.push({
+      loadId: l.id,
+      label: lane === "\u2014 \u2192 \u2014" ? l.shipper ?? `Load #${l.id}` : lane,
+      deliveredAtMs: ms,
+      expectedPay: line.pay,
+      basisNote: line.basisNote
+    });
+  }
+  lines.sort((a, b) => b.deliveredAtMs - a.deliveredAtMs || b.loadId - a.loadId);
+  return { setting, companyName: prof?.companyName ?? null, lines };
+}
+async function payLagMapFor(ctx, username) {
+  const db = ctx.db();
+  const rows = (await db.select().from(payerPayLag3)).filter((r) => r.username === username);
+  return new Map(rows.map((r) => [r.payerKey, Math.min(30, Math.max(0, Math.round(r.lagDays)))]));
+}
+function parseLoadIdList(raw) {
+  if (!raw)
+    return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed))
+      return [];
+    const out = [];
+    for (const v of parsed) {
+      const n = typeof v === "number" ? Math.round(v) : NaN;
+      if (Number.isFinite(n) && n > 0 && !out.includes(n))
+        out.push(n);
+      if (out.length >= 200)
+        break;
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+async function checkOverridesFor(ctx, username) {
+  const db = ctx.db();
+  const rows = (await db.select().from(payEntryCheckOverrides3)).filter((r) => r.username === username);
+  const map = new Map;
+  for (const r of rows) {
+    map.set(r.payEntryId, {
+      windowFromMs: r.windowFromAt ? r.windowFromAt.getTime() : null,
+      windowToMs: r.windowToAt ? r.windowToAt.getTime() : null,
+      excludedLoadIds: parseLoadIdList(r.excludedLoadIds),
+      includedLoadIds: parseLoadIdList(r.includedLoadIds)
+    });
+  }
+  return map;
+}
+function entryFiguresOf(row) {
+  return {
+    gross: row.gross,
+    federalWithheld: row.federalWithheld,
+    stateWithheld: row.stateWithheld,
+    otherDeductions: row.otherDeductions,
+    deductionLines: parseDeductionLines(row.deductionLines),
+    perDiem: row.perDiem ?? 0
+  };
+}
+async function computeEntryChecks(ctx, username, rows) {
+  const out = new Map;
+  const targets = rows.filter((r) => !r.isForm);
+  if (targets.length === 0)
+    return out;
+  const lagMap = await payLagMapFor(ctx, username);
+  const overrideMap = await checkOverridesFor(ctx, username);
+  const { lines: allLines } = await settlementExpectedLines(ctx, 0, Number.MAX_SAFE_INTEGER);
+  const groups = new Map;
+  for (const r of targets) {
+    const key = payerKeyOf(r.payer);
+    const g = groups.get(key) ?? [];
+    g.push(r);
+    groups.set(key, g);
+  }
+  for (const group of groups.values()) {
+    group.sort((a, b) => a.paidAt.getTime() - b.paidAt.getTime() || a.id - b.id);
+    let prevEnd = null;
+    for (const r of group) {
+      const ov = overrideMap.get(r.id) ?? EMPTY_CHECK_OVERRIDE;
+      const window = settlementWindowFor(r.payer, r.paidAt.getTime(), prevEnd, lagMap.get(payerKeyOf(r.payer)) ?? 0, {
+        overrideWindow: ov.windowFromMs != null && ov.windowToMs != null ? { fromMs: ov.windowFromMs, toMs: ov.windowToMs } : null,
+        recordedPeriod: null
+      });
+      prevEnd = window.toMs;
+      const windowLines = allLines.filter((l) => l.deliveredAtMs >= window.fromMs && l.deliveredAtMs <= window.toMs);
+      const applied = applyLoadOverrides(windowLines, allLines, ov);
+      const check = computeSettlementCheck(applied.lines, entryFiguresOf(r), {
+        windowAdjusted: window.adjustedByDriver,
+        heldOut: applied.heldOut,
+        pulledIn: applied.pulledIn
+      });
+      out.set(r.id, { window, lines: applied.lines, heldOut: applied.heldOut, pulledIn: applied.pulledIn, check });
+    }
+  }
+  return out;
 }
 function payEntryLabel(row) {
   const lane = row.kind === "w2" ? "W-2" : "1099";
@@ -35306,7 +35779,7 @@ async function retentionFactsFor(ctx, profileId, nowMs) {
   for (const r of det) {
     if (!r.departedAt)
       continue;
-    if (r.arrivedAt.getTime() < nowMs - 90 * DAY_MS6)
+    if (r.arrivedAt.getTime() < nowMs - 90 * DAY_MS7)
       continue;
     if (r.departedAt.getTime() - r.arrivedAt.getTime() > r.graceMinutes * 60000)
       detentionOverruns90++;
@@ -35316,9 +35789,9 @@ async function retentionFactsFor(ctx, profileId, nowMs) {
   let milesPrior30 = 0;
   for (const t of tripRows) {
     const ended = t.endedAt.getTime();
-    if (ended >= nowMs - 30 * DAY_MS6 && ended < nowMs)
+    if (ended >= nowMs - 30 * DAY_MS7 && ended < nowMs)
       milesRecent30 += t.totalMiles;
-    else if (ended >= nowMs - 60 * DAY_MS6 && ended < nowMs - 30 * DAY_MS6)
+    else if (ended >= nowMs - 60 * DAY_MS7 && ended < nowMs - 30 * DAY_MS7)
       milesPrior30 += t.totalMiles;
   }
   return { detentionOverruns90, milesRecent30, milesPrior30 };
@@ -35331,7 +35804,7 @@ async function homeTimePictureFor(ctx, companyId, driverUsername, opts) {
   const active = likes.filter((c) => c.voidedAt == null);
   const next = nextHomeDeadline(active, nowMs);
   const home = await homeProfileFor(ctx, driverUsername);
-  const deadlines = allDeadlines(likes, nowMs - 90 * DAY_MS6, nowMs);
+  const deadlines = allDeadlines(likes, nowMs - 90 * DAY_MS7, nowMs);
   const overrideRows = await homeTimeOverrideRowsFor(ctx, companyId, driverUsername);
   const dutyEvents = await driverDutyEventsFor(ctx, driverUsername);
   const seals = await driverDeliverySealsMs(ctx, driverUsername);
@@ -59243,12 +59716,42 @@ ${args.question}`, { schema: answerSchema });
         hasStub: boolean2(),
         stubSha256: string2().nullable(),
         source: string2().nullable(),
-        deliveryId: number2().nullable()
+        deliveryId: number2().nullable(),
+        check: object({
+          status: string2(),
+          difference: number2(),
+          expectedTotal: number2(),
+          lagDays: number2(),
+          windowFromIso: string2(),
+          windowToIso: string2(),
+          reason: string2().nullable()
+        }).nullable()
       }))
     }),
     async handler(ctx, args) {
       const db = ctx.db();
       const rows = await db.select().from(payEntries3).orderBy(desc(payEntries3.id)).limit(args.limit);
+      const me = await myUsername(ctx);
+      const badges = new Map;
+      const ownRows = rows.filter((r) => !r.isForm && r.username === me);
+      if (ownRows.length > 0) {
+        const mine = (await db.select().from(payEntries3)).filter((e) => e.username === me);
+        const computations = await computeEntryChecks(ctx, me, mine);
+        for (const r of ownRows) {
+          const comp = computations.get(r.id);
+          if (!comp)
+            continue;
+          badges.set(r.id, {
+            status: comp.check.status,
+            difference: comp.check.difference,
+            expectedTotal: comp.check.expectedTotal,
+            lagDays: comp.window.lagDays,
+            windowFromIso: new Date(comp.window.fromMs).toISOString(),
+            windowToIso: new Date(comp.window.toMs).toISOString(),
+            reason: comp.check.statusReason
+          });
+        }
+      }
       return {
         entries: rows.map((r) => ({
           id: r.id,
@@ -59267,7 +59770,8 @@ ${args.question}`, { schema: answerSchema });
           hasStub: r.stubBlobKey != null,
           stubSha256: r.stubSha256,
           source: r.source,
-          deliveryId: r.deliveryId
+          deliveryId: r.deliveryId,
+          check: badges.get(r.id) ?? null
         }))
       };
     }
@@ -62546,7 +63050,7 @@ ${args.question}`, { schema: answerSchema });
         });
       }
       drivers.sort((a, b) => a.username.localeCompare(b.username));
-      const since = new Date(Date.now() - 28 * DAY_MS6);
+      const since = new Date(Date.now() - 28 * DAY_MS7);
       const pulseRows = await db.select({ driverUsername: pulseResponses3.driverUsername, answersJson: pulseResponses3.answersJson }).from(pulseResponses3).where(and(eq(pulseResponses3.companyId, mine.company.id), eq(pulseResponses3.status, "answered"), gte(pulseResponses3.createdAt, since)));
       const parsed = [];
       for (const r of pulseRows) {
@@ -65217,6 +65721,294 @@ ${args.question}`, { schema: answerSchema });
         figured: totals.figured,
         unfigured: totals.unfigured
       };
+    }
+  }),
+  getPayerPayLag: defineAction({
+    description: "The caller's pay-lag setting for one payer (days after the work period the payer settles; 0 = same week, also the unset default).",
+    request: object({ payer: string2().min(1).max(120) }),
+    response: object({ payer: string2(), lagDays: number2(), isSet: boolean2() }),
+    async handler(ctx, args) {
+      const me = await myUsername(ctx);
+      const db = ctx.db();
+      const key = payerKeyOf(args.payer);
+      const rows = (await db.select().from(payerPayLag3)).filter((r) => r.username === me && r.payerKey === key);
+      return { payer: args.payer, lagDays: rows[0]?.lagDays ?? 0, isSet: rows.length > 0 };
+    }
+  }),
+  setPayerPayLag: defineAction({
+    description: "Set the caller's pay lag for one payer (0\u201330 days). Drives every automatic settlement-check window for that payer from the next read.",
+    request: object({ payer: string2().min(1).max(120), lagDays: number2().int().min(0).max(30) }),
+    response: object({ ok: literal(true), payer: string2(), lagDays: number2() }),
+    async handler(ctx, args) {
+      const me = await myUsername(ctx);
+      const db = ctx.db();
+      const key = payerKeyOf(args.payer);
+      const rows = (await db.select().from(payerPayLag3)).filter((r) => r.username === me && r.payerKey === key);
+      if (rows[0]) {
+        await db.update(payerPayLag3).set({ lagDays: args.lagDays, payer: args.payer.trim(), updatedAt: new Date }).where(eq(payerPayLag3.id, rows[0].id));
+      } else {
+        await db.insert(payerPayLag3).values({
+          username: me,
+          payerKey: key,
+          payer: args.payer.trim(),
+          lagDays: args.lagDays
+        });
+      }
+      ctx.invalidateQueries();
+      return { ok: true, payer: args.payer, lagDays: args.lagDays };
+    }
+  }),
+  getSettlementCheck: defineAction({
+    description: "The caller's own settlement cross-check for one Pay Book entry: expected pay from their sealed loads in the window (automatic \u2014 pay-lag chained \u2014 with any stored per-entry overrides applied and labelled) vs the entry's recorded gross, with deductions reconciled. Read-only.",
+    request: object({
+      payEntryId: number2().int().positive()
+    }),
+    response: object({
+      found: boolean2(),
+      entry: object({
+        id: number2(),
+        payer: string2(),
+        kind: string2(),
+        paidAtIso: string2(),
+        gross: number2()
+      }).nullable(),
+      payBasis: string2(),
+      driverCpm: number2().nullable(),
+      driverPayPct: number2().nullable(),
+      lagDays: number2(),
+      window: object({ fromIso: string2(), toIso: string2(), basis: string2(), automatic: boolean2() }).nullable(),
+      override: object({
+        windowFromIso: string2().nullable(),
+        windowToIso: string2().nullable(),
+        excludedLoadIds: array(number2()),
+        includedLoadIds: array(number2())
+      }).nullable(),
+      adjusted: boolean2(),
+      adjustmentNotes: array(string2()),
+      lines: array(object({
+        loadId: number2(),
+        label: string2(),
+        deliveredAtIso: string2(),
+        expectedPay: number2().nullable(),
+        basisNote: string2(),
+        pulledIn: boolean2()
+      })),
+      heldOut: array(object({
+        loadId: number2(),
+        label: string2(),
+        deliveredAtIso: string2(),
+        expectedPay: number2().nullable(),
+        basisNote: string2()
+      })),
+      otherLoads: array(object({
+        loadId: number2(),
+        label: string2(),
+        deliveredAtIso: string2(),
+        expectedPay: number2().nullable(),
+        basisNote: string2()
+      })),
+      unfigured: array(object({ loadId: number2(), label: string2(), reason: string2() })),
+      expectedTotal: number2(),
+      actualGross: number2(),
+      difference: number2(),
+      status: string2(),
+      statusReason: string2().nullable(),
+      shortBy: number2(),
+      overBy: number2(),
+      totalDeductions: number2(),
+      withheld: number2(),
+      itemizedLines: array(object({ label: string2(), amount: number2(), category: string2() })),
+      deductionBreakdown: array(object({ category: string2(), amount: number2() })),
+      actualNet: number2(),
+      expectedNet: number2(),
+      perDiem: number2(),
+      entryMathOk: boolean2(),
+      entryMathNote: string2(),
+      note: string2()
+    }),
+    async handler(ctx, args) {
+      const empty = {
+        found: false,
+        entry: null,
+        payBasis: "cpm",
+        driverCpm: null,
+        driverPayPct: null,
+        lagDays: 0,
+        window: null,
+        override: null,
+        adjusted: false,
+        adjustmentNotes: [],
+        lines: [],
+        heldOut: [],
+        otherLoads: [],
+        unfigured: [],
+        expectedTotal: 0,
+        actualGross: 0,
+        difference: 0,
+        status: "no_data",
+        statusReason: null,
+        shortBy: 0,
+        overBy: 0,
+        totalDeductions: 0,
+        withheld: 0,
+        itemizedLines: [],
+        deductionBreakdown: [],
+        actualNet: 0,
+        expectedNet: 0,
+        perDiem: 0,
+        entryMathOk: true,
+        entryMathNote: "",
+        note: "That pay entry isn't in your Pay Book."
+      };
+      const me = await myUsername(ctx);
+      const row = await payEntryOwnedBy(ctx, args.payEntryId, me);
+      if (!row)
+        return empty;
+      const db = ctx.db();
+      const profRows = await db.select().from(profile3).where(eq(profile3.id, myProfileId(ctx))).limit(1);
+      const prof = profRows[0];
+      const entryOut = {
+        id: row.id,
+        payer: row.payer,
+        kind: row.kind,
+        paidAtIso: row.paidAt.toISOString(),
+        gross: row.gross
+      };
+      if (row.isForm) {
+        return {
+          ...empty,
+          found: true,
+          entry: entryOut,
+          payBasis: prof?.payBasis ?? "cpm",
+          driverCpm: prof?.driverCpm ?? null,
+          driverPayPct: prof?.driverPayPct ?? null,
+          statusReason: "This is a year-end form entry, not a settlement \u2014 forms are paperwork and are never checked.",
+          note: "Year-end forms record the paperwork itself; the paychecks that carried the money are the entries that get checked."
+        };
+      }
+      const mine = (await db.select().from(payEntries3)).filter((e) => e.username === me);
+      if (!mine.some((e) => e.id === row.id))
+        mine.push(row);
+      const computations = await computeEntryChecks(ctx, me, mine);
+      const comp = computations.get(row.id);
+      if (!comp)
+        return empty;
+      const c = comp.check;
+      const w = comp.window;
+      const overrideMap = await checkOverridesFor(ctx, me);
+      const ov = overrideMap.get(row.id) ?? null;
+      const { lines: allLines } = await settlementExpectedLines(ctx, 0, Number.MAX_SAFE_INTEGER);
+      const countedIds = new Set(comp.lines.map((l) => l.loadId));
+      const heldOutIds = new Set(comp.heldOut.map((l) => l.loadId));
+      const DAY = 86400000;
+      const otherLoads = allLines.filter((l) => !countedIds.has(l.loadId) && !heldOutIds.has(l.loadId) && l.deliveredAtMs >= w.fromMs - 30 * DAY && l.deliveredAtMs <= w.toMs + 30 * DAY).slice(0, 50);
+      const lineOut = (l) => ({
+        loadId: l.loadId,
+        label: l.label,
+        deliveredAtIso: new Date(l.deliveredAtMs).toISOString(),
+        expectedPay: l.expectedPay,
+        basisNote: l.basisNote
+      });
+      const pulledInIds = new Set(comp.pulledIn.map((l) => l.loadId));
+      return {
+        found: true,
+        entry: entryOut,
+        payBasis: prof?.payBasis ?? "cpm",
+        driverCpm: prof?.driverCpm ?? null,
+        driverPayPct: prof?.driverPayPct ?? null,
+        lagDays: w.lagDays,
+        window: {
+          fromIso: new Date(w.fromMs).toISOString(),
+          toIso: new Date(w.toMs).toISOString(),
+          basis: w.basis,
+          automatic: !w.adjustedByDriver && !w.recorded
+        },
+        override: ov ? {
+          windowFromIso: ov.windowFromMs != null ? new Date(ov.windowFromMs).toISOString() : null,
+          windowToIso: ov.windowToMs != null ? new Date(ov.windowToMs).toISOString() : null,
+          excludedLoadIds: [...ov.excludedLoadIds],
+          includedLoadIds: [...ov.includedLoadIds]
+        } : null,
+        adjusted: c.adjusted,
+        adjustmentNotes: c.adjustmentNotes,
+        lines: comp.lines.map((l) => ({ ...lineOut(l), pulledIn: pulledInIds.has(l.loadId) })),
+        heldOut: comp.heldOut.map(lineOut),
+        otherLoads: otherLoads.map(lineOut),
+        unfigured: c.unfigured,
+        expectedTotal: c.expectedTotal,
+        actualGross: c.actualGross,
+        difference: c.difference,
+        status: c.status,
+        statusReason: c.statusReason,
+        shortBy: c.shortBy,
+        overBy: c.overBy,
+        totalDeductions: c.totalDeductions,
+        withheld: c.withheld,
+        itemizedLines: c.itemizedLines,
+        deductionBreakdown: c.deductionBreakdown,
+        actualNet: c.actualNet,
+        expectedNet: c.expectedNet,
+        perDiem: c.perDiem,
+        entryMathOk: c.entryMathOk,
+        entryMathNote: c.entryMathNote,
+        note: "This check compares what your sealed loads in the window should have paid you (your My Pay setting) against this settlement as recorded in your Pay Book \u2014 logged by hand or filed from a stub. It doesn't read the carrier's statement itself. Your edits (window, held-out or pulled-in loads, the payer's pay lag) steer only this check \u2014 they never touch a sealed load or the entry's own figures \u2014 and an edited check is labelled as edited on its face."
+      };
+    }
+  }),
+  setSettlementCheckOverride: defineAction({
+    description: "Save the caller's check overrides for one of their Pay Book entries: window override (both dates or neither) plus held-out and pulled-in load ids.",
+    request: object({
+      payEntryId: number2().int().positive(),
+      windowFromMs: number2().nullable(),
+      windowToMs: number2().nullable(),
+      excludedLoadIds: array(number2().int().positive()).max(200),
+      includedLoadIds: array(number2().int().positive()).max(200)
+    }),
+    response: object({ ok: boolean2(), error: string2().nullable() }),
+    async handler(ctx, args) {
+      const me = await myUsername(ctx);
+      const row = await payEntryOwnedBy(ctx, args.payEntryId, me);
+      if (!row)
+        return { ok: false, error: "That pay entry no longer exists." };
+      if (args.windowFromMs == null !== (args.windowToMs == null)) {
+        return { ok: false, error: "Set both window dates, or clear both to use the automatic window." };
+      }
+      if (args.windowFromMs != null && args.windowToMs != null && args.windowFromMs > args.windowToMs) {
+        return { ok: false, error: "The window's first day has to come before its last day." };
+      }
+      const db = ctx.db();
+      const existing = (await db.select().from(payEntryCheckOverrides3)).filter((r) => r.username === me && r.payEntryId === args.payEntryId);
+      const values = {
+        windowFromAt: args.windowFromMs != null ? new Date(args.windowFromMs) : null,
+        windowToAt: args.windowToMs != null ? new Date(args.windowToMs) : null,
+        excludedLoadIds: args.excludedLoadIds.length ? JSON.stringify([...new Set(args.excludedLoadIds)]) : null,
+        includedLoadIds: args.includedLoadIds.length ? JSON.stringify([...new Set(args.includedLoadIds)]) : null
+      };
+      if (existing[0]) {
+        await db.update(payEntryCheckOverrides3).set({ ...values, updatedAt: new Date }).where(eq(payEntryCheckOverrides3.id, existing[0].id));
+      } else {
+        await db.insert(payEntryCheckOverrides3).values({ username: me, payEntryId: args.payEntryId, ...values });
+      }
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
+    }
+  }),
+  clearSettlementCheckOverride: defineAction({
+    description: "Clear all of the caller's check overrides for one Pay Book entry \u2014 its check returns to the raw automatic computation.",
+    request: object({ payEntryId: number2().int().positive() }),
+    response: object({ ok: boolean2(), error: string2().nullable() }),
+    async handler(ctx, args) {
+      const me = await myUsername(ctx);
+      const row = await payEntryOwnedBy(ctx, args.payEntryId, me);
+      if (!row)
+        return { ok: false, error: "That pay entry no longer exists." };
+      const db = ctx.db();
+      const existing = (await db.select().from(payEntryCheckOverrides3)).filter((r) => r.username === me && r.payEntryId === args.payEntryId);
+      if (existing[0]) {
+        await db.delete(payEntryCheckOverrides3).where(eq(payEntryCheckOverrides3.id, existing[0].id));
+      }
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
     }
   }),
   getBusinessProfile: defineAction({

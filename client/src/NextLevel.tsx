@@ -1803,6 +1803,14 @@ export function PayBookPanel({ setBanner, openSignal = 0, lang = "en" }: { setBa
                     {e.hasStub ? " · photo sealed" : ""}
                   </span>
                   {e.source === "company" && <span className="ml-1 rounded-full bg-[var(--surface)] px-2 py-0.5 text-[11px] font-bold">🏢 Company-sent</span>}
+                  {e.check && (
+                    <span
+                      className={`ml-1 rounded-full px-2 py-0.5 text-[11px] font-bold ${e.check.status === "matches" ? "bg-emerald-500/15 text-emerald-300" : e.check.status === "short" ? "bg-red-500/15 text-red-300" : e.check.status === "over" ? "bg-sky-500/15 text-sky-300" : "bg-[var(--surface)] text-[var(--dim)]"}`}
+                      title={`Settlement check — window ${new Date(e.check.windowFromIso).toLocaleDateString()} – ${new Date(e.check.windowToIso).toLocaleDateString()} · ${e.check.lagDays}-day pay lag · expected ${money(e.check.expectedTotal)} from your sealed loads. Detail in Money → Pay → Settlement check.`}
+                    >
+                      {e.check.status === "matches" ? "✓ Settlement matches" : e.check.status === "short" ? `SHORT ${money(-e.check.difference)}` : e.check.status === "over" ? `OVER ${money(e.check.difference)}` : "Check: not enough data"}
+                    </span>
+                  )}
                 </span>
                 <button type="button" className="shrink-0 text-xs font-bold underline" aria-label={`Delete ${e.kind === "w2" ? "W-2" : "1099"} entry from ${e.payer} of ${money(e.gross)}`} onClick={() => void api.deletePayEntry({ id: e.id }).then(() => { void queryClient.invalidateQueries({ queryKey: ["pay-entries"] }); void queryClient.invalidateQueries({ queryKey: ["pay-book"] }); void queryClient.invalidateQueries({ queryKey: ["pay-book-ytd"] }); })}>Delete</button>
               </div>

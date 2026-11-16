@@ -8,7 +8,7 @@
 //   stores the per-state breakdown as JSON (full state names), total miles,
 //   and pay at the job's $0.55/mile rate.
 
-import { integer, primaryKey, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { integer, primaryKey, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const profile = sqliteTable("profile", {
   // Auth Phase 2b: the accounts.id this profile belongs to (null until
@@ -5977,3 +5977,59 @@ export const dutyCorrectionReviews = sqliteTable("duty_correction_reviews", {
     .notNull()
     .$defaultFn(() => new Date()),
 });
+
+// Per-payer PAY LAG for the settlement check (migration 0141,
+// owner's build 2026-11-15): how many days after a work period
+// this payer settles it — 0 = same week, 7 = a week in the hole,
+// up to 30. One row per (driver, payer): the driver sets it once
+// per carrier and it drives every automatic settlement-check
+// window for that payer. Username-keyed like pay_entries (no
+// profile_id) — readers scope by the caller's username explicitly.
+// payer_key is the normalized match key (trimmed, lowercased);
+// payer keeps the display spelling the driver set it under.
+export const payerPayLag = sqliteTable(
+  "payer_pay_lag",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    username: text("username").notNull(),
+    payerKey: text("payer_key").notNull(),
+    payer: text("payer").notNull(),
+    lagDays: integer("lag_days").notNull().default(0),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [uniqueIndex("payer_pay_lag_username_payer_key_unique").on(t.username, t.payerKey)],
+);
+
+// Per-entry settlement-check OVERRIDES (migration 0141, same
+// build): the driver's verify-and-edit layer for ONE Pay Book
+// entry — a window override (window_from_at/window_to_at, both
+// null = the automatic window) plus load hold-outs / pull-ins
+// (JSON arrays of load ids). Overrides steer only that entry's
+// check; they never touch sealed loads or the entry's own
+// figures, and an adjusted check is labelled as adjusted on its
+// face. One row per (driver, pay entry); username-keyed like
+// pay_entries — readers scope by the caller's username.
+export const payEntryCheckOverrides = sqliteTable(
+  "pay_entry_check_overrides",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    username: text("username").notNull(),
+    payEntryId: integer("pay_entry_id").notNull(),
+    windowFromAt: integer("window_from_at", { mode: "timestamp_ms" }),
+    windowToAt: integer("window_to_at", { mode: "timestamp_ms" }),
+    excludedLoadIds: text("excluded_load_ids"),
+    includedLoadIds: text("included_load_ids"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [uniqueIndex("pay_entry_check_overrides_username_entry_unique").on(t.username, t.payEntryId)],
+);

@@ -23,6 +23,7 @@ import {
   serial,
   text,
   timestamp,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 
 export const profile = pgTable("profile", {
@@ -5970,3 +5971,49 @@ export const dutyCorrectionReviews = pgTable("duty_correction_reviews", {
     .notNull()
     .$defaultFn(() => new Date()),
 });
+
+// Per-payer PAY LAG for the settlement check (migration 0034,
+// owner's build 2026-11-15): PG twin of the SQLite table in
+// schema-sqlite.ts — see that file's header. One row per (driver,
+// payer); drives every automatic settlement-check window for the
+// payer. Username-keyed; readers scope explicitly.
+export const payerPayLag = pgTable(
+  "payer_pay_lag",
+  {
+    id: serial("id").primaryKey(),
+    username: text("username").notNull(),
+    payerKey: text("payer_key").notNull(),
+    payer: text("payer").notNull(),
+    lagDays: integer("lag_days").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [uniqueIndex("payer_pay_lag_username_payer_key_unique").on(t.username, t.payerKey)],
+);
+
+// Per-entry settlement-check OVERRIDES (migration 0034, same
+// build): PG twin of the SQLite table in schema-sqlite.ts — see
+// that file's header. One row per (driver, pay entry).
+export const payEntryCheckOverrides = pgTable(
+  "pay_entry_check_overrides",
+  {
+    id: serial("id").primaryKey(),
+    username: text("username").notNull(),
+    payEntryId: integer("pay_entry_id").notNull(),
+    windowFromAt: timestamp("window_from_at", { withTimezone: true, mode: "date" }),
+    windowToAt: timestamp("window_to_at", { withTimezone: true, mode: "date" }),
+    excludedLoadIds: text("excluded_load_ids"),
+    includedLoadIds: text("included_load_ids"),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [uniqueIndex("pay_entry_check_overrides_username_entry_unique").on(t.username, t.payEntryId)],
+);

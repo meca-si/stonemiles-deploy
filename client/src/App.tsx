@@ -187,7 +187,7 @@ import { LoadTrailerSection, TrailerToolsPanel, WindAdvisoryBanner } from "./Tra
 import { TOOL_GROUPS, type ToolItem } from "./toolDirectory";
 import { onAnchorReveal, revealAnchor } from "./anchorReveal";
 import { asLang, destForLocalizedQuery, destLabel, localeFor, pairText, t as tt, type Lang } from "./i18n";
-import { BusinessProfilePanel, MONEY_HUB_ANCHOR_SECTION, MoneyFlowHub, MoneyOverviewPanel, type MoneyHubSection } from "./MoneyFlow";
+import { BusinessProfilePanel, MONEY_HUB_ANCHOR_SECTION, MoneyFlowHub, MoneyOverviewPanel, SettlementCheckPanel, type MoneyHubSection } from "./MoneyFlow";
 import {
   OFFLINE_BADGE,
   OFFLINE_CAPTURED_LINE,
@@ -16720,6 +16720,16 @@ export function App() {
             <div id="settlement-checker" className="scroll-mt-4">
               <SensitiveGate area="Settlements">
                 <SettlementPanel setBanner={setBanner} lang={lang} />
+              </SensitiveGate>
+            </div>
+            {/* Settlement check (2026-11-15): the automatic
+                should-vs-did cross-check behind every Pay Book
+                entry's badge — detail view with the payer pay-lag
+                setting and a date override. Same step-up family as
+                the settlement view above it. */}
+            <div id="settlement-check" className="scroll-mt-4">
+              <SensitiveGate area="Settlements">
+                <SettlementCheckPanel setBanner={setBanner} />
               </SensitiveGate>
             </div>
               </>
