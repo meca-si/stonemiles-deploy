@@ -188,7 +188,7 @@ import { TOOL_GROUPS, type ToolItem } from "./toolDirectory";
 import { WORKSPACES } from "./workspaces";
 import { onAnchorReveal, revealAnchor } from "./anchorReveal";
 import { asLang, destForLocalizedQuery, destLabel, localeFor, pairText, t as tt, type Lang } from "./i18n";
-import { BusinessProfilePanel, MONEY_HUB_ANCHOR_SECTION, MoneyFlowHub, MoneyOverviewPanel, PayRpmCard, SettlementCheckPanel, type MoneyHubSection } from "./MoneyFlow";
+import { BusinessProfilePanel, MONEY_HUB_ANCHOR_SECTION, MoneyFlowHub, MoneyOverviewPanel, PayRpmCard, RateWatchCard, SettlementCheckPanel, type MoneyHubSection } from "./MoneyFlow";
 import {
   OFFLINE_BADGE,
   OFFLINE_CAPTURED_LINE,
@@ -16824,6 +16824,9 @@ export function App() {
             {/* PAY DOOR HEADLINE (2026-11-17): revenue per mile, last
                 30 days of sealed loads — the door's first number. */}
             <PayRpmCard />
+            {/* RATE WATCH (2026-11-17): the week's market benchmarks
+                beside the Stonervision Rate Index over sealed loads. */}
+            <RateWatchCard />
             <MoneyPanel setBanner={setBanner} lang={lang} />
             <PayBookPanel setBanner={setBanner} openSignal={payBookJumpNonce} lang={lang} />
             {/* Security Pack 2 step-up: settlement views need a fresh PIN. */}

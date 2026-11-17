@@ -2722,6 +2722,86 @@ export function PayRpmCard() {
   );
 }
 
+/** Rate Watch (2026-11-17): the market next to your own truth. Top:
+ *  the week's published spot benchmarks (Truckstop.com / FTR
+ *  broker-posted averages, source + week on the card's face, market
+ *  direction — never a quote). Below: the Stonervision Rate Index —
+ *  load revenue over loaded miles across sealed loads from the last
+ *  90 days, by equipment; a rate shows only once at least 5 sealed
+ *  loads stand behind it, otherwise the honest building state with
+ *  the sealed-load count. Server math in rateWatch.ts / getRateWatch. */
+export function RateWatchCard() {
+  const q = useQuery({ queryKey: ["rate-watch"], queryFn: () => api.getRateWatch({}) });
+  const d = q.data;
+  const pct = (v: number) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(v)}%`;
+  return (
+    <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3.5" aria-label="Rate Watch — market benchmarks and the Stonervision Rate Index">
+      <div className="text-[11px] font-bold uppercase tracking-wide text-[var(--dim)]">📈 Rate Watch</div>
+      {q.isLoading && <p className="mt-1 text-sm text-[var(--dim)]">Reading the market and your sealed loads…</p>}
+      {q.isError && <p className="mt-1 text-sm text-[var(--dim)]">Couldn't read Rate Watch just now — try again in a moment.</p>}
+      {d && (
+        <>
+          <div className="mt-2 text-[11px] font-bold uppercase tracking-wide text-[var(--dim)]">
+            Market — {d.benchmarks.weekLabel} · {d.benchmarks.weekEndingLabel}
+          </div>
+          <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <span className="font-condensed text-3xl font-bold tnum">{money(d.benchmarks.totalSpotPerMile)}/mi</span>
+            <span className="text-sm text-[var(--dim)]">total spot average, fuel included</span>
+          </div>
+          <ul className="mt-2 space-y-1.5">
+            {d.benchmarks.rows.map((r) => (
+              <li key={r.equipment} className="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5 rounded-xl bg-[var(--surface2)] px-3 py-2">
+                <span className="min-w-[4.5rem] font-condensed text-base font-bold leading-tight">{r.label}</span>
+                {r.ratePerMile != null && <span className="font-condensed text-base font-bold leading-tight tnum">{money(r.ratePerMile)}/mi</span>}
+                <span className="text-sm font-bold">{r.weeklyChange} this week</span>
+                <span className="text-sm font-bold" style={{ color: "var(--ok)" }}>{pct(r.vsLastYearPct)} vs last year</span>
+                {r.loadsChangePct != null && <span className="text-sm text-[var(--dim)]">loads {pct(r.loadsChangePct)}</span>}
+                {r.note && <span className="text-sm text-[var(--dim)]">· {r.note}</span>}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1.5 text-xs leading-relaxed text-[var(--dim)]">{d.benchmarks.source} — market direction, not a quote for any load.</p>
+
+          <div className="mt-3 text-[11px] font-bold uppercase tracking-wide text-[var(--dim)]">
+            Stonervision Rate Index — last {d.index.windowDays} days
+          </div>
+          {d.index.hasIndex && d.index.overall ? (
+            <>
+              <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                <span className="font-condensed text-3xl font-bold tnum">{money(d.index.overall.rpm)}/mi</span>
+                <span className="text-sm text-[var(--dim)]">
+                  real loads, really paid — {d.index.overall.loadCount} sealed {d.index.overall.loadCount === 1 ? "load" : "loads"}, loaded miles only
+                </span>
+              </div>
+              {d.index.byEquipment.length > 0 && (
+                <ul className="mt-2 space-y-1.5">
+                  {d.index.byEquipment.map((b) => (
+                    <li key={b.equipment} className="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5 rounded-xl bg-[var(--surface2)] px-3 py-2">
+                      <span className="min-w-[4.5rem] font-condensed text-base font-bold leading-tight">{b.label}</span>
+                      <span className="font-condensed text-base font-bold leading-tight tnum">{money(b.rpm)}/mi</span>
+                      <span className="text-sm text-[var(--dim)]">{b.loadCount} sealed {b.loadCount === 1 ? "load" : "loads"}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <p className="mt-1.5 text-xs leading-relaxed text-[var(--dim)]">
+                Load revenue (rate + additional charges) ÷ loaded miles over sealed loads. Deadhead isn't counted, and no single load's rate, customer, or lane is ever shown.
+              </p>
+            </>
+          ) : (
+            <p className="mt-1 text-sm leading-relaxed text-[var(--dim)]">
+              The Rate Index is building — sealed loads on STONEMILES will power lane rates here.{" "}
+              {d.index.sealedLoadCount === 0
+                ? `No sealed loads in the last ${d.index.windowDays} days yet; a rate shows once ${d.index.minLoads} stand behind it.`
+                : `${d.index.sealedLoadCount} sealed ${d.index.sealedLoadCount === 1 ? "load" : "loads"} so far — a rate shows once ${d.index.minLoads} stand behind it.`}
+            </p>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 export function MoneyOverviewPanel() {
   const q = useQuery({ queryKey: ["money-overview"], queryFn: () => api.getMoneyOverview({}) });
   const d = q.data;

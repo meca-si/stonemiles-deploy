@@ -21,6 +21,7 @@ type DeductionLine,
 import { computeMoneyOverview } from "./moneyOverview";
 import { parseRateConText } from "./rateConText";
 import { computePayRpm } from "./payRpm";
+import { computeRateIndex, RATE_WATCH_BENCHMARKS } from "./rateWatch";
 import {
 acceptGate,
 deliveryToPayEntry,
@@ -49087,6 +49088,92 @@ export const Actions = {
         loadsSkippedNoMiles: r.loadsSkippedNoMiles,
         rpm: r.rpm,
         note: "Your own sealed loads only: load revenue (rate + additional charges) divided by loaded miles, for loads sealed in the last 30 days. Deadhead miles aren't counted, and loads with no miles recorded aren't in the figure.",
+      };
+    },
+  }),
+
+  // ---- Pay door Rate Watch (2026-11-17) -----------------------------------
+  //
+  // Two rate pictures for the Pay door's Rate Watch card: the week's
+  // published market benchmarks (seeded constant in rateWatch.ts —
+  // Truckstop.com / FTR broker-posted spot averages, market
+  // direction, never a quote) and the Stonervision Rate Index: load
+  // revenue over loaded miles over sealed loads from the last 90
+  // days, grouped by recorded equipment type. Pure math in
+  // rateWatch.ts; a figure shows only when at least 5 sealed loads
+  // stand behind it, and the index returns aggregates only — never
+  // a single load's rate, customer, or lane.
+  getRateWatch: defineAction({
+    description: "Rate Watch for the Pay door: the week's published spot-market benchmarks plus the Stonervision Rate Index over sealed loads from the last 90 days.",
+    request: z.object({}),
+    response: z.object({
+      benchmarks: z.object({
+        weekLabel: z.string(),
+        weekEndingLabel: z.string(),
+        source: z.string(),
+        totalSpotPerMile: z.number(),
+        rows: z.array(
+          z.object({
+            equipment: z.string(),
+            label: z.string(),
+            ratePerMile: z.number().nullable(),
+            weeklyChange: z.string(),
+            loadsChangePct: z.number().nullable(),
+            vsLastYearPct: z.number(),
+            note: z.string().nullable(),
+          }),
+        ),
+      }),
+      index: z.object({
+        windowDays: z.number(),
+        minLoads: z.number(),
+        sealedLoadCount: z.number(),
+        countedLoadCount: z.number(),
+        hasIndex: z.boolean(),
+        overall: z
+          .object({ equipment: z.string(), label: z.string(), loadCount: z.number(), rpm: z.number() })
+          .nullable(),
+        byEquipment: z.array(
+          z.object({ equipment: z.string(), label: z.string(), loadCount: z.number(), rpm: z.number() }),
+        ),
+      }),
+      note: z.string(),
+    }),
+    async handler(ctx) {
+      const db = ctx.db<typeof schema>();
+      const loads = await db.select().from(schema.loads);
+      const pods = await podStatusByLoad(ctx);
+      const likes: { sealedAtMs: number; revenue: number | null; loadedMiles: number | null; equipmentType: string | null }[] = [];
+      for (const l of loads) {
+        const pod = pods.get(l.id);
+        if (!pod?.sealed || !pod.sealedAt) continue; // sealed loads only
+        likes.push({
+          sealedAtMs: Date.parse(pod.sealedAt),
+          revenue: l.rate == null ? null : l.rate + (l.extraCharges ?? 0),
+          loadedMiles: l.loadedMiles ?? null,
+          equipmentType: l.equipmentType ?? null,
+        });
+      }
+      const index = computeRateIndex(likes, Date.now(), 90);
+      const b = RATE_WATCH_BENCHMARKS;
+      return {
+        benchmarks: {
+          weekLabel: b.weekLabel,
+          weekEndingLabel: b.weekEndingLabel,
+          source: b.source,
+          totalSpotPerMile: b.totalSpotPerMile,
+          rows: b.rows.map((r) => ({ ...r })),
+        },
+        index: {
+          windowDays: index.windowDays,
+          minLoads: index.minLoads,
+          sealedLoadCount: index.sealedLoadCount,
+          countedLoadCount: index.countedLoadCount,
+          hasIndex: index.hasIndex,
+          overall: index.overall,
+          byEquipment: index.byEquipment,
+        },
+        note: "Market: the week's published broker-posted spot averages (Truckstop.com / FTR, fuel included) — market direction, not a quote for any load. Stonervision Rate Index: sealed loads on STONEMILES over the last 90 days, load revenue (rate + additional charges) over loaded miles, deadhead not counted; a rate shows only once at least 5 sealed loads stand behind it, and no single load's rate, customer, or lane is ever shown.",
       };
     },
   }),
