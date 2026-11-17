@@ -306,6 +306,65 @@ function PaperworkDoorLinks({ loadId, setBanner }: { loadId: number; setBanner: 
   );
 }
 
+/** POD → invoice step (2026-11-17): rendered by the delivery
+ *  close-out the moment a delivery seals — the load is billable,
+ *  and this is that next step, right where the POD landed. No
+ *  invoice yet → one tap cuts the DRAFT through the same
+ *  createInvoice the Pay door uses (Net-30, from the sealed load's
+ *  rate; it refuses a load with no rate rather than invent one). An
+ *  invoice already on the load — cut here, in Pay, or auto-issued
+ *  by the paperwork pipeline — is named by number + status instead;
+ *  a second one is never cut. Lives in this module, not the
+ *  close-out file: the close-out carries the receiver-facing share
+ *  surfaces, which the rate law keeps free of invoicing entirely. */
+export function PodInvoiceStep({ loadId, setBanner }: { loadId: number; setBanner: (s: string) => void }) {
+  const queryClient = useQueryClient();
+  const q = useQuery({
+    queryKey: ["load-paperwork", loadId],
+    queryFn: () => api.getLoadPaperwork({ loadId }),
+  });
+  const [busy, setBusy] = useState(false);
+  const data = q.data;
+  if (!data || !data.ok || !data.sealed) return null;
+  const inv = data.invoice;
+  return (
+    <div className="mt-3 border-t border-[var(--border)] pt-2">
+      <div className="text-xs font-bold text-[var(--dim)]">NEXT — THE INVOICE FOR THIS LOAD</div>
+      {inv ? (
+        <div className="mt-1.5 text-sm">
+          🧾 Invoice <span className="font-bold">{inv.number}</span> — {inv.displayStatus}. Review or send it in <span className="font-semibold">Pay → Invoices</span>.
+        </div>
+      ) : (
+        <div className="mt-1.5 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            disabled={busy}
+            className="rounded-lg bg-[var(--ok)] px-4 py-2 text-sm font-bold text-black disabled:opacity-50"
+            onClick={() => {
+              setBusy(true);
+              void api
+                .createInvoice({ loadId, dueDays: 30, notes: null })
+                .then(() => {
+                  setBanner("Invoice draft cut from the sealed load — review it in Pay → Invoices.");
+                  void queryClient.invalidateQueries({ queryKey: ["invoices"] });
+                  void queryClient.invalidateQueries({ queryKey: ["load-paperwork", loadId] });
+                  void queryClient.invalidateQueries({ queryKey: ["owed-board"] });
+                })
+                .catch((e: unknown) => {
+                  setBanner(e instanceof Error ? e.message : "Couldn't cut the invoice — try again.");
+                })
+                .finally(() => setBusy(false));
+            }}
+          >
+            🧾 Cut the invoice draft
+          </button>
+          <span className="text-xs text-[var(--dim)]">From the sealed load's rate, Net-30 — a draft for you to review and send in Pay → Invoices.</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function LoadPaperworkBlock({ loadId, setBanner }: { loadId: number; setBanner: (s: string) => void }) {
   const queryClient = useQueryClient();
   const pwQuery = useQuery({

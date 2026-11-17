@@ -57,7 +57,7 @@ type RoadLearningState,
 import { ACTIVE_ROUTE_KEY, parseRouteSnapshot, serializeRouteSnapshot, type SavedRouteSnapshot } from "./routePersistence";
 import { LOAD_DRAFT_KEY, isEmptyFormSnapshot, parseFormSnapshot, serializeFormSnapshot, type LoadFormSnapshot } from "./loadDraftPersistence";
 import { base64FitsCap, docTooLargeMessage, fileBytesFitCap, prepareDocImage } from "./docImage";
-import { classifyDocFile, extractFromPdfPages, pdfUnreadableMessage, renderPdfPages, type LoadExtractResult } from "./pdfDoc";
+import { classifyDocFile, extractFromPdfPages, extractPdfText, pdfTextWorthParsing, pdfUnreadableMessage, renderPdfPages, type LoadExtractResult } from "./pdfDoc";
 import { createPostedLimitStabilizer, estimateLimitMph, lastKnownHoldApplies, limitBadgeCaption, nearestHighwayClass, PARKED_SETTLE_MAX_SPEED_MPH, parkedSettleActive, pickNearestLimit, raceDeadline, SPEED_LIMIT_CHECKING_AFTER_MS, SPEED_LIMIT_LOOKUP_BUDGET_MS, speedLimitQueryDue, type LastPostedLimit, type OsmWayLite, type RoadIdentity } from "./speedLimit";
 import {
   GRADE_LIVE_MIN_PCT,
@@ -188,7 +188,7 @@ import { TOOL_GROUPS, type ToolItem } from "./toolDirectory";
 import { WORKSPACES } from "./workspaces";
 import { onAnchorReveal, revealAnchor } from "./anchorReveal";
 import { asLang, destForLocalizedQuery, destLabel, localeFor, pairText, t as tt, type Lang } from "./i18n";
-import { BusinessProfilePanel, MONEY_HUB_ANCHOR_SECTION, MoneyFlowHub, MoneyOverviewPanel, SettlementCheckPanel, type MoneyHubSection } from "./MoneyFlow";
+import { BusinessProfilePanel, MONEY_HUB_ANCHOR_SECTION, MoneyFlowHub, MoneyOverviewPanel, PayRpmCard, SettlementCheckPanel, type MoneyHubSection } from "./MoneyFlow";
 import {
   OFFLINE_BADGE,
   OFFLINE_CAPTURED_LINE,
@@ -9643,7 +9643,7 @@ export function App() {
   const LOAD_READ_LOCKED_NOTE =
     "🔒 Reading a new load from a picture or file comes with Gold Driver ($9.99/mo) and up — your file is attached and saved with the load either way. Fill the details in by hand below, or upgrade in Plans and the reading unlocks.";
 
-  const applyLoadRead = (result: LoadExtractResult, notFoundNote: string) => {
+  const applyLoadRead = (result: LoadExtractResult, notFoundNote: string, viaText = false) => {
     if (result.locked) {
       setExtractNote(LOAD_READ_LOCKED_NOTE);
       return;
@@ -9730,8 +9730,15 @@ export function App() {
       warnings.push("This reads as a bill of lading, not a rate confirmation — a BOL usually doesn't carry the rate. Double-check the rate and charges fields against your rate con before saving.");
     }
     setScanReview({
-      title:
-        result.docKind === "rate_con"
+      title: viaText
+        ? result.docKind === "rate_con"
+          ? "📄 Read from the PDF's printed text — a rate confirmation"
+          : result.docKind === "bol"
+            ? "📄 Read from the PDF's printed text — a bill of lading"
+            : result.docKind === "load_sheet"
+              ? "📄 Read from the PDF's printed text — a load sheet"
+              : "📄 Read from the PDF's printed text"
+        : result.docKind === "rate_con"
           ? "📄 Meca read this as a rate confirmation"
           : result.docKind === "bol"
             ? "📄 Meca read this as a bill of lading"
@@ -9742,7 +9749,11 @@ export function App() {
       missing,
       warnings,
     });
-    setExtractNote("Pulled what the document shows — check every field against the paper, fix anything off, then save. Saving seals the document itself as this load's proof, and these details become the rate-con side of the rate-con vs BOL cross-check once the BOL is photographed at pickup.");
+    setExtractNote(
+      viaText
+        ? "Pulled from the PDF's own printed text — the figures are exactly as printed, nothing was interpreted. Check every field against the document, fix anything off, then save. Saving seals the document itself as this load's proof, and these details become the rate-con side of the rate-con vs BOL cross-check once the BOL is photographed at pickup."
+        : "Pulled what the document shows — check every field against the paper, fix anything off, then save. Saving seals the document itself as this load's proof, and these details become the rate-con side of the rate-con vs BOL cross-check once the BOL is photographed at pickup.",
+    );
   };
 
   const handleLoadFile = async (file: File) => {
@@ -9806,6 +9817,28 @@ export function App() {
       setScanReview(null);
       setPendingDocKind(null);
       setPendingDoc({ base64: enc.dataBase64, mime: enc.mimeType || "application/pdf" });
+      // Printed-text rung first (2026-11-17): a digital PDF carries
+      // its own text layer, and reading THAT (server rateConText —
+      // labels only, no model) gets the figures exactly as printed.
+      // Only when the layer is too thin to be a real document (a
+      // scanned PDF) or its labels yield nothing does the read fall
+      // through to the rendered-page vision path below. Either way
+      // the PDF itself stays attached as the sealed proof, and a
+      // total miss lands on the manual form with the file attached.
+      setExtractNote("Reading the PDF's printed text\u2026");
+      const textLayer = await extractPdfText(file);
+      if (textLayer.ok && pdfTextWorthParsing(textLayer.text)) {
+        try {
+          const res = await api.extractLoadFromText({ text: textLayer.text.slice(0, 190_000) });
+          if (res.locked || res.found) {
+            applyLoadRead(res, "That PDF's printed text doesn't show readable load details. Fill the load in by hand below — nothing was guessed.", true);
+            return;
+          }
+        } catch {
+          // The text read failed — the vision path below is the
+          // fallback, not a dead end.
+        }
+      }
       setExtractNote("Reading the PDF's pages\u2026");
       const rendered = await renderPdfPages(file);
       if (!rendered.ok) {
@@ -16788,6 +16821,9 @@ export function App() {
                 workspace's home — Pay Book, Money overview, My
                 Settlement and the settlement check live here. */}
             <p className="px-1 text-xs font-bold uppercase tracking-widest text-[var(--dim)]">{tr("💵 Pay workspace — earned, owed, checked", "💵 Espacio de pagos — ganado, debido, verificado")}</p>
+            {/* PAY DOOR HEADLINE (2026-11-17): revenue per mile, last
+                30 days of sealed loads — the door's first number. */}
+            <PayRpmCard />
             <MoneyPanel setBanner={setBanner} lang={lang} />
             <PayBookPanel setBanner={setBanner} openSignal={payBookJumpNonce} lang={lang} />
             {/* Security Pack 2 step-up: settlement views need a fresh PIN. */}
@@ -19441,6 +19477,32 @@ export function App() {
 
             {loadsView === "list" && (
               <>
+            {/* ADD LOAD FROM RATE CON (2026-11-17): the scan-first
+                door into the same add-load form below — one tap on
+                the rate con (photo or PDF) and Meca fills the draft
+                for the driver to check. The manual form stays right
+                under it, untouched, and is where every failed or
+                partial read lands with the document attached. */}
+            <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl bg-[var(--accent)] py-3.5 text-base font-bold text-black active:opacity-85">
+              📄 Add load from rate con
+              <input
+                type="file"
+                accept="image/*,.pdf"
+                className="hidden"
+                aria-label="Add a load from a rate confirmation — photo or PDF"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) {
+                    setAddLoadOpen(true);
+                    void handleLoadFile(f);
+                  }
+                  e.target.value = "";
+                }}
+              />
+            </label>
+            <p className="-mt-1 px-1 text-xs leading-relaxed text-[var(--dim)]">
+              Meca reads the rate con and fills in the load for you to check — nothing saves until you confirm it. No rate con handy? Add the load by hand below; manual entry is always there.
+            </p>
             <ExpandRow
               icon="➕"
               title={editingLoadId ? "Edit load" : "Add a load"}

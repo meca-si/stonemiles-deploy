@@ -231,6 +231,119 @@ export async function extractFromPdfPages(
   return { status: "done", result: merged ?? emptyExtractResult() };
 }
 
+/** One PDF.js text item, flattened to what line-building needs. */
+export interface PdfTextItem {
+  str: string;
+  x: number;
+  y: number;
+  hasEOL: boolean;
+}
+
+/** Rebuild reading lines from a page's text items: items sharing a
+ *  baseline (within a couple of points) form a line, ordered by x;
+ *  PDF.js's own end-of-line marks break lines too. Pure — the
+ *  deterministic rate-con parser (server rateConText.ts) consumes
+ *  exactly these lines. */
+export function pdfTextItemsToLines(items: readonly PdfTextItem[]): string[] {
+  const lines: { y: number; parts: { x: number; str: string }[] }[] = [];
+  let current: { y: number; parts: { x: number; str: string }[] } | null = null;
+  const flush = () => {
+    if (current && current.parts.length > 0) lines.push(current);
+    current = null;
+  };
+  for (const item of items) {
+    if (!current || Math.abs(item.y - current.y) > 2) {
+      flush();
+      current = { y: item.y, parts: [] };
+    }
+    current.parts.push({ x: item.x, str: item.str });
+    if (item.hasEOL) flush();
+  }
+  flush();
+  return lines
+    .map((l) =>
+      l.parts
+        .sort((a, b) => a.x - b.x)
+        .map((p) => p.str)
+        .join(" ")
+        .replace(/\s+/g, " ")
+        .trim(),
+    )
+    .filter((l) => l.length > 0);
+}
+
+/** How much printed text a PDF's text layer must carry before the
+ *  deterministic read is worth running. Below this, the "text" is
+ *  stamps/watermarks on a scanned page — the vision read of the
+ *  rendered pages is the honest path. */
+export const PDF_TEXT_MIN_CHARS = 200;
+
+export function pdfTextWorthParsing(text: string): boolean {
+  return text.replace(/\s/g, "").length >= PDF_TEXT_MIN_CHARS;
+}
+
+export type ExtractedPdfText =
+  | { ok: true; text: string; totalPages: number; readPages: number; truncated: boolean }
+  | { ok: false };
+
+/** Pull a digital PDF's printed text layer, page by page, capped at
+ *  the same pages the reader renders. Never throws: a damaged or
+ *  protected PDF comes back not-ok and the caller falls back to the
+ *  rendered-page vision read, exactly as before this path existed.
+ *  A scanned PDF returns ok with little or no text — the caller
+ *  decides with pdfTextWorthParsing. */
+export async function extractPdfText(file: File): Promise<ExtractedPdfText> {
+  try {
+    await import("@hatch/space-sdk/pdf");
+    const pdfjs = await import("pdfjs-dist/build/pdf.mjs");
+    const data = new Uint8Array(await file.arrayBuffer());
+    const loadingTask = pdfjs.getDocument({
+      data,
+      cMapUrl: PDFJS_CMAP_URL,
+      cMapPacked: true,
+      standardFontDataUrl: PDFJS_FONTS_URL,
+      wasmUrl: PDFJS_WASM_URL,
+      isEvalSupported: false,
+    });
+    const doc = await loadingTask.promise;
+    try {
+      const plan = planPdfPages(doc.numPages);
+      if (plan.pages.length === 0) return { ok: false };
+      const pageTexts: string[] = [];
+      for (const pageNum of plan.pages) {
+        const page = await doc.getPage(pageNum);
+        try {
+          const content = await page.getTextContent();
+          const items: PdfTextItem[] = content.items.map((it) => {
+            const t = it as { str?: unknown; transform?: unknown; hasEOL?: unknown };
+            const tr = Array.isArray(t.transform) ? (t.transform as number[]) : [];
+            return {
+              str: typeof t.str === "string" ? t.str : "",
+              x: typeof tr[4] === "number" ? tr[4] : 0,
+              y: typeof tr[5] === "number" ? tr[5] : 0,
+              hasEOL: t.hasEOL === true,
+            };
+          });
+          pageTexts.push(pdfTextItemsToLines(items).join("\n"));
+        } finally {
+          page.cleanup();
+        }
+      }
+      return {
+        ok: true,
+        text: pageTexts.join("\n"),
+        totalPages: plan.totalPages,
+        readPages: plan.pages.length,
+        truncated: plan.truncated,
+      };
+    } finally {
+      await doc.destroy();
+    }
+  } catch {
+    return { ok: false };
+  }
+}
+
 export type RenderedPdfPages =
   | { ok: true; pages: PreparedPage[]; totalPages: number; readPages: number }
   | { ok: false; reason: "unreadable" | "blank" };

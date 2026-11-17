@@ -19,6 +19,8 @@ summarizePayBook,
 type DeductionLine,
 } from "./payBook";
 import { computeMoneyOverview } from "./moneyOverview";
+import { parseRateConText } from "./rateConText";
+import { computePayRpm } from "./payRpm";
 import {
 acceptGate,
 deliveryToPayEntry,
@@ -27700,6 +27702,131 @@ export const Actions = {
     },
   }),
 
+  // ---- Rate-con printed-text read (2026-11-17) ---------------------------
+  //
+  // The deterministic twin of extractLoad: when the uploaded file is
+  // a DIGITAL PDF, the client pulls its printed text layer out with
+  // PDF.js and sends the text here; parseRateConText reads the
+  // labels. No model is involved — the numbers are exactly as
+  // printed, a field the text doesn't label stays null, and the load
+  // form's review flow treats the result exactly like the vision
+  // read (the driver checks every field before saving; the document
+  // itself seals with the load either way). Scanned PDFs and photos
+  // have no text layer worth the name — the client keeps those on
+  // the extractLoad vision path. Same Gold gate as the new-load
+  // vision read; manual entry stays free either way.
+  extractLoadFromText: defineAction({
+    description: "Read a rate confirmation's printed text (from a digital PDF's text layer) into load fields, deterministically.",
+    request: z.object({
+      text: z.string().min(1).max(200_000),
+    }),
+    response: z.object({
+      locked: z.boolean(),
+      found: z.boolean(),
+      source: z.literal("pdf_text"),
+      docKind: z.enum(["rate_con", "bol", "load_sheet", "other"]).nullable(),
+      shipper: z.string().nullable(),
+      brokerCompany: z.string().nullable(),
+      brokerName: z.string().nullable(),
+      brokerMc: z.string().nullable(),
+      pickupCity: z.string().nullable(),
+      pickupState: z.string().nullable(),
+      pickupAddress: z.string().nullable(),
+      deliveryCity: z.string().nullable(),
+      deliveryState: z.string().nullable(),
+      deliveryAddress: z.string().nullable(),
+      pickupText: z.string().nullable(),
+      deliveryText: z.string().nullable(),
+      rate: z.number().nullable(),
+      miles: z.number().nullable(),
+      weightLbs: z.number().nullable(),
+      commodity: z.string().nullable(),
+      pieces: z.number().nullable(),
+      sealNumber: z.string().nullable(),
+      loadNumber: z.string().nullable(),
+      poNumber: z.string().nullable(),
+      proNumber: z.string().nullable(),
+      chargesFuelSurcharge: z.number().nullable(),
+      chargesDetention: z.number().nullable(),
+      chargesLumper: z.number().nullable(),
+      chargesOther: z.number().nullable(),
+      chargesTotal: z.number().nullable(),
+      totalPay: z.number().nullable(),
+    }),
+    async handler(ctx, args) {
+      const plan = await myPlan(ctx);
+      if (!isGoldPlan(plan)) {
+        return {
+          locked: true,
+          found: false,
+          source: "pdf_text" as const,
+          docKind: null,
+          shipper: null,
+          brokerCompany: null,
+          brokerName: null,
+          brokerMc: null,
+          pickupCity: null,
+          pickupState: null,
+          pickupAddress: null,
+          deliveryCity: null,
+          deliveryState: null,
+          deliveryAddress: null,
+          pickupText: null,
+          deliveryText: null,
+          rate: null,
+          miles: null,
+          weightLbs: null,
+          commodity: null,
+          pieces: null,
+          sealNumber: null,
+          loadNumber: null,
+          poNumber: null,
+          proNumber: null,
+          chargesFuelSurcharge: null,
+          chargesDetention: null,
+          chargesLumper: null,
+          chargesOther: null,
+          chargesTotal: null,
+          totalPay: null,
+        };
+      }
+      const f = parseRateConText(args.text);
+      return {
+        locked: false,
+        found: f.found,
+        source: "pdf_text" as const,
+        docKind: f.found ? f.docKind : null,
+        shipper: f.shipper,
+        brokerCompany: f.brokerCompany,
+        brokerName: f.brokerName,
+        brokerMc: f.brokerMc,
+        pickupCity: f.pickupCity,
+        pickupState: f.pickupState,
+        pickupAddress: f.pickupAddress,
+        deliveryCity: f.deliveryCity,
+        deliveryState: f.deliveryState,
+        deliveryAddress: f.deliveryAddress,
+        pickupText: f.pickupText,
+        deliveryText: f.deliveryText,
+        rate: f.rate,
+        miles: f.miles,
+        weightLbs: f.weightLbs,
+        commodity: f.commodity,
+        pieces: f.pieces,
+        sealNumber: f.sealNumber,
+        loadNumber: f.loadNumber,
+        poNumber: f.poNumber,
+        proNumber: f.proNumber,
+        chargesFuelSurcharge: f.chargesFuelSurcharge,
+        chargesDetention: f.chargesDetention,
+        chargesLumper: f.chargesLumper,
+        chargesOther: f.chargesOther,
+        chargesTotal: f.chargesTotal,
+        totalPay: f.totalPay,
+      };
+    },
+  }),
+
   // ---- Payroll scan -------------------------------------------------------
   //
   // The Pay Book's twin of extractLoad (x, 2026-10-30: "What about
@@ -48913,6 +49040,53 @@ export const Actions = {
         avgWeeklyNet: o.avgWeeklyNet,
         projection: o.projection,
         note: "Your own records only: paychecks from your Pay Book and miles from your sealed loads. Deduction categories are grouped from the labels on your stubs — anything unlabelled sits in Other, and nothing here is estimated. The projection, when it shows, is your year-to-date weekly pace carried to 52 weeks — a pace, not a promise.",
+      };
+    },
+  }),
+
+  // ---- Pay door revenue per mile (2026-11-17) -----------------------------
+  //
+  // The Pay door's headline figure: load revenue (rate + additional
+  // charges — the load total the per-load $/mi divides) over loaded
+  // miles, for the caller's loads sealed in the last 30 days. Pure
+  // math in payRpm.ts; the note states the definition on the record.
+  getPayRpm: defineAction({
+    description: "The caller's revenue per mile over their loads sealed in the last 30 days (load revenue over loaded miles).",
+    request: z.object({}),
+    response: z.object({
+      hasData: z.boolean(),
+      windowDays: z.number(),
+      revenue: z.number(),
+      miles: z.number(),
+      loadCount: z.number(),
+      loadsSkippedNoMiles: z.number(),
+      rpm: z.number().nullable(),
+      note: z.string(),
+    }),
+    async handler(ctx) {
+      const db = ctx.db<typeof schema>();
+      const loads = await db.select().from(schema.loads);
+      const pods = await podStatusByLoad(ctx);
+      const likes: { sealedAtMs: number; revenue: number | null; loadedMiles: number | null }[] = [];
+      for (const l of loads) {
+        const pod = pods.get(l.id);
+        if (!pod?.sealed || !pod.sealedAt) continue; // sealed loads only
+        likes.push({
+          sealedAtMs: Date.parse(pod.sealedAt),
+          revenue: l.rate == null ? null : l.rate + (l.extraCharges ?? 0),
+          loadedMiles: l.loadedMiles ?? null,
+        });
+      }
+      const r = computePayRpm(likes, Date.now(), 30);
+      return {
+        hasData: r.hasData,
+        windowDays: r.windowDays,
+        revenue: r.revenue,
+        miles: r.miles,
+        loadCount: r.loadCount,
+        loadsSkippedNoMiles: r.loadsSkippedNoMiles,
+        rpm: r.rpm,
+        note: "Your own sealed loads only: load revenue (rate + additional charges) divided by loaded miles, for loads sealed in the last 30 days. Deadhead miles aren't counted, and loads with no miles recorded aren't in the figure.",
       };
     },
   }),

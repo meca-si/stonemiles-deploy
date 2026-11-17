@@ -2685,6 +2685,43 @@ const OVERVIEW_CAT_COLORS: Record<string, string> = {
   Other: "#94a3b8",
 };
 
+/** The Pay door's headline figure (2026-11-17): revenue per mile
+ *  over the driver's own loads sealed in the last 30 days — load
+ *  revenue (rate + additional charges) ÷ loaded miles, deadhead not
+ *  counted, stated on the card. Server math in payRpm.ts /
+ *  getPayRpm; this is the recent-loads figure, distinct from the
+ *  Money Overview's year-to-date Pay-Book rate below. */
+export function PayRpmCard() {
+  const q = useQuery({ queryKey: ["pay-rpm"], queryFn: () => api.getPayRpm({}) });
+  const d = q.data;
+  return (
+    <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3.5" aria-label="Revenue per mile — last 30 days">
+      <div className="text-[11px] font-bold uppercase tracking-wide text-[var(--dim)]">Revenue per mile — last 30 days</div>
+      {q.isLoading && <p className="mt-1 text-sm text-[var(--dim)]">Reading your sealed loads…</p>}
+      {q.isError && <p className="mt-1 text-sm text-[var(--dim)]">Couldn't read it just now — try again in a moment.</p>}
+      {d && d.hasData && d.rpm != null && (
+        <>
+          <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <span className="font-condensed text-3xl font-bold tnum">{money(d.rpm)}/mi</span>
+            <span className="text-sm text-[var(--dim)]">
+              {money(d.revenue)} over {Math.round(d.miles).toLocaleString("en-US")} loaded mi · {d.loadCount} {d.loadCount === 1 ? "load" : "loads"} sealed in the last {d.windowDays} days
+            </span>
+          </div>
+          <p className="mt-1 text-xs leading-relaxed text-[var(--dim)]">
+            Load revenue (rate + additional charges) ÷ loaded miles. Deadhead isn't counted
+            {d.loadsSkippedNoMiles > 0 ? `, and ${d.loadsSkippedNoMiles} sealed ${d.loadsSkippedNoMiles === 1 ? "load" : "loads"} with no miles recorded ${d.loadsSkippedNoMiles === 1 ? "isn't" : "aren't"} in it` : ""}.
+          </p>
+        </>
+      )}
+      {d && !d.hasData && (
+        <p className="mt-1 text-sm leading-relaxed text-[var(--dim)]">
+          No sealed loads with miles recorded in the last 30 days yet — once deliveries seal, this is your headline number: what your recent loads pay per loaded mile.
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function MoneyOverviewPanel() {
   const q = useQuery({ queryKey: ["money-overview"], queryFn: () => api.getMoneyOverview({}) });
   const d = q.data;

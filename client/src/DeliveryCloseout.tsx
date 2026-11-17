@@ -17,7 +17,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type ApiResponse } from "./api";
 import { buildSmsHandoff, isPlausibleMobile, maskPhone } from "./receiverCopy";
 import { LoadAutonomyBlock } from "./AutonomyPanel";
-import { LoadPaperworkBlock } from "./PaperworkPanel";
+import { LoadPaperworkBlock, PodInvoiceStep } from "./PaperworkPanel";
 
 type LinkState = ApiResponse<typeof api, "getLoadReceiveLink">;
 
@@ -286,6 +286,8 @@ export function DeliveryCloseout({ loadId, setBanner }: { loadId: number; setBan
               🖨 Print BOL
             </button>
           </div>
+
+          <PodInvoiceStep loadId={loadId} setBanner={setBanner} />
 
           {(link.path === "receive_link" || link.path === "phone_signature") && (
             <div className="mt-3 border-t border-[var(--border)] pt-2">

@@ -20,6 +20,8 @@ import {
   extractFromPdfPages,
   isBlankProbe,
   mergeExtractResults,
+  pdfTextItemsToLines,
+  pdfTextWorthParsing,
   pdfUnreadableMessage,
   planPdfPages,
   planPdfRenderSize,
@@ -255,5 +257,37 @@ describe("unreadable PDF path", () => {
     const out = await renderPdfPages(junk);
     expect(out.ok).toBe(false);
     if (!out.ok) expect(out.reason).toBe("unreadable");
+  });
+});
+
+describe("pdfTextItemsToLines (2026-11-17 deterministic text read)", () => {
+  test("items on one baseline form one line, ordered by x", () => {
+    const lines = pdfTextItemsToLines([
+      { str: "$2,450.00", x: 300, y: 100, hasEOL: false },
+      { str: "Rate:", x: 60, y: 100, hasEOL: true },
+    ]);
+    expect(lines).toEqual(["Rate: $2,450.00"]);
+  });
+
+  test("a new baseline starts a new line; hasEOL breaks too", () => {
+    const lines = pdfTextItemsToLines([
+      { str: "Mobile, AL 36608", x: 60, y: 90, hasEOL: false },
+      { str: "Pickup", x: 60, y: 120, hasEOL: true },
+      { str: "Date: 11/20/2026", x: 60, y: 120, hasEOL: false },
+    ]);
+    expect(lines).toEqual(["Mobile, AL 36608", "Pickup", "Date: 11/20/2026"]);
+  });
+
+  test("empty items produce no lines", () => {
+    expect(pdfTextItemsToLines([])).toEqual([]);
+    expect(pdfTextItemsToLines([{ str: "  ", x: 0, y: 0, hasEOL: false }])).toEqual([]);
+  });
+});
+
+describe("pdfTextWorthParsing", () => {
+  test("a real text layer passes; stamp-only text does not", () => {
+    expect(pdfTextWorthParsing("x".repeat(250))).toBe(true);
+    expect(pdfTextWorthParsing("RECEIVED 11/16/2026")).toBe(false);
+    expect(pdfTextWorthParsing("")).toBe(false);
   });
 });
