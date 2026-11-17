@@ -450,6 +450,59 @@
       .line-swatch.day { background:#4da3ff; box-shadow:0 0 0 1px rgba(77,163,255,.35); }
       .line-swatch.night { background:var(--accent); box-shadow:0 0 8px rgba(61,255,143,.55); }
 
+      /* ---------- Ten Workspaces + Settlement Check ---------- */
+      .ws-grid { display:grid; gap:16px; grid-template-columns:repeat(auto-fit,minmax(248px,1fr)); }
+      .ws-card.pay-card { border-color:rgba(242,178,27,.5); background:linear-gradient(180deg, rgba(242,178,27,.05), rgba(255,255,255,0) 46%), var(--panel); }
+      .ws-top { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+      .ws-num { font-family:var(--font-mono); font-size:12px; font-weight:600; letter-spacing:.14em; color:var(--gold); border:1px solid var(--gold-deep); border-radius:999px; padding:3px 9px; flex:none; }
+      .ws-card.pay-card .ws-num { background:rgba(242,178,27,.12); color:var(--gold-hi); }
+      .ws-tagline { font-family:var(--font-display); font-weight:600; text-transform:uppercase; letter-spacing:.06em; font-size:15px; color:var(--accent-hi); line-height:1.2; }
+      .ws-card h3 { font-family:var(--font-display); font-weight:700; text-transform:uppercase; letter-spacing:.04em; font-size:24px; margin:0 0 7px; line-height:1; }
+      .ws-replaces { margin-top:12px; padding-top:11px; border-top:1px solid var(--line-soft); font-size:13.5px; color:var(--muted); line-height:1.45; }
+      .ws-replaces strong { color:var(--ink-2); font-weight:600; }
+      .settle-panel { margin-top:22px; background:linear-gradient(180deg, rgba(242,178,27,.055), rgba(255,255,255,0) 46%), var(--panel); border:1px solid rgba(242,178,27,.42); border-radius:12px; padding:26px 24px; box-shadow:inset 0 1px 0 rgba(255,255,255,.05), 0 10px 30px rgba(0,0,0,.25); }
+      .settle-panel .sp-kicker { font-family:var(--font-mono); font-size:12px; font-weight:600; letter-spacing:.16em; text-transform:uppercase; color:var(--gold); display:block; margin-bottom:10px; }
+      .settle-panel h3 { font-family:var(--font-display); font-weight:700; text-transform:uppercase; font-size:clamp(26px,4vw,34px); line-height:1.05; margin:0 0 10px; letter-spacing:.015em; }
+      .settle-panel > p { color:var(--ink-2); max-width:760px; margin:0 0 20px; font-size:16.5px; }
+      .settle-panel > p strong { color:var(--ink); }
+      .settle-vs { display:grid; grid-template-columns:1fr auto 1fr; gap:12px; align-items:stretch; margin-bottom:16px; }
+      .settle-side { background:var(--bg-raise); border:1px solid var(--line); border-radius:var(--radius); padding:18px; }
+      .settle-side.should { border-color:var(--accent-deep); }
+      .settle-side.did { border-color:var(--gold-deep); }
+      .settle-side .sv-label { font-family:var(--font-mono); font-size:11.5px; font-weight:600; letter-spacing:.14em; text-transform:uppercase; color:var(--muted); display:block; margin-bottom:7px; }
+      .settle-side.should .sv-label { color:var(--accent-hi); }
+      .settle-side.did .sv-label { color:var(--gold-hi); }
+      .settle-side h4 { margin:0 0 6px; font-size:18px; line-height:1.25; }
+      .settle-side p { margin:0; color:var(--ink-2); font-size:15px; line-height:1.5; }
+      .settle-vs-mark { align-self:center; font-family:var(--font-display); font-weight:700; font-size:20px; letter-spacing:.08em; color:var(--muted); border:1px solid var(--line); border-radius:50%; width:46px; height:46px; display:grid; place-items:center; background:var(--bg); flex:none; }
+      .settle-rows { border:1px solid var(--line-soft); border-radius:var(--radius); overflow:hidden; margin-bottom:16px; }
+      .settle-row { display:flex; flex-wrap:wrap; gap:4px 14px; align-items:baseline; padding:12px 16px; background:var(--bg-raise); border-bottom:1px solid var(--line-soft); }
+      .settle-row:last-child { border-bottom:none; }
+      .settle-row .sr-name { font-weight:700; color:var(--ink); font-size:15.5px; flex:1 1 200px; }
+      .settle-row .sr-note { color:var(--ink-2); font-size:14.8px; flex:2 1 280px; }
+      .settle-row.flag { background:rgba(255,122,107,.07); }
+      .settle-row.flag .sr-name { color:#ffb3a8; }
+      .settle-flag-pill { display:inline-flex; align-items:center; gap:7px; background:rgba(255,122,107,.12); border:1px solid rgba(255,122,107,.55); color:#ffb3a8; border-radius:999px; padding:5px 11px; font-family:var(--font-mono); font-size:11.5px; font-weight:600; letter-spacing:.1em; text-transform:uppercase; flex:none; }
+      /* ---------- Snap-to-paid panel (rate-con reader · POD → invoice · RPM) ---------- */
+      .snap-panel { margin-top:22px; background:linear-gradient(180deg, rgba(61,255,143,.055), rgba(255,255,255,0) 46%), var(--panel); border:1px solid rgba(61,255,143,.42); border-radius:12px; padding:26px 24px; box-shadow:inset 0 1px 0 rgba(255,255,255,.05), 0 10px 30px rgba(0,0,0,.25); }
+      .snap-panel .sp-kicker { font-family:var(--font-mono); font-size:12px; font-weight:600; letter-spacing:.16em; text-transform:uppercase; color:var(--accent); display:block; margin-bottom:10px; }
+      .snap-panel h3 { font-family:var(--font-display); font-weight:700; text-transform:uppercase; font-size:clamp(26px,4vw,34px); line-height:1.05; margin:0 0 10px; letter-spacing:.015em; }
+      .snap-panel > p { color:var(--ink-2); max-width:760px; margin:0 0 20px; font-size:16.5px; }
+      .snap-panel > p strong { color:var(--ink); }
+      .snap-panel > p:last-child { margin:18px 0 0; font-size:16px; }
+      @media (max-width: 640px) { .snap-panel { padding:22px 18px; } }
+
+      .settle-steps { display:grid; gap:12px; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); }
+      .settle-step { background:var(--bg-raise); border:1px solid var(--line-soft); border-radius:9px; padding:15px 16px; }
+      .settle-step .ss-n { font-family:var(--font-mono); font-size:11.5px; font-weight:600; letter-spacing:.12em; color:var(--gold); display:block; margin-bottom:6px; }
+      .settle-step p { margin:0; color:var(--ink-2); font-size:14.8px; line-height:1.5; }
+      .settle-step p strong { color:var(--ink); }
+      @media (max-width: 640px) {
+        .settle-vs { grid-template-columns:1fr; }
+        .settle-vs-mark { margin:0 auto; }
+        .settle-panel { padding:22px 18px; }
+      }
+
       @media (max-width: 720px) {
         body { font-size: 16.5px; }
         .nav-in { flex-wrap: wrap; padding: 9px 0; row-gap: 6px; }
@@ -504,7 +557,7 @@
               <a class="btn btn-ghost" href="https://muse.ai/s/milestone-preview-xuo6xeutxtaxhxb8/wlgylNEs5kimf78IoeBKgMvtxHIT_jjdqq93VL5CRJ4" target="_blank" rel="noopener">Open the demo app</a>
               <a class="btn btn-ghost" href="#/pricing" data-nav>See pricing</a>
             </div>
-            <p class="preview-note">Demo app only — updated to the latest approved build: the live fleet dispatch chain (broker sends → desk accepts → driver assigned → driver runs it → receiver confirms → the delivery seals itself into the Library) and the User Library, plus Atlas, satellite view, trailer package, money tools, 5 languages, the simplified navigation and the Tax Worksheet, My Truck &amp; My Trailer records with up to 5 photos each on the driver profile, and the Maintenance log with receipts and a one-file truck record download, the Nov 6 evening GPS repair, plus the Android Auto &amp; Cab Mode work — a glanceable in-app cab display and the Android Auto template screens (Guidance / Stops ahead / Road alerts) previewed in-app — plus the newest builds: the SM Points lanes (Drive well · Feed the map · Grow it), DVIR inspections with defect-to-maintenance, detention proof, and the trailer model in the rig record — and now inspections built into the day beside the HOS clock, with a remark and a place on every duty change. Shown with a RUGGS LOGISTICS fleet, a fake driver and preview numbers. All fake, no account needed, and nothing real saves. <strong style="color:var(--ink-2);">Head-unit Android Auto projection is not live yet</strong> — it ships only through the Play Store listing once that listing exists.</p>
+            <p class="preview-note">Demo app only — updated to the latest approved build: <strong style="color:var(--ink-2);">the Ten Workspaces</strong> — Loads, Drive, Planner, Fuel, Pay, Records, Truck, Schedule, Team and Rewards, ten doors on Today that run the whole day, with the workspace name at every home — <strong style="color:var(--ink-2);">and Settlement Check in Pay</strong>, which lines every settlement you log up against your sealed loads: should vs. did, deductions itemized, any shortage flagged in plain dollars — plus the live fleet dispatch chain (broker sends → desk accepts → driver assigned → driver runs it → receiver confirms → the delivery seals itself into the Library) and the User Library, plus Atlas, satellite view, trailer package, money tools, 5 languages, the simplified navigation and the Tax Worksheet, My Truck &amp; My Trailer records with up to 5 photos each on the driver profile, and the Maintenance log with receipts and a one-file truck record download, the Nov 6 evening GPS repair, plus the Android Auto &amp; Cab Mode work — a glanceable in-app cab display and the Android Auto template screens (Guidance / Stops ahead / Road alerts) previewed in-app — plus the newest builds: the SM Points lanes (Drive well · Feed the map · Grow it), DVIR inspections with defect-to-maintenance, detention proof, and the trailer model in the rig record — and now inspections built into the day beside the HOS clock, with a remark and a place on every duty change — <strong style="color:var(--ink-2);">plus the snap-to-paid chain</strong>: snap or upload a rate confirmation and the load fills in for your check-off before it seals, with manual entry always there if the read misses anything; snap the POD at delivery and it seals to the load with the invoice draft already waiting in Pay; and your revenue per mile sits up front at the top of Pay, figured from your sealed loads. Shown with a RUGGS LOGISTICS fleet, a fake driver and preview numbers. All fake, no account needed, and nothing real saves. <strong style="color:var(--ink-2);">Head-unit Android Auto projection is not live yet</strong> — it ships only through the Play Store listing once that listing exists.</p>
             <div class="spec-strip" aria-label="Built for standard rigs">
               <div><div class="v">13&prime;6&Prime;</div><div class="l">Max height routing</div></div>
               <div><div class="v">80,000 lb</div><div class="l">Gross weight profile</div></div>
@@ -512,7 +565,7 @@
               <div><div class="v">Up to 3</div><div class="l">Routes compared (Gold+)</div></div>
               <div><div class="v">50 states</div><div class="l">Atlas reference</div></div>
               <div><div class="v">5</div><div class="l">App languages</div></div>
-              <div><div class="v">One home</div><div class="l">Per job — dock of five</div></div>
+              <div><div class="v">10</div><div class="l">Workspaces · 50+ tools</div></div>
             </div>
 
             <figure class="hero-photo" style="margin-bottom:0;">
@@ -530,11 +583,126 @@
                 <span class="hud-chip">PERMIT · APPROVED ROUTE</span>
                 <span class="hud-chip">ATLAS · 50 STATES</span>
                 <span class="hud-chip">IFTA · LOGGING</span>
+                <span class="hud-chip">10 WORKSPACES · ONE APP</span>
+                <span class="hud-chip">PAY · SETTLEMENT CHECKED</span>
                 <span class="hud-chip">DISPATCH · BROKER → DESK → DRIVER</span>
                 <span class="hud-chip">LIBRARY · PRINT · EMAIL · DOWNLOAD</span>
                 <span class="hud-chip sealed"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M10 14a5 5 0 0 0 7.1 0l2.4-2.4a5 5 0 0 0-7-7.1L11 6"/><path d="M14 10a5 5 0 0 0-7.1 0L4.5 12.4a5 5 0 0 0 7 7.1L13 18"/></svg>RECORD SEALED</span>
               </figcaption>
             </figure>
+          </div>
+        </div>
+
+        <div class="band" id="workspaces">
+          <div class="wrap">
+            <span class="kicker">Ten workspaces · One app · 50+ tools</span>
+            <h2 class="sec-title">Delete the pile. Keep the day.</h2>
+            <p class="sec-sub">Most drivers run one working day across a phone full of apps — GPS in one, loads in another, fuel prices in a third, hours in a fourth, pay chased through a spreadsheet and a folder of PDFs. Every login is a seam, and money falls through seams. STONEMILES folds all of it into <strong style="color:var(--ink);">one workspace with ten doors</strong> — ten workspaces on your Today screen, each one opening straight onto its tools, each one named at its home so you always know where you are. <strong style="color:var(--ink);">50+ tools, one home, nothing living in two places</strong> — the load you book is the load the GPS runs, the trip the hours clock seals, and the pay the settlement gets checked against. That is the whole point: throw the old apps away.</p>
+
+            <div class="ws-grid">
+              <div class="card ws-card">
+                <div class="ws-top"><span class="ws-num">01</span><span class="ws-tagline">Find it · Book it · Haul it</span></div>
+                <h3>Loads</h3>
+                <p>The work starts here. The loadboard, your next-load suggestions, your booked loads and the sealed Load Tracker live behind one door — broker sends, desk assignments and board loads all land in the same place, so the load you take is the load every other workspace already knows about. And booking one just got faster: <strong style="color:var(--ink);">snap or upload the rate confirmation and the load fills in for your check-off before it seals</strong> — shipper, receiver, dates and rate read off the paper, not typed in by thumb. Manual entry is always right there if the read misses anything.</p>
+                <p class="ws-replaces"><strong>Replaces:</strong> the loadboard app, the broker-text thread, the notebook of load numbers.</p>
+              </div>
+              <div class="card ws-card">
+                <div class="ws-top"><span class="ws-num">02</span><span class="ws-tagline">Truck GPS · Cab Mode · Hours clock</span></div>
+                <h3>Drive</h3>
+                <p>The road, run from one screen. Truck-legal GPS that knows your height, weight and trailer, a glanceable Cab Mode built for one look and one tap, and your hours-of-service clock riding right beside the route — so the miles, the alerts and the time you have left are never in different apps arguing with each other.</p>
+                <p class="ws-replaces"><strong>Replaces:</strong> the car GPS, the separate logbook app, the second phone on the dash.</p>
+              </div>
+              <div class="card ws-card">
+                <div class="ws-top"><span class="ws-num">03</span><span class="ws-tagline">Plan the run: routes, parking, stops</span></div>
+                <h3>Planner</h3>
+                <p>A run planned before the wheels turn beats a run rescued at midnight. Compare routes, line up parking and stops against your real hours clock, and see the weather on the road at the hour you will actually be there — the day laid out while there is still time to change it.</p>
+                <p class="ws-replaces"><strong>Replaces:</strong> the parking app, the weather guesswork, the &ldquo;we&rsquo;ll figure it out&rdquo; stop hunt.</p>
+              </div>
+              <div class="card ws-card">
+                <div class="ws-top"><span class="ws-num">04</span><span class="ws-tagline">Cheapest stops · True cost</span></div>
+                <h3>Fuel</h3>
+                <p>The pump price is not the price. Fuel ranks the stops on your actual route by what a gallon truly costs you, keeps your fuel log and builds the IFTA picture as you drive — so the cheapest stop is the one that is cheapest for <em>your</em> run, not the loudest sign on the interstate.</p>
+                <p class="ws-replaces"><strong>Replaces:</strong> the fuel-price app, the receipt envelope, the quarter-end IFTA scramble.</p>
+              </div>
+              <div class="card ws-card pay-card">
+                <div class="ws-top"><span class="ws-num">05</span><span class="ws-tagline">Earned · Owed · Checked</span></div>
+                <h3>Pay</h3>
+                <p>What you earned, who still owes you, and whether the settlement that landed actually matches the work — in one place. <strong style="color:var(--ink);">Your revenue per mile sits up front at the top of Pay</strong>, figured from your sealed loads, so the number that decides whether a run was worth it is the first thing you see — not a spreadsheet you build later. Pay Book, who-owes-me, invoices and profit &amp; loss sit behind this door, the invoice draft from your delivery POD is already waiting here, and now every settlement gets <strong style="color:var(--ink);">checked automatically against your sealed loads</strong> the moment you log it. The full story is in the Settlement Check panel right below.</p>
+                <p class="ws-replaces"><strong>Replaces:</strong> the spreadsheet, the settlement PDF folder, the end-of-week math on a napkin.</p>
+              </div>
+              <div class="card ws-card">
+                <div class="ws-top"><span class="ws-num">06</span><span class="ws-tagline">Paperwork · Sealed + proven</span></div>
+                <h3>Records</h3>
+                <p>Paperwork that proves itself. BOLs, PODs, rate cons, logs, inspections and exports file into one Library, and every delivery seals into a hash-chained record nobody can quietly rewrite later. When the office, a broker or an officer asks, the proof is one download — not a search party.</p>
+                <p class="ws-replaces"><strong>Replaces:</strong> the filing cabinet, the photo roll of BOLs, the &ldquo;which phone has that POD&rdquo; hunt.</p>
+              </div>
+              <div class="card ws-card">
+                <div class="ws-top"><span class="ws-num">07</span><span class="ws-tagline">Your rig, kept ready</span></div>
+                <h3>Truck</h3>
+                <p>Your rig, on record and kept ready. Truck and trailer identity, maintenance countdowns and the full service log, inspections and breakdown mode — a defect flagged on a walk-around drafts its own repair entry here, so nothing found at 5 a.m. gets forgotten by Friday.</p>
+                <p class="ws-replaces"><strong>Replaces:</strong> the glovebox service folder, the sticky-note mileage reminders.</p>
+              </div>
+              <div class="card ws-card">
+                <div class="ws-top"><span class="ws-num">08</span><span class="ws-tagline">Calendar + home time</span></div>
+                <h3>Schedule</h3>
+                <p>The week, and the life around it. Your calendar, home time, and the dates that can strand you — CDL, medical card and credential expiries — watched in one place with warnings well before they become a roadside problem. The run gets planned around getting home, not instead of it.</p>
+                <p class="ws-replaces"><strong>Replaces:</strong> the wall calendar, the expiry date you meant to write down.</p>
+              </div>
+              <div class="card ws-card">
+                <div class="ws-top"><span class="ws-num">09</span><span class="ws-tagline">Messages · Fleet + shares</span></div>
+                <h3>Team</h3>
+                <p>Everybody on the run, in the loop. Messages, the fleet board and load shares live here — dispatch sees the fleet live, drivers see their assignment whole, and a broker or shipper gets a tracking view of the lane and the ETA, never the rate.</p>
+                <p class="ws-replaces"><strong>Replaces:</strong> the check-call phone tag, the group text nobody can find later.</p>
+              </div>
+              <div class="card ws-card">
+                <div class="ws-top"><span class="ws-num">10</span><span class="ws-tagline">Points for the work</span></div>
+                <h3>Rewards</h3>
+                <p>The work pays twice. The miles you run, the map you help keep honest and the drivers you bring in earn points from your own sealed records — earned for real work, tracked right here, in the same app that sealed the proof. No separate rewards app, no points for nothing.</p>
+                <p class="ws-replaces"><strong>Replaces:</strong> the punch-card programs and points that live in an app you never open.</p>
+              </div>
+            </div>
+
+            <div class="settle-panel" id="settlement-check">
+              <span class="sp-kicker">Inside Pay · New in the latest build</span>
+              <h3>Settlement Check — should vs. did</h3>
+              <p>A settlement statement is a claim. Your sealed loads are the evidence. <strong>Every settlement you log in Pay is checked automatically against the loads STONEMILES sealed while you ran them</strong> — no button to remember, no spreadsheet to build. The check puts the two side by side and says, in plain language, whether the money matches the work.</p>
+              <div class="settle-vs" aria-label="What should have been paid, compared with what was paid">
+                <div class="settle-side should">
+                  <span class="sv-label">Should — from your sealed loads</span>
+                  <h4>What should have been paid</h4>
+                  <p>Figured load by load from the loads you actually hauled and sealed — the record that was locked in at delivery, before any statement existed. It cannot be edited after the fact to fit the check.</p>
+                </div>
+                <div class="settle-vs-mark" aria-hidden="true">VS</div>
+                <div class="settle-side did">
+                  <span class="sv-label">Did — from the settlement you logged</span>
+                  <h4>What was paid</h4>
+                  <p>The settlement as it landed — the amount that actually showed up, with every deduction the statement took written out as its own line, not buried in a total.</p>
+                </div>
+              </div>
+              <div class="settle-rows" aria-label="How the settlement check reads out">
+                <div class="settle-row"><span class="sr-name">Deductions, itemized</span><span class="sr-note">Each deduction on the settlement is listed on its own line and matched against the load it was taken from — so a charge with no load behind it has nowhere to hide.</span></div>
+                <div class="settle-row"><span class="sr-name">Load by load</span><span class="sr-note">Every sealed load in the period is accounted for — paid, short, or missing from the statement entirely. A load that never appears on the settlement is called out, not skipped.</span></div>
+                <div class="settle-row flag"><span class="sr-name">Any shortage, flagged</span><span class="sr-note">If did comes in under should, the difference is flagged right on the check — stated in plain dollars, not a code, not a percentage, not a footnote.</span><span class="settle-flag-pill">Short — flagged in $</span></div>
+              </div>
+              <div class="settle-steps">
+                <div class="settle-step"><span class="ss-n">STEP 1</span><p><strong>Log the settlement.</strong> When a settlement lands, record it in Pay — the amount and its deductions, as stated.</p></div>
+                <div class="settle-step"><span class="ss-n">STEP 2</span><p><strong>The check runs itself.</strong> STONEMILES lines the settlement up against your sealed loads for the same period — automatically, every time.</p></div>
+                <div class="settle-step"><span class="ss-n">STEP 3</span><p><strong>Read should vs. did.</strong> Deductions itemized, loads accounted for, and any shortage flagged in plain dollars — ready to take back to the office with the sealed proof behind it.</p></div>
+              </div>
+              <p style="margin:18px 0 0; color:var(--ink-2); font-size:16px;">For drivers, it ends the quiet question at the end of every week — <em style="color:var(--ink);">is this actually right?</em> — with an answer built from records nobody rewrote. For fleets and owners, it means your drivers can check their own pay against sealed proof, so a real shortage surfaces fast and a fair settlement never gets argued on suspicion. <strong style="color:var(--ink);">Nothing recorded, nothing checked — the app never invents a number; it only compares yours.</strong></p>
+            </div>
+
+            <div class="snap-panel" id="snap-to-paid">
+              <span class="sp-kicker">New in the latest build · Loads → Records → Pay</span>
+              <h3>Snap it. Sealed. Paid.</h3>
+              <p>The paperwork chain that used to eat the end of every run — type the load in, chase the POD, build the invoice, work out what the miles actually paid — now runs off the camera. <strong>Three snaps carry a load from rate confirmation to invoice</strong>, and every step lands on the sealed record, so the proof and the pay never live in different places.</p>
+              <div class="settle-steps">
+                <div class="settle-step"><span class="ss-n">SNAP 1 · RATE-CON READER</span><p><strong>The load fills itself in.</strong> Snap or upload the rate confirmation and STONEMILES reads it — shipper, receiver, dates, rate — and builds the load for your check-off before it seals. You confirm what&rsquo;s right, fix what isn&rsquo;t, and <strong>manual entry is always there</strong> if the read misses anything. No retyping a PDF by thumb in a parking lot.</p></div>
+                <div class="settle-step"><span class="ss-n">SNAP 2 · POD → INVOICE</span><p><strong>Delivered means invoiced.</strong> Snap the POD at delivery and it seals to the load it belongs to — and the <strong>invoice draft is already waiting in Pay</strong>, built from that sealed delivery. No evening at the laptop rebuilding the run from photos and memory before you can bill it.</p></div>
+                <div class="settle-step"><span class="ss-n">ALWAYS · REVENUE PER MILE</span><p><strong>Your RPM, up front.</strong> Revenue per mile sits at the <strong>top of Pay</strong>, figured from your sealed loads — the one number that tells you whether the week worked, in front of you every time you open the door, not buried in a report you have to go build.</p></div>
+              </div>
+              <p>For drivers, it is the end of data entry as a second job: the paper reads itself, the invoice drafts itself, and the per-mile truth is just there. For fleets, loads enter the system the same way every time — read from the rate con, checked off by the driver, sealed at delivery — so the desk is never chasing a missing POD before it can bill. <strong style="color:var(--ink);">Auto never blocks manual: if a read comes back partial, you land in the same form with what was read already filled in and the document attached.</strong></p>
+            </div>
           </div>
         </div>
 
@@ -625,6 +793,11 @@
                 <div class="icon-chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2v6M15 2v6"/><path d="M5 8h14v3a7 7 0 0 1-14 0z"/><path d="M12 18v4"/></svg></div>
                 <h3>ELD connections</h3>
                 <p>Connect Samsara or Motive and your ELD odometer becomes the miles of record, synced read-only into your trips and sheets. The ELD hub can run a <strong style="color:var(--ink);">clearly-marked simulated test sync</strong> through the real sync pipeline — test data is stamped simulated and never becomes the official record. Live sync still awaits a real ELD device, and the app says so.</p>
+              </div>
+              <div class="card">
+                <div class="icon-chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/></svg></div>
+                <h3>Federal-rulebook logs</h3>
+                <p>Your logbook plays by the federal rulebook — <strong style="color:var(--ink);">49 CFR 395 Appendix A</strong> — right inside the same workspace as your GPS, loads and paperwork, one of <strong style="color:var(--ink);">50+ tools in one home</strong> instead of a separate logbook app to keep in sync. Stop in Driving for <strong style="color:var(--ink);">5 minutes</strong> and the app prompts you with task notes — <strong style="color:var(--ink);">Fueling, Loading</strong> and the rest — and your pick seals <strong style="color:var(--ink);">On Duty with the confirmed reason</strong>. No answer in <strong style="color:var(--ink);">1 minute</strong> and it seals <strong style="color:var(--ink);">On Duty by itself — the federal default</strong>. <strong style="color:var(--ink);">Off Duty and Sleeper Berth are never automatic</strong> — only you set those. And when a fleet owner corrects your log, the correction waits as <strong style="color:var(--ink);">pending</strong>: your original record stands until you <strong style="color:var(--ink);">acknowledge it, or dispute it with a note</strong> — and that dispute prints on the DOT packet, in the open.</p>
               </div>
               <div class="card">
                 <div class="icon-chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 8-3 8h18s-3-1-3-8"/><path d="M13.7 20a2 2 0 0 1-3.4 0"/></svg></div>

@@ -605,6 +605,19 @@
   .mo-avg span{ position:absolute; right:0; top:-19px; font-size:10px; font-weight:800; letter-spacing:.05em; color:var(--accent); background:var(--surface); padding:1px 6px; border-radius:999px; border:1px solid var(--accent); white-space:nowrap; }
   .close-row{ display:block; width:100%; text-align:center; padding:11px 10px; margin-top:14px; border-top:1px dashed var(--border); font-weight:800; color:var(--dim); background:none; }
   .close-row:active{ transform:scale(.98); }
+
+  /* ---------- Workspaces — ten doors on Today + labels at each home ---------- */
+  .ws-grid{ display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:10px; }
+  @media (max-width:380px){ .ws-grid{ grid-template-columns:1fr; } }
+  .ws-door{ display:flex; gap:10px; align-items:flex-start; text-align:left; background:var(--surface2); border:1px solid var(--border); border-radius:14px; padding:11px 12px; min-height:64px; width:100%; }
+  .ws-door:active{ transform:scale(.97); }
+  .ws-door .ws-ic{ flex:none; font-size:21px; line-height:1.25; }
+  .ws-door .ws-nm{ font-family:"Barlow Condensed",sans-serif; font-weight:700; font-size:19px; letter-spacing:.05em; line-height:1.1; }
+  .ws-door .ws-tg{ font-size:var(--fs-xs); line-height:1.35; color:var(--dim); margin-top:2px; }
+  .ws-tag{ display:inline-block; font-size:10px; font-weight:800; letter-spacing:.08em; color:var(--neon-a); border:1px solid var(--neon-a); border-radius:999px; padding:3px 9px; white-space:nowrap; }
+  :root[data-theme="light"] .ws-tag{ color:#0b7668; border-color:#0b7668; }
+  .ws-badge-ok{ font-size:11px; font-weight:800; letter-spacing:.06em; color:var(--ok); border:1px solid var(--ok); border-radius:999px; padding:4px 10px; white-space:nowrap; flex:none; }
+  .ws-badge-short{ font-size:11px; font-weight:800; letter-spacing:.06em; color:var(--danger); border:1px solid var(--danger); border-radius:999px; padding:4px 10px; white-space:nowrap; flex:none; }
   .dir-head{ width:100%; display:flex; justify-content:space-between; align-items:center; gap:8px; padding:8px 2px; font-weight:800; letter-spacing:.08em; font-size:var(--fs-xs); text-align:left; }
   .dir-meta{ display:flex; gap:6px; align-items:center; flex:none; }
   .dir-count{ font-size:10px; font-weight:800; letter-spacing:.05em; border:1px solid var(--border); border-radius:999px; padding:2px 7px; color:var(--dim); white-space:nowrap; }
@@ -707,6 +720,24 @@
       <button class="btn-neon" data-planner style="width:100%;min-height:64px;padding:16px;margin-top:12px;font-size:var(--fs-lg)">🗺️ &nbsp;Start a route — Where are you headed?</button>
       <p class="xs dim" style="margin-top:6px;text-align:center">Point A is your current position — just tell it point B. Four taps to rolling.</p>
 
+      <h2 class="sec">Your workspaces</h2>
+      <div class="card" aria-label="Your workspaces — ten doors, one for every part of the work">
+        <p class="small dim" style="line-height:1.55">The whole job, sorted into <strong style="color:var(--text)">ten workspaces</strong> — every tool lives in exactly one, and each door below jumps straight to its home in this preview. Same ten doors, same names, in the app.</p>
+        <div class="ws-grid">
+          <button class="ws-door" data-goto="loads"><span class="ws-ic" aria-hidden="true">📦</span><span><span class="ws-nm">LOADS</span><div class="ws-tg">Find it, book it, haul it</div></span></button>
+          <button class="ws-door" data-goto="drive"><span class="ws-ic" aria-hidden="true">🚛</span><span><span class="ws-nm">DRIVE</span><div class="ws-tg">Truck GPS, cab mode, hours clock</div></span></button>
+          <button class="ws-door" data-goto="drive"><span class="ws-ic" aria-hidden="true">🗺️</span><span><span class="ws-nm">PLANNER</span><div class="ws-tg">Plan the run: routes, parking, stops</div></span></button>
+          <button class="ws-door" data-goto="drive"><span class="ws-ic" aria-hidden="true">⛽</span><span><span class="ws-nm">FUEL</span><div class="ws-tg">Cheapest stops, true cost</div></span></button>
+          <button class="ws-door" data-ws-money="pay"><span class="ws-ic" aria-hidden="true">💰</span><span><span class="ws-nm">PAY</span><div class="ws-tg">Earned, owed, checked</div></span></button>
+          <button class="ws-door" data-ws-money="records"><span class="ws-ic" aria-hidden="true">🗄️</span><span><span class="ws-nm">RECORDS</span><div class="ws-tg">Paperwork, sealed + proven</div></span></button>
+          <button class="ws-door" data-ws-money="truck"><span class="ws-ic" aria-hidden="true">🔧</span><span><span class="ws-nm">TRUCK</span><div class="ws-tg">Your rig, kept ready</div></span></button>
+          <button class="ws-door" data-goto="calendar"><span class="ws-ic" aria-hidden="true">📅</span><span><span class="ws-nm">SCHEDULE</span><div class="ws-tg">Calendar + home time</div></span></button>
+          <button class="ws-door" data-goto="more"><span class="ws-ic" aria-hidden="true">💬</span><span><span class="ws-nm">TEAM</span><div class="ws-tg">Messages, fleet + shares</div></span></button>
+          <button class="ws-door" data-ws-money="rewards"><span class="ws-ic" aria-hidden="true">⭐</span><span><span class="ws-nm">REWARDS</span><div class="ws-tg">Points for the work</div></span></button>
+        </div>
+        <p class="xs dim" style="margin-top:10px;line-height:1.5">In the app the strip sits on Today exactly like this, and every workspace's name rides at the top of its home — the Pay workspace in Money, the Records workspace at the Library, the Truck workspace at Maintenance, the Schedule workspace on the Calendar, the Rewards workspace at How to earn. Demo doors only — nothing here opens a real account.</p>
+      </div>
+
       <h2 class="sec" style="margin-top:4px">How a load runs — start to sealed</h2>
       <div class="card">
         <p class="small dim" style="line-height:1.55">The whole chain, the way the newest build runs it — try every step live on the Loads and Money tabs with the fake RUGGS fleet:</p>
@@ -725,18 +756,20 @@
       <h2 class="sec">What's new in this preview</h2>
       <div class="card" style="border-color:var(--neon-a);padding-top:12px">
         <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><strong>Updated to the latest approved build</strong><span class="stage-tag">PREVIEW · SAMPLE ONLY</span></div>
-        <p class="small dim" style="margin-top:6px;line-height:1.55">Now mirrors the newest approved builds — the simplified navigation (one Library for every record, one Desk with a role switcher, Loads on a single My Loads / Tracker / Boards switch, Money as one tab), the new Tax Worksheet in the Library, auto-add stops on planned routes — the planner's fuel, 30-minute break, and 10-hour rest picks land on the route as waypoints, announced on the route with one-tap Remove, with an opt-out switch in Settings → Driving (on by default) — and this: the Worth-It Advisor and True Rate now deduct <strong style="color:var(--text)">your own factoring % and dispatcher %</strong> from a load's gross pay before judging it. The Advisor judges a load after your own factoring and dispatcher cuts are taken out, with the math shown line by line — fake RUGGS data only. Also new in this pass: the receiver signature pad (type the name or draw it — a drawn signature prints on the signed POD, and the sealed record notes how they signed), Money sectioned behind a sticky bar with the More directory folded into counted groups, one search box for your loads, drivers &amp; paperwork, suggested next loads on the fleet board with their reasons printed leg by leg, and a paperwork door on every load — a broker drops the rate con, BOL, or POD straight into the load, no account. Also in this pass: pre-trip and post-trip inspections beside the HOS clocks on Drive — the pre-trip opens on its own at the first On Duty of the day — and a one-tap duty remark on every status change, stamped with city, state, and time on every log entry. Also in this pass: the <strong style="color:var(--text)">regulatory audit fixes</strong> — the 70/8 or 60/7 cycle choice on the clocks card, split-sleeper done right, certified daily logs, the DOT packet with Email + PDF beside it, the 13-item inspection checklist with named repair certification, remarks that open the checklist, and a tightened qualification file. Nothing here is live or saved.</p>
+        <p class="small dim" style="margin-top:6px;line-height:1.55">Now mirrors the newest approved builds — the simplified navigation (one Library for every record, one Desk with a role switcher, Loads on a single My Loads / Tracker / Boards switch, Money as one tab), the new Tax Worksheet in the Library, auto-add stops on planned routes — the planner's fuel, 30-minute break, and 10-hour rest picks land on the route as waypoints, announced on the route with one-tap Remove, with an opt-out switch in Settings → Driving (on by default) — and this: the Worth-It Advisor and True Rate now deduct <strong style="color:var(--text)">your own factoring % and dispatcher %</strong> from a load's gross pay before judging it. The Advisor judges a load after your own factoring and dispatcher cuts are taken out, with the math shown line by line — fake RUGGS data only. Also new in this pass: the receiver signature pad (type the name or draw it — a drawn signature prints on the signed POD, and the sealed record notes how they signed), Money sectioned behind a sticky bar with the More directory folded into counted groups, one search box for your loads, drivers &amp; paperwork, suggested next loads on the fleet board with their reasons printed leg by leg, and a paperwork door on every load — a broker drops the rate con, BOL, or POD straight into the load, no account. Also in this pass: pre-trip and post-trip inspections beside the HOS clocks on Drive — the pre-trip opens on its own at the first On Duty of the day — and a one-tap duty remark on every status change, stamped with city, state, and time on every log entry. Also in this pass: the <strong style="color:var(--text)">regulatory audit fixes</strong> — the 70/8 or 60/7 cycle choice on the clocks card, split-sleeper done right, certified daily logs, the DOT packet with Email + PDF beside it, the 13-item inspection checklist with named repair certification, remarks that open the checklist, and a tightened qualification file. Also in this pass: <strong style="color:var(--text)">duty status now runs the federal pattern</strong> — stopped 5 minutes in Driving and the app asks what you're doing, with task-note picks (Fueling seals On Duty with the confirmed reason — fueling is On Duty time by law); no answer in 1 minute and On Duty seals on its own, stamped AUTO DEFAULT; Off Duty and Sleeper Berth are never automatic. And <strong style="color:var(--text)">owner log corrections now wait on the driver</strong> — a fleet owner's correction sits PENDING, the driver's original record stands, and it only applies when the driver acknowledges it; a dispute keeps the original and prints on the DOT packet. Nothing here is live or saved.</p>
         <div class="tool-chips tight">
-          <button class="chipbtn" data-goto="loads">🖥️ Desk — one entry, every role</button>
-          <button class="chipbtn" data-goto="loads">🚪 Boards + both broker doors</button>
+          <button class="chipbtn" data-goto-desk>🖥️ Desk — one entry, every role</button>
+          <button class="chipbtn" data-goto-loads="boards">🚪 Boards + both broker doors</button>
           <button class="chipbtn" data-goto="money">🗄️ Library</button>
           <button class="chipbtn" data-goto="money">🧮 Tax Worksheet</button>
           <button class="chipbtn" data-goto="drive">⏱️ Auto-add stops — fuel · break · rest</button>
-          <button class="chipbtn" data-goto="loads">🎯 Worth-It — judged after your cuts</button>
-          <button class="chipbtn" data-goto="loads">✍️ BOL signing + receive link</button>
-          <button class="chipbtn" data-goto="loads">✍️ Signature pad — type it or draw it</button>
-          <button class="chipbtn" data-goto="loads">🎯 Suggested next load — reasons printed</button>
-          <button class="chipbtn" data-goto="loads">🚪 Paperwork door — per-load link</button>
+          <button class="chipbtn" data-goto="drive">⏸ Stopped prompt — federal pattern</button>
+          <button class="chipbtn" data-goto="money">📝 Owner corrections — driver reviews first</button>
+          <button class="chipbtn" data-goto-loads="mine">🎯 Worth-It — judged after your cuts</button>
+          <button class="chipbtn" data-goto-loads="tracker">✍️ BOL signing + receive link</button>
+          <button class="chipbtn" data-goto-loads="tracker">✍️ Signature pad — type it or draw it</button>
+          <button class="chipbtn" data-goto-desk="owner">🎯 Suggested next load — reasons printed</button>
+          <button class="chipbtn" data-goto-loads="tracker">🚪 Paperwork door — per-load link</button>
           <button class="chipbtn" data-goto="money">🧭 Money — sectioned, no long scroll</button>
           <button class="chipbtn" data-goto="calendar">📅 Driver Calendar — live in the app</button>
           <button class="chipbtn" data-goto="showcase">🏢 Showcase — 20 drivers, full app in use</button>
@@ -766,7 +799,7 @@
       <div class="card" aria-label="Find a tool — every tool within two taps, grouped">
         <p class="xs dim">Every tool is at most <strong style="color:var(--text)">2 taps</strong> from here: one tap into its group, one tap onto the tool. One name per tool — the name below is the name everywhere, including Ask Meca.</p>
         <div class="finder-group"><div class="xs" style="font-weight:800;letter-spacing:.08em">DRIVE</div><div class="tool-chips"><button class="chipbtn" data-goto="drive">Route planner</button><button class="chipbtn" data-goto="drive">Satellite map + tilt</button><button class="chipbtn" data-goto="drive">Hours of Service</button><button class="chipbtn" data-goto="drive">Route-ahead weather</button><button class="chipbtn" data-goto="drive">Scales finder</button><button class="chipbtn" data-goto="drive">Night parking layer</button><button class="chipbtn" data-goto="drive">Cab display</button><button class="chipbtn" data-goto="drive">Android Auto templates</button><button class="chipbtn" data-goto="drive">Ask Meca</button></div></div>
-        <div class="finder-group"><div class="xs" style="font-weight:800;letter-spacing:.08em">LOADS &amp; MONEY</div><div class="tool-chips"><button class="chipbtn" data-goto="loads">Load Tracker</button><button class="chipbtn" data-goto="loads">Desk — one desk, every role</button><button class="chipbtn" data-goto="loads">Boards — Fleet · Open · Broker</button><button class="chipbtn" data-goto="loads">BOL signing + receive link</button><button class="chipbtn" data-goto="loads">Worth-It Advisor</button><button class="chipbtn" data-goto="loads">Receiver Memory</button><button class="chipbtn" data-goto="money">Who Owes Me</button><button class="chipbtn" data-goto="money">True Rate</button><button class="chipbtn" data-goto="money">TONU / Layover Logger</button><button class="chipbtn" data-goto="money">IFTA Estimator</button></div></div>
+        <div class="finder-group"><div class="xs" style="font-weight:800;letter-spacing:.08em">LOADS &amp; MONEY</div><div class="tool-chips"><button class="chipbtn" data-goto-loads="tracker">Load Tracker</button><button class="chipbtn" data-goto-desk>Desk — one desk, every role</button><button class="chipbtn" data-goto-loads="boards">Boards — Fleet · Open · Broker</button><button class="chipbtn" data-goto-loads="tracker">BOL signing + receive link</button><button class="chipbtn" data-goto-loads="mine">Worth-It Advisor</button><button class="chipbtn" data-goto-loads="tracker">Receiver Memory</button><button class="chipbtn" data-goto="money">Who Owes Me</button><button class="chipbtn" data-goto="money">True Rate</button><button class="chipbtn" data-goto="money">TONU / Layover Logger</button><button class="chipbtn" data-goto="money">IFTA Estimator</button></div></div>
         <div class="finder-group"><div class="xs" style="font-weight:800;letter-spacing:.08em">TRUCK &amp; TRAILER</div><div class="tool-chips"><button class="chipbtn" data-more-anchor="trailerPkg">Trailer package</button><button class="chipbtn" data-more-anchor="trailerPkg">Reefer Cold-Chain Log</button><button class="chipbtn" data-more-anchor="trailerPkg">Securement Calculator</button><button class="chipbtn" data-more-anchor="trailerPkg">Axle Calculator</button><button class="chipbtn" data-more-anchor="trailerPkg">Dock Helper</button><button class="chipbtn" data-more-anchor="trailerPkg">Pre-trip checklists</button><button class="chipbtn" data-goto="money">Breakdown Mode</button></div></div>
         <div class="finder-group"><div class="xs" style="font-weight:800;letter-spacing:.08em">RECORDS</div><div class="tool-chips"><button class="chipbtn" data-goto="money">Library — every record, one home</button><button class="chipbtn" data-goto="money">Tax Worksheet</button><button class="chipbtn" data-goto="money">Document Vault</button><button class="chipbtn" data-goto="money">Tax Records</button><button class="chipbtn" data-goto="money">Trip sheet</button><button class="chipbtn" data-goto="drive">Scale tickets</button><button class="chipbtn" data-more-anchor="atlasCard">Atlas — 50 states</button></div></div>
         <div class="finder-group"><div class="xs" style="font-weight:800;letter-spacing:.08em">SETTINGS</div><div class="tool-chips"><button class="chipbtn" data-goto="more">Driver State</button><button class="chipbtn" data-goto="money">Maintenance Countdown</button><button class="chipbtn" id="finderLangBtn">Language — 5 languages</button><button class="chipbtn" id="finderSettingsBtn">Settings</button></div></div>
@@ -777,7 +810,7 @@
         <div class="xs dim" style="font-weight:800;letter-spacing:.1em">NEXT ACTION · SAMPLE DAY</div>
         <button class="btn-neon" style="width:100%;padding:16px;margin-top:10px;font-size:var(--fs-lg)" data-goto="drive">▶ &nbsp;START GPS — DEMO DRIVE</button>
         <p class="small dim" style="margin-top:8px">In the full app your trip starts itself after 1 mile of movement — and before any duty change the app <strong style="color:var(--text)">asks</strong>: Drive, On Duty (not driving), Sleeper Berth, or Off Duty. Miles keep logging either way; duty status never changes without your answer.</p>
-        <button class="btn-ghost" style="width:100%;padding:12px;margin-top:8px" data-goto="loads">📦 Open active load — #1042 to Dallas</button>
+        <button class="btn-ghost" style="width:100%;padding:12px;margin-top:8px" data-goto-loads="mine">📦 Open active load — #1042 to Dallas</button>
       </div>
 
 <div class="glass" style="margin-top:12px;padding:14px 16px" aria-label="Meca Co-Pilot morning briefing">
@@ -815,7 +848,7 @@
           <div class="step"><div class="dot"></div><div class="sl">Delivered · sealed</div></div>
         </div>
         <p class="xs dim" style="margin-top:10px">The Load Tracker runs Booked → Delivered. At the dock the receiver confirms on the BOL's receive link (or signs on the driver's phone, or signs the printed BOL and the driver uploads the POD) — any path seals the delivery with a hash-chain fingerprint, updates dispatch and the fleet owner, and files the POD in the Library. No paperwork chase.</p>
-        <button class="btn-ghost" style="width:100%;padding:12px;margin-top:8px" data-goto="loads">Open the Load Tracker →</button>
+        <button class="btn-ghost" style="width:100%;padding:12px;margin-top:8px" data-goto-loads="tracker">Open the Load Tracker →</button>
       </div>
 
       <h2 class="sec">RUGGS LOGISTICS Fleet — Preview</h2>
@@ -1111,6 +1144,26 @@
         <button class="small" style="color:var(--accent);font-weight:700;text-decoration:underline;padding:4px 0 0" data-goto="more">Duty log &amp; Driver State on the More tab →</button>
       </div>
 
+      <h2 class="sec">Stopped prompt — the federal pattern (sample)</h2>
+      <div class="card" style="border-color:var(--accent)" aria-label="Stopped prompt — sample">
+        <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap">
+          <strong style="font-size:var(--fs-lg)">⏸ Stopped 5 min — what are you doing?</strong><span class="stage-tag">SAMPLE PROMPT</span>
+        </div>
+        <p class="small dim" style="margin-top:6px;line-height:1.55">You've been stopped 5 minutes in <strong style="color:var(--text)">Driving</strong>. Pick what you're doing and the task note seals <strong style="color:var(--text)">On Duty</strong> with the confirmed reason, stamped with city, state, and time:</p>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px" role="group" aria-label="Stopped prompt task-note picks — sample">
+          <button class="chipbtn" data-toast="Sample log line: On Duty — Fueling — Baton Rouge, LA — 11:41 AM. Fueling is On Duty time by law (49 CFR §395.2). Nothing saves in this preview.">⛽ Fueling</button>
+          <button class="chipbtn" data-toast="Sample log line: On Duty — Loading — Baton Rouge, LA — 11:41 AM. The confirmed task note seals with the status change. Nothing saves in this preview.">📦 Loading</button>
+          <button class="chipbtn" data-toast="Sample log line: On Duty — Unloading — Baton Rouge, LA — 11:41 AM. The confirmed task note seals with the status change. Nothing saves in this preview.">📦 Unloading</button>
+          <button class="chipbtn" data-toast="Sample log line: On Duty — Pre-trip inspection — Baton Rouge, LA — 11:41 AM. Picking Pre-trip also opens the inspection checklist. Nothing saves in this preview.">🔍 Pre-trip</button>
+          <button class="chipbtn" data-toast="Sample log line: On Duty — Post-trip inspection — Baton Rouge, LA — 11:41 AM. Picking Post-trip also opens the inspection checklist. Nothing saves in this preview.">🔍 Post-trip</button>
+          <button class="chipbtn" data-toast="Sample log line: On Duty — Waiting at dock — Baton Rouge, LA — 11:41 AM. The confirmed task note seals with the status change. Nothing saves in this preview.">🏭 Waiting at dock</button>
+          <button class="chipbtn" data-toast="Sample log line: On Duty — Breakdown — Baton Rouge, LA — 11:41 AM. The confirmed task note seals with the status change. Nothing saves in this preview.">🔧 Breakdown</button>
+          <button class="chipbtn" data-toast="Demo: Still driving dismisses the prompt and you stay in Driving until you roll again. Nothing changes or saves in this preview.">🚛 Still driving</button>
+        </div>
+        <p class="small" style="margin-top:10px;line-height:1.55">⏱ <strong>0:47 left to answer</strong> — no answer within 1 minute and <strong>On Duty (Not Driving)</strong> seals on its own: the federal default, stamped <strong>AUTO DEFAULT</strong> in the log (see Daily logs on the Money tab).</p>
+        <p class="xs dim" style="margin-top:8px;line-height:1.55">The federal pattern — <strong style="color:var(--text)">49 CFR Part 395, Appendix A (§4.4.1)</strong>: after 5 minutes stopped in Driving, the app asks; a task note seals On Duty with the confirmed reason, and fueling is On Duty time by law (<strong style="color:var(--text)">§395.2</strong>). <strong style="color:var(--text)">Off Duty and Sleeper Berth are never automatic</strong> — only the driver sets those, by his own tap. Sample prompt on this demo run — nothing here is live or saved.</p>
+      </div>
+
       <h2 class="sec">Offline mode (sample)</h2>
       <div class="card" aria-label="Offline mode — sample">
         <div class="offline-bar" role="status"><span aria-hidden="true">📵</span><span>Offline — will seal on reconnect</span><span class="stage-tag">SAMPLE BAR</span></div>
@@ -1398,7 +1451,7 @@
       <p class="small dim" style="margin:0 2px 12px">Sample loads for the preview, on the fake RUGGS LOGISTICS demo fleet. One switch up top runs the whole tab: My Loads, the Tracker, and the Boards. Right below it sits one Desk — flip its role switcher and watch it adapt. Every delivery seals from the BOL. In the full app you can also add a load by snapping a photo of the rate con — details pull off it automatically. Built by a Trucker for Truckers.</p>
 
       <div class="seg" id="loadsSeg" role="group" aria-label="Loads sections" style="margin:0 0 6px"><button data-lseg="mine" class="on">My Loads</button><button data-lseg="tracker">Tracker</button><button data-lseg="boards">Boards</button></div>
-      <p class="xs dim" style="margin:0 2px 4px">One switch for the whole tab — your loads, the sealed Tracker, and every board. The Desk sits right below and stays put while you switch.</p>
+      <p class="xs dim" style="margin:0 2px 4px">One switch for the whole tab — your loads, the sealed Tracker, and every board. Tap a section and the preview jumps straight to it; the Desk sits right below this switch.</p>
 
       <h2 class="sec">Desk — one desk, every role (fake RUGGS demo)</h2>
       <div class="card" style="border-color:var(--accent)" id="dispatchCard">
@@ -1755,7 +1808,43 @@
       </div>
 
       <div data-lpanel="mine">
-      <h2 class="sec" style="margin-top:2px">Worth-It Advisor — before you book (sample)</h2>
+      <h2 class="sec" style="margin-top:2px">Add a load (sample)</h2>
+      <div class="card" style="border-color:var(--neon-a)" aria-label="Add load from rate con — sample entry">
+        <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap">
+          <strong style="font-size:var(--fs-lg)">📄 Add load from rate con</strong>
+          <span class="stage-tag">PHOTO OR PDF · SAMPLE</span>
+        </div>
+        <p class="small dim" style="margin-top:6px;line-height:1.55">Snap a photo of the rate con or drop in the PDF — the load is <strong style="color:var(--text)">filled in for you to check</strong>. <strong style="color:var(--text)">Nothing saves until you confirm</strong> — read it, fix anything, then confirm. <strong style="color:var(--text)">Manual entry is always available</strong> — if the read misses or fails, you land in the manual form with whatever it could read already filled in and the document attached.</p>
+        <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+          <button class="btn-neon" style="flex:1;padding:14px;min-width:150px" data-toast="Demo: in the full app this opens the camera or file picker for the rate con — photo or PDF — and fills the load in for your check. Nothing uploads or saves in this preview.">📄 Add load from rate con</button>
+          <button class="btn-ghost" style="flex:1;padding:14px;min-width:150px" data-toast="Demo: manual entry is always available — the full manual load form, with anything the read could pull already filled in. Nothing saves in this preview.">⌨️ Enter manually instead</button>
+        </div>
+
+        <div class="card2" style="margin-top:12px" aria-label="Sample scan review — check the rate con read against the paper">
+          <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap"><strong>🔎 Scan review — check it against the paper</strong><span class="stage-tag">SAMPLE READ</span></div>
+          <p class="small" style="margin-top:6px;line-height:1.55"><strong>Check it against the paper</strong> before you confirm — this is what the read found on a sample rate con. Anything wrong, tap it and fix it on the manual form. Nothing has saved yet.</p>
+          <div class="xs" style="font-weight:800;letter-spacing:.08em;margin:12px 0 4px">FOUND ON THE RATE CON ✓</div>
+          <div>
+            <div class="kv-row"><span class="k">Shipper</span><span class="v">Peacock Pavers Yard, AL (sample)</span></div>
+            <div class="kv-row"><span class="k">Receiver</span><span class="v">Pensacola, FL (sample)</span></div>
+            <div class="kv-row"><span class="k">Pickup · Delivery</span><span class="v tnum">Oct 20 · Oct 20 (sample)</span></div>
+            <div class="kv-row"><span class="k">Freight · Weight</span><span class="v">Pavers — palletized stone · 42,500 lbs</span></div>
+            <div class="kv-row"><span class="k">Rate</span><span class="v tnum">$412.50 (sample)</span></div>
+          </div>
+          <div class="xs" style="font-weight:800;letter-spacing:.08em;margin:12px 0 4px">MISSING — NEEDS YOU ⚠</div>
+          <div>
+            <div class="kv-row"><span class="k">Delivery appointment time</span><span class="v" style="color:var(--accent)">Not on the paper — add it</span></div>
+            <div class="kv-row"><span class="k">Reference / PO #</span><span class="v" style="color:var(--accent)">Not found — add if you have it</span></div>
+          </div>
+          <p class="xs dim" style="margin-top:8px;line-height:1.5">Sample read only — fake rate con, fake fields. The read never guesses a missing field: it leaves it blank for you, and the load does not save until you confirm.</p>
+          <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+            <button class="btn-neon" style="flex:1;padding:12px;min-width:140px" data-toast="Demo: confirming saves the load exactly as checked — shipper, receiver, dates, freight, and rate — with the rate con attached. Nothing saves in this preview.">✓ Looks right — confirm &amp; save (demo)</button>
+            <button class="btn-ghost" style="flex:1;padding:12px;min-width:140px" data-toast="Demo: fixing opens the manual form with the found fields filled in and the missing ones blank — manual entry is always available. Nothing saves in this preview.">✎ Fix it manually (demo)</button>
+          </div>
+        </div>
+      </div>
+
+      <h2 class="sec">Worth-It Advisor — before you book (sample)</h2>
       <div class="card">
         <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap">
           <strong>Load #1051 — Houston, TX → Mobile, AL</strong>
@@ -1981,6 +2070,31 @@
         <p class="xs dim" style="margin-top:10px">Preview only: sealing happens on this screen with sample data — nothing is signed, sent, or saved for real. In the full app the seal stamps the hash chain, files the POD in the Library, and updates dispatch and the fleet owner the same second.</p>
       </div>
 
+      <h2 class="sec">Load detail — POD → invoice (sample)</h2>
+      <div class="card" aria-label="Load detail view — POD sealed, invoice step appears, sample">
+        <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap">
+          <strong>Load #1065 — Mobile, AL → Pensacola, FL (sample)</strong><span class="sealed-pill">⛓✓ DELIVERED · SEALED</span>
+        </div>
+        <p class="small dim" style="margin-top:4px;line-height:1.55">Load detail view (sample) — the chain after delivery, in order. The invoice step does not exist until the POD seals; once it does, the step below appears on this load.</p>
+        <div class="flow-strip" aria-label="Load detail steps: POD sealed, then invoice step appears">
+          <span class="flow-step" style="background:linear-gradient(92deg,var(--neon-a),var(--neon-b));color:#04150c;border-color:transparent">1 · POD — sealed ✓</span><span class="flow-arrow">→</span>
+          <span class="flow-step">2 · Invoice — step appears</span>
+        </div>
+        <div style="margin-top:12px">
+          <div class="kv-row"><span class="k"><strong style="color:var(--text)">POD step</strong><br /><span class="xs">Signed POD on file · sealed with the delivery</span></span><span class="status-done">✓ SEALED</span></div>
+        </div>
+        <div class="card2" style="margin-top:10px" aria-label="Invoice step — appears once the POD is sealed, sample">
+          <div class="xs" style="font-weight:800;letter-spacing:.08em">INVOICE STEP — APPEARS ONCE THE POD IS SEALED</div>
+          <div style="margin-top:6px">
+            <div class="kv-row"><span class="k">Invoice</span><span class="v tnum">INV-2026-0003</span></div>
+            <div class="kv-row"><span class="k">Status</span><span class="v">Draft ready</span></div>
+          </div>
+          <button class="btn-neon" style="width:100%;padding:13px;margin-top:12px" data-toast="Demo: cutting the invoice draft builds INV-2026-0003 from this sealed load — draft only, nothing issues or sends in this preview.">🧾 Cut the invoice draft</button>
+          <p class="xs dim" style="margin-top:8px;line-height:1.5">Sample only — invoice number and status only on this step. In the full app, cutting the draft is the action state here: one tap drafts it from the sealed load, ready to issue from Money → Billing.</p>
+        </div>
+        <p class="xs dim" style="margin-top:10px;line-height:1.5">Before the POD seals, this load shows no invoice step at all — no draft, no number. The step appears the second the POD seals, and only then.</p>
+      </div>
+
       <h2 class="sec">Smart trailer — reefer proof (sample)</h2>
       <div class="card" aria-label="Smart trailer reefer proof — sample refrigerated load">
         <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap">
@@ -2101,7 +2215,8 @@
     <!-- ================= CALENDAR ================= -->
     <section class="view" id="view-calendar" aria-label="Calendar">
 
-      <h2 class="sec" style="margin-top:2px">Driver Calendar — live in the app</h2>
+      <div style="margin:2px 2px 0"><span class="ws-tag">📅 SCHEDULE WORKSPACE — CALENDAR + HOME TIME</span></div>
+      <h2 class="sec" style="margin-top:10px">Driver Calendar — live in the app</h2>
       <p class="small dim" style="margin:0 2px 12px">The Driver Calendar is a live feature in the app, and this is a sample of it with fictional data only. In the app it sits in the <strong style="color:var(--text)">bottom navigation — 📅 Calendar, between Loads and Money</strong> — the same dock at the bottom of this preview. One calendar holds your loads, your time off, your home-time deadlines, your document expiries, and your paydays. Sample driver: <strong style="color:var(--text)">J. Rivera (fictional)</strong> · Sample month: <strong style="color:var(--text)">November 2026</strong>. Every name, load, and date below is made up for this preview — nothing here saves, sends, or submits.</p>
 
       <div class="nextmove" role="status" aria-label="What's my next move">
@@ -2720,7 +2835,7 @@
         <p class="small dim" style="line-height:1.55"><strong style="color:var(--text)">That is the full app, in use, at three sizes of company</strong> — one workspace, 50+ tools, and the old pile of apps left behind. Everything on this page is SAMPLE / DEMO data for a fictional company; every button is inert and answers with a demo note. Keep tapping:</p>
         <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
           <button class="btn-neon" style="flex:1;padding:13px;min-width:150px" data-goto="calendar">📅 See the Driver Calendar →</button>
-          <button class="btn-ghost" style="flex:1;padding:13px;min-width:150px" data-goto="loads">🖥️ Work the Desk on Loads →</button>
+          <button class="btn-ghost" style="flex:1;padding:13px;min-width:150px" data-goto-desk>🖥️ Work the Desk on Loads →</button>
         </div>
       </div>
     </section>
@@ -2862,8 +2977,8 @@
         <p class="xs dim" style="margin-top:4px;line-height:1.5">Your week net (above) and your points stay on this first screen — everything else on Money now sits behind the section bar below, one section at a time.</p>
       </div>
 
-      <div class="money-bar" id="moneySeg" role="group" aria-label="Money sections — Overview, Pay, Billing, Records, Loads, Truck" style="margin-top:14px">
-        <button data-msec="overview" class="on">Overview</button><button data-msec="pay">Pay</button><button data-msec="billing">Billing</button><button data-msec="records">Records</button><button data-msec="loads">Loads</button><button data-msec="truck">Truck</button>
+      <div class="money-bar" id="moneySeg" role="group" aria-label="Money sections — Overview, Pay, Rewards, Billing, Records, Loads, Truck" style="margin-top:14px">
+        <button data-msec="overview" class="on">Overview</button><button data-msec="pay">Pay</button><button data-msec="rewards">Rewards</button><button data-msec="billing">Billing</button><button data-msec="records">Records</button><button data-msec="loads">Loads</button><button data-msec="truck">Truck</button>
       </div>
       <p class="xs dim" style="margin:8px 2px 0;line-height:1.5">No more scrolling the whole page to find one tool — everything is a couple of taps away. One section shows at a time, and every open section closes from its own <strong style="color:var(--text)">Close ▴</strong> row at the bottom.</p>
 
@@ -2967,6 +3082,18 @@
       <button class="close-row" data-mclose>Close ▴</button>
       </div>
       <div data-mpanel="pay" style="display:none">
+      <div style="margin:2px 2px 0"><span class="ws-tag">💰 PAY WORKSPACE — EARNED, OWED, CHECKED</span></div>
+
+      <div class="card" style="border-color:var(--neon-a);margin-top:12px" aria-label="Revenue per mile — sample card at the top of Pay">
+        <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap">
+          <strong>📈 Revenue per mile</strong>
+          <span class="stage-tag">DEMO FIGURE · SAMPLE</span>
+        </div>
+        <div class="cond tnum" style="font-size:44px;font-weight:700;line-height:1.1;margin-top:6px">$2.38<span style="font-size:20px">/mi</span></div>
+        <p class="small" style="line-height:1.55"><strong>Revenue per loaded mile — last 30 days of sealed loads.</strong></p>
+        <p class="xs dim" style="margin-top:4px;line-height:1.5">Demo figure only, from this preview's fake sealed loads. <strong style="color:var(--text)">Deadhead isn't counted</strong> — only loaded miles on sealed loads figure into this number. In the full app it is built from your own sealed loads from the last 30 days — unsealed or unfinished work never counts.</p>
+      </div>
+
       <h2 class="sec">Pay Book (sample)</h2>
       <div class="card">
         <p class="small dim" style="line-height:1.55">Every dollar in, kept in the lane it was earned in. <strong style="color:var(--text)">W-2 wages and 1099 load pay never blend</strong> — each lane carries its own subtotal, and the Tax Worksheet in the Library reads straight from here.</p>
@@ -2996,6 +3123,54 @@
           <div class="kv-row"><span class="k"><strong style="color:var(--text)">Short</strong></span><span class="v tnum danger">$115.00</span></div>
         </div>
         <p class="small" style="margin-top:10px;line-height:1.55">Two problems: linehaul came in $40.00 light, and the detention line is missing entirely — even though your sealed timestamps prove the 1.5-hour wait. In the full app, one tap sends the dispute packet: rate con, sealed arrival/departure stamps, and this comparison.</p>
+      </div>
+
+      <h2 class="sec">Settlement check — should vs did (sample)</h2>
+      <div class="card">
+        <p class="small dim" style="line-height:1.55">The Checker above works one load at a time. This check works a <strong style="color:var(--text)">whole settlement</strong>: every sealed load inside the settlement's pay window is added up — what <strong style="color:var(--text)">should</strong> have been paid — and set against what the settlement <strong style="color:var(--text)">did</strong> pay. Two sample settlements, checked against the sample sealed loads:</p>
+
+        <div class="card2" style="margin-top:12px">
+          <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap">
+            <strong>Settlement S-104 — Sample Haul Brokers (fake payer)</strong>
+            <span class="ws-badge-ok">✓ MATCHES</span>
+          </div>
+          <p class="xs dim" style="margin-top:6px;line-height:1.5"><strong style="color:var(--text)">Pay window:</strong> covers Load #1029 — Birmingham, AL → Atlanta, GA, delivered &amp; sealed Oct 13 · this payer pays <strong style="color:var(--text)">7 days after delivery</strong> · settled Oct 20.</p>
+          <div style="margin-top:8px">
+            <div class="kv-row"><span class="k">Should pay — linehaul, Load #1029 (sealed)</span><span class="v tnum">$905.00</span></div>
+            <div class="kv-row"><span class="k">Should pay — fuel surcharge</span><span class="v tnum">$75.00</span></div>
+            <div class="kv-row"><span class="k"><strong style="color:var(--text)">Should have paid</strong></span><span class="v tnum">$980.00</span></div>
+            <div class="kv-row"><span class="k">Settlement actually paid</span><span class="v tnum">$980.00</span></div>
+            <div class="kv-row"><span class="k"><strong style="color:var(--text)">Result</strong></span><span class="v tnum ok">Paid in full — $0.00 difference</span></div>
+          </div>
+          <div class="xs" style="font-weight:800;letter-spacing:.08em;margin:14px 0 4px">DEDUCTIONS ON THIS SETTLEMENT — SORTED INTO BUCKETS</div>
+          <div class="kv-row"><span class="k">⛽ Fuel</span><span class="v tnum">−$86.20</span></div>
+          <div class="kv-row"><span class="k">🏦 Escrow</span><span class="v tnum">−$25.00</span></div>
+          <div class="kv-row"><span class="k">📦 Other</span><span class="v tnum">−$6.60</span></div>
+          <div class="kv-row"><span class="k"><strong style="color:var(--text)">Net deposited</strong> — $980.00 paid − $117.80 deductions</span><span class="v tnum">$862.20</span></div>
+        </div>
+
+        <div class="card2" style="margin-top:10px">
+          <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap">
+            <strong>Settlement S-105 — Load #1037's payer (sample)</strong>
+            <span class="ws-badge-short">⚠ SHORT $115.00</span>
+          </div>
+          <p class="xs dim" style="margin-top:6px;line-height:1.5"><strong style="color:var(--text)">Pay window:</strong> covers Load #1037 — Peacock Pavers Yard, AL → Pensacola, FL, delivered &amp; sealed Oct 20 · this payer pays <strong style="color:var(--text)">14 days after delivery</strong> · settled Nov 3.</p>
+          <div style="margin-top:8px">
+            <div class="kv-row"><span class="k">Should pay — linehaul, Load #1037 (sealed)</span><span class="v tnum">$412.50</span></div>
+            <div class="kv-row"><span class="k">Should pay — detention, proven by sealed stamps</span><span class="v tnum">$75.00</span></div>
+            <div class="kv-row"><span class="k"><strong style="color:var(--text)">Should have paid</strong></span><span class="v tnum">$487.50</span></div>
+            <div class="kv-row"><span class="k">Settlement actually paid</span><span class="v tnum">$372.50</span></div>
+            <div class="kv-row"><span class="k"><strong style="color:var(--text)">Result</strong></span><span class="v tnum danger">SHORT $115.00</span></div>
+          </div>
+          <div class="xs" style="font-weight:800;letter-spacing:.08em;margin:14px 0 4px">DEDUCTIONS ON THIS SETTLEMENT — SORTED INTO BUCKETS</div>
+          <div class="kv-row"><span class="k">⛽ Fuel</span><span class="v tnum">−$64.10</span></div>
+          <div class="kv-row"><span class="k">🛡️ Insurance</span><span class="v tnum">−$38.50</span></div>
+          <div class="kv-row"><span class="k">🏦 Escrow</span><span class="v tnum">−$25.00</span></div>
+          <div class="kv-row"><span class="k"><strong style="color:var(--text)">Net deposited</strong> — $372.50 paid − $127.60 deductions</span><span class="v tnum">$244.90</span></div>
+          <p class="xs dim" style="margin-top:8px;line-height:1.5">Deductions are the agreed lines taken out <em>after</em> the gross lands — they never explain a shortfall. The $115.00 above is gross money that never arrived: the same shortfall the Settlement Checker and Who Owes Me track for Load #1037.</p>
+        </div>
+
+        <p class="xs dim" style="margin-top:10px;line-height:1.5">Sample settlements, sample sealed loads, fake payers — in the full app the first settlement you record runs this check on its own, against your own sealed loads and your payer's pay lag.</p>
       </div>
 
       <button class="close-row" data-mclose>Close ▴</button>
@@ -3231,6 +3406,7 @@
       <button class="close-row" data-mclose>Close ▴</button>
       </div>
       <div data-mpanel="truck" style="display:none">
+      <div style="margin:2px 2px 0"><span class="ws-tag">🔧 TRUCK WORKSPACE — YOUR RIG, KEPT READY</span></div>
       <h2 class="sec">Maintenance log (sample)</h2>
       <div class="card">
         <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;flex-wrap:wrap">
@@ -3416,6 +3592,16 @@
           <div class="log-row"><div class="small">On Duty — Pre-trip inspection — Mobile, AL — 5:42 AM</div></div>
           <div class="log-row"><div class="small">On Duty — Fuel — Mobile, AL — 6:42 AM</div></div>
           <div class="log-row"><div class="small">Off Duty — Break/Rest — not recorded — 9:15 PM</div><div class="xs dim">No GPS fix on this change — the entry records its place as “not recorded,” never an invented place.</div></div>
+          <div class="log-row"><div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap"><div class="small">On Duty (Not Driving) — Baton Rouge, LA — 11:48 AM</div><span class="status-off">AUTO DEFAULT</span></div><div class="small" style="margin-top:3px">Remark: <strong>“Stopped 5 min — no response; on-duty default”</strong></div><div class="xs dim">The stopped prompt (Drive tab) went unanswered for 1 minute, so the federal default sealed On Duty on its own — 49 CFR Part 395, Appendix A. It never seals Off Duty or Sleeper Berth.</div></div>
+        </div>
+        <div class="card2" style="margin-top:10px" aria-label="Pending owner correction — sample">
+          <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap"><strong>📝 Owner correction — your review (sample)</strong><span class="status-wait">PENDING</span></div>
+          <p class="small dim" style="margin-top:6px;line-height:1.55">Your fleet owner (fake — sample fleet) proposed a correction to this day: <strong style="color:var(--text)">On Duty start 5:42 AM → 5:30 AM</strong> — “pre-trip began at the yard gate.” <strong style="color:var(--text)">Your original record stands</strong> until you act: acknowledge it and the correction applies, or dispute it with a note and the original stands for good.</p>
+          <div style="display:flex;gap:8px;margin-top:10px">
+            <button class="btn-neon" style="flex:1;padding:12px" data-toast="Demo: in the full app, acknowledging applies the owner's correction and seals your acknowledgement with it. Nothing is acknowledged or saved in this preview.">✓ Acknowledge</button>
+            <button class="btn-ghost" style="flex:1;padding:12px" data-toast="Demo: in the full app, disputing asks for your note, keeps your original entry as the record, and prints the dispute on the DOT packet. Nothing is disputed or saved in this preview.">Dispute</button>
+          </div>
+          <p class="xs dim" style="margin-top:8px;line-height:1.55">Disputes print on the DOT packet with your note. Nobody's log changes behind their back — a correction the driver never reviewed never becomes the record. Display sample only: fictional driver, fictional correction.</p>
         </div>
         <div class="log-row"><strong>Oct 21, 2026</strong><div class="small dim">Off duty all day · 34-hour reset in progress · 🔗 Sealed</div><div class="small" style="margin-top:3px">Not yet certified.</div><div class="hash">record hash (sample) 66aa…3e10</div></div>
         <p class="xs dim" style="margin-top:8px;line-height:1.55">Drivers certify each day by <strong style="color:var(--text)">typing their name</strong> — the certification is sealed into the record with the day, exactly as signed (sample lines above).</p>
@@ -3433,6 +3619,7 @@
           <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center"><strong>📋 On-screen packet — Oct 22, 2026 (sample)</strong><span class="sealed-pill">⛓✓ SEALED</span></div>
           <div class="log-row" style="margin-top:8px"><div class="small">Oct 22, 2026 — <strong>Truck 12 · Trailer 34</strong> — Pre-trip DVIR sealed 5:42 AM · Daily log certified · HOS clocks for the day</div><div class="xs dim">Unit numbers print on every packet day line, so the rig on paper is the rig at the scale (fictional units, sample).</div></div>
           <div class="log-row"><div class="small">Oct 21, 2026 — <strong>Truck 12 · Trailer 34</strong> — Off duty · 34-hour reset in progress</div></div>
+          <p class="xs dim" style="margin-top:8px;line-height:1.55">An <strong style="color:var(--text)">AUTO DEFAULT</strong> entry and any <strong style="color:var(--text)">disputed owner correction</strong> print on this packet exactly as they stand in the log — the dispute carries the driver's own note (samples in Daily logs above).</p>
         </div>
         <div class="export-bar" role="group" aria-label="Send the DOT inspection packet — demo">
           <button class="export-btn main" data-toast="Demo: in the full app this emails the sealed inspection packet. Nothing is emailed or saved in this preview.">✉️ Email this packet</button>
@@ -3497,6 +3684,7 @@
         <p class="xs dim" style="margin-top:12px">Preview: every export above is generated on this screen from sample data — downloads are real files of sample records; Send opens your device share sheet in the full app. Nothing here uploads or sends for real.</p>
       </div>
 
+      <div style="margin:2px 2px 0"><span class="ws-tag">🗄️ RECORDS WORKSPACE — PAPERWORK, SEALED + PROVEN</span></div>
       <h2 class="sec">Library — every record, one home (sample)</h2>
       <div class="card" style="border-color:var(--neon-a)" id="userLibrary">
         <p class="small dim" style="line-height:1.55">One records home for everything the app seals: loads delivered, statements, fuel tax state by state, filings, your uploads, the sealed files themselves, filed document copies, the Document Vault, Tax Records, and the Tax Worksheet. Records used to sit in several stops — now there is exactly one home, and this is it. <strong style="color:var(--text)">Every item carries Print / Email / Download</strong> — Email opens your mail app with the record attached as the message; in the full app it sends the sealed file itself. Sample records below, from the same demo run.</p>
@@ -3697,7 +3885,7 @@
 
       <button class="close-row" data-mclose>Close ▴</button>
       </div>
-      <div data-mpanel="pay" style="display:none">
+      <div data-mpanel="rewards" style="display:none">
       <h2 class="sec">Wallet &amp; points</h2>
       <p class="small dim" style="margin:0 2px 12px">One section for the wallet side of Money: your SM Points, the in-app wallet, and the CHIP market panel.</p>
 
@@ -3720,6 +3908,7 @@
         <div class="task-row"><span>Debrief reviewed</span><strong class="tnum">20</strong></div>
         <div class="task-row"><span>Clean-week streak bonus</span><strong class="tnum">+200</strong></div>
         <div class="task-row"><span>Plus sealed miles: 1 point per 2.5 sealed miles — about $1.00 of value per 10,000 sealed miles. Free tier earns half. Miles points land outside the daily cap.</span></div>
+        <div style="margin:16px 0 2px"><span class="ws-tag">⭐ REWARDS WORKSPACE — POINTS FOR THE WORK</span></div>
         <div class="xs" style="font-weight:800;letter-spacing:.08em;margin:14px 0 4px">HOW TO EARN — THREE MORE LANES</div>
         <p class="xs dim" style="line-height:1.5">Alongside the daily table above, three more lanes pay for the work around the driving. Every lane award is computed by the server from sealed records — nothing is self-reported. Sample presentation; values as published in the app.</p>
         <div class="xs" style="font-weight:800;letter-spacing:.08em;margin:12px 0 4px">LANE 1 — DRIVE WELL</div>
@@ -3877,7 +4066,7 @@
       <div class="card" aria-label="Tool directory — grouped, everything within two taps">
         <p class="xs dim">The cleaned-up directory: <strong style="color:var(--text)">37 tools under five groups</strong> — Drive · Loads &amp; Money · Truck &amp; Trailer · Records · Settings — each tool listed exactly once, identically here and in Today's Find a tool panel. The groups <strong style="color:var(--text)">fold</strong>: each group header carries its tool count, <strong style="color:var(--text)">one group opens at a time</strong>, tapping the header again closes it, and an open group closes from the <strong style="color:var(--text)">Close ▴</strong> row at its bottom too. Every tool is one tap into its group and one tap onto the tool. One name per tool, everywhere, including Ask Meca.</p>
         <div class="finder-group"><div class="xs" style="font-weight:800;letter-spacing:.08em">DRIVE</div><div class="tool-chips"><button class="chipbtn" data-goto="drive">Route planner</button><button class="chipbtn" data-goto="drive">Satellite map + tilt</button><button class="chipbtn" data-goto="drive">Hours of Service</button><button class="chipbtn" data-goto="drive">Route-ahead weather</button><button class="chipbtn" data-goto="drive">Scales finder</button><button class="chipbtn" data-goto="drive">Night parking layer</button><button class="chipbtn" data-goto="drive">Cab display</button><button class="chipbtn" data-goto="drive">Android Auto templates</button><button class="chipbtn" data-goto="drive">Ask Meca</button></div></div>
-        <div class="finder-group"><div class="xs" style="font-weight:800;letter-spacing:.08em">LOADS &amp; MONEY</div><div class="tool-chips"><button class="chipbtn" data-goto="loads">Load Tracker</button><button class="chipbtn" data-goto="loads">Desk — one desk, every role</button><button class="chipbtn" data-goto="loads">Boards — Fleet · Open · Broker</button><button class="chipbtn" data-goto="loads">BOL signing + receive link</button><button class="chipbtn" data-goto="loads">Worth-It Advisor</button><button class="chipbtn" data-goto="loads">Receiver Memory</button><button class="chipbtn" data-goto="money">Who Owes Me</button><button class="chipbtn" data-goto="money">True Rate</button><button class="chipbtn" data-goto="money">TONU / Layover Logger</button><button class="chipbtn" data-goto="money">IFTA Estimator</button></div></div>
+        <div class="finder-group"><div class="xs" style="font-weight:800;letter-spacing:.08em">LOADS &amp; MONEY</div><div class="tool-chips"><button class="chipbtn" data-goto-loads="tracker">Load Tracker</button><button class="chipbtn" data-goto-desk>Desk — one desk, every role</button><button class="chipbtn" data-goto-loads="boards">Boards — Fleet · Open · Broker</button><button class="chipbtn" data-goto-loads="tracker">BOL signing + receive link</button><button class="chipbtn" data-goto-loads="mine">Worth-It Advisor</button><button class="chipbtn" data-goto-loads="tracker">Receiver Memory</button><button class="chipbtn" data-goto="money">Who Owes Me</button><button class="chipbtn" data-goto="money">True Rate</button><button class="chipbtn" data-goto="money">TONU / Layover Logger</button><button class="chipbtn" data-goto="money">IFTA Estimator</button></div></div>
         <div class="finder-group"><div class="xs" style="font-weight:800;letter-spacing:.08em">TRUCK &amp; TRAILER</div><div class="tool-chips"><button class="chipbtn" data-more-anchor="trailerPkg">Trailer package</button><button class="chipbtn" data-more-anchor="trailerPkg">Reefer Cold-Chain Log</button><button class="chipbtn" data-more-anchor="trailerPkg">Securement Calculator</button><button class="chipbtn" data-more-anchor="trailerPkg">Axle Calculator</button><button class="chipbtn" data-more-anchor="trailerPkg">Dock Helper</button><button class="chipbtn" data-more-anchor="trailerPkg">Pre-trip checklists</button><button class="chipbtn" data-goto="money">Breakdown Mode</button></div></div>
         <div class="finder-group"><div class="xs" style="font-weight:800;letter-spacing:.08em">RECORDS</div><div class="tool-chips"><button class="chipbtn" data-goto="money">Library — every record, one home</button><button class="chipbtn" data-goto="money">Tax Worksheet</button><button class="chipbtn" data-goto="money">Document Vault</button><button class="chipbtn" data-goto="money">Tax Records</button><button class="chipbtn" data-goto="money">Trip sheet</button><button class="chipbtn" data-goto="drive">Scale tickets</button><button class="chipbtn" data-more-anchor="atlasCard">Atlas — 50 states</button></div></div>
         <div class="finder-group"><div class="xs" style="font-weight:800;letter-spacing:.08em">SETTINGS</div><div class="tool-chips"><button class="chipbtn" data-goto="more">Driver State</button><button class="chipbtn" data-goto="money">Maintenance Countdown</button><button class="chipbtn" id="moreLangBtn">Language — 5 languages</button><button class="chipbtn" id="moreSettingsBtn">Settings</button></div></div>
@@ -4091,7 +4280,7 @@
 
         <div class="xs" style="font-weight:800;letter-spacing:.08em;margin:18px 0 4px">DISPATCH — NEW IN THIS BUILD</div>
         <p class="small dim" style="line-height:1.55">This board is also the fleet's window into the one Desk: book a load, assign it to a named driver, and watch live status — offered, assigned, accepted and bound to the sealed Load Tracker, declined with the driver's reason, reassigned, delivered and sealed the moment the receiver signs by link, phone, or paper POD. Freight arrives through both broker doors: this fleet's send door (code <strong style="color:var(--text)">RUGGS-DEMO</strong> — no broker account; loads land only in this desk's inbox as Offered) and broker accounts posting to the public loadboard. Every sealed delivery lands in the Library (Money tab) with Print / Email / Download.</p>
-        <button class="btn-neon" style="width:100%;padding:13px;margin-top:10px" data-goto="loads">Open the Desk on the Loads tab →</button>
+        <button class="btn-neon" style="width:100%;padding:13px;margin-top:10px" data-goto-desk>Open the Desk on the Loads tab →</button>
         <div class="xs" style="font-weight:800;letter-spacing:.08em;margin:18px 0 4px">WHAT THIS SHOWS IN THE LIVE APP</div>
         <p class="small dim" style="line-height:1.55">An owner sees work data only — loads, miles, clocks, sealed deliveries, and position while a driver is on duty / on trip. The wallet wall still stands: no driver wallet, pay book, or private paperwork ever shows on a fleet board. Drivers join a fleet only with an owner-issued code in the live app — there is no joining, sign-up, or account in this preview.</p>
         <p class="xs dim" style="margin-top:8px">Reminder: every name, truck, and number above is fake preview content for this demo app. The real RUGGS LOGISTICS fleet board will start from real sealed records only.</p>
@@ -5930,12 +6119,19 @@ drawQR($("#bolQrBox"), "STNM-BOL-1042");
 })();
 /* ============ Loads segmented switch + Desk role switcher (demo, in-memory only) ============ */
 (function(){
-  function showLoadsPanel(key){
+  function showLoadsPanel(key, jump){
     $$("[data-lpanel]").forEach(function(p){ p.style.display = p.getAttribute("data-lpanel") === key ? "" : "none"; });
     $$("#loadsSeg button").forEach(function(b){ b.classList.toggle("on", b.getAttribute("data-lseg") === key); });
+    /* The panels sit below the Desk card, far off-screen from the switch —
+       without this jump a tap only recoloured the button and the section
+       looked dead. Land the reader on the section that just opened. */
+    if (jump){
+      var p = document.querySelector('[data-lpanel="' + key + '"]');
+      if (p) setTimeout(function(){ p.scrollIntoView({ block:"start" }); }, 40);
+    }
   }
   $$("#loadsSeg button").forEach(function(b){
-    b.addEventListener("click", function(){ showLoadsPanel(b.getAttribute("data-lseg")); });
+    b.addEventListener("click", function(){ showLoadsPanel(b.getAttribute("data-lseg"), true); });
   });
   function setDeskRole(role){
     $$("#dispatchCard [data-desk-roles]").forEach(function(el){
@@ -6262,6 +6458,43 @@ function applyLang(){
 
 applySettings();
 renderSpeed();
+</script>
+<script>
+/* Loads deep links: open the Loads tab on the named section and land on it.
+   A plain tab jump strands the reader at the top of the tab on whatever
+   panel was last selected — Tracker and Boards never appear. Clicking the
+   section's own switch button reuses its open-and-jump behaviour. */
+function openLoadsSection(key){
+  gotoTab("loads");
+  var seg = document.querySelector('#loadsSeg button[data-lseg="' + key + '"]');
+  if (seg) seg.click();
+}
+$$("[data-goto-loads]").forEach(function(b){
+  b.addEventListener("click", function(){ openLoadsSection(b.getAttribute("data-goto-loads")); });
+});
+$$("[data-goto-desk]").forEach(function(b){
+  b.addEventListener("click", function(){
+    gotoTab("loads");
+    var role = b.getAttribute("data-goto-desk");
+    if (role){
+      var rb = document.querySelector('#deskRoleSeg button[data-drole="' + role + '"]');
+      if (rb) rb.click();
+    }
+    var c = document.getElementById("dispatchCard");
+    if (c) setTimeout(function(){ c.scrollIntoView({ block:"start" }); }, 60);
+  });
+});
+/* Workspace doors that live inside Money: open the tab, then that tab's section */
+$$("[data-ws-money]").forEach(function(b){
+  b.addEventListener("click", function(){
+    gotoTab("money");
+    var key = b.getAttribute("data-ws-money");
+    var seg = document.querySelector('#moneySeg button[data-msec="' + key + '"]');
+    if (seg) seg.click();
+    var bar = document.getElementById("moneySeg");
+    if (bar) setTimeout(function(){ bar.scrollIntoView({ block:"start" }); }, 60);
+  });
+});
 </script>
 </body>
 </html>
