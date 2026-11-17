@@ -494,6 +494,33 @@
       .snap-panel > p:last-child { margin:18px 0 0; font-size:16px; }
       @media (max-width: 640px) { .snap-panel { padding:22px 18px; } }
 
+      /* ---------- Rate Watch panel (market benchmarks · Stonervision Rate Index) ---------- */
+      .rate-panel { margin-top:22px; background:linear-gradient(180deg, rgba(242,178,27,.055), rgba(255,255,255,0) 46%), var(--panel); border:1px solid rgba(242,178,27,.42); border-radius:12px; padding:26px 24px; box-shadow:inset 0 1px 0 rgba(255,255,255,.05), 0 10px 30px rgba(0,0,0,.25); }
+      .rate-panel .sp-kicker { font-family:var(--font-mono); font-size:12px; font-weight:600; letter-spacing:.16em; text-transform:uppercase; color:var(--gold); display:block; margin-bottom:10px; }
+      .rate-panel h3 { font-family:var(--font-display); font-weight:700; text-transform:uppercase; font-size:clamp(26px,4vw,34px); line-height:1.05; margin:0 0 10px; letter-spacing:.015em; }
+      .rate-panel > p { color:var(--ink-2); max-width:760px; margin:0 0 20px; font-size:16.5px; }
+      .rate-panel > p strong { color:var(--ink); }
+      .rate-panel > p:last-child { margin:18px 0 0; font-size:16px; }
+      .rate-half { background:var(--bg-raise); border:1px solid var(--line); border-radius:var(--radius); padding:20px; margin-bottom:16px; }
+      .rate-half:last-of-type { margin-bottom:0; }
+      .rate-half .rh-label { font-family:var(--font-mono); font-size:11.5px; font-weight:600; letter-spacing:.14em; text-transform:uppercase; color:var(--gold-hi); display:block; margin-bottom:7px; }
+      .rate-half h4 { margin:0 0 8px; font-size:19px; line-height:1.25; }
+      .rate-half > p { margin:0 0 14px; color:var(--ink-2); font-size:15.5px; line-height:1.55; }
+      .rate-half > p:last-child { margin-bottom:0; }
+      .rate-half > p strong { color:var(--ink); }
+      .rate-rows { border:1px solid var(--line-soft); border-radius:var(--radius); overflow:hidden; margin-bottom:14px; }
+      .rate-row { display:flex; flex-wrap:wrap; gap:4px 14px; align-items:baseline; padding:12px 16px; background:var(--panel); border-bottom:1px solid var(--line-soft); }
+      .rate-row:last-child { border-bottom:none; }
+      .rate-row .rr-name { font-weight:700; color:var(--ink); font-size:15.5px; flex:1 1 130px; }
+      .rate-row .rr-fig { font-family:var(--font-mono); color:var(--gold-hi); font-size:15px; font-weight:600; flex:0 1 auto; }
+      .rate-row .rr-note { color:var(--ink-2); font-size:14.8px; flex:2 1 260px; }
+      .rate-row.headline { background:rgba(242,178,27,.07); }
+      .rate-row.headline .rr-fig { color:var(--gold); font-size:17px; }
+      .rate-source { margin:0; color:var(--muted); font-size:14px; line-height:1.5; }
+      .bucket-chips { display:flex; flex-wrap:wrap; gap:8px; margin:4px 0 14px; }
+      .bucket-chip { border:1px solid var(--gold-deep); background:rgba(242,178,27,.07); color:var(--ink); border-radius:999px; padding:7px 13px; font-family:var(--font-mono); font-size:12.5px; letter-spacing:.06em; font-weight:600; text-transform:uppercase; }
+      @media (max-width: 640px) { .rate-panel { padding:22px 18px; } }
+
       .settle-steps { display:grid; gap:12px; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); }
       .settle-step { background:var(--bg-raise); border:1px solid var(--line-soft); border-radius:9px; padding:15px 16px; }
       .settle-step .ss-n { font-family:var(--font-mono); font-size:11.5px; font-weight:600; letter-spacing:.12em; color:var(--gold); display:block; margin-bottom:6px; }
@@ -559,7 +586,7 @@
               <a class="btn btn-ghost" href="https://preview.stonervision.io" target="_blank" rel="noopener">Open the demo app</a>
               <a class="btn btn-ghost" href="#/pricing" data-nav>See pricing</a>
             </div>
-            <p class="preview-note">Demo app only — updated to the latest approved build: <strong style="color:var(--ink-2);">the Ten Workspaces</strong> — Loads, Drive, Planner, Fuel, Pay, Records, Truck, Schedule, Team and Rewards, ten doors on Today that run the whole day, with the workspace name at every home — <strong style="color:var(--ink-2);">and Settlement Check in Pay</strong>, which lines every settlement you log up against your sealed loads: should vs. did, deductions itemized, any shortage flagged in plain dollars — plus the live fleet dispatch chain (broker sends → desk accepts → driver assigned → driver runs it → receiver confirms → the delivery seals itself into the Library) and the User Library, plus Atlas, satellite view, trailer package, money tools, 5 languages, the simplified navigation and the Tax Worksheet, My Truck &amp; My Trailer records with up to 5 photos each on the driver profile, and the Maintenance log with receipts and a one-file truck record download, the Nov 6 evening GPS repair, plus the Android Auto &amp; Cab Mode work — a glanceable in-app cab display and the Android Auto template screens (Guidance / Stops ahead / Road alerts) previewed in-app — plus the newest builds: the SM Points lanes (Drive well · Feed the map · Grow it), DVIR inspections with defect-to-maintenance, detention proof, and the trailer model in the rig record — and now inspections built into the day beside the HOS clock, with a remark and a place on every duty change — <strong style="color:var(--ink-2);">plus the snap-to-paid chain</strong>: snap or upload a rate confirmation and the load fills in for your check-off before it seals, with manual entry always there if the read misses anything; snap the POD at delivery and it seals to the load with the invoice draft already waiting in Pay; and your revenue per mile sits up front at the top of Pay, figured from your sealed loads. Shown with a RUGGS LOGISTICS fleet, a fake driver and preview numbers. All fake, no account needed, and nothing real saves. <strong style="color:var(--ink-2);">Head-unit Android Auto projection is not live yet</strong> — it ships only through the Play Store listing once that listing exists.</p>
+            <p class="preview-note">Demo app only — updated to the latest approved build: <strong style="color:var(--ink-2);">the Ten Workspaces</strong> — Loads, Drive, Planner, Fuel, Pay, Records, Truck, Schedule, Team and Rewards, ten doors on Today that run the whole day, with the workspace name at every home — <strong style="color:var(--ink-2);">and Settlement Check in Pay</strong>, which lines every settlement you log up against your sealed loads: should vs. did, deductions itemized, any shortage flagged in plain dollars — plus the live fleet dispatch chain (broker sends → desk accepts → driver assigned → driver runs it → receiver confirms → the delivery seals itself into the Library) and the User Library, plus Atlas, satellite view, trailer package, money tools, 5 languages, the simplified navigation and the Tax Worksheet, My Truck &amp; My Trailer records with up to 5 photos each on the driver profile, and the Maintenance log with receipts and a one-file truck record download, the Nov 6 evening GPS repair, plus the Android Auto &amp; Cab Mode work — a glanceable in-app cab display and the Android Auto template screens (Guidance / Stops ahead / Road alerts) previewed in-app — plus the newest builds: the SM Points lanes (Drive well · Feed the map · Grow it), DVIR inspections with defect-to-maintenance, detention proof, and the trailer model in the rig record — and now inspections built into the day beside the HOS clock, with a remark and a place on every duty change — <strong style="color:var(--ink-2);">plus the snap-to-paid chain</strong>: snap or upload a rate confirmation and the load fills in for your check-off before it seals, with manual entry always there if the read misses anything; snap the POD at delivery and it seals to the load with the invoice draft already waiting in Pay; and your revenue per mile sits up front at the top of Pay, figured from your sealed loads — <strong style="color:var(--ink-2);">plus Rate Watch in Pay</strong>: the week&rsquo;s published market benchmarks and the Stonervision Rate Index, priced from real sealed loads run on the platform. Shown with a RUGGS LOGISTICS fleet, a fake driver and preview numbers. All fake, no account needed, and nothing real saves. <strong style="color:var(--ink-2);">Head-unit Android Auto projection is not live yet</strong> — it ships only through the Play Store listing once that listing exists.</p>
             <div class="spec-strip" aria-label="Built for standard rigs">
               <div><div class="v">13&prime;6&Prime;</div><div class="l">Max height routing</div></div>
               <div><div class="v">80,000 lb</div><div class="l">Gross weight profile</div></div>
@@ -704,6 +731,41 @@
                 <div class="settle-step"><span class="ss-n">ALWAYS · REVENUE PER MILE</span><p><strong>Your RPM, up front.</strong> Revenue per mile sits at the <strong>top of Pay</strong>, figured from your sealed loads — the one number that tells you whether the week worked, in front of you every time you open the door, not buried in a report you have to go build.</p></div>
               </div>
               <p>For drivers, it is the end of data entry as a second job: the paper reads itself, the invoice drafts itself, and the per-mile truth is just there. For fleets, loads enter the system the same way every time — read from the rate con, checked off by the driver, sealed at delivery — so the desk is never chasing a missing POD before it can bill. <strong style="color:var(--ink);">Auto never blocks manual: if a read comes back partial, you land in the same form with what was read already filled in and the document attached.</strong></p>
+            </div>
+
+            <div class="rate-panel" id="rate-watch">
+              <span class="sp-kicker">Inside Pay · New in the latest build</span>
+              <h3>Rate Watch — know what freight is paying before you say yes</h3>
+              <p>Every load offer is a bet, and most drivers place it blind — a rate-check app here, a loadboard guess there, a buddy&rsquo;s text from three states away. Rate Watch puts the answer inside the same workspace that runs the load: <strong>one of the 50+ tools behind the Pay door</strong>, sitting beside your revenue per mile and your settlement checks, so the number you negotiate with is the number the rest of your day already runs on. No second app. No asking price dressed up as truth. Two views, one screen:</p>
+
+              <div class="rate-half">
+                <span class="rh-label">The market, every week</span>
+                <h4>Week 45 benchmarks — week ending Nov 13, 2026</h4>
+                <p>The published national spot picture, refreshed as each week&rsquo;s report lands — so before you take a load, you know which way the whole market just moved:</p>
+                <div class="rate-rows" aria-label="Week 45 spot market benchmarks">
+                  <div class="rate-row headline"><span class="rr-name">Total spot average</span><span class="rr-fig">$3.16/mi</span><span class="rr-note">Fuel included.</span></div>
+                  <div class="rate-row"><span class="rr-name">Dry van</span><span class="rr-fig">eased &lt;1&cent;</span><span class="rr-note">On the week · +48% vs last year · loads &minus;2.2%.</span></div>
+                  <div class="rate-row"><span class="rr-name">Reefer</span><span class="rr-fig">+3&cent;</span><span class="rr-note">On the week · +41% vs last year · loads &minus;1.8%.</span></div>
+                  <div class="rate-row"><span class="rr-name">Flatbed</span><span class="rr-fig">&minus;7.6&cent;</span><span class="rr-note">On the week · +39% vs last year · loads &minus;7.3% — the biggest weekly drop since August.</span></div>
+                </div>
+                <p class="rate-source">Truckstop.com / FTR — broker-posted spot averages, includes fuel — market direction, not a quote for any load.</p>
+              </div>
+
+              <div class="rate-half">
+                <span class="rh-label">The Stonervision Rate Index</span>
+                <h4>Priced from real sealed loads — not asking prices, not guesses</h4>
+                <p>Posted rates are what brokers <em>ask</em>. The Index is built from what freight <strong>actually paid</strong> — the real rates on loads run and sealed on STONEMILES itself, grouped by the equipment that hauled them:</p>
+                <div class="bucket-chips" aria-label="Rate Index equipment buckets">
+                  <span class="bucket-chip">Flatbed</span>
+                  <span class="bucket-chip">RGN</span>
+                  <span class="bucket-chip">Oversized</span>
+                  <span class="bucket-chip">Dry van</span>
+                  <span class="bucket-chip">Reefer</span>
+                </div>
+                <p>That includes the freight the weekly reports never price at all — RGN and oversized work has no published spot number, because no two of those loads price alike. Here it earns one the honest way: <strong>a bucket appears only once 5+ sealed loads stand behind it</strong>, and no individual load&rsquo;s rate, customer, or lane is ever exposed — only the combined picture, never anybody&rsquo;s business.</p>
+              </div>
+
+              <p><strong style="color:var(--ink);">The market tells you the weather; your own sealed loads tell you what freight actually paid.</strong> For a driver, that is the difference between hoping a rate is fair and knowing it before the wheels turn. For a fleet, every truck that seals a load sharpens the number the whole fleet negotiates with — inside the one workspace that already replaced the pile of apps on the dash.</p>
             </div>
           </div>
         </div>
