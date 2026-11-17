@@ -9,6 +9,7 @@ import { describe, expect, test } from "bun:test";
 import {
   accountingConfiguredProviders,
   accountingPartnerFromEnv,
+  escapeQboLiteral,
   accountingSnapshotLines,
   accountingStampFor,
   canonicalJson,
@@ -207,5 +208,22 @@ describe("accounting — the seam's configuration gate", () => {
     expect(xero!.authorizeUrl({ redirectUri: "https://app.stonervision.io/accounting/callback", state: "st9" })).toContain(
       "https://login.xero.com/identity/connect/authorize",
     );
+  });
+});
+
+describe("escapeQboLiteral (2026-11-17 hardening)", () => {
+  test("a plain customer name passes through unchanged", () => {
+    expect(escapeQboLiteral("Blue Ridge Logistics")).toBe("Blue Ridge Logistics");
+  });
+
+  test("a single quote is backslash-escaped", () => {
+    expect(escapeQboLiteral("O'Brien Trucking")).toBe("O\\'Brien Trucking");
+  });
+
+  test("backslashes are escaped FIRST, so a trailing backslash cannot escape the closing quote", () => {
+    expect(escapeQboLiteral("Smith\\")).toBe("Smith\\\\");
+    // The breakout attempt: backslash + quote must become an escaped
+    // backslash followed by an escaped quote — never a bare quote.
+    expect(escapeQboLiteral("\\'")).toBe("\\\\\\'");
   });
 });

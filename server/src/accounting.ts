@@ -416,6 +416,14 @@ function formBody(fields: Record<string, string>): string {
 
 // ---- QuickBooks Online adapter -------------------------------------------
 
+/** Escape a value for a single-quoted QuickBooks query literal.
+ *  The backslash pass must come FIRST: escaping only the quote
+ *  leaves a name ending in a backslash able to escape the closing
+ *  quote itself and break out of the literal into the query. */
+export function escapeQboLiteral(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+}
+
 function quickbooksPartner(clientId: string, clientSecret: string, fetchFn: AccountingFetch): AccountingPartner {
   const tokenUrl = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer";
   const base = (realmId: string | null) => `https://quickbooks.api.intuit.com/v3/company/${realmId ?? ""}`;
@@ -451,7 +459,7 @@ function quickbooksPartner(clientId: string, clientSecret: string, fetchFn: Acco
    *  mapped customer name to an id, creating the customer when
    *  the books don't have one yet. */
   async function customerIdFor(access: AccountingAccess, name: string): Promise<string> {
-    const found = await query(access, `select Id from Customer where DisplayName = '${name.replace(/'/g, "\\'")}'`);
+    const found = await query(access, `select Id from Customer where DisplayName = '${escapeQboLiteral(name)}'`);
     const rows = (found.QueryResponse as { Customer?: { Id?: string }[] } | undefined)?.Customer ?? [];
     if (rows[0]?.Id) return rows[0].Id;
     const created = await post(access, "customer", { DisplayName: name });

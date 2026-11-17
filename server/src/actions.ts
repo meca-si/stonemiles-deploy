@@ -304,6 +304,7 @@ import {
   sniffDoorDocMime,
   DOOR_SUBMISSIONS_PER_HOUR,
 } from "./paperworkDoor";
+import { assessUpload } from "./uploadArmor";
 import {
   bondAlertStatus,
   bondNotification,
@@ -1249,14 +1250,21 @@ async function insertSignedDvir(
       maintenanceEntryId: entry.id,
     });
     if (d.photoDataBase64 && d.photoMime) {
-      const blobKey = `dvir-defect-${row.id}-${entry.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      await ctx.blobs.put(blobKey, base64ToBytes(d.photoDataBase64), { contentType: d.photoMime });
-      await db.insert(schema.maintenanceLogAttachments).values({
-        entryId: entry.id,
-        label: `Defect photo — ${d.item}`,
-        blobKey,
-        mime: d.photoMime,
-      });
+      // UPLOAD ARMOR (SENTRY, 2026-11-17): a defect photo is
+      // stored inert or not at all — a program/script/archive
+      // posing as a photo is dropped. The inspection itself
+      // still signs; the photo is evidence, not the record.
+      const photoBytes = base64ToBytes(d.photoDataBase64);
+      if (assessUpload(new Uint8Array(photoBytes), d.photoMime, { mode: "guard" }).ok) {
+        const blobKey = `dvir-defect-${row.id}-${entry.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        await ctx.blobs.put(blobKey, photoBytes, { contentType: d.photoMime });
+        await db.insert(schema.maintenanceLogAttachments).values({
+          entryId: entry.id,
+          label: `Defect photo — ${d.item}`,
+          blobKey,
+          mime: d.photoMime,
+        });
+      }
     }
   }
   const chainHash = await appendChain(ctx, {
@@ -3067,6 +3075,13 @@ async function completeDeliveryConfirmation(
   let docSha256: string | null = null;
   if (opts.doc) {
     const bytes = base64ToBytes(opts.doc.base64);
+    // UPLOAD ARMOR (SENTRY, 2026-11-17): every delivery close —
+    // the public receive link included — funnels through here, so
+    // this is where a disguised program/script/archive dies
+    // before it can be stored as a delivery document.
+    if (!assessUpload(new Uint8Array(bytes), opts.doc.mime, { mode: "guard" }).ok) {
+      throw new Error("That file is a program, script, or archive — not a delivery document, so it can't be attached.");
+    }
     docSha256 = await sha256Bytes(new Uint8Array(bytes));
     docBlobKey = `delivery-doc-${load.id}-${docSha256.slice(0, 16)}`;
     await ctx.blobs.put(docBlobKey, bytes, { contentType: opts.doc.mime });
@@ -3767,6 +3782,12 @@ async function filePaperworkDocument(
     via: "app" | "door";
   },
 ): Promise<{ row: LoadPaperworkRow; replaced: boolean } | null> {
+  // UPLOAD ARMOR (SENTRY, 2026-11-17): whichever door a document
+  // arrives through, a program / script / archive never enters
+  // the blob store as paperwork. Guard mode only — strict type
+  // matching is the public door's own sniff (paperworkDoor.ts);
+  // the signed-in flow's claimed-type allowlist is unchanged.
+  if (!assessUpload(args.bytes, args.mime, { mode: "guard" }).ok) return null;
   const db = ctx.db<typeof schema>();
   const sha256 = await sha256Bytes(new Uint8Array(args.bytes));
   const blobKey = `paperwork-${args.loadId}-${args.docKind}-${sha256.slice(0, 16)}`;
@@ -28239,8 +28260,13 @@ export const Actions = {
       let docBlobKey: string | null = null;
       let docSha: string | null = null;
       if (args.docDataBase64 && args.docMime) {
-        docBlobKey = `permit-doc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         const bytes = base64ToBytes(args.docDataBase64);
+        // UPLOAD ARMOR (SENTRY, 2026-11-17): a filed permit copy
+        // is a document — a program/script/archive is refused.
+        if (!assessUpload(new Uint8Array(bytes), args.docMime, { mode: "guard" }).ok) {
+          return fail("That file is a program, script, or archive — not a permit document, so it can't be filed.");
+        }
+        docBlobKey = `permit-doc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         docSha = await sha256Bytes(new Uint8Array(bytes));
         await ctx.blobs.put(docBlobKey, bytes, { contentType: args.docMime });
       }
@@ -28535,10 +28561,15 @@ export const Actions = {
       let docMime: string | null = null;
       let docSha: string | null = null;
       if (args.docDataBase64 && args.docMime) {
+        const bytes = base64ToBytes(args.docDataBase64);
+        // UPLOAD ARMOR (SENTRY, 2026-11-17): a program, script,
+        // or archive is refused as a load document.
+        if (!assessUpload(new Uint8Array(bytes), args.docMime, { mode: "guard" }).ok) {
+          throw new Error("That file is a program, script, or archive — not a load document, so it can't be saved.");
+        }
         docBlobKey = `load-doc-${Date.now()}-${Math.random()
           .toString(36)
           .slice(2, 8)}`;
-        const bytes = base64ToBytes(args.docDataBase64);
         // SHA-256 fingerprint of the exact document bytes, sealed below.
         docSha = await sha256Bytes(new Uint8Array(bytes));
         await ctx.blobs.put(docBlobKey, bytes, {
@@ -29057,7 +29088,27 @@ export const Actions = {
       if (link.status !== "active") return refused;
       receiveThrottleOk(args.token);
       let doc: { base64: string; mime: string } | null = null;
-      if (args.photoDataBase64 && args.photoMime) doc = { base64: args.photoDataBase64, mime: args.photoMime };
+      if (args.photoDataBase64 && args.photoMime) {
+        // UPLOAD ARMOR (SENTRY, 2026-11-17): the dock photo
+        // arrives from a PUBLIC page, so its type is sniffed from
+        // the bytes and must match the claim (a photo is a photo)
+        // before anything is stored under it — a mismatch fails
+        // the whole confirmation closed, like a bad signature.
+        let photoBytes: Uint8Array | null = null;
+        try {
+          photoBytes = new Uint8Array(base64ToBytes(args.photoDataBase64));
+        } catch {
+          photoBytes = null;
+        }
+        const armor = photoBytes
+          ? assessUpload(photoBytes, args.photoMime, {
+              mode: "strict",
+              allowedMimes: ["image/jpeg", "image/png", "image/webp", "image/gif", "image/heic", "image/heif"],
+            })
+          : null;
+        if (!armor || !armor.ok) return refused;
+        doc = { base64: args.photoDataBase64, mime: armor.mime };
+      }
       // Signature: a typed name signs it (as always), OR a drawn
       // signature from the pad. A claimed drawing that doesn't
       // validate as a real JPEG fails closed — the pad only ever
@@ -31486,8 +31537,13 @@ export const Actions = {
       let docMime: string | null = null;
       let docSha: string | null = null;
       if (args.docDataBase64 && args.docMime) {
-        docBlobKey = `board-doc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         const bytes = base64ToBytes(args.docDataBase64);
+        // UPLOAD ARMOR (SENTRY, 2026-11-17): a program, script,
+        // or archive is refused as a board-load document.
+        if (!assessUpload(new Uint8Array(bytes), args.docMime, { mode: "guard" }).ok) {
+          return { ok: false, error: "That file is a program, script, or archive — not a load document, so it can't be posted.", id: null };
+        }
+        docBlobKey = `board-doc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         docSha = await sha256Bytes(new Uint8Array(bytes));
         await ctx.blobs.put(docBlobKey, bytes, { contentType: args.docMime });
         docMime = args.docMime;
@@ -33176,9 +33232,30 @@ export const Actions = {
         }
         docBlobKey = `broker-doc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         const bytes = base64ToBytes(args.docDataBase64);
+        // UPLOAD ARMOR (SENTRY, 2026-11-17): the allowlist above
+        // checks the CLAIMED type; this checks the BYTES. On a
+        // public door the sniffed type must match the claim —
+        // a renamed executable, script, archive, or markup file
+        // never enters the blob store, and what is stored carries
+        // the sniffed type, not the claimed one.
+        const armor = assessUpload(new Uint8Array(bytes), args.docMime, {
+          mode: "strict",
+          allowedMimes: BROKER_DOC_MIMES,
+        });
+        if (!armor.ok) {
+          return {
+            ok: false,
+            error:
+              armor.kind === "executable" || armor.kind === "script" || armor.kind === "markup" || armor.kind === "zip"
+                ? "Attach the rate con or BOL as a PDF or a photo (JPG, PNG, WebP, or HEIC) — that file is a program, script, or archive, not a document."
+                : "Attach the rate con or BOL as a PDF or a photo (JPG, PNG, WebP, or HEIC) — that file doesn't match the type it claims to be.",
+            submissionId: null,
+            extracted: false,
+          };
+        }
         docSha = await sha256Bytes(new Uint8Array(bytes));
-        await ctx.blobs.put(docBlobKey, bytes, { contentType: args.docMime });
-        docMime = args.docMime;
+        await ctx.blobs.put(docBlobKey, bytes, { contentType: armor.mime });
+        docMime = armor.mime;
         // Existing load-document extraction pre-fills whatever the
         // broker left blank — lane, pay, and pickup/delivery windows.
         if (docMime === "image/jpeg" || docMime === "image/png") {
@@ -41028,8 +41105,13 @@ export const Actions = {
       if (bytes.length === 0) return fail("That file is empty — nothing was uploaded.");
       if (bytes.length > TRAINING_VIDEO_MAX_BYTES)
         return fail(`That video is ${(bytes.length / 1048576).toFixed(1)} MB — this web build's limit is 50 MB per video. Trim it or export a smaller file and try again. Nothing was uploaded.`);
+      // UPLOAD ARMOR (SENTRY, 2026-11-17): the claimed video
+      // type must match the bytes — a renamed program or archive
+      // never becomes training media.
+      const armor = assessUpload(new Uint8Array(bytes), args.mime, { mode: "strict", allowedMimes: TRAINING_VIDEO_MIMES });
+      if (!armor.ok) return fail("That file doesn't match the video type it claims to be — upload the real MP4, WebM, MOV, or M4V file. Nothing was uploaded.");
       const blobKey = `training-media/${mine.company.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      await ctx.blobs.put(blobKey, new Uint8Array(bytes), { contentType: args.mime });
+      await ctx.blobs.put(blobKey, new Uint8Array(bytes), { contentType: armor.mime });
       const inserted = await db
         .insert(schema.trainingMedia)
         .values({
@@ -41351,8 +41433,13 @@ export const Actions = {
       if (bytes.length === 0) return { ok: false, error: "That file is empty — the original video is unchanged." };
       if (bytes.length > TRAINING_VIDEO_MAX_BYTES)
         return { ok: false, error: `That video is ${(bytes.length / 1048576).toFixed(1)} MB — this web build's limit is 50 MB per video. The original video is unchanged.` };
+      // UPLOAD ARMOR (SENTRY, 2026-11-17): same sniff rule as
+      // the original upload — the replacement's bytes must be
+      // the video type they claim.
+      const armor = assessUpload(new Uint8Array(bytes), args.mime, { mode: "strict", allowedMimes: TRAINING_VIDEO_MIMES });
+      if (!armor.ok) return { ok: false, error: "That file doesn't match the video type it claims to be — the original video is unchanged." };
       const blobKey = `training-media/${mine.company.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      await ctx.blobs.put(blobKey, new Uint8Array(bytes), { contentType: args.mime });
+      await ctx.blobs.put(blobKey, new Uint8Array(bytes), { contentType: armor.mime });
       try { await ctx.blobs.delete(media.blobKey); } catch { /* old blob already gone — the new one stands */ }
       await db
         .update(schema.trainingMedia)

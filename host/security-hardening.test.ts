@@ -18,6 +18,12 @@
 //       serve openly; HTML downloads as an attachment under a
 //       sandbox CSP; photos render inline
 //     - every response family carries the security headers
+//     - 2026-11-17 hardening: CSRF origin verification refuses
+//       foreign-Origin POSTs to /actions and /auth/* (the Apple
+//       form_post callback stays exempt, state-protected); the
+//       static public pages carry the strict deny-by-default CSP
+//       while action JSON keeps the baseline; Permissions-Policy
+//       and X-Permitted-Cross-Domain-Policies ride along
 //
 // Hermetic: STONEMILES_DB / STONEMILES_BLOBS point into a temp dir
 // before host/ctx is imported.
@@ -258,6 +264,11 @@ describe("item 12 host — blob route + security headers (real server)", () => {
           expect(h.headers.get("strict-transport-security")).toContain("max-age=31536000");
           expect(h.headers.get("x-frame-options")).toBe("SAMEORIGIN");
           expect(h.headers.get("content-security-policy")).toContain("frame-ancestors 'self'");
+          // 2026-11-17 hardening: device-feature lockdown + the
+          // cross-domain policy shut-off ride on every response.
+          expect(h.headers.get("permissions-policy")).toContain("geolocation=(self)");
+          expect(h.headers.get("permissions-policy")).toContain("camera=()");
+          expect(h.headers.get("x-permitted-cross-domain-policies")).toBe("none");
         }
       } catch {
         await new Promise((r) => setTimeout(r, 500));
@@ -295,6 +306,12 @@ describe("item 12 host — blob route + security headers (real server)", () => {
     expect(track.status).toBe(200);
     expect(track.headers.get("x-frame-options")).toBe("SAMEORIGIN");
     expect(track.headers.get("referrer-policy")).toBe("same-origin");
+    // 2026-11-17 hardening: the static public pages carry the
+    // STRICT CSP (deny-by-default), not the app-shell baseline.
+    const pageCsp = track.headers.get("content-security-policy") ?? "";
+    expect(pageCsp).toContain("default-src 'none'");
+    expect(pageCsp).toContain("form-action 'self'");
+    expect(pageCsp).toContain("connect-src 'self'");
 
     // And action responses (public action, no session needed).
     const act = await fetch(`${base}/actions`, {
@@ -304,5 +321,44 @@ describe("item 12 host — blob route + security headers (real server)", () => {
     });
     expect(act.status).toBe(200);
     expect(act.headers.get("x-content-type-options")).toBe("nosniff");
+    // Action JSON keeps the BASELINE CSP — the strict page policy
+    // belongs to the static pages only.
+    expect(act.headers.get("content-security-policy")).not.toContain("default-src 'none'");
+
+    // ---- CSRF origin verification (2026-11-17 hardening) --------
+    // A state-changing POST arriving with a FOREIGN Origin is
+    // refused before any handler runs…
+    const csrfActions = await fetch(`${base}/actions`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "https://evil.example" },
+      body: JSON.stringify({ action: "verifyCode", args: { code: "SM-XXXXXX" } }),
+    });
+    expect(csrfActions.status).toBe(403);
+    // …on the auth routes too (login CSRF included)…
+    const csrfSignin = await fetch(`${base}/auth/signin`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "https://evil.example" },
+      body: JSON.stringify({ email: "a@b.c", password: "x" }),
+    });
+    expect(csrfSignin.status).toBe(403);
+    // …while a same-origin Origin passes the gate (the handler's
+    // own answer follows — here the public action answers 200)…
+    const csrfSame = await fetch(`${base}/actions`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: base },
+      body: JSON.stringify({ action: "verifyCode", args: { code: "SM-XXXXXX" } }),
+    });
+    expect(csrfSame.status).toBe(200);
+    // …and the ONE exempt route: Apple's form_post callback arrives
+    // cross-site by design and is protected by its single-use OAuth
+    // state instead. With Apple unconfigured in this env the handler
+    // answers with its sign-in-failed redirect — never the CSRF 403.
+    const appleCb = await fetch(`${base}/auth/apple/callback`, {
+      method: "POST",
+      redirect: "manual",
+      headers: { "content-type": "application/x-www-form-urlencoded", origin: "https://appleid.apple.com" },
+      body: "code=x&state=y",
+    });
+    expect(appleCb.status).toBe(302);
   }, 120_000);
 });

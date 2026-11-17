@@ -51,6 +51,7 @@ import {
   getDb,
   readBlob,
 } from "./ctx";
+import { sentryGuard } from "./sentry";
 import {
   handleAppleCallback,
   handleAppleStart,
@@ -192,6 +193,13 @@ const SECURITY_HEADERS: Record<string, string> = {
   "x-frame-options": "SAMEORIGIN",
   "referrer-policy": "same-origin",
   "content-security-policy": "frame-ancestors 'self'; object-src 'none'; base-uri 'self'",
+  // 2026-11-17 hardening: device-feature lockdown. The client never
+  // captures via getUserMedia (photos arrive through file inputs,
+  // which this header does not gate), so camera/microphone close
+  // entirely; geolocation is core product (truck GPS) and stays
+  // available to the app's own origin only.
+  "permissions-policy": "camera=(), microphone=(), geolocation=(self), payment=(), usb=()",
+  "x-permitted-cross-domain-policies": "none",
 };
 
 function withSecurityHeaders(res: Response): Response {
@@ -199,6 +207,76 @@ function withSecurityHeaders(res: Response): Response {
     if (!res.headers.has(name)) res.headers.set(name, value);
   }
   return res;
+}
+
+// SECURITY (2026-11-17 hardening): CSRF origin verification for
+// state-changing POSTs (/actions and /auth/*). Until this pass the
+// host relied on the session cookie's SameSite=Lax plus, for
+// session-authenticated /actions calls, the custom-header rule in
+// handleAction — both real layers, but neither is a server-side
+// origin guarantee (Lax is a browser behavior, and the public
+// actions and the pre-session auth routes never see the custom
+// header). The rule: a browser ALWAYS sends Origin on a POST, so
+// when Origin (or, failing it, Referer) is present its host must
+// equal this host, or the request is refused before any handler
+// runs. When neither header is present the caller is not a browser
+// (curl, a native client, the test suite) — there is no ambient
+// browser authority to ride, so it is allowed through.
+// ONE deliberate exception: /auth/apple/callback. Apple's form_post
+// response mode posts the callback cross-site from
+// appleid.apple.com BY DESIGN, so an origin check there would break
+// Apple sign-in; that route's CSRF defense is the single-use OAuth
+// state (consumeOAuthFlow in host/social-auth.ts) plus the nonce
+// check on the returned id_token — the standard protection for an
+// OAuth callback.
+const CSRF_EXEMPT_PATHS = new Set(["/auth/apple/callback"]);
+
+function csrfOriginAllowed(req: Request, url: URL): boolean {
+  if (CSRF_EXEMPT_PATHS.has(url.pathname)) return true;
+  const presented = req.headers.get("origin") ?? req.headers.get("referer");
+  if (!presented) return true;
+  try {
+    return new URL(presented).host === url.host;
+  } catch {
+    return false; // an unparseable Origin (e.g. the opaque "null") is not this host
+  }
+}
+
+// SECURITY (2026-11-17 hardening): the static public pages (the
+// preview demo, the marketing site, and the auth / join / receive /
+// track / docs / apply / delete / privacy pages) are self-contained
+// files whose only network calls are same-origin fetches, so they
+// can carry a far stricter CSP than the app shell — everything is
+// denied by default; inline script/style is allowed because the
+// pages are single files with their code inline (no nonce exists
+// to give them); Google Fonts is the one external dependency, and
+// only preview.html / site.html use it. The app shell deliberately
+// keeps the baseline policy in SECURITY_HEADERS (MapLibre workers,
+// tiles, and inline boot code — see the item-12 note above).
+// withSecurityHeaders never overwrites a header a route already
+// set, so serving a page through htmlPage() gives it this policy
+// while every other response keeps the baseline.
+const PUBLIC_PAGE_CSP = [
+  "default-src 'none'",
+  "script-src 'unsafe-inline'",
+  "style-src 'unsafe-inline' https://fonts.googleapis.com",
+  "img-src 'self' data: blob:",
+  "font-src 'self' data: https://fonts.gstatic.com",
+  "connect-src 'self'",
+  "form-action 'self'",
+  "manifest-src 'self' data:",
+  "frame-ancestors 'self'",
+  "object-src 'none'",
+  "base-uri 'self'",
+].join("; ");
+
+function htmlPage(page: ReturnType<typeof Bun.file>): Response {
+  return new Response(page, {
+    headers: {
+      "content-type": "text/html",
+      "content-security-policy": PUBLIC_PAGE_CSP,
+    },
+  });
 }
 
 /** SECURITY (Wave 2 item 12): a thrown error's message can carry
@@ -357,6 +435,24 @@ async function routeRequest(req: Request): Promise<Response> {
     const url = new URL(req.url);
     const pathname = url.pathname;
 
+    // SENTRY (2026-11-17): the attack shield runs before ALL
+    // routing — blocked IPs stop here, canary traps answer here,
+    // and attack signatures in the path/query/user-agent earn
+    // strikes here (host/sentry.ts). Clean traffic passes through
+    // untouched (the guard returns null).
+    const sentryResponse = sentryGuard(req, url);
+    if (sentryResponse) return sentryResponse;
+
+    // CSRF (2026-11-17 hardening): state-changing POSTs must not
+    // arrive cross-origin — see csrfOriginAllowed above.
+    if (
+      req.method === "POST" &&
+      (pathname === "/actions" || pathname.startsWith("/auth/")) &&
+      !csrfOriginAllowed(req, url)
+    ) {
+      return json({ error: "cross-origin request refused" }, 403);
+    }
+
     if (pathname === "/healthz") return json({ ok: true });
 
     // ---- Public Preview demo (2026-11-13): preview.stonervision.io
@@ -369,9 +465,7 @@ async function routeRequest(req: Request): Promise<Response> {
     if (req.method === "GET" && url.hostname === "preview.stonervision.io") {
       const page = Bun.file(path.join(STANDALONE_ROOT, "host", "preview.html"));
       if (await page.exists()) {
-        return new Response(page, {
-          headers: { "content-type": "text/html" },
-        });
+        return htmlPage(page);
       }
       return json({ error: "not found" }, 404);
     }
@@ -385,9 +479,7 @@ async function routeRequest(req: Request): Promise<Response> {
     if (req.method === "GET" && url.hostname === "stonemiles.stonervision.io") {
       const page = Bun.file(path.join(STANDALONE_ROOT, "host", "site.html"));
       if (await page.exists()) {
-        return new Response(page, {
-          headers: { "content-type": "text/html" },
-        });
+        return htmlPage(page);
       }
       return json({ error: "not found" }, 404);
     }
@@ -404,9 +496,7 @@ async function routeRequest(req: Request): Promise<Response> {
         path.join(STANDALONE_ROOT, "host", `${pathname.slice(1)}.html`),
       );
       if (await page.exists()) {
-        return new Response(page, {
-          headers: { "content-type": "text/html" },
-        });
+        return htmlPage(page);
       }
       return json({ error: "not found" }, 404);
     }
@@ -418,9 +508,7 @@ async function routeRequest(req: Request): Promise<Response> {
     if (req.method === "GET" && pathname === "/join") {
       const page = Bun.file(path.join(STANDALONE_ROOT, "host", "join.html"));
       if (await page.exists()) {
-        return new Response(page, {
-          headers: { "content-type": "text/html" },
-        });
+        return htmlPage(page);
       }
       return json({ error: "not found" }, 404);
     }
@@ -436,9 +524,7 @@ async function routeRequest(req: Request): Promise<Response> {
     ) {
       const page = Bun.file(path.join(STANDALONE_ROOT, "host", "receive.html"));
       if (await page.exists()) {
-        return new Response(page, {
-          headers: { "content-type": "text/html" },
-        });
+        return htmlPage(page);
       }
       return json({ error: "not found" }, 404);
     }
@@ -451,9 +537,7 @@ async function routeRequest(req: Request): Promise<Response> {
     if (req.method === "GET" && pathname.startsWith("/track/")) {
       const page = Bun.file(path.join(STANDALONE_ROOT, "host", "track.html"));
       if (await page.exists()) {
-        return new Response(page, {
-          headers: { "content-type": "text/html" },
-        });
+        return htmlPage(page);
       }
       return json({ error: "not found" }, 404);
     }
@@ -467,9 +551,7 @@ async function routeRequest(req: Request): Promise<Response> {
     if (req.method === "GET" && pathname.startsWith("/docs/")) {
       const page = Bun.file(path.join(STANDALONE_ROOT, "host", "docs.html"));
       if (await page.exists()) {
-        return new Response(page, {
-          headers: { "content-type": "text/html" },
-        });
+        return htmlPage(page);
       }
       return json({ error: "not found" }, 404);
     }
@@ -483,9 +565,7 @@ async function routeRequest(req: Request): Promise<Response> {
     if (req.method === "GET" && pathname.startsWith("/apply/")) {
       const page = Bun.file(path.join(STANDALONE_ROOT, "host", "apply.html"));
       if (await page.exists()) {
-        return new Response(page, {
-          headers: { "content-type": "text/html" },
-        });
+        return htmlPage(page);
       }
       return json({ error: "not found" }, 404);
     }
@@ -496,7 +576,7 @@ async function routeRequest(req: Request): Promise<Response> {
       if (req.method === "GET" && AUTH_PAGES.has(pathname)) {
         const page = Bun.file(path.join(STANDALONE_ROOT, "host", "auth.html"));
         if (await page.exists()) {
-          return new Response(page, { headers: { "content-type": "text/html" } });
+          return htmlPage(page);
         }
         return json({ error: "not found" }, 404);
       }
