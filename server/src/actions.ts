@@ -18,6 +18,7 @@ sumDeductionLines,
 summarizePayBook,
 type DeductionLine,
 } from "./payBook";
+import { summarizeQuarterlyTax } from "./quarterlyTax";
 import { computeMoneyOverview } from "./moneyOverview";
 import { parseRateConText } from "./rateConText";
 import { computePayRpm } from "./payRpm";
@@ -49020,6 +49021,84 @@ export const Actions = {
           otherDeductions: s.ten99.otherDeductions,
         },
         note: "Tracking view only — two separate lane pies, one per pile, and no combined total across them: W-2 and 1099 stay separate lanes and file separately. Per diem rides its own slice in each lane — it is non-taxable and was paid separately, never part of that lane's filing gross. A lane's deductions already came out of that lane's gross, so each pie's total is just its three slices added for size comparison, not a filing number.",
+      };
+    },
+  }),
+
+  // Quarterly Tax card (x's build, 2026-11-18): the 1099 lane added up
+  // by IRS estimated-tax period — gross, stub deductions, expenses and
+  // fuel netted exactly like the 1099 packet — with a set-aside
+  // estimate per period (self-employment tax at the Schedule SE shape
+  // plus income tax at the driver's picked rate) and the four real IRS
+  // due dates. 1099 lane only: W-2 pay never enters, its tax is
+  // withheld already. All math lives in quarterlyTax.ts.
+  getQuarterlyTax: defineAction({
+    description: "Get quarterly tax.",
+    request: z.object({
+      year: z.number().int().min(1990).max(2100),
+      incomeRatePct: z.number().min(0).max(40),
+    }),
+    response: z.object({
+      year: z.number(),
+      incomeRatePct: z.number(),
+      availableYears: z.array(z.number()),
+      periods: z.array(
+        z.object({
+          period: z.number(),
+          monthsLabel: z.string(),
+          startIso: z.string(),
+          endIso: z.string(),
+          dueIso: z.string(),
+          dueLabel: z.string(),
+          dueState: z.enum(["upcoming", "open", "past"]),
+          gross1099: z.number(),
+          stubDeductions: z.number(),
+          expenses: z.number(),
+          fuel: z.number(),
+          net: z.number(),
+          seTax: z.number(),
+          incomeTax: z.number(),
+          setAside: z.number(),
+          count: z.number(),
+        }),
+      ),
+      totals: z.object({
+        gross1099: z.number(),
+        stubDeductions: z.number(),
+        expenses: z.number(),
+        fuel: z.number(),
+        net: z.number(),
+        seTax: z.number(),
+        incomeTax: z.number(),
+        setAside: z.number(),
+        count: z.number(),
+      }),
+      hasData: z.boolean(),
+      note: z.string(),
+    }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const all = await db.select().from(schema.payEntries);
+      const years = new Set<number>([new Date().getUTCFullYear()]);
+      for (const e of all) if (e.kind === "1099" && !e.isForm) years.add(e.paidAt.getUTCFullYear());
+      const exps = await db.select().from(schema.expenses);
+      const fuel = await db.select().from(schema.fuelPurchases);
+      const s = summarizeQuarterlyTax(
+        all.map((e) => ({ paidAtMs: e.paidAt.getTime(), kind: e.kind, isForm: e.isForm, gross: e.gross, otherDeductions: e.otherDeductions })),
+        exps.map((e) => ({ spentAtMs: e.spentAt.getTime(), amount: e.amount })),
+        fuel.map((f) => ({ purchasedAtMs: f.purchasedAt.getTime(), total: f.total })),
+        args.year,
+        args.incomeRatePct,
+        Date.now(),
+      );
+      return {
+        year: s.year,
+        incomeRatePct: s.incomeRatePct,
+        availableYears: [...years].sort((a, b) => b - a),
+        periods: s.periods,
+        totals: s.totals,
+        hasData: s.hasData,
+        note: "Planning estimate from your own logged records — not tax advice and not a filing. The IRS collects 1099 tax in four payments a year over its own periods (the second is only Apr–May), due Apr 15, Jun 15, Sep 15, and Jan 15. Each period's net mirrors your 1099 packet: gross − stub deductions − logged expenses − logged fuel, every dollar counted once. Per diem is non-taxable and never in here, and W-2 pay stays out — its tax is withheld already. Self-employment tax is figured at the full 15.3% on 92.35% of net, before the Social Security wage cap, so the set-aside errs on the safe side; if your year runs past the cap your real bill is lower and your preparer applies it. Income tax rides the rate you pick, and no state tax is guessed. If a due date lands on a weekend or a federal holiday, the IRS moves it to the next business day.",
       };
     },
   }),

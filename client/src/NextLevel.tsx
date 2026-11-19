@@ -1145,6 +1145,118 @@ function YtdLanePie({
   );
 }
 
+// ---------- Quarterly Tax — the 1099 lane by IRS estimated-tax period -----
+// x's build (2026-11-18): "Do the app add up 1099 quarterly taxes?" The
+// card adds the 1099 lane up over the IRS's own periods (the second is
+// only Apr–May) and estimates the set-aside for each of the four due
+// dates: self-employment tax at the Schedule SE shape plus income tax
+// at the driver's own picked rate. All math is server-side
+// (quarterlyTax.ts) — this is display only. W-2 pay never appears here:
+// its tax is withheld already, and the lanes stay apart. Planning
+// estimate only — the server note under the card says so in full.
+const QT_RATE_CHOICES = [0, 10, 12, 22, 24];
+
+function QuarterlyTaxCard() {
+  const [year, setYear] = useState(() => new Date().getFullYear());
+  const [rate, setRate] = useState(12);
+  const q = useQuery({ queryKey: ["quarterly-tax", year, rate], queryFn: () => api.getQuarterlyTax({ year, incomeRatePct: rate }) });
+  const d = q.data;
+  const chipFor = (s: "upcoming" | "open" | "past") =>
+    s === "open"
+      ? { label: "Open now", cls: "bg-emerald-500/15 text-emerald-300" }
+      : s === "past"
+        ? { label: "Due date passed", cls: "bg-rose-500/15 text-rose-300" }
+        : { label: "Coming up", cls: "bg-[var(--surface2)] text-[var(--dim)]" };
+  return (
+    <div id="pay-book-quarterly-tax" className="mt-4 scroll-mt-4 border-t border-[var(--border)] pt-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="font-condensed text-lg font-bold">🧮 Quarterly Tax — 1099 lane</h3>
+        <label className="flex items-center gap-2 text-sm font-semibold">
+          Year
+          <select
+            className="rounded-xl border border-[var(--border)] bg-[var(--surface2)] px-2.5 py-2 text-sm font-bold text-[var(--text)]"
+            value={year}
+            aria-label="Year for the quarterly tax card"
+            onChange={(e) => setYear(parseInt(e.target.value, 10) || new Date().getFullYear())}
+          >
+            {[...new Set([new Date().getFullYear(), year, ...(d?.availableYears ?? [])])].sort((a, b) => b - a).map((y) => (
+              <option key={y} value={y}>{y}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <p className="mt-1 text-xs leading-relaxed text-[var(--dim)]">
+        Nobody withholds tax from 1099 pay — the IRS collects it in four payments a year, over its own periods (the second is only Apr–May). This card adds up your 1099 lane by those periods and estimates what to set aside for each due date. W-2 pay stays out — its tax is withheld already. Planning estimate from your own logged records, not tax advice.
+      </p>
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        <span className="text-xs font-semibold text-[var(--dim)]">Income-tax guess:</span>
+        {QT_RATE_CHOICES.map((r) => (
+          <button
+            key={r}
+            type="button"
+            aria-pressed={rate === r}
+            aria-label={`Estimate income tax at ${r} percent`}
+            onClick={() => setRate(r)}
+            className={`btn-press rounded-full px-2.5 py-1 text-xs font-bold ${rate === r ? "btn-neon" : "bg-[var(--surface2)] text-[var(--text)]"}`}
+          >
+            {r}%
+          </button>
+        ))}
+        <span className="text-[11px] text-[var(--dim)]">Self-employment tax (15.3%) is figured for you — this rate is only the income-tax half.</span>
+      </div>
+      {q.isLoading && <p className="mt-2 text-sm text-[var(--dim)]">Adding up your {year} quarters…</p>}
+      {!q.isLoading && !d && <p className="mt-2 text-sm text-[var(--dim)]">The quarterly tax card couldn&apos;t load — your logged pay below is unaffected.</p>}
+      {d && !d.hasData && (
+        <p className="mt-3 rounded-xl bg-[var(--surface)] px-3 py-3 text-sm text-[var(--dim)]">
+          No 1099 pay logged for {year} yet — log 1099 pay above and this card builds itself: your four due dates, what each period netted, and what to set aside.
+        </p>
+      )}
+      {d && d.hasData && (
+        <>
+          <div className="mt-3 grid gap-2 md:grid-cols-2">
+            {d.periods.map((p) => {
+              const chip = chipFor(p.dueState);
+              const active = p.count > 0 || p.expenses > 0 || p.fuel > 0;
+              return (
+                <div key={p.period} className="min-w-0 rounded-xl bg-[var(--surface)] px-3 py-3">
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <h4 className="font-condensed text-lg font-bold">Q{p.period} · {p.monthsLabel}</h4>
+                    <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${chip.cls}`}>Due {p.dueLabel} · {chip.label}</span>
+                  </div>
+                  {!active ? (
+                    <p className="mt-2 text-sm text-[var(--dim)]">Nothing logged in this period yet.</p>
+                  ) : (
+                    <>
+                      <ul className="mt-2 space-y-1 text-sm">
+                        <li className="flex justify-between gap-2"><span>1099 gross{p.count ? ` · ${p.count} check${p.count === 1 ? "" : "s"}` : ""}</span><strong>{money(p.gross1099)}</strong></li>
+                        <li className="flex justify-between gap-2 text-[var(--dim)]"><span>− Stub deductions</span><span>{money(p.stubDeductions)}</span></li>
+                        <li className="flex justify-between gap-2 text-[var(--dim)]"><span>− Expenses</span><span>{money(p.expenses)}</span></li>
+                        <li className="flex justify-between gap-2 text-[var(--dim)]"><span>− Fuel</span><span>{money(p.fuel)}</span></li>
+                        <li className="flex justify-between gap-2 border-t border-[var(--border)] pt-1"><span className="font-semibold">Net</span><strong>{money(p.net)}</strong></li>
+                        <li className="flex justify-between gap-2"><span>Self-employment tax est.</span><span>{money(p.seTax)}</span></li>
+                        <li className="flex justify-between gap-2"><span>Income tax est. @ {d.incomeRatePct}%</span><span>{money(p.incomeTax)}</span></li>
+                      </ul>
+                      <p className="mt-2 flex items-baseline justify-between gap-2 border-t border-[var(--border)] pt-2">
+                        <span className="font-condensed text-base font-bold">Set aside by {p.dueLabel}</span>
+                        <span className="font-condensed text-xl font-bold">{money(p.setAside)}</span>
+                      </p>
+                    </>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <p className="mt-3 flex flex-wrap items-baseline justify-between gap-2 rounded-xl bg-[var(--surface)] px-3 py-3">
+            <span className="font-condensed text-base font-bold">{year} set-aside estimate — on {money(d.totals.net)} net 1099 (gross {money(d.totals.gross1099)})</span>
+            <span className="font-condensed text-xl font-bold">{money(d.totals.setAside)}</span>
+          </p>
+          <p className="mt-2 text-xs leading-relaxed text-[var(--dim)]">{d.note}</p>
+        </>
+      )}
+    </div>
+  );
+}
+
 export function PayBookPanel({ setBanner, openSignal = 0, lang = "en" }: { setBanner: Banner; openSignal?: number; lang?: Lang }) {
   const queryClient = useQueryClient();
   // The panel is a closed card by default; a jump (Ask Meca, the Money
@@ -1525,6 +1637,7 @@ export function PayBookPanel({ setBanner, openSignal = 0, lang = "en" }: { setBa
                   void queryClient.invalidateQueries({ queryKey: ["pay-entries"] });
                   void queryClient.invalidateQueries({ queryKey: ["pay-book"] });
                   void queryClient.invalidateQueries({ queryKey: ["pay-book-ytd"] });
+                  void queryClient.invalidateQueries({ queryKey: ["quarterly-tax"] });
                   void queryClient.invalidateQueries({ queryKey: ["pay-stub-email-deliveries"] });
                 })
                 .catch(() => setBanner("Couldn't log that pay entry — try again."))
@@ -1598,6 +1711,7 @@ export function PayBookPanel({ setBanner, openSignal = 0, lang = "en" }: { setBa
                                 void queryClient.invalidateQueries({ queryKey: ["pay-entries"] });
                                 void queryClient.invalidateQueries({ queryKey: ["pay-book"] });
                                 void queryClient.invalidateQueries({ queryKey: ["pay-book-ytd"] });
+                                void queryClient.invalidateQueries({ queryKey: ["quarterly-tax"] });
                                 void queryClient.invalidateQueries({ queryKey: ["pay-stub-email-deliveries"] });
                               } else setBanner(r.error ?? "That accept didn't go through.");
                             })
@@ -1804,6 +1918,7 @@ export function PayBookPanel({ setBanner, openSignal = 0, lang = "en" }: { setBa
         )}
         {!ytd.isLoading && !ytd.data && <p className="mt-2 text-sm text-[var(--dim)]">The lane pies couldn&apos;t load — your logged pay below is unaffected.</p>}
       </div>
+      <QuarterlyTaxCard />
       <div className="mt-4 border-t border-[var(--border)] pt-3">
         <h3 className="font-condensed text-lg font-bold">Logged pay — newest first</h3>
         <div className="mt-3 space-y-1.5">
@@ -1827,7 +1942,7 @@ export function PayBookPanel({ setBanner, openSignal = 0, lang = "en" }: { setBa
                     </span>
                   )}
                 </span>
-                <button type="button" className="shrink-0 text-xs font-bold underline" aria-label={`Delete ${e.kind === "w2" ? "W-2" : "1099"} entry from ${e.payer} of ${money(e.gross)}`} onClick={() => void api.deletePayEntry({ id: e.id }).then(() => { void queryClient.invalidateQueries({ queryKey: ["pay-entries"] }); void queryClient.invalidateQueries({ queryKey: ["pay-book"] }); void queryClient.invalidateQueries({ queryKey: ["pay-book-ytd"] }); })}>Delete</button>
+                <button type="button" className="shrink-0 text-xs font-bold underline" aria-label={`Delete ${e.kind === "w2" ? "W-2" : "1099"} entry from ${e.payer} of ${money(e.gross)}`} onClick={() => void api.deletePayEntry({ id: e.id }).then(() => { void queryClient.invalidateQueries({ queryKey: ["pay-entries"] }); void queryClient.invalidateQueries({ queryKey: ["pay-book"] }); void queryClient.invalidateQueries({ queryKey: ["pay-book-ytd"] }); void queryClient.invalidateQueries({ queryKey: ["quarterly-tax"] }); })}>Delete</button>
               </div>
               {!e.isForm && e.perDiem > 0 && (
                 <p className="mt-0.5 text-xs text-[var(--dim)]">Per diem (non-taxable — paid separately): <strong className="text-[var(--text)]">{money(e.perDiem)}</strong> · total received {money(e.gross - e.federalWithheld - e.stateWithheld - e.otherDeductions + e.perDiem)}</p>
@@ -1859,6 +1974,7 @@ export function PayBookPanel({ setBanner, openSignal = 0, lang = "en" }: { setBa
                                 void queryClient.invalidateQueries({ queryKey: ["pay-entries"] });
                                 void queryClient.invalidateQueries({ queryKey: ["pay-book"] });
                                 void queryClient.invalidateQueries({ queryKey: ["pay-book-ytd"] });
+                                void queryClient.invalidateQueries({ queryKey: ["quarterly-tax"] });
                               } else setBanner(r.error ?? "Those deductions didn't save.");
                             })
                             .catch(() => setBanner("Those deductions didn't save — try again."))
