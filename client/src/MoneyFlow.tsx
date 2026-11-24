@@ -1282,15 +1282,22 @@ type LogForm = {
   performedAt: string;
   odometer: string;
   category: MaintenanceLogCategory;
+  // Maintenance Sheet (2026-11-24): the record kind — a scheduled
+  // service / PM, or a repair that came up — plus the parts used
+  // and, on an oil change, the oil itself (brand + weight).
+  kind: "service" | "repair";
   description: string;
   shop: string;
   cost: string;
+  parts: { name: string; partNumber: string }[];
+  oilBrand: string;
+  oilWeight: string;
   nextDueMiles: string;
   nextDueAt: string;
   notes: string;
 };
 
-const EMPTY_LOG_FORM: LogForm = { performedAt: "", odometer: "", category: "oil", description: "", shop: "", cost: "", nextDueMiles: "", nextDueAt: "", notes: "" };
+const EMPTY_LOG_FORM: LogForm = { performedAt: "", odometer: "", category: "oil", kind: "service", description: "", shop: "", cost: "", parts: [], oilBrand: "", oilWeight: "", nextDueMiles: "", nextDueAt: "", notes: "" };
 
 export function MaintenanceLogPanel({ setBanner, lang = "en" }: { setBanner: Banner; lang?: Lang }) {
   const queryClient = useQueryClient();
@@ -1324,7 +1331,7 @@ export function MaintenanceLogPanel({ setBanner, lang = "en" }: { setBanner: Ban
   return (
     <Section title={tt(lang, "money.maintenanceLogTitle")} ariaLabel="Maintenance log">
       <p className="text-sm text-[var(--dim)]">
-        Every service and repair on your truck, in one record — what was done, where, what it cost, and the receipt or paperwork filed on the entry. The countdown above says when the next service comes due; this log is the proof of the ones already done. Name your truck in <strong className="text-[var(--text)]">Settings → Truck → My Truck</strong> and this record — and its download — carries that truck's name.
+        Every service and repair on your truck, in one record — what was done, where, what it cost, and the receipt or paperwork filed on the entry. Log a <strong className="text-[var(--text)]">scheduled service</strong> or the <strong className="text-[var(--text)]">repair that came up</strong>, with the parts used — and on an oil change, the oil itself. Any entry prints as a <strong className="text-[var(--text)]">Maintenance Sheet</strong>: the clean one-page record you send your carrier when they ask for maintenance paper. The countdown above says when the next service comes due; this log is the proof of the ones already done. Name your truck in <strong className="text-[var(--text)]">Settings → Truck → My Truck</strong> and this record — and its download — carries that truck's name.
       </p>
       {truckLine && <p className="mt-2 text-sm font-bold">🚛 {truckLine}</p>}
       <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -1379,11 +1386,18 @@ export function MaintenanceLogPanel({ setBanner, lang = "en" }: { setBanner: Ban
             )}
             <div className="mt-0.5 text-xs text-[var(--dim)]">
               {new Date(e.performedAt).toLocaleDateString()}
+              {` · ${e.kind === "repair" ? "🔧 Repair — unscheduled fix" : "🗓️ Scheduled service"}`}
               {e.odometer != null ? ` · ${e.odometer.toLocaleString()} mi` : ""}
               {e.shop ? ` · ${e.shop}` : ""}
               {e.nextDueMiles != null ? ` · next due ${e.nextDueMiles.toLocaleString()} mi` : ""}
               {e.nextDueAt ? ` · next due ${new Date(e.nextDueAt).toLocaleDateString()}` : ""}
             </div>
+            {(e.oilBrand || e.oilWeight) && (
+              <p className="mt-1 text-xs">🛢️ Oil: {[e.oilBrand, e.oilWeight].filter(Boolean).join(" ")}</p>
+            )}
+            {e.parts.length > 0 && (
+              <p className="mt-1 text-xs">Parts: {e.parts.map((p) => `${p.name}${p.partNumber ? ` (#${p.partNumber})` : ""}`).join(" · ")}</p>
+            )}
             {e.notes && <p className="mt-1 text-xs">{e.notes}</p>}
             {e.attachments.length > 0 && (
               <div className="mt-1.5 flex flex-wrap gap-2">
@@ -1416,9 +1430,13 @@ export function MaintenanceLogPanel({ setBanner, lang = "en" }: { setBanner: Ban
                     performedAt: e.performedAt.slice(0, 10),
                     odometer: e.odometer != null ? String(e.odometer) : "",
                     category: (MAINTENANCE_LOG_CATEGORIES.some((c) => c.key === e.category) ? e.category : "other") as MaintenanceLogCategory,
+                    kind: e.kind === "repair" ? "repair" : "service",
                     description: e.description,
                     shop: e.shop ?? "",
                     cost: String(e.cost),
+                    parts: e.parts.map((p) => ({ name: p.name, partNumber: p.partNumber ?? "" })),
+                    oilBrand: e.oilBrand ?? "",
+                    oilWeight: e.oilWeight ?? "",
                     nextDueMiles: e.nextDueMiles != null ? String(e.nextDueMiles) : "",
                     nextDueAt: e.nextDueAt ? e.nextDueAt.slice(0, 10) : "",
                     notes: e.notes ?? "",
@@ -1434,6 +1452,34 @@ export function MaintenanceLogPanel({ setBanner, lang = "en" }: { setBanner: Ban
                 onClick={() => { setAttachFor(attachFor === e.id ? null : e.id); setAttachLabel("Receipt"); setAttachFile(null); }}
               >
                 📎 Attach receipt / paperwork
+              </button>
+              <button
+                type="button"
+                className={smallBtn}
+                aria-label={`Download the maintenance sheet for ${e.description} — the one-page PDF record to send your carrier`}
+                onClick={() => {
+                  void api.getLibraryDocument({ ref: `maintenance-sheet:${e.id}` })
+                    .then((doc) => {
+                      if (!doc.ok || !doc.dataBase64 || !doc.filename) { setBanner(doc.error ?? "Couldn't build that maintenance sheet — try again."); return; }
+                      savePdfBase64(doc.filename, doc.dataBase64);
+                      setBanner(`Maintenance sheet downloaded: ${doc.filename} — the carrier-sendable record for this ${e.kind === "repair" ? "repair" : "service"}.`);
+                    })
+                    .catch(() => setBanner("Couldn't build that maintenance sheet — try again."));
+                }}
+              >
+                📄 Maintenance sheet (PDF)
+              </button>
+              <button
+                type="button"
+                className={smallBtn}
+                aria-label={`Download the maintenance sheet for ${e.description} as plain text`}
+                onClick={() => {
+                  void api.exportMaintenanceSheet({ id: e.id })
+                    .then((r) => { downloadTextFile(r.filename, r.text); setBanner(`Maintenance sheet downloaded: ${r.filename}.`); })
+                    .catch(() => setBanner("Couldn't build that maintenance sheet — try again."));
+                }}
+              >
+                Sheet (.txt)
               </button>
               {e.status !== "closed" ? (
                 <button
@@ -1590,6 +1636,25 @@ export function MaintenanceLogPanel({ setBanner, lang = "en" }: { setBanner: Ban
             </select>
           </div>
           <div>
+            <label className={labelCls} htmlFor="ml-kind">Kind of work</label>
+            <select id="ml-kind" className={inputCls} value={form.kind} aria-label="Kind of work — a scheduled service, or a repair that came up" onChange={(e) => set({ kind: e.target.value === "repair" ? "repair" : "service" })}>
+              <option value="service">🗓️ Scheduled service / PM</option>
+              <option value="repair">🔧 Repair — a fix that came up</option>
+            </select>
+          </div>
+          {form.category === "oil" && (
+            <>
+              <div>
+                <label className={labelCls} htmlFor="ml-oil-brand">Oil brand</label>
+                <input id="ml-oil-brand" className={inputCls} value={form.oilBrand} aria-label="Oil brand" placeholder="e.g. Shell Rotella T5" onChange={(e) => set({ oilBrand: e.target.value })} />
+              </div>
+              <div>
+                <label className={labelCls} htmlFor="ml-oil-weight">Oil weight</label>
+                <input id="ml-oil-weight" className={inputCls} value={form.oilWeight} aria-label="Oil weight" placeholder="e.g. 10W-30" onChange={(e) => set({ oilWeight: e.target.value })} />
+              </div>
+            </>
+          )}
+          <div>
             <label className={labelCls} htmlFor="ml-cost">Cost ($)</label>
             <input id="ml-cost" type="number" inputMode="decimal" step="0.01" className={inputCls} value={form.cost} aria-label="Cost in dollars" placeholder="0.00" onChange={(e) => set({ cost: e.target.value })} />
           </div>
@@ -1614,6 +1679,20 @@ export function MaintenanceLogPanel({ setBanner, lang = "en" }: { setBanner: Ban
             <input id="ml-due-date" type="date" className={inputCls} value={form.nextDueAt} aria-label="Date when this is next due" onChange={(e) => set({ nextDueAt: e.target.value })} />
           </div>
         </div>
+        <div className="mt-2">
+          <span className={labelCls}>Parts used</span>
+          {form.parts.map((p, i) => (
+            <div key={i} className="mt-1.5 flex flex-wrap items-center gap-2">
+              <input className={`${inputCls} min-w-[150px] flex-1`} value={p.name} aria-label={`Part ${i + 1} name`} placeholder="Part — e.g. Oil filter" onChange={(e) => set({ parts: form.parts.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)) })} />
+              <input className={`${inputCls} min-w-[120px] flex-1`} value={p.partNumber} aria-label={`Part ${i + 1} part number`} placeholder="Part # — e.g. LF16233" onChange={(e) => set({ parts: form.parts.map((x, j) => (j === i ? { ...x, partNumber: e.target.value } : x)) })} />
+              <button type="button" className={smallBtn} aria-label={`Remove part ${i + 1}`} onClick={() => set({ parts: form.parts.filter((_, j) => j !== i) })}>Remove</button>
+            </div>
+          ))}
+          <button type="button" className={`${smallBtn} mt-1.5`} aria-label="Add a part used in this work" onClick={() => set({ parts: [...form.parts, { name: "", partNumber: "" }] })}>
+            + Add a part
+          </button>
+          <p className="mt-1 text-xs text-[var(--dim)]">The parts print on the maintenance sheet by name and number — the record a carrier or a warranty desk asks for.</p>
+        </div>
         <div className="mt-2 flex flex-wrap gap-2">
           <button
             type="button"
@@ -1627,9 +1706,13 @@ export function MaintenanceLogPanel({ setBanner, lang = "en" }: { setBanner: Ban
                 performedAt: form.performedAt ? new Date(form.performedAt + "T12:00:00").toISOString() : new Date().toISOString(),
                 odometer: form.odometer.trim() === "" ? null : parseFloat(form.odometer),
                 category: form.category,
+                kind: form.kind,
                 description: form.description.trim(),
                 shop: form.shop.trim() || null,
                 cost: form.cost.trim() === "" ? 0 : parseFloat(form.cost) || 0,
+                parts: form.parts.filter((p) => p.name.trim()).map((p) => ({ name: p.name.trim(), partNumber: p.partNumber.trim() || null })),
+                oilBrand: form.category === "oil" ? form.oilBrand.trim() || null : null,
+                oilWeight: form.category === "oil" ? form.oilWeight.trim() || null : null,
                 nextDueMiles: form.nextDueMiles.trim() === "" ? null : parseFloat(form.nextDueMiles),
                 nextDueAt: form.nextDueAt ? new Date(form.nextDueAt + "T12:00:00").toISOString() : null,
                 notes: form.notes.trim() || null,
@@ -1652,7 +1735,70 @@ export function MaintenanceLogPanel({ setBanner, lang = "en" }: { setBanner: Ban
           )}
         </div>
       </div>
+      <FleetMaintenanceList />
     </Section>
+  );
+}
+
+// Fleet maintenance (Maintenance Sheet, 2026-11-24): the owner +
+// dispatch seats of a company see the maintenance records their
+// drivers published for the fleet's trucks — the share-up copies,
+// never the drivers' private logs — filterable per truck. A driver
+// seat (or a solo driver) gets isFleetViewer false from the server
+// and this renders nothing at all.
+function FleetMaintenanceList() {
+  const q = useQuery({ queryKey: ["fleet-maintenance"], queryFn: () => api.listFleetMaintenance({}) });
+  const [truckKey, setTruckKey] = useState<string>("all");
+  if (!q.data?.isFleetViewer) return null;
+  const trucks = q.data.trucks;
+  const records = truckKey === "all" ? q.data.records : q.data.records.filter((r) => `${r.driverUsername}::${r.truckUnit ?? ""}` === truckKey);
+  const fleetTotal = records.reduce((s, r) => s + r.cost, 0);
+  return (
+    <div className="mt-4 border-t border-[var(--border)] pt-3">
+      <p className="text-sm font-bold">🏢 Fleet maintenance{q.data.companyName ? ` — ${q.data.companyName}` : ""}</p>
+      <p className="mt-1 text-sm text-[var(--dim)]">
+        Every service and repair your drivers log on the fleet's trucks lands here as they save it — the same record each entry's maintenance sheet prints. Pick a truck to see just its record.
+      </p>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <select className={inputCls} style={{ maxWidth: 320 }} value={truckKey} aria-label="Filter fleet maintenance by truck" onChange={(e) => setTruckKey(e.target.value)}>
+          <option value="all">All trucks ({trucks.length})</option>
+          {trucks.map((t) => (
+            <option key={t.key} value={t.key}>
+              {t.label ?? "Truck"} {t.unit ? `· Unit ${t.unit}` : ""} — @{t.driverUsername}
+            </option>
+          ))}
+        </select>
+        <span className="rounded-xl bg-[var(--surface2)] px-3 py-2 text-sm">
+          {records.length} record{records.length === 1 ? "" : "s"} · <strong className="font-condensed text-lg">{money(fleetTotal)}</strong> logged
+        </span>
+      </div>
+      <div className="mt-3 space-y-2">
+        {records.map((r) => (
+          <div key={r.id} className="rounded-xl bg-[var(--surface2)] px-3 py-2.5 text-sm">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-bold">{maintenanceLogCategoryLabel(r.category)} — {r.description}</span>
+              <span className="shrink-0 font-condensed text-lg font-bold">{money(r.cost)}</span>
+            </div>
+            <div className="mt-0.5 text-xs text-[var(--dim)]">
+              {new Date(r.performedAt).toLocaleDateString()}
+              {` · ${r.kind === "repair" ? "🔧 Repair — unscheduled fix" : "🗓️ Scheduled service"}`}
+              {r.truckLabel ? ` · ${r.truckLabel}` : ""}{r.truckUnit ? ` · Unit ${r.truckUnit}` : ""} · @{r.driverUsername}
+              {r.odometer != null ? ` · ${r.odometer.toLocaleString()} mi` : ""}
+              {r.shop ? ` · ${r.shop}` : ""}
+              {r.nextDueMiles != null ? ` · next due ${r.nextDueMiles.toLocaleString()} mi` : ""}
+              {r.nextDueAt ? ` · next due ${new Date(r.nextDueAt).toLocaleDateString()}` : ""}
+            </div>
+            {(r.oilBrand || r.oilWeight) && (
+              <p className="mt-1 text-xs">🛢️ Oil: {[r.oilBrand, r.oilWeight].filter(Boolean).join(" ")}</p>
+            )}
+            {r.parts.length > 0 && (
+              <p className="mt-1 text-xs">Parts: {r.parts.map((p) => `${p.name}${p.partNumber ? ` (#${p.partNumber})` : ""}`).join(" · ")}</p>
+            )}
+          </div>
+        ))}
+        {records.length === 0 && <p className="text-xs text-[var(--dim)]">No maintenance published for this truck yet — a record appears here the moment its driver saves a log entry.</p>}
+      </div>
+    </div>
   );
 }
 

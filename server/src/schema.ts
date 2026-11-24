@@ -178,6 +178,7 @@ export const claimEvents = impl.claimEvents;
 export const maintenanceServices = impl.maintenanceServices;
 export const maintenanceLogEntries = impl.maintenanceLogEntries;
 export const maintenanceLogAttachments = impl.maintenanceLogAttachments;
+export const maintenanceFleetRecords = impl.maintenanceFleetRecords;
 export const vehiclePhotos = impl.vehiclePhotos;
 export const posterReferrals = impl.posterReferrals;
 export const sealedLanes = impl.sealedLanes;

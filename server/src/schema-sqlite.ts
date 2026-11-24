@@ -4536,9 +4536,21 @@ export const maintenanceLogEntries = sqliteTable("maintenance_log_entries", {
   performedAt: integer("performed_at", { mode: "timestamp_ms" }).notNull(),
   odometer: real("odometer"),
   category: text("category").notNull(), // oil | tires | brakes | dot_inspection | engine | transmission | suspension | electrical | ac | other
+  // Maintenance Sheet (migration 0143): the record KIND — "service"
+  // for scheduled service / PM work, "repair" for an unscheduled fix
+  // that came up. Rows from before the migration read "service".
+  kind: text("kind").notNull().default("service"), // service | repair
   description: text("description").notNull(),
   shop: text("shop"),
   cost: real("cost").notNull().default(0),
+  // Parts used (migration 0143): JSON [{name, partNumber}] — the
+  // sheet prints them so a carrier sees exactly what went on the
+  // truck. Oil changes also record the oil itself: brand + weight
+  // in their own columns (the lease-named oils are a record a
+  // carrier can ask for by name).
+  partsJson: text("parts_json").notNull().default("[]"),
+  oilBrand: text("oil_brand"),
+  oilWeight: text("oil_weight"),
   nextDueMiles: real("next_due_miles"),
   nextDueAt: integer("next_due_at", { mode: "timestamp_ms" }),
   // Workflow state (migration 0122): "logged" for a normal entry,
@@ -4568,6 +4580,44 @@ export const maintenanceLogAttachments = sqliteTable("maintenance_log_attachment
   blobKey: text("blob_key"),
   mime: text("mime"),
   createdAt: integer("created_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+// Maintenance Sheet fleet copies (migration 0143): the SHARE-UP PIPE
+// for maintenance — the same pattern as driver_fleet_status. A
+// driver's log entries are private profile rows and never leave
+// their scope; when a driver who belongs to a company saves an
+// entry, the app publishes a fleet copy HERE (company tables are the
+// only cross-profile read in this architecture — this table has no
+// profile_id, so the host does not scope it; reads gate on company
+// membership + role in the action). The company's owner + dispatch
+// seats read the copies for their fleet's trucks; the copy carries
+// the truck identity as the driver recorded it (unit + label) so the
+// fleet view filters per truck. One copy per (company, driver,
+// entry): re-saving an entry refreshes its copy, deleting the entry
+// removes it. Receipt files do NOT ride the copy — the sheet's facts
+// do; the file itself stays in the driver's vault.
+export const maintenanceFleetRecords = sqliteTable("maintenance_fleet_records", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  companyId: integer("company_id").notNull(),
+  username: text("username").notNull(),
+  entryId: integer("entry_id").notNull(),
+  truckUnit: text("truck_unit"),
+  truckLabel: text("truck_label"),
+  kind: text("kind").notNull().default("service"), // service | repair
+  category: text("category").notNull(),
+  performedAt: integer("performed_at", { mode: "timestamp_ms" }).notNull(),
+  odometer: real("odometer"),
+  description: text("description").notNull(),
+  shop: text("shop"),
+  cost: real("cost").notNull().default(0),
+  partsJson: text("parts_json").notNull().default("[]"),
+  oilBrand: text("oil_brand"),
+  oilWeight: text("oil_weight"),
+  nextDueMiles: real("next_due_miles"),
+  nextDueAt: integer("next_due_at", { mode: "timestamp_ms" }),
+  publishedAt: integer("published_at", { mode: "timestamp_ms" })
     .notNull()
     .$defaultFn(() => new Date()),
 });

@@ -114,7 +114,7 @@ export const WORKSPACES: WorkspaceDoor[] = [
     name: "TRUCK",
     tagEn: "your rig, kept ready",
     tagEs: "tu camión, siempre listo",
-    tools: ["My Truck", "Maintenance", "Predictive maintenance", "Inspections", "Smart trailer", "Truck + trailer photos"],
+    tools: ["My Truck", "Maintenance", "Maintenance sheet", "Predictive maintenance", "Inspections", "Smart trailer", "Truck + trailer photos"],
     // The Money tab's Truck section (maintenance countdown + log) —
     // the truck's working home; the reveal machinery switches the
     // Money section to Truck for this anchor. My Truck identity

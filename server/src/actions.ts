@@ -601,6 +601,12 @@ import {
   type OffDutyRequestType,
 } from "./driverCalendar";
 import { buildPdf, jpegDimensions } from "./pdfDoc";
+import {
+  buildMaintenanceSheet,
+  cleanMaintenancePartsJson,
+  maintenanceKindOf,
+  parseMaintenanceParts,
+} from "./maintenanceSheet";
 import { encodeQr } from "./qrCode";
 import {
 PLATFORM_FEE_LABEL,
@@ -1288,6 +1294,7 @@ async function insertSignedDvir(
         performedAt: now,
         odometer: args.odometer,
         category,
+        kind: "repair",
         description: dvirDraftDescription(d.item),
         shop: null,
         cost: 0,
@@ -1564,6 +1571,7 @@ async function recordFaultReport(
         performedAt: args.occurredAt,
         odometer: args.odometer,
         category: lookup.category ?? "other",
+        kind: "repair",
         description: lookup.meaning
           ? `Fault code ${lookup.code} — ${lookup.meaning}`.slice(0, 240)
           : `Fault code ${lookup.code} — recorded as reported`.slice(0, 240),
@@ -2417,6 +2425,71 @@ async function myUsername(ctx: Ctx): Promise<string> {
     .where(eq(schema.profile.id, myProfileId(ctx)))
     .limit(1);
   return rows[0]?.socialUsername ?? "driver";
+}
+
+type MaintenanceEntryRow = typeof schema.maintenanceLogEntries.$inferSelect;
+
+/** Maintenance Sheet share-up (migration 0143): publish / refresh the
+ *  caller's fleet copy of one maintenance entry for every company the
+ *  caller belongs to. The copy is the ONLY form in which an entry
+ *  leaves the driver's profile scope (the driver_fleet_status law);
+ *  the fleet's owner + dispatch seats read copies, never the log.
+ *  Truck identity rides as the driver recorded it on their profile,
+ *  so the fleet view can filter per truck. No membership = no copy. */
+async function publishMaintenanceFleetCopy(ctx: Ctx, entry: MaintenanceEntryRow): Promise<void> {
+  const db = ctx.db<typeof schema>();
+  const me = await myUsername(ctx);
+  const memberships = await db.select().from(schema.companyMembers).where(eq(schema.companyMembers.username, me));
+  if (memberships.length === 0) return;
+  const prof = await db.select().from(schema.profile).where(eq(schema.profile.id, myProfileId(ctx))).limit(1);
+  const p = prof[0];
+  const truckName = [p?.truckYear ?? null, p?.truckMake?.trim() || null, p?.truckModel?.trim() || null].filter(Boolean).join(" ");
+  const values = {
+    username: me,
+    entryId: entry.id,
+    truckUnit: p?.truckUnitNumber?.trim() || null,
+    truckLabel: truckName || null,
+    kind: maintenanceKindOf(entry.kind),
+    category: entry.category,
+    performedAt: entry.performedAt,
+    odometer: entry.odometer ?? null,
+    description: entry.description,
+    shop: entry.shop ?? null,
+    cost: entry.cost || 0,
+    partsJson: entry.partsJson ?? "[]",
+    oilBrand: entry.oilBrand ?? null,
+    oilWeight: entry.oilWeight ?? null,
+    nextDueMiles: entry.nextDueMiles ?? null,
+    nextDueAt: entry.nextDueAt ?? null,
+    publishedAt: new Date(),
+  };
+  for (const m of memberships) {
+    const existing = await db
+      .select()
+      .from(schema.maintenanceFleetRecords)
+      .where(
+        and(
+          eq(schema.maintenanceFleetRecords.companyId, m.companyId),
+          eq(schema.maintenanceFleetRecords.username, me),
+          eq(schema.maintenanceFleetRecords.entryId, entry.id),
+        ),
+      )
+      .limit(1);
+    if (existing[0]) {
+      await db.update(schema.maintenanceFleetRecords).set(values).where(eq(schema.maintenanceFleetRecords.id, existing[0].id));
+    } else {
+      await db.insert(schema.maintenanceFleetRecords).values({ ...values, companyId: m.companyId });
+    }
+  }
+}
+
+/** Remove the caller's fleet copies of one entry (entry deleted). */
+async function removeMaintenanceFleetCopies(ctx: Ctx, entryId: number): Promise<void> {
+  const db = ctx.db<typeof schema>();
+  const me = await myUsername(ctx);
+  await db
+    .delete(schema.maintenanceFleetRecords)
+    .where(and(eq(schema.maintenanceFleetRecords.username, me), eq(schema.maintenanceFleetRecords.entryId, entryId)));
 }
 
 /** "Not here" suppression sets (migration 0094): the place ids this
@@ -10693,9 +10766,16 @@ const maintenanceLogEntryShape = z.object({
   performedAt: z.string(),
   odometer: z.number().nullable(),
   category: z.string(),
+  // Maintenance Sheet (migration 0143): service = scheduled service
+  // / PM, repair = the unscheduled fix that came up.
+  kind: z.string(),
   description: z.string(),
   shop: z.string().nullable(),
   cost: z.number(),
+  // Parts used: [{name, partNumber}] + the oil itself on oil changes.
+  parts: z.array(z.object({ name: z.string(), partNumber: z.string().nullable() })),
+  oilBrand: z.string().nullable(),
+  oilWeight: z.string().nullable(),
   nextDueMiles: z.number().nullable(),
   nextDueAt: z.string().nullable(),
   notes: z.string().nullable(),
@@ -19563,7 +19643,7 @@ async function recordsBundleForCaller(ctx: Ctx): Promise<RecordsBundle> {
 /** Resolve a Library document reference to real bytes, scope-checked
  *  on every call. Refs: settlement:{id} - pay:{id} - ifta:{y}:{q} -
  *  filing:{chainId} - sealed:{loadId} - packet:{loadId} -
- *  invoice:{id} - pl:{kind}:{year}:{index} - records:bundle -
+ *  invoice:{id} - maintenance-sheet:{id} - pl:{kind}:{year}:{index} - records:bundle -
  *  upload:filed:{id} - upload:personal:{id} - upload:scale:{id} -
  *  upload:settlement:{id}. Generated documents render as PDF;
  *  uploads return the original file bytes. */
@@ -20068,6 +20148,54 @@ async function resolveLibraryDocument(ctx: Ctx, ref: string): Promise<ResolvedLi
       ],
     });
     return { ok: true, error: null, docKind: "factor_package", title, filename: `factoring-package-${r.number}.pdf`, mime: "application/pdf", bytes };
+  }
+
+  if (kind === "maintenance-sheet") {
+    // The Maintenance Sheet (x, 2026-11-24): ONE maintenance log
+    // entry rendered as the carrier-sendable sheet — truck identity,
+    // the work, the parts, who did it, what it cost. Scope: the log
+    // table is host-scoped, so a ref naming another driver's entry
+    // reads exactly like one that doesn't exist. The document is the
+    // driver's own record to hand a carrier — it rides the Library
+    // print/download/email machinery like every generated document.
+    const id = Number(parts[1]);
+    const rows = await db.select().from(schema.maintenanceLogEntries).where(eq(schema.maintenanceLogEntries.id, id)).limit(1);
+    const r = rows[0];
+    if (!r) return docRefused("maintenance sheet");
+    const atts = await db.select().from(schema.maintenanceLogAttachments).where(eq(schema.maintenanceLogAttachments.entryId, r.id)).orderBy(asc(schema.maintenanceLogAttachments.id));
+    const prof = await db.select().from(schema.profile).where(eq(schema.profile.id, myProfileId(ctx))).limit(1);
+    const p = prof[0];
+    const doc = buildMaintenanceSheet(
+      {
+        id: r.id,
+        kind: maintenanceKindOf(r.kind),
+        category: r.category,
+        performedAtMs: r.performedAt.getTime(),
+        odometer: r.odometer ?? null,
+        description: r.description,
+        shop: r.shop ?? null,
+        cost: r.cost || 0,
+        parts: parseMaintenanceParts(r.partsJson),
+        oilBrand: r.oilBrand ?? null,
+        oilWeight: r.oilWeight ?? null,
+        nextDueMiles: r.nextDueMiles ?? null,
+        nextDueAtMs: r.nextDueAt ? r.nextDueAt.getTime() : null,
+        notes: r.notes ?? null,
+        attachmentLabels: atts.map((a) => a.label),
+      },
+      {
+        truckYear: p?.truckYear ?? null,
+        truckMake: p?.truckMake ?? null,
+        truckModel: p?.truckModel ?? null,
+        truckUnitNumber: p?.truckUnitNumber ?? null,
+        truckVin: p?.truckVin ?? null,
+        truckPlate: p?.truckPlate ?? null,
+        truckEngine: p?.truckEngine ?? null,
+      },
+    );
+    const title = `Maintenance sheet #${r.id} - ${doc.subtitle}`;
+    const bytes = libraryPdfBytes({ title: doc.title, subtitle: doc.subtitle, sections: doc.sections });
+    return { ok: true, error: null, docKind: "maintenance_sheet", title, filename: `${doc.filenameStem}.pdf`, mime: "application/pdf", bytes };
   }
 
   if (kind === "pl") {
@@ -57658,6 +57786,16 @@ export const Actions = {
   // in, ctx.blobs.put under a generated key, blob key + mime on the
   // attachment row, ctx.blobs.getUrl back out for download. Records
   // only: no action here moves money or files anything.
+  //
+  // Maintenance Sheet (migration 0143, x 2026-11-24): entries carry a
+  // KIND (scheduled service vs the repair that came up), the parts
+  // used, and the oil brand/weight — and each entry renders as one
+  // carrier-sendable sheet (exportMaintenanceSheet). Fleet view: a
+  // company driver's save also publishes a fleet copy through the
+  // share-up pipe (maintenance_fleet_records — the driver_fleet_status
+  // pattern: company tables are the only cross-profile read), which
+  // the company's owner + dispatch seats read in listFleetMaintenance.
+  // A solo driver belongs to no company, so nothing publishes.
 
   listMaintenanceLog: defineAction({
     description: "Maintenance log entries (newest first) with attachments, the running total cost, and the truck identity they belong to.",
@@ -57688,9 +57826,13 @@ export const Actions = {
           performedAt: r.performedAt.toISOString(),
           odometer: r.odometer ?? null,
           category: r.category,
+          kind: maintenanceKindOf(r.kind),
           description: r.description,
           shop: r.shop ?? null,
           cost: r.cost || 0,
+          parts: parseMaintenanceParts(r.partsJson),
+          oilBrand: r.oilBrand ?? null,
+          oilWeight: r.oilWeight ?? null,
           nextDueMiles: r.nextDueMiles ?? null,
           nextDueAt: r.nextDueAt ? r.nextDueAt.toISOString() : null,
           notes: r.notes ?? null,
@@ -57726,9 +57868,16 @@ export const Actions = {
       performedAt: z.string().min(1).max(40),
       odometer: z.number().nonnegative().max(10_000_000).nullable(),
       category: maintenanceLogCategory,
+      // Maintenance Sheet fields (migration 0143). Optional so older
+      // clients keep saving: kind defaults to a scheduled service,
+      // parts to none, the oil fields to unset.
+      kind: z.enum(["service", "repair"]).optional(),
       description: z.string().min(1).max(300),
       shop: z.string().max(160).nullable(),
       cost: z.number().nonnegative().max(1_000_000),
+      parts: z.array(z.object({ name: z.string().min(1).max(120), partNumber: z.string().max(80).nullable().optional() })).max(24).optional(),
+      oilBrand: z.string().max(80).nullable().optional(),
+      oilWeight: z.string().max(40).nullable().optional(),
       nextDueMiles: z.number().nonnegative().max(10_000_000).nullable(),
       nextDueAt: z.string().max(40).nullable(),
       notes: z.string().max(500).nullable(),
@@ -57741,9 +57890,13 @@ export const Actions = {
         performedAt,
         odometer: args.odometer,
         category: args.category,
+        kind: maintenanceKindOf(args.kind),
         description: args.description.trim(),
         shop: args.shop?.trim() || null,
         cost: Math.round(args.cost * 100) / 100,
+        partsJson: cleanMaintenancePartsJson(args.parts),
+        oilBrand: args.oilBrand?.trim() || null,
+        oilWeight: args.oilWeight?.trim() || null,
         nextDueMiles: args.nextDueMiles,
         nextDueAt: args.nextDueAt && Number.isFinite(Date.parse(args.nextDueAt)) ? new Date(args.nextDueAt) : null,
         notes: args.notes?.trim() || null,
@@ -57757,7 +57910,11 @@ export const Actions = {
         // the driver's confirm — it becomes a normal logged entry.
         // A closed entry stays closed when its details are edited.
         const status = existing[0].status === "draft" ? "logged" : existing[0].status;
-        await db.update(schema.maintenanceLogEntries).set({ ...values, status }).where(eq(schema.maintenanceLogEntries.id, args.id));
+        // A caller that doesn't send a kind (an older client) keeps
+        // the entry's recorded kind — an edit never silently turns a
+        // repair into a scheduled service.
+        const kind = args.kind !== undefined ? values.kind : maintenanceKindOf(existing[0].kind);
+        await db.update(schema.maintenanceLogEntries).set({ ...values, kind, status }).where(eq(schema.maintenanceLogEntries.id, args.id));
       } else {
         const ins = await db.insert(schema.maintenanceLogEntries).values(values).returning({ id: schema.maintenanceLogEntries.id });
         const row = ins[0];
@@ -57769,8 +57926,11 @@ export const Actions = {
         refId: null,
         sessionId: null,
         event: "maintenance_log_entry_saved",
-        payload: { entryId: id, category: args.category, cost: values.cost, performedAt: performedAt.toISOString(), edited: args.id != null },
+        payload: { entryId: id, category: args.category, kind: values.kind, cost: values.cost, performedAt: performedAt.toISOString(), edited: args.id != null },
       });
+      // Share-up: refresh the fleet copy (no-op for a solo driver).
+      const saved = await db.select().from(schema.maintenanceLogEntries).where(eq(schema.maintenanceLogEntries.id, id)).limit(1);
+      if (saved[0]) await publishMaintenanceFleetCopy(ctx, saved[0]);
       ctx.invalidateQueries();
       return { id };
     },
@@ -57793,6 +57953,7 @@ export const Actions = {
         }
         await db.delete(schema.maintenanceLogAttachments).where(eq(schema.maintenanceLogAttachments.entryId, args.id));
         await db.delete(schema.maintenanceLogEntries).where(eq(schema.maintenanceLogEntries.id, args.id));
+        await removeMaintenanceFleetCopies(ctx, args.id);
         await appendChain(ctx, {
           refKind: "driver",
           refId: null,
@@ -57941,6 +58102,127 @@ export const Actions = {
       if (!row?.blobKey) return { url: null, mime: null };
       const url = await ctx.blobs.getUrl(row.blobKey);
       return { url, mime: row.mime };
+    },
+  }),
+
+  exportMaintenanceSheet: defineAction({
+    description: "Export ONE maintenance log entry as the Maintenance Sheet in plain text — the same sheet the Library renders as a PDF (ref maintenance-sheet:{id}), for a quick download or paste.",
+    request: z.object({ id: z.number().int().positive() }),
+    response: z.object({ text: z.string(), filename: z.string() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      if (await isAccountLocked(ctx, await myUsername(ctx))) {
+        return { text: "EXPORT BLOCKED — this account is locked (lost-phone kill switch). Unlock it from the Security Center to export again.", filename: "stonemiles-maintenance-sheet-blocked.txt" };
+      }
+      const rows = await db.select().from(schema.maintenanceLogEntries).where(eq(schema.maintenanceLogEntries.id, args.id)).limit(1);
+      const r = rows[0];
+      if (!r) return { text: "No such maintenance log entry.", filename: "stonemiles-maintenance-sheet.txt" };
+      const atts = await db.select().from(schema.maintenanceLogAttachments).where(eq(schema.maintenanceLogAttachments.entryId, r.id)).orderBy(asc(schema.maintenanceLogAttachments.id));
+      const prof = await db.select().from(schema.profile).where(eq(schema.profile.id, myProfileId(ctx))).limit(1);
+      const p = prof[0];
+      const doc = buildMaintenanceSheet(
+        {
+          id: r.id,
+          kind: maintenanceKindOf(r.kind),
+          category: r.category,
+          performedAtMs: r.performedAt.getTime(),
+          odometer: r.odometer ?? null,
+          description: r.description,
+          shop: r.shop ?? null,
+          cost: r.cost || 0,
+          parts: parseMaintenanceParts(r.partsJson),
+          oilBrand: r.oilBrand ?? null,
+          oilWeight: r.oilWeight ?? null,
+          nextDueMiles: r.nextDueMiles ?? null,
+          nextDueAtMs: r.nextDueAt ? r.nextDueAt.getTime() : null,
+          notes: r.notes ?? null,
+          attachmentLabels: atts.map((a) => a.label),
+        },
+        {
+          truckYear: p?.truckYear ?? null,
+          truckMake: p?.truckMake ?? null,
+          truckModel: p?.truckModel ?? null,
+          truckUnitNumber: p?.truckUnitNumber ?? null,
+          truckVin: p?.truckVin ?? null,
+          truckPlate: p?.truckPlate ?? null,
+          truckEngine: p?.truckEngine ?? null,
+        },
+      );
+      return { text: doc.textLines.join("\n"), filename: `${doc.filenameStem}.txt` };
+    },
+  }),
+
+  listFleetMaintenance: defineAction({
+    description: "Fleet maintenance view: the maintenance records a company's drivers published for their trucks (share-up copies), newest first, with the truck list to filter by. Owner + dispatch seats only — a driver seat (or no company) gets isFleetViewer false and no records.",
+    request: z.object({}),
+    response: z.object({
+      isFleetViewer: z.boolean(),
+      companyName: z.string().nullable(),
+      trucks: z.array(z.object({ key: z.string(), driverUsername: z.string(), unit: z.string().nullable(), label: z.string().nullable() })),
+      records: z.array(
+        z.object({
+          id: z.number(),
+          entryId: z.number(),
+          driverUsername: z.string(),
+          truckUnit: z.string().nullable(),
+          truckLabel: z.string().nullable(),
+          kind: z.string(),
+          category: z.string(),
+          performedAt: z.string(),
+          odometer: z.number().nullable(),
+          description: z.string(),
+          shop: z.string().nullable(),
+          cost: z.number(),
+          parts: z.array(z.object({ name: z.string(), partNumber: z.string().nullable() })),
+          oilBrand: z.string().nullable(),
+          oilWeight: z.string().nullable(),
+          nextDueMiles: z.number().nullable(),
+          nextDueAt: z.string().nullable(),
+        }),
+      ),
+    }),
+    async handler(ctx) {
+      const db = ctx.db<typeof schema>();
+      const empty = { isFleetViewer: false, companyName: null, trucks: [], records: [] };
+      const me = await myUsername(ctx);
+      const memberships = await db.select().from(schema.companyMembers).where(eq(schema.companyMembers.username, me));
+      const viewer = memberships.find((m) => m.role === "owner" || m.role === "dispatch");
+      if (!viewer) return empty;
+      const companyRows = await db.select().from(schema.companies).where(eq(schema.companies.id, viewer.companyId)).limit(1);
+      const rows = await db
+        .select()
+        .from(schema.maintenanceFleetRecords)
+        .where(eq(schema.maintenanceFleetRecords.companyId, viewer.companyId))
+        .orderBy(desc(schema.maintenanceFleetRecords.performedAt), desc(schema.maintenanceFleetRecords.id));
+      const truckByKey = new Map<string, { key: string; driverUsername: string; unit: string | null; label: string | null }>();
+      for (const r of rows) {
+        const key = `${r.username}::${r.truckUnit ?? ""}`;
+        if (!truckByKey.has(key)) truckByKey.set(key, { key, driverUsername: r.username, unit: r.truckUnit ?? null, label: r.truckLabel ?? null });
+      }
+      return {
+        isFleetViewer: true,
+        companyName: companyRows[0]?.name ?? null,
+        trucks: [...truckByKey.values()],
+        records: rows.map((r) => ({
+          id: r.id,
+          entryId: r.entryId,
+          driverUsername: r.username,
+          truckUnit: r.truckUnit ?? null,
+          truckLabel: r.truckLabel ?? null,
+          kind: maintenanceKindOf(r.kind),
+          category: r.category,
+          performedAt: r.performedAt.toISOString(),
+          odometer: r.odometer ?? null,
+          description: r.description,
+          shop: r.shop ?? null,
+          cost: r.cost || 0,
+          parts: parseMaintenanceParts(r.partsJson),
+          oilBrand: r.oilBrand ?? null,
+          oilWeight: r.oilWeight ?? null,
+          nextDueMiles: r.nextDueMiles ?? null,
+          nextDueAt: r.nextDueAt ? r.nextDueAt.toISOString() : null,
+        })),
+      };
     },
   }),
 
