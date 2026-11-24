@@ -17,6 +17,7 @@ import { qrGrid } from "./qrcode";
 import { apptBehaviourLabel, groupVisitsByFacility } from "./extras";
 import { ensureStepUp } from "./SecurityPack";
 import { FuelCardChecksPanel } from "./FuelCardPanel";
+import { FuelCostCalculator } from "./FuelCostCalculator";
 import {
   OFFLINE_BADGE,
   OFFLINE_CAPTURED_LINE,
@@ -421,6 +422,7 @@ export function IftaPanel({ setBanner, lang = "en" }: { setBanner: Banner; lang?
       )}
       <FuelLogForm setBanner={setBanner} />
       <FuelCardChecksPanel />
+      <FuelCostCalculator />
     </Section>
   );
 }
