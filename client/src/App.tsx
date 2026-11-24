@@ -9758,7 +9758,20 @@ export function App() {
     );
   };
 
+  // The file-read flow below guards every branch it knows about;
+  //  this wrapper is the last line of defence — ANY unexpected
+  //  throw (a webview quirk, a decoder that gives up) lands as a
+  //  plain note in the form instead of a silent dead tap (driver
+  //  report, 2026-11-24: "wouldn't let me add load").
   const handleLoadFile = async (file: File) => {
+    try {
+      await handleLoadFileInner(file);
+    } catch {
+      setExtractNote("Something went wrong reading that file — nothing was lost: everything you've typed is still here, and you can fill the load in by hand or try the file again.");
+    }
+  };
+
+  const handleLoadFileInner = async (file: File) => {
     const mime = file.type || "application/octet-stream";
     const kind = classifyDocFile(mime, file.name);
     if (kind === "photo") {
@@ -9953,6 +9966,17 @@ export function App() {
           } else {
             setBanner("Load saved.");
           }
+        },
+        onError: (e) => {
+          // A failed save used to be invisible — the button simply
+          // re-enabled and the driver couldn't tell anything had
+          // gone wrong (2026-11-24: "wouldn't let me add load").
+          // Say it plainly, with the server's own reason when it
+          // sent one; the draft and the attached document stay in
+          // the form, so a retry loses nothing.
+          const raw = e instanceof Error ? e.message : "";
+          const reason = raw.replace(/^action \w+ error:\s*/, "").trim();
+          setBanner(`That load didn't save${reason ? ` — ${reason}` : ""}. Everything you entered is still in the form — check your connection and tap SAVE LOAD again.`);
         },
       },
     );
@@ -16376,7 +16400,7 @@ export function App() {
                       type="button"
                       className="btn-press mt-3 min-h-[56px] w-full rounded-xl bg-[var(--surface2)] border border-[var(--border)] px-4 font-bold"
                       aria-label={tr("Add a load", "Agregar una carga")}
-                      onClick={() => { setLoadsView("list"); setTab("loads"); }}
+                      onClick={() => { setLoadsView("list"); setAddLoadOpen(true); setTab("loads"); }}
                     >
                       📷 {tr("Add a load", "Agregar una carga")}
                     </button>
@@ -19744,6 +19768,15 @@ export function App() {
                   </button>
                 )}
               </div>
+              {saveLoadMut.isError && (
+                <p className="mt-2 rounded-lg bg-red-900/40 px-3 py-2 text-sm font-semibold leading-relaxed text-red-200" role="alert">
+                  ⚠ That load didn&apos;t save
+                  {saveLoadMut.error instanceof Error && saveLoadMut.error.message.replace(/^action \w+ error:\s*/, "").trim()
+                    ? ` — ${saveLoadMut.error.message.replace(/^action \w+ error:\s*/, "").trim()}`
+                    : ""}
+                  . Everything you entered is still here — check your connection and tap SAVE LOAD again.
+                </p>
+              )}
             </section>
             </ExpandRow>
 

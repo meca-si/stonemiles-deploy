@@ -608,6 +608,7 @@ import {
   parseMaintenanceParts,
 } from "./maintenanceSheet";
 import { encodeQr } from "./qrCode";
+import { parseLoadApptText } from "./loadApptText";
 import {
 PLATFORM_FEE_LABEL,
 platformFeeApplies,
@@ -53559,25 +53560,65 @@ export const Actions = {
       const ownLoads = await db.select().from(schema.loads);
       for (const load of ownLoads) {
         if (load.id != null && boardLoadIds.has(load.id)) continue;
+        const lane = `${load.pickupCity ?? "?"} → ${load.deliveryCity ?? "?"}`;
+        const detail = load.referenceNumber ? `Ref ${load.referenceNumber}` : null;
+        const status = load.status ?? "booked";
+        // Appointment binding (fix, 2026-11-24): a hand load's
+        // pickup and delivery belong on the calendar at their OWN
+        // appointment times — read from the appointment text the
+        // driver confirmed on the load (a set dock appointment wins
+        // for the delivery). Before this, the load was anchored to
+        // the moment it was created, so a load added for tonight's
+        // pickup showed at typing time and its delivery never
+        // showed as its own event at all.
+        const pickupMs = parseLoadApptText(load.pickupText);
+        const deliveryMs = load.dockApptAt ? load.dockApptAt.getTime() : parseLoadApptText(load.deliveryText);
+        if (pickupMs != null || deliveryMs != null) {
+          const stops: { atMs: number; title: string }[] = [];
+          if (pickupMs != null) stops.push({ atMs: pickupMs, title: `Pickup — ${lane}` });
+          if (deliveryMs != null) stops.push({ atMs: deliveryMs, title: `Delivery — ${lane}` });
+          for (const s of stops) {
+            if (!inWindow(s.atMs)) continue;
+            events.push({
+              kind: "load",
+              at: new Date(s.atMs).toISOString(),
+              endAt: null,
+              title: s.title,
+              detail,
+              boardLoadId: null,
+              loadId: load.id,
+              state: status,
+              credentialKey: null,
+              requestId: null,
+              locked: false,
+            });
+          }
+          const nextMs = pickupMs ?? deliveryMs;
+          if (status === "booked" && nextMs != null && nextMs >= now - 12 * 3_600_000) {
+            if (!nextMove || nextMs < Date.parse(nextMove.at)) {
+              nextMove = { boardLoadId: null, loadId: load.id, lane, at: new Date(nextMs).toISOString(), state: "committed" };
+            }
+          }
+          continue;
+        }
         const anchor = load.dockApptAt ?? load.createdAt;
         if (!anchor) continue;
         const anchorMs = anchor.getTime();
         if (!inWindow(anchorMs)) continue;
-        const lane = `${load.pickupCity ?? "?"} → ${load.deliveryCity ?? "?"}`;
         events.push({
           kind: "load",
           at: new Date(anchorMs).toISOString(),
           endAt: null,
           title: lane,
-          detail: load.referenceNumber ? `Ref ${load.referenceNumber}` : null,
+          detail,
           boardLoadId: null,
           loadId: load.id,
-          state: load.status ?? "booked",
+          state: status,
           credentialKey: null,
           requestId: null,
           locked: false,
         });
-        if ((load.status ?? "booked") === "booked" && anchorMs >= now - 12 * 3_600_000) {
+        if (status === "booked" && anchorMs >= now - 12 * 3_600_000) {
           if (!nextMove || anchorMs < Date.parse(nextMove.at)) {
             nextMove = { boardLoadId: null, loadId: load.id, lane, at: new Date(anchorMs).toISOString(), state: "committed" };
           }
