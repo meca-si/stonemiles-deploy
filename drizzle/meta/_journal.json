@@ -988,6 +988,13 @@
       "when": 1797100000000,
       "tag": "0141_payer_pay_lag",
       "breakpoints": true
+    },
+    {
+      "idx": 141,
+      "version": "6",
+      "when": 1797200000000,
+      "tag": "0142_geotab_connection",
+      "breakpoints": true
     }
   ]
 }

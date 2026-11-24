@@ -2895,7 +2895,7 @@ export const eldConnections = pgTable("eld_connections", {
   // pre-auth rows; migration 0108 backfills them to profile 1.
   profileId: integer("profile_id"),
   id: serial("id").primaryKey(),
-  provider: text("provider").notNull(), // samsara | motive | simulated
+  provider: text("provider").notNull(), // samsara | motive | geotab | simulated
   companyId: integer("company_id"),
   label: text("label").notNull(), // admin-chosen name, e.g. "Fleet Samsara"
   // not_connected | validating | connected | error | revoked |
@@ -2906,6 +2906,11 @@ export const eldConnections = pgTable("eld_connections", {
   status: text("status").notNull().default("not_connected"),
   tokenEnc: text("token_enc"), // enc:v1:… vault ciphertext; null after revoke
   tokenLast4: text("token_last4"),
+  // Non-secret provider account identifiers as JSON, when the
+  // provider has them (Geotab: { server, database, username } — the
+  // password itself rides in tokenEnc like any token). Null for
+  // token providers and after revoke (migration 0142).
+  providerAccount: text("provider_account"),
   // JSON: [{ feed, state, detail }] — the post-connect data-availability
   // check: which feeds actually arrived vs which the provider plan
   // blocks vs which are still awaiting the first (staged) sync. Never

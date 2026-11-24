@@ -340,6 +340,28 @@ import {
   type EldSyncFeedResult,
 } from "./eldSync";
 import {
+  fetchGeotabBatch,
+  geotabAuthenticate,
+  normalizeGeotabServer,
+  parseGeotabAccount,
+  type GeotabFetchFn,
+} from "./geotab";
+
+/** The server's real fetch, wrapped with a 20s ceiling so a hung
+ *  provider call fails plainly instead of hanging the action. */
+const geotabHttpFetch: GeotabFetchFn = async (url, init) => {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 20_000);
+  try {
+    return await globalThis.fetch(url, { ...init, signal: ctrl.signal });
+  } catch (e) {
+    if (ctrl.signal.aborted) throw new Error("Geotab didn't answer in 20 seconds — check the server address and try again. Nothing was stored.");
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+};
+import {
   parkingArrivalPlan,
   parkingPartnerFromEnv,
 } from "./parking";
@@ -14324,6 +14346,7 @@ function cleanBrokerFields(args: {
 const ELD_PROVIDER_NAMES: Record<string, string> = {
   samsara: "Samsara",
   motive: "Motive",
+  geotab: "Geotab",
   simulated: "Simulated ELD",
 };
 
@@ -14353,6 +14376,18 @@ const ELD_FEED_MAP: Record<string, { feed: string; label: string; endpoint: stri
     { feed: "ifta", label: "IFTA trips + summaries", endpoint: "GET /v1/ifta/trips · /v1/ifta/summary" },
     { feed: "identity", label: "Driver & truck identity (logged on connect)", endpoint: "GET /v1/drivers · /v1/vehicles" },
   ],
+  // Geotab (added 2026-11-24): the fetch layer is REAL (geotab.ts) —
+  // MyGeotab serves duty logs, not a clocks object, so hos_clocks is
+  // computed from the driver's own logs under the standard US limits
+  // and the snapshot set keeps the logs it was derived from.
+  geotab: [
+    { feed: "hos_clocks", label: "HOS clocks", endpoint: "MyGeotab API — Get DutyStatusLog (clocks computed from your duty logs)" },
+    { feed: "hos_logs", label: "HOS logs", endpoint: "MyGeotab API — Get DutyStatusLog" },
+    { feed: "dvirs", label: "DVIRs", endpoint: "MyGeotab API — Get DVIRLog" },
+    { feed: "vehicle_stats", label: "Vehicle stats — odometer + GPS", endpoint: "MyGeotab API — Get DeviceStatusInfo" },
+    { feed: "ifta", label: "IFTA jurisdiction miles", endpoint: "MyGeotab API — Get FuelTaxDetail" },
+    { feed: "identity", label: "Driver & truck identity (logged on connect)", endpoint: "MyGeotab API — Get User · Get Device" },
+  ],
   // The test-harness device (Wave 2 items 4+5 Step 0): no provider
   // endpoints exist — the "feed" is the simulated payload set the
   // harness itself generates, and every stored snapshot says so.
@@ -14373,6 +14408,10 @@ const eldConnectionShape = z.object({
   label: z.string(),
   status: z.string(), // not_connected | validating | connected | error | revoked | simulated
   tokenMasked: z.string().nullable(),
+  // Non-secret provider account identifiers, when the provider has
+  // them (Geotab: "Database “x” · user y · server z"). Never a secret —
+  // the secret itself only ever appears as tokenMasked / PIN reveal.
+  accountNote: z.string().nullable(),
   feeds: z.array(eldFeedShape),
   lastError: z.string().nullable(),
   connectedBy: z.string(),
@@ -14792,9 +14831,11 @@ async function eldFeedsFor(
     const marked = stored.find((s) => s.feed === f.feed && s.state === "blocked_by_plan");
     if (marked) return { ...f, state: "blocked_by_plan", detail: marked.detail };
     const stagedDetail =
-      conn.provider === "samsara" && (f.feed === "hos_logs" || f.feed === "hos_clocks" || f.feed === "dvirs")
-        ? "Awaiting first sync — live sync activates at go-live. Note: Samsara only returns HOS/DVIR data when the fleet plan carries the Telematics license; a Safety-only plan will report this feed as blocked by plan after the first sync, never as silently empty."
-        : "Awaiting first sync — live sync activates at go-live; nothing has been pulled from the provider yet.";
+      conn.provider === "geotab"
+        ? "Awaiting first sync — Geotab sync is wired: tap “Sync now” on this connection and STONEMILES pulls this feed from MyGeotab. Nothing has been pulled yet."
+        : conn.provider === "samsara" && (f.feed === "hos_logs" || f.feed === "hos_clocks" || f.feed === "dvirs")
+          ? "Awaiting first sync — live sync activates at go-live. Note: Samsara only returns HOS/DVIR data when the fleet plan carries the Telematics license; a Safety-only plan will report this feed as blocked by plan after the first sync, never as silently empty."
+          : "Awaiting first sync — live sync activates at go-live; nothing has been pulled from the provider yet.";
     return { ...f, state: "awaiting_first_sync", detail: stagedDetail };
   });
 }
@@ -14815,6 +14856,10 @@ async function toEldConnection(
     label: row.label,
     status: row.status,
     tokenMasked: row.tokenLast4 ? `••••••••${row.tokenLast4}` : null,
+    accountNote: (() => {
+      const acct = parseGeotabAccount(row.providerAccount);
+      return acct ? `MyGeotab database “${acct.database}” · user ${acct.username} · ${acct.server}` : null;
+    })(),
     feeds: row.status === "connected" || row.status === "error" || row.status === "simulated" ? await eldFeedsFor(ctx, row) : [],
     lastError: row.lastError,
     connectedBy: row.connectedBy,
@@ -26982,7 +27027,7 @@ export const Actions = {
           try {
             const p = JSON.parse(stats.payloadJson) as { odometerMi?: unknown };
             if (typeof p.odometerMi === "number") {
-              milesSource = `ELD odometer — ${c.provider === "samsara" ? "Samsara" : "Motive"}`;
+              milesSource = `ELD odometer — ${ELD_PROVIDER_NAMES[c.provider] ?? c.provider}`;
             }
           } catch { /* unparseable snapshot — GPS stays the source */ }
         }
@@ -40162,10 +40207,11 @@ export const Actions = {
           {
             key: "geotab",
             name: "Geotab",
-            state: "coming_next",
-            blurb: "On the roadmap after Samsara and Motive. No connection is offered yet — nothing to tap, nothing faked.",
-            planNote: null,
-            feeds: [],
+            state: "available",
+            blurb: "Cloud ELD + telematics (the GO device in the dash port). STONEMILES reads HOS logs — and computes your clocks from them — plus DVIRs, vehicle stats (odometer + GPS), and IFTA jurisdiction miles. Geotab sync is wired live: connect, then tap Sync now.",
+            planNote:
+              "Geotab connects differently: there is no API-token page — a MyGeotab login (database + username + password) is the credential, and your fleet admin controls who gets one with API access. STONEMILES checks the login with Geotab before saving it, stores the password encrypted exactly like a token, and only ever reads.",
+            feeds: ELD_FEED_MAP.geotab ?? [],
           },
         ],
         connections,
@@ -40268,8 +40314,17 @@ export const Actions = {
 
     description: "Connect eld.",
     request: z.object({
-      provider: z.enum(["samsara", "motive"]),
-      token: z.string().min(8).max(500),
+      provider: z.enum(["samsara", "motive", "geotab"]),
+      token: z.string().min(8).max(500).optional(),
+      // Geotab has no API token — the MyGeotab login is the credential.
+      geotab: z
+        .object({
+          server: z.string().max(120).optional(),
+          database: z.string().min(1).max(120),
+          username: z.string().min(1).max(200),
+          password: z.string().min(1).max(500),
+        })
+        .optional(),
       label: z.string().min(1).max(60),
     }),
     response: z.object({
@@ -40285,12 +40340,50 @@ export const Actions = {
         return { ok: false, error: `ELD connections are a Diamond feature — they come with Diamond Driver and Owner plans (Owner drivers get Diamond included). Your recorded plan is ${planLabel(await myPlan(ctx))}; upgrade to Diamond in Plans to connect an ELD.`, connectionId: null, status: null };
       }
       if (!gate.canManage) {
-        return { ok: false, error: "Only the fleet owner / admin can connect an ELD. Ask your owner to paste the API token — drivers and dispatch can view connection status but never handle tokens.", connectionId: null, status: null };
+        return { ok: false, error: "Only the fleet owner / admin can connect an ELD. Ask your owner to connect it — drivers and dispatch can view connection status but never handle credentials.", connectionId: null, status: null };
       }
-      const token = args.token.trim();
-      if (containsCardNumber(token)) {
-        await logSecurityEvent(ctx, "eld_token_rejected", "An ELD token field shaped like a card number was rejected before storage");
-        return { ok: false, error: "That looks like a card number, not an API token — card numbers never go in this app. Paste the API token from your provider dashboard.", connectionId: null, status: null };
+      // Geotab: the MyGeotab login is checked against Geotab BEFORE
+      // anything is stored — a bad password connects nothing. The
+      // password then rides in the same vault slot as a token;
+      // server/database/username (identifiers, not secrets) ride in
+      // provider_account. Samsara/Motive keep the token path.
+      let secret: string;
+      let providerAccount: string | null = null;
+      let syncStaged = true;
+      if (args.provider === "geotab") {
+        const g = args.geotab;
+        if (!g) {
+          return { ok: false, error: "Geotab connects with a MyGeotab login — database, username, and password are all required.", connectionId: null, status: null };
+        }
+        const creds = {
+          server: normalizeGeotabServer(g.server),
+          database: g.database.trim(),
+          username: g.username.trim(),
+          password: g.password,
+        };
+        if (containsCardNumber(creds.password)) {
+          await logSecurityEvent(ctx, "eld_token_rejected", "A Geotab password field shaped like a card number was rejected before storage");
+          return { ok: false, error: "That looks like a card number, not a password — card numbers never go in this app. Enter the MyGeotab password.", connectionId: null, status: null };
+        }
+        let session: Awaited<ReturnType<typeof geotabAuthenticate>>;
+        try {
+          session = await geotabAuthenticate(geotabHttpFetch, creds);
+        } catch (e) {
+          return { ok: false, error: e instanceof Error ? e.message : "Geotab refused the sign-in — nothing was stored.", connectionId: null, status: null };
+        }
+        secret = creds.password;
+        providerAccount = JSON.stringify({ server: session.server, database: creds.database, username: creds.username });
+        syncStaged = false;
+      } else {
+        const token = (args.token ?? "").trim();
+        if (token.length < 8) {
+          return { ok: false, error: `Paste the ${ELD_PROVIDER_NAMES[args.provider]} API token from the provider dashboard.`, connectionId: null, status: null };
+        }
+        if (containsCardNumber(token)) {
+          await logSecurityEvent(ctx, "eld_token_rejected", "An ELD token field shaped like a card number was rejected before storage");
+          return { ok: false, error: "That looks like a card number, not an API token — card numbers never go in this app. Paste the API token from your provider dashboard.", connectionId: null, status: null };
+        }
+        secret = token;
       }
       const existing = await db
         .select()
@@ -40304,7 +40397,10 @@ export const Actions = {
       const feeds = (ELD_FEED_MAP[args.provider] ?? []).map((f) => ({
         feed: f.feed,
         state: "awaiting_first_sync",
-        detail: "Awaiting first sync — live sync activates at go-live.",
+        detail:
+          args.provider === "geotab"
+            ? "Awaiting first sync — tap “Sync now” on this connection to pull from Geotab."
+            : "Awaiting first sync — live sync activates at go-live.",
       }));
       const inserted = await db
         .insert(schema.eldConnections)
@@ -40313,8 +40409,9 @@ export const Actions = {
           companyId: mine?.company.id ?? null,
           label: args.label.trim(),
           status: "connected",
-          tokenEnc: await encryptPii(ctx, token),
-          tokenLast4: token.slice(-4),
+          tokenEnc: await encryptPii(ctx, secret),
+          tokenLast4: secret.slice(-4),
+          providerAccount,
           feedsJson: JSON.stringify(feeds),
           lastError: null,
           connectedBy: gate.me,
@@ -40330,9 +40427,9 @@ export const Actions = {
         payload: {
           provider: args.provider,
           label: args.label.trim(),
-          tokenLast4: token.slice(-4),
+          tokenLast4: secret.slice(-4),
           readOnly: true,
-          syncStaged: true,
+          syncStaged,
           by: gate.me,
           at: new Date().toISOString(),
         },
@@ -40407,7 +40504,7 @@ export const Actions = {
       if (conn.status === "revoked") return { ok: false, error: "That connection is already revoked." };
       await db
         .update(schema.eldConnections)
-        .set({ status: "revoked", tokenEnc: null, tokenLast4: null, revokedAt: new Date(), updatedAt: new Date() })
+        .set({ status: "revoked", tokenEnc: null, tokenLast4: null, providerAccount: null, revokedAt: new Date(), updatedAt: new Date() })
         .where(eq(schema.eldConnections.id, conn.id));
       await appendChain(ctx, {
         refKind: "driver",
@@ -40546,6 +40643,102 @@ export const Actions = {
         rejected: r.rejected,
         lines: r.lines,
         note: "Test sync complete — simulated device data flowed through the real sync pipeline and is stored stamped “simulated”. Live sync starts when a real ELD device is connected; nothing here is live provider data.",
+      };
+    },
+  }),
+
+  // REAL provider sync (Geotab, added 2026-11-24): pulls the
+  // connection's feeds from MyGeotab through geotab.ts and lands them
+  // via applyEldSyncBatch with source "provider" — the same pipeline
+  // the test harness proves, now fed by a real device. The device is
+  // matched by the VIN on the caller's truck profile (Settings →
+  // Truck): a fleet database holds many trucks, and syncing the
+  // wrong one would be worse than syncing none. Samsara/Motive have
+  // no fetch layer yet and say so plainly instead of pretending.
+  syncEldNow: defineAction({
+    description: "Sync a connected ELD now — pulls real provider data (Geotab) through the ELD sync pipeline.",
+    request: z.object({ connectionId: z.number().int().positive() }),
+    response: z.object({
+      ok: z.boolean(),
+      error: z.string().nullable(),
+      accepted: z.number(),
+      rejected: z.number(),
+      lines: z.array(z.string()),
+      note: z.string().nullable(),
+    }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const gate = await eldManageGate(ctx);
+      if (!gate.premium) {
+        return { ok: false, error: "ELD connections are a Diamond feature — syncing runs on a connection, and connections come with Diamond Driver and Owner plans.", accepted: 0, rejected: 0, lines: [], note: null };
+      }
+      if (!gate.canManage) {
+        return { ok: false, error: "Only the fleet owner / admin can sync an ELD connection — drivers and dispatch can view connection status.", accepted: 0, rejected: 0, lines: [], note: null };
+      }
+      const rows = await db
+        .select()
+        .from(schema.eldConnections)
+        .where(eq(schema.eldConnections.id, args.connectionId))
+        .limit(1);
+      const conn = rows[0];
+      if (!conn) return { ok: false, error: "That ELD connection doesn't exist.", accepted: 0, rejected: 0, lines: [], note: null };
+      if (conn.status === "revoked") {
+        return { ok: false, error: "That connection was revoked — its credential is wiped, so there's nothing to sync with. Connect the ELD again first.", accepted: 0, rejected: 0, lines: [], note: null };
+      }
+      if (conn.provider !== "geotab") {
+        return { ok: false, error: `Live sync for ${ELD_PROVIDER_NAMES[conn.provider] ?? conn.provider} activates at go-live — only Geotab's fetch layer is wired today. The connection stands read-only and its feeds keep reporting “awaiting first sync” until then.`, accepted: 0, rejected: 0, lines: [], note: null };
+      }
+      const account = parseGeotabAccount(conn.providerAccount);
+      if (!account || !conn.tokenEnc) {
+        return { ok: false, error: "This Geotab connection is missing its stored login — revoke it and connect again.", accepted: 0, rejected: 0, lines: [], note: null };
+      }
+      const password = await decryptPii(ctx, conn.tokenEnc);
+      if (password == null) {
+        return { ok: false, error: "The stored Geotab password couldn't be decrypted — revoke and reconnect this ELD.", accepted: 0, rejected: 0, lines: [], note: null };
+      }
+      const prof = await db.select().from(schema.profile).where(eq(schema.profile.id, myProfileId(ctx))).limit(1);
+      const vin = (prof[0]?.truckVin ?? "").trim();
+      if (!vin) {
+        return { ok: false, error: "Your truck profile has no VIN yet — add it in Settings → Truck first. The sync matches your Geotab device by VIN, so it can never pull another truck's data.", accepted: 0, rejected: 0, lines: [], note: null };
+      }
+      let fetched: Awaited<ReturnType<typeof fetchGeotabBatch>>;
+      try {
+        fetched = await fetchGeotabBatch(geotabHttpFetch, { ...account, password }, { vin, now: new Date() });
+      } catch (e) {
+        const message = e instanceof Error ? e.message : "Geotab didn't answer — the sync stored nothing.";
+        await db
+          .update(schema.eldConnections)
+          .set({ lastError: message, updatedAt: new Date() })
+          .where(eq(schema.eldConnections.id, conn.id));
+        ctx.invalidateQueries();
+        return { ok: false, error: message, accepted: 0, rejected: 0, lines: [], note: null };
+      }
+      if (fetched.batch.length === 0) {
+        const message = "Geotab answered, but none of its feeds carried data for your truck yet — nothing was stored. Run a trip with the ELD signed in, then sync again.";
+        await db
+          .update(schema.eldConnections)
+          .set({ lastError: message, updatedAt: new Date() })
+          .where(eq(schema.eldConnections.id, conn.id));
+        ctx.invalidateQueries();
+        return { ok: false, error: message, accepted: 0, rejected: 0, lines: [], note: null };
+      }
+      const r = await applyEldSyncBatch(ctx, conn, fetched.batch, "provider");
+      await db
+        .update(schema.eldConnections)
+        .set({ lastError: null, updatedAt: new Date() })
+        .where(eq(schema.eldConnections.id, conn.id));
+      ctx.invalidateQueries();
+      const lines = [...r.lines];
+      if (fetched.skipped.length > 0) {
+        lines.push(`No data from Geotab for: ${fetched.skipped.join(", ")} — those feeds keep their previous state; nothing was filled in.`);
+      }
+      return {
+        ok: true,
+        error: null,
+        accepted: r.accepted,
+        rejected: r.rejected,
+        lines,
+        note: `Live sync from Geotab${fetched.deviceName ? ` (device “${fetched.deviceName}”)` : ""} — real provider data, stored as received. Geotab stays the official record; STONEMILES mirrors it.`,
       };
     },
   }),

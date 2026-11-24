@@ -27250,6 +27250,10 @@ const ELD_STATUS_LABEL: Record<string, string> = {
   simulated: "Simulated device (test data)",
 };
 
+/** What the stored credential is called, per provider: a token for
+ *  Samsara/Motive, the MyGeotab password for Geotab. */
+const eldCredNoun = (provider: string): string => (provider === "geotab" ? "MyGeotab password" : "API token");
+
 const ELD_TOKEN_DIRECTIONS: Record<string, string[]> = {
   samsara: [
     "Sign in to your Samsara dashboard (cloud.samsara.com) as a fleet admin.",
@@ -27263,6 +27267,13 @@ const ELD_TOKEN_DIRECTIONS: Record<string, string[]> = {
     "Copy the key and paste it below. STONEMILES never asks for your Motive password — the key is the whole connection, and you can revoke it in Motive anytime too.",
   ],
 };
+
+const ELD_GEOTAB_DIRECTIONS: string[] = [
+  "Geotab has no API-token page — the MyGeotab login IS the credential. Ask your fleet admin for a MyGeotab username and password with API access on the fleet's database (a “service account” or your own driver login both work, as long as the admin enabled API access on it).",
+  "Your database name is the one on the MyGeotab sign-in screen — the fleet's database, chosen before username and password.",
+  "Server: leave it as my.geotab.com unless your MyGeotab address is a numbered server (like my123.geotab.com) — it's the first part of the address you sign in at.",
+  "Before anything is saved, STONEMILES signs in to Geotab with what you entered — a wrong password connects nothing. The password is then stored encrypted, exactly like a token, and only ever used to READ.",
+];
 
 /**
  * ELD identity log card (spec §6, x 2026-11-01): everything the
@@ -27331,8 +27342,10 @@ function eldFeedStateLabel(state: string): string {
 }
 
 /**
- * ELD Connections hub — cloud ELD platforms (Samsara, then Motive;
- * Geotab "coming next"), DIAMOND (Diamond Driver / Owner). Basic and Gold
+ * ELD Connections hub — cloud ELD platforms (Samsara, Motive, and
+ * Geotab — Geotab's fetch layer went live 2026-11-24, so its
+ * connections carry a real “Sync now”; Samsara/Motive sync stays
+ * staged), DIAMOND (Diamond Driver / Owner). Basic and Gold
  * sees the locked card with the upgrade path — no fake access. Tokens
  * follow the EIN vault pattern: encrypted at rest server-side, masked
  * here, revealed only through the PIN-gated audited action. Live
@@ -27381,13 +27394,69 @@ function EldConnectionsHub({ onOpenPlans }: { onOpenPlans?: () => void }) {
       .catch(() => setMsg("Couldn't connect — check your connection and try again."));
   };
 
+  // Geotab connect: no token — the MyGeotab login is the credential.
+  // The server signs in to Geotab BEFORE storing anything, so a wrong
+  // password comes back as an error here and connects nothing.
+  const [gtServer, setGtServer] = useState("my.geotab.com");
+  const [gtDatabase, setGtDatabase] = useState("");
+  const [gtUsername, setGtUsername] = useState("");
+  const [gtPassword, setGtPassword] = useState("");
+  const [gtBusy, setGtBusy] = useState(false);
+  const doConnectGeotab = () => {
+    setMsg(null);
+    setGtBusy(true);
+    void api
+      .connectEld({
+        provider: "geotab",
+        geotab: { server: gtServer.trim() || undefined, database: gtDatabase.trim(), username: gtUsername.trim(), password: gtPassword },
+        label: label.trim() || "Geotab fleet",
+      })
+      .then((r) => {
+        if (r.ok) {
+          setMsg("Geotab connected (read-only) — the login checked out with Geotab. The password is encrypted in the vault and only its last 4 digits are ever shown. Tap “Sync now” on the connection to pull your real data.");
+          setGtPassword("");
+          setLabel("");
+          setConnectFor(null);
+          void queryClient.invalidateQueries({ queryKey: ["eld-hub"] });
+        } else {
+          setMsg(r.error ?? "Couldn't connect — try again.");
+        }
+      })
+      .catch(() => setMsg("Couldn't connect — check your connection and try again."))
+      .finally(() => setGtBusy(false));
+  };
+
+  // REAL provider sync (Geotab): pulls live data through the sync
+  // pipeline. Result lines + note come back from the server and are
+  // shown verbatim, exactly like the test sync's.
+  const [liveSyncBusy, setLiveSyncBusy] = useState<number | null>(null);
+  const [liveSyncResult, setLiveSyncResult] = useState<{ id: number; lines: string[]; note: string | null } | null>(null);
+  const doSyncNow = (conn: EldConnT) => {
+    setLiveSyncBusy(conn.id);
+    setMsg(null);
+    void api
+      .syncEldNow({ connectionId: conn.id })
+      .then((r) => {
+        if (r.ok) {
+          setLiveSyncResult({ id: conn.id, lines: r.lines, note: r.note });
+          void queryClient.invalidateQueries({ queryKey: ["eld-hub"] });
+          void queryClient.invalidateQueries({ queryKey: ["eld-identity"] });
+          void queryClient.invalidateQueries({ queryKey: ["eld-ifta"] });
+        } else {
+          setMsg(r.error ?? "The sync couldn't run.");
+        }
+      })
+      .catch(() => setMsg("The sync couldn't run — check your connection and try again."))
+      .finally(() => setLiveSyncBusy(null));
+  };
+
   const doReveal = (conn: EldConnT) => {
     void api
       .revealEldToken({ connectionId: conn.id, pin: revealPin || undefined })
       .then((r) => {
         if (r.ok && r.token) {
           setRevealed({ id: conn.id, token: r.token });
-          setMsg("Token revealed — this view was written to the security audit trail and sealed.");
+          setMsg("Credential revealed — this view was written to the security audit trail and sealed.");
         } else {
           setMsg(r.error ?? "Couldn't reveal the token.");
         }
@@ -27400,7 +27469,7 @@ function EldConnectionsHub({ onOpenPlans }: { onOpenPlans?: () => void }) {
     void api
       .revokeEldConnection({ connectionId: conn.id })
       .then((r) => {
-        setMsg(r.ok ? `${conn.providerName} disconnected. Sync stops now and the stored token was wiped. Records already synced stay sealed in STONEMILES; ${conn.providerName} keeps the official copy.` : (r.error ?? "Couldn't revoke — try again."));
+        setMsg(r.ok ? `${conn.providerName} disconnected. Sync stops now and the stored credential was wiped. Records already synced stay sealed in STONEMILES; ${conn.providerName} keeps the official copy.` : (r.error ?? "Couldn't revoke — try again."));
         setConfirmRevoke(null);
         setRevealed(null);
         void queryClient.invalidateQueries({ queryKey: ["eld-hub"] });
@@ -27506,9 +27575,10 @@ function EldConnectionsHub({ onOpenPlans }: { onOpenPlans?: () => void }) {
             </p>
           )}
           <p className="mt-2 rounded-lg bg-[var(--surface)] px-2.5 py-2 text-xs" role="status">
-            Live data sync is <strong>staged</strong>: it activates with the app backend at release. Connecting
-            now stores your token securely and stands the connection up read-only — feeds report “awaiting first
-            sync” until real provider data arrives. Nothing is ever filled in or estimated.
+            <strong>Geotab sync is live</strong> — connect it, then tap “Sync now” on the connection and real data
+            flows in. Samsara and Motive sync is still <strong>staged</strong> (it activates with the app backend
+            at release): connecting them stores the token securely and stands the connection up read-only, feeds
+            reporting “awaiting first sync” until real provider data arrives. Nothing is ever filled in or estimated.
           </p>
 
           {/* Existing connections */}
@@ -27529,6 +27599,7 @@ function EldConnectionsHub({ onOpenPlans }: { onOpenPlans?: () => void }) {
                     {c.revokedAt ? ` · Revoked ${new Date(c.revokedAt).toLocaleDateString()}` : ""}
                     {c.snapshotsReceived > 0 ? ` · ${c.snapshotsReceived} synced feed snapshot${c.snapshotsReceived === 1 ? "" : "s"}` : " · No synced data yet"}
                   </p>
+                  {c.accountNote && <p className="mt-0.5 text-xs text-[var(--dim)]">{c.accountNote}</p>}
                   {c.lastError && c.status === "error" && (
                     <p className="mt-1 text-xs font-semibold text-red-300">Last error: {c.lastError}</p>
                   )}
@@ -27537,12 +27608,12 @@ function EldConnectionsHub({ onOpenPlans }: { onOpenPlans?: () => void }) {
                     <div className="mt-2">
                       {revealed?.id === c.id ? (
                         <p className="text-sm">
-                          API token: <strong className="font-mono break-all">{revealed.token}</strong>{" "}
-                          <button type="button" className="ml-1 font-bold underline" aria-label={`Hide the ${c.providerName} token`} onClick={() => setRevealed(null)}>Hide</button>
+                          {eldCredNoun(c.provider)}: <strong className="font-mono break-all">{revealed.token}</strong>{" "}
+                          <button type="button" className="ml-1 font-bold underline" aria-label={`Hide the ${c.providerName} credential`} onClick={() => setRevealed(null)}>Hide</button>
                         </p>
                       ) : hub.canManage ? (
                         <div className="flex gap-2">
-                          <span className="flex items-center rounded-lg bg-[var(--surface2)] px-2.5 text-sm font-mono" aria-label={`${c.providerName} token, masked`}>{c.tokenMasked}</span>
+                          <span className="flex items-center rounded-lg bg-[var(--surface2)] px-2.5 text-sm font-mono" aria-label={`${c.providerName} credential, masked`}>{c.tokenMasked}</span>
                           <input
                             type="password"
                             inputMode="numeric"
@@ -27550,19 +27621,19 @@ function EldConnectionsHub({ onOpenPlans }: { onOpenPlans?: () => void }) {
                             placeholder={pinSet ? "App PIN" : "No PIN set"}
                             value={revealPin}
                             onChange={(e) => setRevealPin(e.target.value.replace(/\D/g, "").slice(0, 8))}
-                            aria-label={`PIN to reveal the ${c.providerName} token`}
+                            aria-label={`PIN to reveal the ${c.providerName} credential`}
                           />
                           <button
                             type="button"
                             className="shrink-0 rounded-lg bg-[var(--surface2)] border border-[var(--border)] px-3 py-2 text-sm font-bold"
-                            aria-label={`Reveal the ${c.providerName} API token`}
+                            aria-label={`Reveal the ${c.providerName} ${eldCredNoun(c.provider)}`}
                             onClick={() => doReveal(c)}
                           >
                             Reveal
                           </button>
                         </div>
                       ) : (
-                        <p className="text-sm">API token: <strong className="font-mono">{c.tokenMasked}</strong> <span className="text-xs text-[var(--dim)]">(masked — owner/admin only can reveal)</span></p>
+                        <p className="text-sm">{eldCredNoun(c.provider)}: <strong className="font-mono">{c.tokenMasked}</strong> <span className="text-xs text-[var(--dim)]">(masked — owner/admin only can reveal)</span></p>
                       )}
                       <p className="mt-0.5 text-[11px] text-[var(--dim)]">Stored encrypted in the app vault. Reveals are PIN-gated and written to the security audit trail.</p>
                     </div>
@@ -27585,6 +27656,37 @@ function EldConnectionsHub({ onOpenPlans }: { onOpenPlans?: () => void }) {
 
                   {hub.canManage && c.status !== "revoked" && (
                     <div className="mt-2.5">
+                      {c.provider === "geotab" && (
+                        <div className="mb-2 rounded-xl border border-emerald-300/40 bg-emerald-950/20 p-2.5">
+                          <p className="text-xs leading-relaxed">
+                            <strong>Sync now — live Geotab data.</strong> Pulls your real HOS logs, DVIRs,
+                            odometer + GPS, and IFTA miles from MyGeotab through the sync pipeline. Your device
+                            is matched by the VIN in Settings → Truck, so another truck's data can never land
+                            here. <strong>Geotab stays the official record</strong> — STONEMILES mirrors it.
+                          </p>
+                          <button
+                            type="button"
+                            className="btn-neon btn-press mt-2 rounded-lg px-3 py-2 text-xs font-bold text-black"
+                            aria-label="Sync now from Geotab"
+                            disabled={liveSyncBusy === c.id}
+                            onClick={() => doSyncNow(c)}
+                          >
+                            {liveSyncBusy === c.id ? "Syncing…" : "🔄 Sync now"}
+                          </button>
+                          {liveSyncResult?.id === c.id && (
+                            <div className="mt-2">
+                              <ul className="space-y-0.5 text-xs leading-relaxed">
+                                {liveSyncResult.lines.map((line) => (
+                                  <li key={line}>• {line}</li>
+                                ))}
+                              </ul>
+                              {liveSyncResult.note && (
+                                <p className="mt-1.5 text-xs leading-relaxed text-[var(--dim)]" role="status">{liveSyncResult.note}</p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
                       <div className="mb-2 rounded-xl border border-[var(--border)] bg-[var(--surface2)] p-2.5">
                         <p className="text-xs leading-relaxed">
                           <strong>Test sync — simulated device.</strong> Pushes simulated ELD data through the
@@ -27618,12 +27720,12 @@ function EldConnectionsHub({ onOpenPlans }: { onOpenPlans?: () => void }) {
                       {confirmRevoke === c.id ? (
                         <div className="rounded-xl border border-red-400/50 bg-red-950/30 p-2.5">
                           <p className="text-xs leading-relaxed">
-                            Revoke {c.providerName}? Sync stops immediately and the stored token is wiped from the
+                            Revoke {c.providerName}? Sync stops immediately and the stored credential is wiped from the
                             vault. <strong>Records already synced stay sealed in STONEMILES</strong> — revoking never
                             deletes your history — and {c.providerName} keeps the official copy, as always.
                           </p>
                           <div className="mt-2 flex gap-2">
-                            <button type="button" className="flex-1 rounded-lg bg-red-500 py-2 text-sm font-bold text-white" aria-label={`Confirm revoke ${c.providerName} connection`} onClick={() => doRevoke(c)}>Revoke &amp; wipe token</button>
+                            <button type="button" className="flex-1 rounded-lg bg-red-500 py-2 text-sm font-bold text-white" aria-label={`Confirm revoke ${c.providerName} connection`} onClick={() => doRevoke(c)}>Revoke &amp; wipe credential</button>
                             <button type="button" className="flex-1 rounded-lg bg-[var(--surface2)] border border-[var(--border)] py-2 text-sm font-bold" aria-label="Cancel revoke" onClick={() => setConfirmRevoke(null)}>Keep connected</button>
                           </div>
                         </div>
@@ -27776,6 +27878,91 @@ function EldConnectionsHub({ onOpenPlans }: { onOpenPlans?: () => void }) {
                           className="rounded-xl bg-[var(--surface)] border border-[var(--border)] px-4 py-2.5 font-bold"
                           aria-label="Cancel connecting"
                           onClick={() => { setConnectFor(null); setToken(""); }}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {isForm && p.key === "geotab" && (
+                    <div className="mt-2.5 rounded-xl bg-[var(--surface2)] p-3">
+                      <div className="text-sm font-bold">Before you enter anything — how this works</div>
+                      <ul className="mt-1 list-disc space-y-1 pl-5 text-xs leading-relaxed text-[var(--dim)]">
+                        <li><strong className="text-[var(--text)]">What STONEMILES reads:</strong> the feeds listed above — HOS logs &amp; the clocks computed from them, DVIRs, odometer + GPS, IFTA miles. Nothing else.</li>
+                        <li><strong className="text-[var(--text)]">Read-only, forever:</strong> STONEMILES NEVER writes to or edits your ELD. There is no write path in the app — your logs can't be changed from here.</li>
+                        <li><strong className="text-[var(--text)]">Your ELD stays the official record.</strong> STONEMILES mirrors it and labels every mirrored figure with its source.</li>
+                        <li><strong className="text-[var(--text)]">Checked before it's saved:</strong> STONEMILES signs in to Geotab with this login first — a wrong password connects nothing and stores nothing.</li>
+                        <li><strong className="text-[var(--text)]">Revoke anytime</strong> — here, or in MyGeotab itself. Revoking stops sync at once and wipes the stored password; records already synced stay sealed in STONEMILES.</li>
+                      </ul>
+                      <div className="mt-2 text-xs font-bold">What you need from your fleet admin:</div>
+                      <ol className="mt-1 list-decimal space-y-1 pl-5 text-xs leading-relaxed text-[var(--dim)]">
+                        {ELD_GEOTAB_DIRECTIONS.map((s, i) => <li key={i}>{s}</li>)}
+                      </ol>
+                      <label className="mt-3 block text-xs font-bold" htmlFor="eld-label-geotab">Connection name</label>
+                      <input
+                        id="eld-label-geotab"
+                        className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-2 text-sm"
+                        placeholder="e.g. Geotab — my carrier"
+                        value={label}
+                        onChange={(e) => setLabel(e.target.value)}
+                        aria-label="Name for the Geotab connection"
+                      />
+                      <label className="mt-2 block text-xs font-bold" htmlFor="eld-gt-server">MyGeotab server</label>
+                      <input
+                        id="eld-gt-server"
+                        autoComplete="off"
+                        className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-2 font-mono text-sm"
+                        placeholder="my.geotab.com"
+                        value={gtServer}
+                        onChange={(e) => setGtServer(e.target.value)}
+                        aria-label="MyGeotab server"
+                      />
+                      <label className="mt-2 block text-xs font-bold" htmlFor="eld-gt-database">Database</label>
+                      <input
+                        id="eld-gt-database"
+                        autoComplete="off"
+                        className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-2 font-mono text-sm"
+                        placeholder="Your fleet's MyGeotab database name"
+                        value={gtDatabase}
+                        onChange={(e) => setGtDatabase(e.target.value)}
+                        aria-label="MyGeotab database"
+                      />
+                      <label className="mt-2 block text-xs font-bold" htmlFor="eld-gt-username">Username</label>
+                      <input
+                        id="eld-gt-username"
+                        autoComplete="off"
+                        className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-2 font-mono text-sm"
+                        placeholder="MyGeotab username (often your email)"
+                        value={gtUsername}
+                        onChange={(e) => setGtUsername(e.target.value)}
+                        aria-label="MyGeotab username"
+                      />
+                      <label className="mt-2 block text-xs font-bold" htmlFor="eld-gt-password">Password</label>
+                      <input
+                        id="eld-gt-password"
+                        type="password"
+                        autoComplete="off"
+                        className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-2 font-mono text-sm"
+                        placeholder="MyGeotab password — checked with Geotab, then encrypted"
+                        value={gtPassword}
+                        onChange={(e) => setGtPassword(e.target.value)}
+                        aria-label="MyGeotab password"
+                      />
+                      <div className="mt-2.5 flex gap-2">
+                        <button
+                          type="button"
+                          className="btn-neon btn-press flex-1 rounded-xl py-2.5 font-bold text-black disabled:opacity-50"
+                          disabled={gtBusy || gtDatabase.trim() === "" || gtUsername.trim() === "" || gtPassword === ""}
+                          aria-label="Connect Geotab with this MyGeotab login"
+                          onClick={doConnectGeotab}
+                        >
+                          {gtBusy ? "Checking with Geotab…" : "Connect — read-only"}
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-xl bg-[var(--surface)] border border-[var(--border)] px-4 py-2.5 font-bold"
+                          aria-label="Cancel connecting"
+                          onClick={() => { setConnectFor(null); setGtPassword(""); }}
                         >
                           Cancel
                         </button>
