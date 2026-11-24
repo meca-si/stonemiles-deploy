@@ -20674,7 +20674,7 @@ export function App() {
                     "Fuel Coach — full: live speed/idle coaching plus full per-load debriefs (Gold keeps the basic weekly summary)",
                     "Net-Price Fuel Planner — full: net-of-tax ranking of every priced stop, plus the lane fuel plan BEFORE, DURING, and AFTER each load with the full after-load debrief",
                     "HOS-aware parking planning — full parking assistance: parking along your route plus end-of-day planning tied to your HOS clocks, surfacing spots before your drive time runs out, with parking intel/reports and saved spots",
-                    "ELD connections — Samsara & Motive cloud ELD, read-only: mirrored HOS clocks, ELD DVIRs in the DOT packet, ELD-odometer miles, IFTA reconciliation (live sync at go-live)",
+                    "ELD connections — Samsara, Motive & Geotab cloud ELD, read-only: mirrored HOS clocks, ELD DVIRs in the DOT packet, ELD-odometer miles, IFTA reconciliation (live sync)",
                     "Safety Academy — 10 training courses (lessons + quizzes in English & Spanish) + owner-uploaded training videos; every pass seals into your record and counts on your Reputation Passport; core courses refresh every 31-day season",
                     "Settlement Checker — settlements compared line-by-line against your sealed records",
                     "Load Worth-It Advisor (full) — green/yellow/red from your own break-even, deadhead, and detention history",
@@ -26764,7 +26764,7 @@ function EldPortalBlock({ myUsername }: { myUsername: string }) {
             </div>
             <p className="mt-0.5 text-xs text-[var(--dim)]">
               Status: {ELD_STATUS_LABEL[c.status] ?? c.status} · Connected by @{c.connectedBy} ·{" "}
-              {c.snapshotsReceived > 0 ? `${c.snapshotsReceived} feed snapshot${c.snapshotsReceived === 1 ? "" : "s"} received` : "No synced data yet — live sync activates at go-live"}
+              {c.snapshotsReceived > 0 ? `${c.snapshotsReceived} feed snapshot${c.snapshotsReceived === 1 ? "" : "s"} received` : "No synced data yet — connect the ELD and tap Sync now"}
             </p>
             {openId === c.id && (
               <div className="mt-1.5 text-xs leading-relaxed text-[var(--dim)]">
@@ -27254,6 +27254,13 @@ const ELD_STATUS_LABEL: Record<string, string> = {
  *  Samsara/Motive, the MyGeotab password for Geotab. */
 const eldCredNoun = (provider: string): string => (provider === "geotab" ? "MyGeotab password" : "API token");
 
+/** Per-provider copy for the live “Sync now” block on a connection card. */
+const ELD_SYNC_NOW_COPY: Record<string, { source: string; feeds: string }> = {
+  geotab: { source: "MyGeotab", feeds: "HOS logs, DVIRs, odometer + GPS, and IFTA miles" },
+  samsara: { source: "Samsara", feeds: "HOS clocks + logs, DVIRs, odometer + GPS, and IFTA miles" },
+  motive: { source: "Motive", feeds: "HOS clocks + logs, DVIRs, vehicle location + odometer, and IFTA miles" },
+};
+
 const ELD_TOKEN_DIRECTIONS: Record<string, string[]> = {
   samsara: [
     "Sign in to your Samsara dashboard (cloud.samsara.com) as a fleet admin.",
@@ -27343,16 +27350,15 @@ function eldFeedStateLabel(state: string): string {
 
 /**
  * ELD Connections hub — cloud ELD platforms (Samsara, Motive, and
- * Geotab — Geotab's fetch layer went live 2026-11-24, so its
- * connections carry a real “Sync now”; Samsara/Motive sync stays
- * staged), DIAMOND (Diamond Driver / Owner). Basic and Gold
- * sees the locked card with the upgrade path — no fake access. Tokens
- * follow the EIN vault pattern: encrypted at rest server-side, masked
- * here, revealed only through the PIN-gated audited action. Live
- * provider sync is staged (activates with the backend release), so a
- * fresh connection honestly stands at "awaiting first sync" on every
- * feed and NO ELD data is shown that didn't arrive. Read-only forever:
- * there is no write path to a provider anywhere in the app.
+ * Geotab — all three fetch layers are live as of 2026-11-24, so every
+ * connection carries a real “Sync now”), DIAMOND (Diamond Driver /
+ * Owner). Basic and Gold sees the locked card with the upgrade path —
+ * no fake access. Tokens follow the EIN vault pattern: encrypted at
+ * rest server-side, masked here, revealed only through the PIN-gated
+ * audited action. A fresh connection honestly stands at "awaiting
+ * first sync" on every feed until the first sync pulls real data, and
+ * NO ELD data is shown that didn't arrive. Read-only forever: there
+ * is no write path to a provider anywhere in the app.
  */
 function EldConnectionsHub({ onOpenPlans }: { onOpenPlans?: () => void }) {
   const queryClient = useQueryClient();
@@ -27382,7 +27388,7 @@ function EldConnectionsHub({ onOpenPlans }: { onOpenPlans?: () => void }) {
       .connectEld({ provider, token: token.trim(), label: label.trim() || `${providerName} fleet` })
       .then((r) => {
         if (r.ok) {
-          setMsg(`${providerName} connected (read-only). The token is encrypted in the vault and only its last 4 digits are ever shown. Live sync activates at go-live — every feed below honestly reads “awaiting first sync” until real data arrives.`);
+          setMsg(`${providerName} connected (read-only). The token is encrypted in the vault and only its last 4 digits are ever shown. Tap “Sync now” on the connection to pull your real data — every feed below honestly reads “awaiting first sync” until then.`);
           setToken("");
           setLabel("");
           setConnectFor(null);
@@ -27575,10 +27581,10 @@ function EldConnectionsHub({ onOpenPlans }: { onOpenPlans?: () => void }) {
             </p>
           )}
           <p className="mt-2 rounded-lg bg-[var(--surface)] px-2.5 py-2 text-xs" role="status">
-            <strong>Geotab sync is live</strong> — connect it, then tap “Sync now” on the connection and real data
-            flows in. Samsara and Motive sync is still <strong>staged</strong> (it activates with the app backend
-            at release): connecting them stores the token securely and stands the connection up read-only, feeds
-            reporting “awaiting first sync” until real provider data arrives. Nothing is ever filled in or estimated.
+            <strong>Live sync is on for Geotab, Samsara, and Motive</strong> — connect one, then tap “Sync now”
+            on the connection and real data flows in. Connecting stores the credential securely and stands the
+            connection up read-only; feeds report “awaiting first sync” until real provider data arrives.
+            Nothing is ever filled in or estimated.
           </p>
 
           {/* Existing connections */}
@@ -27656,18 +27662,18 @@ function EldConnectionsHub({ onOpenPlans }: { onOpenPlans?: () => void }) {
 
                   {hub.canManage && c.status !== "revoked" && (
                     <div className="mt-2.5">
-                      {c.provider === "geotab" && (
+                      {ELD_SYNC_NOW_COPY[c.provider] && (
                         <div className="mb-2 rounded-xl border border-emerald-300/40 bg-emerald-950/20 p-2.5">
                           <p className="text-xs leading-relaxed">
-                            <strong>Sync now — live Geotab data.</strong> Pulls your real HOS logs, DVIRs,
-                            odometer + GPS, and IFTA miles from MyGeotab through the sync pipeline. Your device
+                            <strong>Sync now — live {c.providerName} data.</strong> Pulls your real {ELD_SYNC_NOW_COPY[c.provider]!.feeds}
+                            {" "}from {ELD_SYNC_NOW_COPY[c.provider]!.source} through the sync pipeline. Your device
                             is matched by the VIN in Settings → Truck, so another truck's data can never land
-                            here. <strong>Geotab stays the official record</strong> — STONEMILES mirrors it.
+                            here. <strong>{c.providerName} stays the official record</strong> — STONEMILES mirrors it.
                           </p>
                           <button
                             type="button"
                             className="btn-neon btn-press mt-2 rounded-lg px-3 py-2 text-xs font-bold text-black"
-                            aria-label="Sync now from Geotab"
+                            aria-label={`Sync now from ${c.providerName}`}
                             disabled={liveSyncBusy === c.id}
                             onClick={() => doSyncNow(c)}
                           >
@@ -27693,7 +27699,7 @@ function EldConnectionsHub({ onOpenPlans }: { onOpenPlans?: () => void }) {
                           real sync pipeline (contract validation → feed snapshots → identity log → sealed
                           sync record), so the whole path is proven before a real device exists. Stored data
                           is stamped “simulated” and never poses as your ELD's official record.{" "}
-                          <strong>Live sync still awaits a real ELD device.</strong>
+                          <strong>For real data, use “Sync now” on a connected ELD.</strong>
                         </p>
                         <button
                           type="button"
@@ -27756,7 +27762,7 @@ function EldConnectionsHub({ onOpenPlans }: { onOpenPlans?: () => void }) {
                 device</strong> and pushes its test data through the real sync pipeline (contract validation → feed
                 snapshots → identity log → sealed sync record), so the whole path is proven before a real device
                 exists. Everything it stores is stamped “simulated” and never poses as your ELD's official record.{" "}
-                <strong className="text-[var(--text)]">Live sync still awaits a real ELD device.</strong>
+                <strong className="text-[var(--text)]">For real data, use “Sync now” on a connected ELD.</strong>
               </p>
               <button
                 type="button"

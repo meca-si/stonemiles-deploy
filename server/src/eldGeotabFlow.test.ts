@@ -243,12 +243,18 @@ describe("Geotab ELD connection — connect, live sync, revoke", () => {
     expect(fl?.eldMiles).toBeCloseTo(200.1, 0);
   });
 
-  test("syncEldNow on a token provider answers honestly — no fake sync", async () => {
+  test("syncEldNow on a token provider is wired too — a Samsara-shaped refusal stores nothing", async () => {
     const c = await Actions.connectEld.handler(gregCtx, { provider: "samsara", token: "samsara-token-123456", label: "Sam" });
     expect(c.ok).toBe(true);
+    // The stub in this file speaks MyGeotab JSON-RPC, not Samsara REST,
+    // so the wired Samsara sync fails plainly against it — the point is
+    // it no longer answers "only Geotab", and nothing is stored. (The
+    // full Samsara sync is proven in eldSamsaraFlow.test.ts.)
     const r = await Actions.syncEldNow.handler(gregCtx, { connectionId: c.connectionId! });
     expect(r.ok).toBe(false);
-    expect(r.error).toContain("only Geotab");
+    expect(r.error).not.toContain("only Geotab");
+    const snaps = await db.select().from(schema.eldSnapshots).where(eq(schema.eldSnapshots.connectionId, c.connectionId!));
+    expect(snaps).toHaveLength(0);
   });
 
   test("revoke wipes the password AND the account identifiers", async () => {

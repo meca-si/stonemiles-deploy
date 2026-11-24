@@ -6,7 +6,8 @@
 //   (b) the notification center — mounted in the More tab, badged
 //       on the dock, and email-free by the standing rule;
 //   (c) the ELD test sync — offered in the hub with the honest
-//       limit in the copy: live sync awaits a real ELD device.
+//       limit in the copy: real data comes from “Sync now” on a
+//       connected ELD (live for Geotab, Samsara and Motive).
 //
 // Run: bun test client/src/offlinePushPin.test.ts
 import { describe, expect, test } from "bun:test";
@@ -70,6 +71,6 @@ describe("ELD test sync (item 8) — honest copy", () => {
   test("the hub offers the simulated test sync and states the live limit", () => {
     expect(appSource).toContain(".runEldTestSync(");
     expect(appSource).toContain("Run test sync (simulated device)");
-    expect(appSource).toContain("Live sync still awaits a real ELD device");
+    expect(appSource).toContain("For real data, use “Sync now” on a connected ELD.");
   });
 });

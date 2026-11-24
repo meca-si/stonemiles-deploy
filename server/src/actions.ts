@@ -346,6 +346,14 @@ import {
   parseGeotabAccount,
   type GeotabFetchFn,
 } from "./geotab";
+import {
+  fetchMotiveBatch,
+  type MotiveFetchFn,
+} from "./motive";
+import {
+  fetchSamsaraBatch,
+  type SamsaraFetchFn,
+} from "./samsara";
 
 /** The server's real fetch, wrapped with a 20s ceiling so a hung
  *  provider call fails plainly instead of hanging the action. */
@@ -356,6 +364,31 @@ const geotabHttpFetch: GeotabFetchFn = async (url, init) => {
     return await globalThis.fetch(url, { ...init, signal: ctrl.signal });
   } catch (e) {
     if (ctrl.signal.aborted) throw new Error("Geotab didn't answer in 20 seconds — check the server address and try again. Nothing was stored.");
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+};
+/** Same 20s-ceiling wrapper for the token providers (Samsara / Motive). */
+const samsaraHttpFetch: SamsaraFetchFn = async (url, init) => {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 20_000);
+  try {
+    return await globalThis.fetch(url, { ...init, signal: ctrl.signal });
+  } catch (e) {
+    if (ctrl.signal.aborted) throw new Error("Samsara didn't answer in 20 seconds — check the connection and try again. Nothing was stored.");
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+};
+const motiveHttpFetch: MotiveFetchFn = async (url, init) => {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 20_000);
+  try {
+    return await globalThis.fetch(url, { ...init, signal: ctrl.signal });
+  } catch (e) {
+    if (ctrl.signal.aborted) throw new Error("Motive didn't answer in 20 seconds — check the connection and try again. Nothing was stored.");
     throw e;
   } finally {
     clearTimeout(timer);
@@ -1398,7 +1431,7 @@ async function applyEldSyncBatch(
           entry.state = "received";
           entry.detail =
             source === "test_harness"
-              ? "Test sync — simulated device data received through the sync pipeline. Live sync awaits a real ELD device."
+              ? "Test sync — simulated device data received through the sync pipeline. For real data, use “Sync now” on a connected ELD."
               : `Last received ${new Date().toLocaleString()} from the provider.`;
         } else {
           entry.detail = `Last sync rejected this feed: ${r.errors.join("; ")}`;
@@ -14335,13 +14368,13 @@ function cleanBrokerFields(args: {
 
 // ---- ELD cloud connections -------------------------------------------------
 // Read-only provider integrations (premium: Diamond Driver / Owner). The sync
-// mapping below names the real public API resource each feed comes from —
-// it is the contract the go-live sync worker implements, so activation is
-// a switch, not a rebuild. Live provider calls are STAGED (they activate
-// with the native wrap/backend, like billing): in this build a pasted
-// token is validated for shape, encrypted into the vault, and the
-// connection stands "connected (read-only)" with every feed honestly
-// "awaiting_first_sync" — no provider data is ever fabricated.
+// mapping below names the real public API resource each feed comes from.
+// Live provider sync is WIRED for all three cloud providers — Geotab via
+// geotab.ts (2026-11-24), Samsara via samsara.ts and Motive via motive.ts
+// (2026-11-24): connecting stores the credential encrypted in the vault,
+// and "Sync now" pulls real provider data through applyEldSyncBatch with
+// source "provider". A feed the provider returns nothing for honestly
+// reports "awaiting_first_sync" — provider data is never fabricated.
 
 const ELD_PROVIDER_NAMES: Record<string, string> = {
   samsara: "Samsara",
@@ -14363,18 +14396,18 @@ const ELD_FEED_MAP: Record<string, { feed: string; label: string; endpoint: stri
   samsara: [
     { feed: "hos_clocks", label: "HOS clocks", endpoint: "GET /fleet/hos/clocks" },
     { feed: "hos_logs", label: "HOS logs", endpoint: "GET /fleet/hos/logs" },
-    { feed: "dvirs", label: "DVIRs", endpoint: "GET /fleet/dvirs" },
+    { feed: "dvirs", label: "DVIRs", endpoint: "GET /fleet/dvirs/history" },
     { feed: "vehicle_stats", label: "Vehicle stats — odometer + GPS", endpoint: "GET /fleet/vehicles/stats" },
-    { feed: "ifta", label: "IFTA jurisdiction miles", endpoint: "GET /fleet/reports/ifta" },
+    { feed: "ifta", label: "IFTA jurisdiction miles", endpoint: "GET /fleet/reports/ifta/jurisdiction" },
     { feed: "identity", label: "Driver & truck identity (logged on connect)", endpoint: "GET /fleet/drivers · /fleet/vehicles" },
   ],
   motive: [
-    { feed: "hos_clocks", label: "HOS clocks", endpoint: "GET /v1/hos/clocks (driver HOS availability)" },
+    { feed: "hos_clocks", label: "HOS clocks", endpoint: "GET /v1/available_time" },
     { feed: "hos_logs", label: "HOS logs", endpoint: "GET /v1/logs" },
-    { feed: "dvirs", label: "DVIRs / vehicle inspections", endpoint: "GET /v1/vehicle_inspections" },
+    { feed: "dvirs", label: "DVIRs / vehicle inspections", endpoint: "GET /v1/inspection_reports" },
     { feed: "vehicle_stats", label: "Vehicle locations + odometer", endpoint: "GET /v1/vehicle_locations" },
     { feed: "ifta", label: "IFTA trips + summaries", endpoint: "GET /v1/ifta/trips · /v1/ifta/summary" },
-    { feed: "identity", label: "Driver & truck identity (logged on connect)", endpoint: "GET /v1/drivers · /v1/vehicles" },
+    { feed: "identity", label: "Driver & truck identity (logged on connect)", endpoint: "GET /v1/users · /v1/vehicles" },
   ],
   // Geotab (added 2026-11-24): the fetch layer is REAL (geotab.ts) —
   // MyGeotab serves duty logs, not a clocks object, so hos_clocks is
@@ -14824,7 +14857,7 @@ async function eldFeedsFor(
         ...f,
         state: "received",
         detail: simulated
-          ? `Test sync ${snap.receivedAt.toLocaleString()} — simulated device data through the sync pipeline. Live sync awaits a real ELD device.`
+          ? `Test sync ${snap.receivedAt.toLocaleString()} — simulated device data through the sync pipeline. For real data, use “Sync now” on a connected ELD.`
           : `Last received ${snap.receivedAt.toLocaleString()} from ${ELD_PROVIDER_NAMES[conn.provider] ?? conn.provider}.`,
       };
     }
@@ -14834,8 +14867,10 @@ async function eldFeedsFor(
       conn.provider === "geotab"
         ? "Awaiting first sync — Geotab sync is wired: tap “Sync now” on this connection and STONEMILES pulls this feed from MyGeotab. Nothing has been pulled yet."
         : conn.provider === "samsara" && (f.feed === "hos_logs" || f.feed === "hos_clocks" || f.feed === "dvirs")
-          ? "Awaiting first sync — live sync activates at go-live. Note: Samsara only returns HOS/DVIR data when the fleet plan carries the Telematics license; a Safety-only plan will report this feed as blocked by plan after the first sync, never as silently empty."
-          : "Awaiting first sync — live sync activates at go-live; nothing has been pulled from the provider yet.";
+          ? "Awaiting first sync — Samsara sync is wired: tap “Sync now” on this connection and STONEMILES pulls this feed from Samsara. Note: Samsara only returns HOS/DVIR data when the fleet plan carries the Telematics license; a Safety-only plan returns nothing for this feed — the sync reports that plainly, never as silently empty."
+          : conn.provider === "samsara" || conn.provider === "motive"
+            ? `Awaiting first sync — ${ELD_PROVIDER_NAMES[conn.provider]} sync is wired: tap “Sync now” on this connection and STONEMILES pulls this feed from ${ELD_PROVIDER_NAMES[conn.provider]}. Nothing has been pulled yet.`
+            : "Awaiting first sync — live sync activates at go-live; nothing has been pulled from the provider yet.";
     return { ...f, state: "awaiting_first_sync", detail: stagedDetail };
   });
 }
@@ -21927,7 +21962,7 @@ async function buildInspectionPacket(
     eldCloudNote =
       eldDvirs.length > 0
         ? `${providerName} is connected (read-only) and is the official record — its DVIRs are listed separately below, source-labelled.`
-        : `${providerName} is connected (read-only), but no ELD DVIRs have been received yet — live sync activates at go-live. The DVIRs above are the in-app signed reports; ${providerName} remains the official record.`;
+        : `${providerName} is connected (read-only), but no ELD DVIRs have been received yet — tap “Sync now” on the connection to pull them. The DVIRs above are the in-app signed reports; ${providerName} remains the official record.`;
   }
 
   // Chain integrity + the packet's Verify-Anywhere code.
@@ -34563,7 +34598,7 @@ export const Actions = {
         evidence.push("No ELD connection is recorded — there is no ELD clock set to compare against.");
       } else if (!eld) {
         evidence.push(
-          "An ELD connection is recorded, but no HOS clocks snapshot has been received from it yet — live sync activates at go-live.",
+          "An ELD connection is recorded, but no HOS clocks snapshot has been received from it yet — tap “Sync now” on the connection to pull the first one.",
         );
       }
       if (!appClocks) {
@@ -40185,13 +40220,13 @@ export const Actions = {
         plan,
         canManage: gate.canManage,
         role: gate.role,
-        syncStaged: true,
+        syncStaged: false,
         providers: [
           {
             key: "samsara",
             name: "Samsara",
             state: "available",
-            blurb: "Cloud ELD + telematics. STONEMILES reads HOS clocks and logs, DVIRs, vehicle stats (odometer + GPS), and IFTA jurisdiction miles.",
+            blurb: "Cloud ELD + telematics. STONEMILES reads HOS clocks and logs, DVIRs, vehicle stats (odometer + GPS), and IFTA jurisdiction miles. Samsara sync is wired live: connect, then tap Sync now.",
             planNote:
               "Samsara plan check: HOS and DVIR data only flows when your Samsara fleet plan carries the Telematics license. A Safety-only plan returns a limited feed — after the first sync, the data-availability check below reports exactly which feeds arrived and which the plan blocks.",
             feeds: ELD_FEED_MAP.samsara ?? [],
@@ -40200,7 +40235,7 @@ export const Actions = {
             key: "motive",
             name: "Motive",
             state: "available",
-            blurb: "Cloud ELD (formerly KeepTruckin). STONEMILES reads HOS clocks and logs, vehicle inspections (DVIRs), vehicle locations + odometer, and IFTA trips and summaries.",
+            blurb: "Cloud ELD (formerly KeepTruckin). STONEMILES reads HOS clocks and logs, vehicle inspections (DVIRs), vehicle locations + odometer, and IFTA trips and summaries. Motive sync is wired live: connect, then tap Sync now.",
             planNote: null,
             feeds: ELD_FEED_MAP.motive ?? [],
           },
@@ -40384,6 +40419,9 @@ export const Actions = {
           return { ok: false, error: "That looks like a card number, not an API token — card numbers never go in this app. Paste the API token from your provider dashboard.", connectionId: null, status: null };
         }
         secret = token;
+        // Motive/Samsara sync is wired live too (samsara.ts / motive.ts),
+        // so a token connection is no longer staged either.
+        syncStaged = false;
       }
       const existing = await db
         .select()
@@ -40400,7 +40438,7 @@ export const Actions = {
         detail:
           args.provider === "geotab"
             ? "Awaiting first sync — tap “Sync now” on this connection to pull from Geotab."
-            : "Awaiting first sync — live sync activates at go-live.",
+            : `Awaiting first sync — tap “Sync now” on this connection to pull from ${ELD_PROVIDER_NAMES[args.provider] ?? args.provider}.`,
       }));
       const inserted = await db
         .insert(schema.eldConnections)
@@ -40642,21 +40680,21 @@ export const Actions = {
         accepted: r.accepted,
         rejected: r.rejected,
         lines: r.lines,
-        note: "Test sync complete — simulated device data flowed through the real sync pipeline and is stored stamped “simulated”. Live sync starts when a real ELD device is connected; nothing here is live provider data.",
+        note: "Test sync complete — simulated device data flowed through the real sync pipeline and is stored stamped “simulated”. For real data, use “Sync now” on a connected ELD; nothing here is live provider data.",
       };
     },
   }),
 
-  // REAL provider sync (Geotab, added 2026-11-24): pulls the
-  // connection's feeds from MyGeotab through geotab.ts and lands them
-  // via applyEldSyncBatch with source "provider" — the same pipeline
-  // the test harness proves, now fed by a real device. The device is
+  // REAL provider sync (Geotab, Samsara and Motive — added 2026-11-24):
+  // pulls the connection's feeds from the provider through its client
+  // module (geotab.ts / samsara.ts / motive.ts) and lands them via
+  // applyEldSyncBatch with source "provider" — the same pipeline the
+  // test harness proves, now fed by real devices. The vehicle is
   // matched by the VIN on the caller's truck profile (Settings →
-  // Truck): a fleet database holds many trucks, and syncing the
-  // wrong one would be worse than syncing none. Samsara/Motive have
-  // no fetch layer yet and say so plainly instead of pretending.
+  // Truck): a fleet account holds many trucks, and syncing the
+  // wrong one would be worse than syncing none.
   syncEldNow: defineAction({
-    description: "Sync a connected ELD now — pulls real provider data (Geotab) through the ELD sync pipeline.",
+    description: "Sync a connected ELD now — pulls real provider data (Geotab, Samsara, Motive) through the ELD sync pipeline.",
     request: z.object({ connectionId: z.number().int().positive() }),
     response: z.object({
       ok: z.boolean(),
@@ -40685,27 +40723,41 @@ export const Actions = {
       if (conn.status === "revoked") {
         return { ok: false, error: "That connection was revoked — its credential is wiped, so there's nothing to sync with. Connect the ELD again first.", accepted: 0, rejected: 0, lines: [], note: null };
       }
-      if (conn.provider !== "geotab") {
-        return { ok: false, error: `Live sync for ${ELD_PROVIDER_NAMES[conn.provider] ?? conn.provider} activates at go-live — only Geotab's fetch layer is wired today. The connection stands read-only and its feeds keep reporting “awaiting first sync” until then.`, accepted: 0, rejected: 0, lines: [], note: null };
-      }
-      const account = parseGeotabAccount(conn.providerAccount);
-      if (!account || !conn.tokenEnc) {
-        return { ok: false, error: "This Geotab connection is missing its stored login — revoke it and connect again.", accepted: 0, rejected: 0, lines: [], note: null };
-      }
-      const password = await decryptPii(ctx, conn.tokenEnc);
-      if (password == null) {
-        return { ok: false, error: "The stored Geotab password couldn't be decrypted — revoke and reconnect this ELD.", accepted: 0, rejected: 0, lines: [], note: null };
+      const providerName = ELD_PROVIDER_NAMES[conn.provider] ?? conn.provider;
+      if (conn.provider !== "geotab" && conn.provider !== "samsara" && conn.provider !== "motive") {
+        return { ok: false, error: `Live sync for ${providerName} isn't wired — the connection stands read-only and its feeds keep reporting “awaiting first sync”.`, accepted: 0, rejected: 0, lines: [], note: null };
       }
       const prof = await db.select().from(schema.profile).where(eq(schema.profile.id, myProfileId(ctx))).limit(1);
       const vin = (prof[0]?.truckVin ?? "").trim();
       if (!vin) {
-        return { ok: false, error: "Your truck profile has no VIN yet — add it in Settings → Truck first. The sync matches your Geotab device by VIN, so it can never pull another truck's data.", accepted: 0, rejected: 0, lines: [], note: null };
+        return { ok: false, error: `Your truck profile has no VIN yet — add it in Settings → Truck first. The sync matches your ${providerName} device by VIN, so it can never pull another truck's data.`, accepted: 0, rejected: 0, lines: [], note: null };
       }
       let fetched: Awaited<ReturnType<typeof fetchGeotabBatch>>;
       try {
-        fetched = await fetchGeotabBatch(geotabHttpFetch, { ...account, password }, { vin, now: new Date() });
+        if (conn.provider === "geotab") {
+          const account = parseGeotabAccount(conn.providerAccount);
+          if (!account || !conn.tokenEnc) {
+            return { ok: false, error: "This Geotab connection is missing its stored login — revoke it and connect again.", accepted: 0, rejected: 0, lines: [], note: null };
+          }
+          const password = await decryptPii(ctx, conn.tokenEnc);
+          if (password == null) {
+            return { ok: false, error: "The stored Geotab password couldn't be decrypted — revoke and reconnect this ELD.", accepted: 0, rejected: 0, lines: [], note: null };
+          }
+          fetched = await fetchGeotabBatch(geotabHttpFetch, { ...account, password }, { vin, now: new Date() });
+        } else {
+          if (!conn.tokenEnc) {
+            return { ok: false, error: `This ${providerName} connection is missing its stored token — revoke it and connect again.`, accepted: 0, rejected: 0, lines: [], note: null };
+          }
+          const token = await decryptPii(ctx, conn.tokenEnc);
+          if (token == null) {
+            return { ok: false, error: `The stored ${providerName} token couldn't be decrypted — revoke and reconnect this ELD.`, accepted: 0, rejected: 0, lines: [], note: null };
+          }
+          fetched = conn.provider === "samsara"
+            ? await fetchSamsaraBatch(samsaraHttpFetch, token, { vin, now: new Date() })
+            : await fetchMotiveBatch(motiveHttpFetch, token, { vin, now: new Date() });
+        }
       } catch (e) {
-        const message = e instanceof Error ? e.message : "Geotab didn't answer — the sync stored nothing.";
+        const message = e instanceof Error ? e.message : `${providerName} didn't answer — the sync stored nothing.`;
         await db
           .update(schema.eldConnections)
           .set({ lastError: message, updatedAt: new Date() })
@@ -40714,7 +40766,7 @@ export const Actions = {
         return { ok: false, error: message, accepted: 0, rejected: 0, lines: [], note: null };
       }
       if (fetched.batch.length === 0) {
-        const message = "Geotab answered, but none of its feeds carried data for your truck yet — nothing was stored. Run a trip with the ELD signed in, then sync again.";
+        const message = `${providerName} answered, but none of its feeds carried data for your truck yet — nothing was stored. Run a trip with the ELD signed in, then sync again.`;
         await db
           .update(schema.eldConnections)
           .set({ lastError: message, updatedAt: new Date() })
@@ -40730,7 +40782,7 @@ export const Actions = {
       ctx.invalidateQueries();
       const lines = [...r.lines];
       if (fetched.skipped.length > 0) {
-        lines.push(`No data from Geotab for: ${fetched.skipped.join(", ")} — those feeds keep their previous state; nothing was filled in.`);
+        lines.push(`No data from ${providerName} for: ${fetched.skipped.join(", ")} — those feeds keep their previous state; nothing was filled in.`);
       }
       return {
         ok: true,
@@ -40738,7 +40790,7 @@ export const Actions = {
         accepted: r.accepted,
         rejected: r.rejected,
         lines,
-        note: `Live sync from Geotab${fetched.deviceName ? ` (device “${fetched.deviceName}”)` : ""} — real provider data, stored as received. Geotab stays the official record; STONEMILES mirrors it.`,
+        note: `Live sync from ${providerName}${fetched.deviceName ? ` (device “${fetched.deviceName}”)` : ""} — real provider data, stored as received. ${providerName} stays the official record; STONEMILES mirrors it.`,
       };
     },
   }),
@@ -40837,7 +40889,7 @@ export const Actions = {
         note: !gate.premium
           ? "IFTA reconciliation against your ELD is a premium feature (Diamond Driver / Owner)."
           : eldByState == null
-            ? "No ELD IFTA feed has been received yet — live sync activates at go-live, so there is nothing to reconcile against. Your app miles stand as recorded; when the ELD feed arrives, differences will show here side by side and will never overwrite your sealed records."
+            ? "No ELD IFTA feed has been received yet — tap “Sync now” on the connection to pull it; until then there is nothing to reconcile against. Your app miles stand as recorded; when the ELD feed arrives, differences will show here side by side and will never overwrite your sealed records."
             : "Differences are shown, never silently overwritten — your sealed app record and the ELD's IFTA feed stay exactly as each system recorded them.",
       };
     },

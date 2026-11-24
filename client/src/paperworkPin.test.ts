@@ -22,7 +22,7 @@ describe("ELD test sync (Step 0) — visible before a real device exists", () =>
     expect(appSource).toContain('hub.canManage && c.status !== "revoked"');
     expect(appSource).not.toContain('hub.canManage && (c.status === "connected" || c.status === "error")');
     expect(appSource).toContain("Run test sync (simulated device)");
-    expect(appSource).toContain("Live sync still awaits a real ELD device");
+    expect(appSource).toContain("For real data, use “Sync now” on a connected ELD.");
   });
 });
 
