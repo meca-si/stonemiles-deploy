@@ -170,8 +170,12 @@ describe("add-a-load flow", () => {
     expect(ex.found).toBe(true);
     expect(ex.pickupCity).toBe("JACKSONVILLE");
     expect(ex.deliveryCity).toBe("MONTGOMERY");
-    expect(ex.pickupText).toBe("11/24/2026");
-    expect(ex.deliveryText).toBe("11/25/2026");
+    // The appointment text carries date + the printed instruction
+    // time ("EXPECTED DATE 11/24/2026" + "PICKUP INSTRUCTIONS 9PM")
+    // — the calendar binding parses the pair into the appointment
+    // instant, so the time rides along on purpose (2026-11-24).
+    expect(ex.pickupText).toBe("11/24/2026 9PM");
+    expect(ex.deliveryText).toBe("11/25/2026 7AM");
   });
 
   test("(b)+(c) save with the PDF attached; pickup + delivery bind to the calendar at their own times", async () => {
@@ -201,8 +205,7 @@ describe("add-a-load flow", () => {
     expect(cal.nextMove?.at).toBe("2027-11-24T21:00:00.000Z");
   });
 
-  test("(d) unreadable appointment text keeps the creation-anchored fallback event", async () => {
-    const u = await seedUser("loadaddfallback", "owner");
+  test("(d) unreadable appointment text keeps the creation-anchored fallback event", async () => {    const u = await seedUser("loadaddfallback", "owner");
     const ctx = ctxFor(u);
     const saved = await Actions.saveLoad.handler(ctx, {
       ...saveArgs,
@@ -218,5 +221,23 @@ describe("add-a-load flow", () => {
     const mine = cal.events.filter((e) => e.kind === "load" && e.loadId === saved.id);
     expect(mine.length).toBe(1);
     expect(mine[0]!.title).toBe("Jacksonville → Montgomery");
+  });
+
+  test("(e) the save door accepts a full broker-terms notes block (the 2,000 cap bounced real saves)", async () => {
+    // The request schema is the door the phone actually knocks on:
+    // a rate con's terms pasted into Notes run past the old 2,000
+    // characters and the WHOLE save bounced. 5,000 must pass now;
+    // past the raised 8,000 cap still refuses.
+    const parse = (notes: string) =>
+      (Actions.saveLoad as unknown as { request: { parse: (a: unknown) => unknown } }).request.parse({
+        ...saveArgs,
+        pickupText: "11/24/2027 9:00 PM",
+        deliveryText: "11/25/2027 7:00 AM",
+        docDataBase64: null,
+        docMime: null,
+        notes,
+      });
+    expect(() => parse("x".repeat(5_000))).not.toThrow();
+    expect(() => parse("x".repeat(8_001))).toThrow();
   });
 });

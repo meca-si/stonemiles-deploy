@@ -5630,6 +5630,31 @@ export const offDutyRequests = sqliteTable("off_duty_requests", {
     .$defaultFn(() => new Date()),
 });
 
+// The driver's OWN calendar events (migration 0145): free-form
+// entries the driver adds, edits, and deletes on the Schedule
+// calendar — home time he just wants on the calendar, an
+// appointment, a maintenance block. Unlike off_duty_requests these
+// carry no approval flow and no commitment shadow: they are the
+// driver's own record, owned by his profile (host-stamped on
+// insert, host-filtered on read/update/delete — see host/ctx.ts
+// scopedDb), and they render on getCalendar as kind "user_event".
+// type: home_time | appointment | personal | maintenance | other
+export const calendarEvents = sqliteTable("calendar_events", {
+  profileId: integer("profile_id"),
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  title: text("title").notNull(),
+  type: text("type").notNull(),
+  startsAt: integer("starts_at", { mode: "timestamp_ms" }).notNull(),
+  endsAt: integer("ends_at", { mode: "timestamp_ms" }).notNull(),
+  note: text("note"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
 // A driver's ask to be released from a LOCKED load (inside the
 // safety window, where unilateral decline is closed). The desk
 // decides: approved hands the load back to the board it came

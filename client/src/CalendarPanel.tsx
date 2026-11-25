@@ -64,8 +64,15 @@ function fmtWhen(iso: string): string {
   return new Date(iso).toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
-function chipCls(e: { kind: string; state: string | null }): string {
+function chipCls(e: { kind: string; state: string | null; eventType?: string | null }): string {
   switch (e.kind) {
+    case "user_event":
+      // The driver's own events (migration 0145): home time reads
+      // like time off, maintenance warns amber, the rest sit calm.
+      if (e.eventType === "home_time") return "bg-emerald-500/20 text-emerald-200";
+      if (e.eventType === "maintenance") return "bg-amber-500/20 text-amber-200";
+      if (e.eventType === "appointment") return "bg-violet-500/20 text-violet-200";
+      return "bg-[var(--surface2)] text-[var(--text)]";
     case "load":
       if (e.state === "offered") return "border border-dashed border-amber-400/70 bg-amber-500/15 text-amber-200";
       if (e.state === "locked") return "bg-red-500/20 text-red-200";
@@ -103,6 +110,10 @@ function chipLabel(e: CalEvent): string {
       return `⚠️ ${e.title}`;
     case "payday":
       return e.state === "paid" ? "💵 Payday — paid" : "💵 Payday — expected";
+    case "user_event": {
+      const meta = USER_EVENT_TYPES.find((t) => t.value === e.eventType);
+      return `${meta?.icon ?? "🗓️"} ${e.title}`;
+    }
     default:
       return e.title;
   }
@@ -137,7 +148,20 @@ type HtPrompt = {
   retry: (reason: string) => void;
 };
 
-export function CalendarPanel({ onOpenCredential }: { onOpenCredential: () => void }) {
+/** The driver's own event types (migration 0145) — the small set
+ *  the Add-an-event form offers. Home time first: it's the one the
+ *  driver asked for. */
+const USER_EVENT_TYPES = [
+  { value: "home_time", label: "Home time", icon: "🏠" },
+  { value: "appointment", label: "Appointment", icon: "📌" },
+  { value: "personal", label: "Personal", icon: "🗓️" },
+  { value: "maintenance", label: "Maintenance", icon: "🔧" },
+  { value: "other", label: "Other", icon: "📍" },
+] as const;
+
+type UserEventType = (typeof USER_EVENT_TYPES)[number]["value"];
+
+export function CalendarPanel({ onOpenCredential, onOpenLoad }: { onOpenCredential: () => void; onOpenLoad: (loadId: number) => void }) {
   const queryClient = useQueryClient();
   const [view, setView] = useState<"week" | "month">("week");
   const [anchor, setAnchor] = useState<Date>(() => startOfWeek(new Date()));
@@ -147,6 +171,11 @@ export function CalendarPanel({ onOpenCredential }: { onOpenCredential: () => vo
   const [busy, setBusy] = useState<string | null>(null);
   const [htPrompt, setHtPrompt] = useState<HtPrompt | null>(null);
   const [htReason, setHtReason] = useState("");
+  // The driver's own event being edited (from a tap on its day
+  // detail row) — the editor renders in the day detail, where he
+  // tapped. Null = no edit open.
+  const [editingEvent, setEditingEvent] = useState<CalEvent | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
 
   const windowStart = view === "week" ? startOfWeek(anchor) : startOfMonth(anchor);
   const windowEnd = view === "week" ? addDays(windowStart, 7) : new Date(windowStart.getFullYear(), windowStart.getMonth() + 1, 1);
@@ -396,7 +425,7 @@ export function CalendarPanel({ onOpenCredential }: { onOpenCredential: () => vo
                     <div className={`text-[11px] font-bold ${isToday ? "neon-text" : "text-[var(--dim)]"}`}>{d.getDate()}</div>
                     <div className="mt-0.5 space-y-0.5">
                       {evts.slice(0, view === "week" ? 4 : 3).map((e, i) => (
-                        <div key={`${e.kind}-${e.boardLoadId ?? e.requestId ?? e.title}-${i}`} className={`truncate rounded px-1 py-px text-[9px] leading-tight ${chipCls(e)}`}>
+                        <div key={`${e.kind}-${e.eventId ?? e.boardLoadId ?? e.requestId ?? e.title}-${i}`} className={`truncate rounded px-1 py-px text-[9px] leading-tight ${chipCls(e)}`}>
                           {chipLabel(e)}
                         </div>
                       ))}
@@ -408,7 +437,7 @@ export function CalendarPanel({ onOpenCredential }: { onOpenCredential: () => vo
             </div>
 
             <p className="mt-2 text-[11px] leading-relaxed text-[var(--dim)]">
-              🚛 load · 🏠 time off (dashed = waiting on the desk) · ⏰ home-time deadline · 🪪 document expiry (red) with ⚠️ renewal warnings at 60/30/7 days · 💵 payday — expected until the payment is recorded.
+              🚛 load · 🏠 time off (dashed = waiting on the desk) · ⏰ home-time deadline · 🪪 document expiry (red) with ⚠️ renewal warnings at 60/30/7 days · 💵 payday — expected until the payment is recorded · 🏠📌🔧 your own events — add them under My events; tap a day to edit or delete one.
             </p>
 
             {/* Selected day detail */}
@@ -419,7 +448,7 @@ export function CalendarPanel({ onOpenCredential }: { onOpenCredential: () => vo
               ) : (
                 <ul className="mt-2 space-y-2">
                   {selectedEvents.map((e, i) => (
-                    <li key={`${e.kind}-${e.boardLoadId ?? e.requestId ?? e.title}-${i}`} className="flex flex-wrap items-start justify-between gap-2">
+                    <li key={`${e.kind}-${e.eventId ?? e.boardLoadId ?? e.requestId ?? e.title}-${i}`} className="flex flex-wrap items-start justify-between gap-2">
                       <div className="min-w-0">
                         <span className={`inline-block rounded px-1.5 py-0.5 text-[11px] ${chipCls(e)}`}>{chipLabel(e)}</span>
                         <span className="ml-2 text-xs text-[var(--dim)]">
@@ -433,12 +462,72 @@ export function CalendarPanel({ onOpenCredential }: { onOpenCredential: () => vo
                           Open credential record
                         </button>
                       )}
+                      {/* A load appointment opens its load — the load
+                          owns it, so there's no edit/delete here. */}
+                      {e.kind === "load" && e.loadId != null && (
+                        <button type="button" className={BTN} onClick={() => onOpenLoad(e.loadId!)}>
+                          Open load
+                        </button>
+                      )}
+                      {/* The driver's own events are his to edit and
+                          delete, right where he tapped them. */}
+                      {e.kind === "user_event" && e.eventId != null && (
+                        <span className="flex gap-1.5">
+                          <button
+                            type="button"
+                            className={BTN}
+                            onClick={() => {
+                              setEditingEvent(e);
+                              setConfirmDeleteId(null);
+                            }}
+                          >
+                            Edit
+                          </button>
+                          {confirmDeleteId === e.eventId ? (
+                            <button
+                              type="button"
+                              disabled={busy != null}
+                              className={BTN_DANGER}
+                              onClick={() => {
+                                setConfirmDeleteId(null);
+                                if (editingEvent?.eventId === e.eventId) setEditingEvent(null);
+                                void act(`del-event-${e.eventId}`, () => api.deleteCalendarEvent({ id: e.eventId! }), "Deleted — it's off your calendar.");
+                              }}
+                            >
+                              Tap again to delete
+                            </button>
+                          ) : (
+                            <button type="button" className={BTN} onClick={() => setConfirmDeleteId(e.eventId)}>
+                              Delete
+                            </button>
+                          )}
+                        </span>
+                      )}
                     </li>
                   ))}
                 </ul>
               )}
+              {editingEvent && (
+                <UserEventForm
+                  key={editingEvent.eventId ?? "edit"}
+                  busy={busy}
+                  initial={editingEvent}
+                  onCancel={() => setEditingEvent(null)}
+                  onSave={async (fields) => {
+                    const ok = await act(
+                      `save-event-${editingEvent.eventId}`,
+                      () => api.saveCalendarEvent({ id: editingEvent.eventId, ...fields }),
+                      "Saved — your calendar shows it at the time you entered.",
+                    );
+                    if (ok) setEditingEvent(null);
+                  }}
+                />
+              )}
             </div>
           </section>
+
+          {/* Add an event — the driver's own layer */}
+          <UserEventSection busy={busy} act={act} />
 
           {/* Time off */}
           <OffDutySection cal={cal} busy={busy} act={act} />
@@ -657,6 +746,147 @@ function DriverQueues({
         </section>
       )}
     </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The driver's own events (migration 0145) — add / edit form + the
+// add section. The edit instance renders in the day detail where
+// the event was tapped; the add instance lives in its own section.
+// Times are datetime-local inputs: what he types is his wall clock,
+// and the ISO conversion keeps exactly that wall time.
+// ---------------------------------------------------------------------------
+
+type UserEventFields = {
+  title: string;
+  type: UserEventType;
+  startsAtIso: string;
+  endsAtIso: string;
+  note: string | null;
+};
+
+function UserEventForm({
+  busy,
+  initial,
+  onSave,
+  onCancel,
+}: {
+  busy: string | null;
+  initial?: CalEvent | null;
+  onSave: (fields: UserEventFields) => Promise<boolean>;
+  onCancel?: () => void;
+}) {
+  const editing = initial != null;
+  const [title, setTitle] = useState(initial?.title ?? "");
+  const [type, setType] = useState<UserEventType>((initial?.eventType as UserEventType | null) ?? "home_time");
+  const [start, setStart] = useState(() => (initial ? toLocalInput(new Date(initial.at)) : toLocalInput(addDays(new Date(), 1))));
+  const [end, setEnd] = useState(() => (initial?.endAt ? toLocalInput(new Date(initial.endAt)) : toLocalInput(addDays(new Date(), 2))));
+  const [note, setNote] = useState(initial?.detail ?? "");
+  const [formError, setFormError] = useState<string | null>(null);
+  const idPrefix = editing ? "cal-ev-edit" : "cal-ev-add";
+
+  const submit = async () => {
+    if (!title.trim()) {
+      setFormError("Give the event a title — what is it?");
+      return;
+    }
+    if (!start || !end) {
+      setFormError("Pick a start and an end.");
+      return;
+    }
+    const startsAtIso = new Date(start).toISOString();
+    const endsAtIso = new Date(end).toISOString();
+    if (!(Date.parse(endsAtIso) > Date.parse(startsAtIso))) {
+      setFormError("The end has to be after the start — check the two times.");
+      return;
+    }
+    setFormError(null);
+    const ok = await onSave({
+      title: title.trim(),
+      type,
+      startsAtIso,
+      endsAtIso,
+      note: note.trim() ? note.trim() : null,
+    });
+    if (ok && !editing) {
+      setTitle("");
+      setNote("");
+    }
+  };
+
+  return (
+    <div className="mt-3 grid gap-2">
+      <div>
+        <label className="text-xs font-bold text-[var(--dim)]" htmlFor={`${idPrefix}-title`}>
+          {editing ? "Edit event" : "What's the event?"}
+        </label>
+        <input id={`${idPrefix}-title`} className={INPUT} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Home time — back Thursday" maxLength={200} />
+      </div>
+      <div>
+        <label className="text-xs font-bold text-[var(--dim)]" htmlFor={`${idPrefix}-type`}>
+          Kind
+        </label>
+        <select id={`${idPrefix}-type`} className={INPUT} value={type} onChange={(e) => setType(e.target.value as UserEventType)}>
+          {USER_EVENT_TYPES.map((t) => (
+            <option key={t.value} value={t.value}>
+              {t.icon} {t.label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="text-xs font-bold text-[var(--dim)]" htmlFor={`${idPrefix}-start`}>
+            Starts
+          </label>
+          <input id={`${idPrefix}-start`} type="datetime-local" className={INPUT} value={start} onChange={(e) => setStart(e.target.value)} />
+        </div>
+        <div>
+          <label className="text-xs font-bold text-[var(--dim)]" htmlFor={`${idPrefix}-end`}>
+            Ends
+          </label>
+          <input id={`${idPrefix}-end`} type="datetime-local" className={INPUT} value={end} onChange={(e) => setEnd(e.target.value)} />
+        </div>
+      </div>
+      <input className={INPUT} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional)" aria-label="Event note" maxLength={500} />
+      {formError && (
+        <p className="rounded-lg bg-red-900/40 px-3 py-2 text-sm font-semibold leading-relaxed text-red-200" role="alert">
+          ⚠ {formError}
+        </p>
+      )}
+      <div className="flex gap-2">
+        <button type="button" disabled={busy != null} className={BTN_PRIMARY} onClick={() => void submit()}>
+          {editing ? "Save changes" : "Add to my calendar"}
+        </button>
+        {editing && onCancel && (
+          <button type="button" className={BTN} onClick={onCancel}>
+            Cancel
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function UserEventSection({
+  busy,
+  act,
+}: {
+  busy: string | null;
+  act: (key: string, fn: () => Promise<{ ok: boolean; error: string | null }>, success: string) => Promise<boolean>;
+}) {
+  return (
+    <section className={SECTION} aria-label="My events">
+      <div className="text-xs font-bold uppercase tracking-widest text-[var(--dim)]">My events</div>
+      <p className="mt-1 text-xs leading-relaxed text-[var(--dim)]">
+        Yours to add, edit, and delete — no desk, no approval. Home time you just want on the calendar goes here. Tap a day, then Edit or Delete on the
+        event to change it. Load appointments stay with their loads and open from their day instead.
+      </p>
+      <UserEventForm
+        busy={busy}
+        onSave={async (fields) => act("add-event", () => api.saveCalendarEvent({ id: null, ...fields }), "Added — it's on your calendar at the time you entered.")}
+      />
+    </section>
   );
 }
 

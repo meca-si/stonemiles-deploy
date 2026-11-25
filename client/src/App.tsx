@@ -2334,7 +2334,34 @@ export function App() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["trips"] }),
   });
   const saveLoadMut = useMutation({
-    mutationFn: (args: Parameters<typeof api.saveLoad>[0]) => api.saveLoad(args),
+    // A save must never hang the button forever (2026-11-24, x's
+    // report — the button "still doesn't add"): on a stalled mobile
+    // connection a fetch can sit pending indefinitely, leaving
+    // SAVE LOAD disabled at half opacity with no word — a dead
+    // button. The race caps the wait; the timeout error's copy
+    // tells the driver the load may have landed anyway and to
+    // check the list before saving twice.
+    mutationFn: async (args: Parameters<typeof api.saveLoad>[0]) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        return await Promise.race([
+          api.saveLoad(args),
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(
+              () =>
+                reject(
+                  new Error(
+                    "saving took too long — the connection may have stalled. The load may have landed anyway: check your loads list first, and only tap SAVE LOAD again if it isn't there",
+                  ),
+                ),
+              60_000,
+            );
+          }),
+        ]);
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["loads"] }),
   });
   const deleteLoadMut = useMutation({
@@ -9596,6 +9623,13 @@ export function App() {
   // pay, fuel, route chain in taps. Set on every successful save and
   // from a load card's "Load info & fuel" button.
   const [flowLoadId, setFlowLoadId] = useState<number | null>(null);
+  // The add-a-load form's own error line (2026-11-24): every save
+  // failure — a field that won't pass, a stalled connection, a
+  // server refusal, an unexpected throw — lands HERE, in the form,
+  // in plain words naming the fix, with the draft untouched. The
+  // banner alone was too easy to miss, and a silent button reads
+  // as "doesn't add".
+  const [submitError, setSubmitError] = useState<string | null>(null);
   // Bumped when the driver saves a tank level in the flow, so the
   // panel re-reads the shared tank memory (tgps-planner-tank).
   const [tankNonce, setTankNonce] = useState(0);
@@ -10064,96 +10098,165 @@ export function App() {
   };
 
   const submitLoad = () => {
-    const d = loadDraft;
-    const num = (s: string) => {
-      const v = parseFloat(s.replace(/[^0-9.]/g, ""));
-      return Number.isFinite(v) ? v : null;
-    };
-    const clean = (s: string) => (s.trim() ? s.trim() : null);
-    saveLoadMut.mutate(
-      {
-        id: editingLoadId,
-        shipper: clean(d.shipper),
-        pickupCity: clean(d.pickupCity),
-        pickupState: clean(d.pickupState),
-        deliveryCity: clean(d.deliveryCity),
-        deliveryState: clean(d.deliveryState),
-        pickupText: clean(d.pickupText),
-        deliveryText: clean(d.deliveryText),
-        rate: num(d.rate),
-        loadedMiles: num(d.loadedMiles),
-        milesSource: num(d.loadedMiles) != null ? (d.milesSource ?? "entered") : null,
-        extraCharges: num(d.extraCharges) ?? 0,
-        extraChargesNote: clean(d.extraChargesNote),
-        weightLbs: num(d.weightLbs) != null ? Math.round(num(d.weightLbs)!) : null,
-        commodity: clean(d.commodity),
-        hazmat: d.hazmat,
-        docDataBase64: pendingDoc?.base64 ?? null,
-        docMime: pendingDoc?.mime ?? null,
-        equipmentType: (d.equipmentType || null) as EquipmentValue | null,
-        trailerNumber: clean(d.trailerNumber),
-        brokerName: clean(d.brokerName),
-        brokerCompany: clean(d.brokerCompany),
-        brokerMc: clean(d.brokerMc),
-        docLoadNumber: clean(d.loadNumber),
-        docPoNumber: clean(d.poNumber),
-        docProNumber: clean(d.proNumber),
-        docPickupAddress: clean(d.pickupAddress),
-        docDeliveryAddress: clean(d.deliveryAddress),
-        docPieces: num(d.pieces) != null ? Math.round(num(d.pieces)!) : null,
-        docKind: pendingDocKind,
-        // Load identity fields (migration 0144): the same values as
-        // REAL load columns, written on every save — the doc* inputs
-        // above only land in the snapshot when a document is
-        // attached, which is how a typed LOAD # and typed street
-        // addresses used to vanish.
-        loadNumber: clean(d.loadNumber),
-        pickupAddress: clean(d.pickupAddress),
-        deliveryAddress: clean(d.deliveryAddress),
-        consignee: clean(d.consignee),
-        carrier: clean(d.carrier),
-        notes: clean(d.notes),
-      },
-      {
-        onSuccess: (res) => {
-          const hadDoc = pendingDoc != null;
-          setLoadDraft(EMPTY_LOAD_DRAFT);
-          setEditingLoadId(null);
-          setPendingDoc(null);
-          setPendingDocKind(null);
-          setExtractNote(null);
-          setScanReview(null);
-          // The flow (x's order, 2026-11-24): a saved load OPENS —
-          // straight to its info screen with the fuel + pay chain,
-          // never dumped back into the long Loads workspace to hunt
-          // for it. The panel reads the load from the refreshed list.
-          setFlowLoadId(res.id);
-          if (hadDoc && res.copies.filed) {
-            const bits: string[] = ["Load saved — the confirmed document is filed in your Files (below, Filed document copies)."];
-            if (res.copies.off) bits.push("Load-document email copies are turned off in Document copies settings, so this one was filed only.");
-            else {
-              if (res.copies.sent > 0) bits.push(`Email copy sent to ${res.copies.sent} of driver / dispatch / owner.`);
-              if (res.copies.queued > 0) bits.push(`${res.copies.queued} email ${res.copies.queued === 1 ? "copy is" : "copies are"} queued — the mail provider isn't connected yet; they send when email connects at go-live.`);
-              if (res.copies.noAddress > 0) bits.push(`${res.copies.noAddress} ${res.copies.noAddress === 1 ? "seat has" : "seats have"} no email on file — add addresses in Document copies settings below.`);
+    // EVERY exit from this function lands in one of two visible
+    // states (2026-11-24, x's report — "add load button it still
+    // doesn't add then take you to the next step"): the load saved
+    // and its info panel open, or a plain error IN THE FORM naming
+    // exactly what to fix, draft untouched. No silent no-ops: the
+    // field checks run BEFORE the save (a server refusal used to
+    // be the first word, in schema language), and the whole body
+    // is guarded so an unexpected throw still surfaces as words.
+    setSubmitError(null);
+    try {
+      const d = loadDraft;
+      const num = (s: string) => {
+        const v = parseFloat(s.replace(/[^0-9.]/g, ""));
+        return Number.isFinite(v) ? v : null;
+      };
+      const clean = (s: string) => (s.trim() ? s.trim() : null);
+      // The server's per-field caps, checked here so the fix is
+      // named in the form instead of bounced back as a refusal.
+      const caps: [string, string, number][] = [
+        ["Shipper", d.shipper, 200],
+        ["Broker company", d.brokerCompany, 160],
+        ["Broker contact", d.brokerName, 120],
+        ["Broker MC #", d.brokerMc, 40],
+        ["Load #", d.loadNumber, 80],
+        ["PO #", d.poNumber, 80],
+        ["PRO #", d.proNumber, 80],
+        ["Pickup street address", d.pickupAddress, 200],
+        ["Delivery street address", d.deliveryAddress, 200],
+        ["Consignee", d.consignee, 200],
+        ["Carrier", d.carrier, 200],
+        ["Pickup city", d.pickupCity, 120],
+        ["Pickup state", d.pickupState, 60],
+        ["Delivery city", d.deliveryCity, 120],
+        ["Delivery state", d.deliveryState, 60],
+        ["Pickup date / time", d.pickupText, 120],
+        ["Delivery appointment", d.deliveryText, 120],
+        ["Additional charges note", d.extraChargesNote, 300],
+        ["Commodity", d.commodity, 200],
+        ["Trailer number", d.trailerNumber, 60],
+        ["Notes", d.notes, 8000],
+      ];
+      for (const [label, value, cap] of caps) {
+        if (value.length > cap) {
+          setSubmitError(`${label} is too long — shorten it to ${cap.toLocaleString()} characters or less and save again. Everything else you entered is still here.`);
+          return;
+        }
+      }
+      const rateVal = num(d.rate);
+      if (rateVal != null && rateVal > 1_000_000) {
+        setSubmitError("That rate is over $1,000,000 — check the figure against the rate con and save again.");
+        return;
+      }
+      const weightVal = num(d.weightLbs);
+      if (weightVal != null && weightVal > 500_000) {
+        setSubmitError("That weight is over 500,000 lbs — check the figure against the document and save again.");
+        return;
+      }
+      saveLoadMut.mutate(
+        {
+          id: editingLoadId,
+          shipper: clean(d.shipper),
+          pickupCity: clean(d.pickupCity),
+          pickupState: clean(d.pickupState),
+          deliveryCity: clean(d.deliveryCity),
+          deliveryState: clean(d.deliveryState),
+          pickupText: clean(d.pickupText),
+          deliveryText: clean(d.deliveryText),
+          rate: rateVal,
+          loadedMiles: num(d.loadedMiles),
+          milesSource: num(d.loadedMiles) != null ? (d.milesSource ?? "entered") : null,
+          extraCharges: num(d.extraCharges) ?? 0,
+          extraChargesNote: clean(d.extraChargesNote),
+          weightLbs: weightVal != null ? Math.round(weightVal) : null,
+          commodity: clean(d.commodity),
+          hazmat: d.hazmat,
+          docDataBase64: pendingDoc?.base64 ?? null,
+          docMime: pendingDoc?.mime ?? null,
+          equipmentType: (d.equipmentType || null) as EquipmentValue | null,
+          trailerNumber: clean(d.trailerNumber),
+          brokerName: clean(d.brokerName),
+          brokerCompany: clean(d.brokerCompany),
+          brokerMc: clean(d.brokerMc),
+          docLoadNumber: clean(d.loadNumber),
+          docPoNumber: clean(d.poNumber),
+          docProNumber: clean(d.proNumber),
+          docPickupAddress: clean(d.pickupAddress),
+          docDeliveryAddress: clean(d.deliveryAddress),
+          docPieces: num(d.pieces) != null ? Math.round(num(d.pieces)!) : null,
+          docKind: pendingDocKind,
+          // Load identity fields (migration 0144): the same values as
+          // REAL load columns, written on every save — the doc* inputs
+          // above only land in the snapshot when a document is
+          // attached, which is how a typed LOAD # and typed street
+          // addresses used to vanish.
+          loadNumber: clean(d.loadNumber),
+          pickupAddress: clean(d.pickupAddress),
+          deliveryAddress: clean(d.deliveryAddress),
+          consignee: clean(d.consignee),
+          carrier: clean(d.carrier),
+          notes: clean(d.notes),
+        },
+        {
+          onSuccess: async (res) => {
+            const hadDoc = pendingDoc != null;
+            setLoadDraft(EMPTY_LOAD_DRAFT);
+            setEditingLoadId(null);
+            setPendingDoc(null);
+            setPendingDocKind(null);
+            setExtractNote(null);
+            setScanReview(null);
+            setSubmitError(null);
+            // The flow (x's order, 2026-11-24): a saved load OPENS —
+            // straight to its info screen with the fuel + pay chain,
+            // never dumped back into the long Loads workspace to hunt
+            // for it. The panel reads the load from the refreshed
+            // list, so refresh FIRST and wait for it: opening on a
+            // list that doesn't carry the load yet stranded the
+            // driver on an "Opening your load…" sheet. If the
+            // refresh itself fails, the sheet now says the load
+            // saved and offers the retry / loads-list doors.
+            try {
+              await queryClient.refetchQueries({ queryKey: ["loads"] });
+            } catch { /* the fallback sheet covers a failed refresh */ }
+            setFlowLoadId(res.id);
+            if (hadDoc && res.copies.filed) {
+              const bits: string[] = ["Load saved — the confirmed document is filed in your Files (below, Filed document copies)."];
+              if (res.copies.off) bits.push("Load-document email copies are turned off in Document copies settings, so this one was filed only.");
+              else {
+                if (res.copies.sent > 0) bits.push(`Email copy sent to ${res.copies.sent} of driver / dispatch / owner.`);
+                if (res.copies.queued > 0) bits.push(`${res.copies.queued} email ${res.copies.queued === 1 ? "copy is" : "copies are"} queued — the mail provider isn't connected yet; they send when email connects at go-live.`);
+                if (res.copies.noAddress > 0) bits.push(`${res.copies.noAddress} ${res.copies.noAddress === 1 ? "seat has" : "seats have"} no email on file — add addresses in Document copies settings below.`);
+              }
+              setBanner(bits.join(" "));
+            } else {
+              setBanner("Load saved.");
             }
-            setBanner(bits.join(" "));
-          } else {
-            setBanner("Load saved.");
-          }
+          },
+          onError: (e) => {
+            // A failed save used to be invisible — the button simply
+            // re-enabled and the driver couldn't tell anything had
+            // gone wrong (2026-11-24: "wouldn't let me add load").
+            // Say it plainly IN THE FORM (and on the banner), with
+            // the server's own reason when it sent one; the draft
+            // and the attached document stay in the form, so a
+            // retry loses nothing.
+            const raw = e instanceof Error ? e.message : "";
+            const reason = raw.replace(/^action \w+ error:\s*/, "").trim();
+            const msg = `That load didn't save${reason ? ` — ${reason}` : ""}. Everything you entered is still in the form — check your connection and tap SAVE LOAD again.`;
+            setSubmitError(msg);
+            setBanner(msg);
+          },
         },
-        onError: (e) => {
-          // A failed save used to be invisible — the button simply
-          // re-enabled and the driver couldn't tell anything had
-          // gone wrong (2026-11-24: "wouldn't let me add load").
-          // Say it plainly, with the server's own reason when it
-          // sent one; the draft and the attached document stay in
-          // the form, so a retry loses nothing.
-          const raw = e instanceof Error ? e.message : "";
-          const reason = raw.replace(/^action \w+ error:\s*/, "").trim();
-          setBanner(`That load didn't save${reason ? ` — ${reason}` : ""}. Everything you entered is still in the form — check your connection and tap SAVE LOAD again.`);
-        },
-      },
-    );
+      );
+    } catch {
+      // The guarded tail: an unexpected throw in building the save
+      // (a webview quirk, a draft value of an unexpected shape)
+      // still lands as words in the form — never a dead tap.
+      setSubmitError("Something went wrong putting that save together — nothing was lost: everything you entered is still in the form. Tap SAVE LOAD again; if it keeps happening, note what the form holds and tell Meca.");
+    }
   };
 
   const editLoad = (l: LoadT) => {
@@ -14080,6 +14183,20 @@ export function App() {
   // the routed one — the selected route with its fuel decisions from
   // the same buildStopPlan the auto-add machinery runs.
   const flowLoad = flowLoadId != null ? (loads.find((l) => l.id === flowLoadId) ?? null) : null;
+  // While a flow is open on a load the list doesn't carry yet (a
+  // save whose refresh failed, a card tap racing a slow list),
+  // retry the refresh once on its own — and the sheet below says
+  // plainly that the load is saved and offers the doors out, so
+  // the driver is never stranded on an "Opening…" spinner
+  // (2026-11-24: the save "doesn't take you to the next step").
+  const flowMissing = flowLoadId != null && flowLoad == null;
+  useEffect(() => {
+    if (!flowMissing) return;
+    const t = setTimeout(() => {
+      void queryClient.refetchQueries({ queryKey: ["loads"] });
+    }, 2500);
+    return () => clearTimeout(t);
+  }, [flowMissing, flowLoadId]);
   const flowCapacityGal = Math.max(20, Math.round(profile.tankRangeMi / Math.max(1, profile.mpg)));
   const flowRouted = flowLoad != null && activeLoadId === flowLoad.id && selected != null;
   const flowMiles = flowLoad == null
@@ -17134,7 +17251,10 @@ export function App() {
                 driver's week/month at a glance, never a card buried
                 at the bottom of another page. Credential chips open
                 the credential record in the Money tab. */}
-            <CalendarPanel onOpenCredential={() => { tapFx(); setTab("money"); scrollToAnchor("doc-expiry", 700); }} />
+            <CalendarPanel
+              onOpenCredential={() => { tapFx(); setTab("money"); scrollToAnchor("doc-expiry", 700); }}
+              onOpenLoad={(loadId) => { tapFx(); setFlowLoadId(loadId); }}
+            />
           </div>
         )}
 
@@ -20096,7 +20216,7 @@ export function App() {
                 </div>
                 <div className="col-span-2">
                   <label className={labelCls} htmlFor="ld-notes">Notes</label>
-                  <textarea id="ld-notes" className={inputCls} rows={3} value={loadDraft.notes} onChange={(e) => setLoadDraft({ ...loadDraft, notes: e.target.value })} placeholder="Broker terms, check-in rules, anything on the paper that matters" aria-label="Load notes" />
+                  <textarea id="ld-notes" className={inputCls} rows={3} maxLength={8000} value={loadDraft.notes} onChange={(e) => setLoadDraft({ ...loadDraft, notes: e.target.value })} placeholder="Broker terms, check-in rules, anything on the paper that matters" aria-label="Load notes" />
                 </div>
                 <div>
                   <label className={labelCls} htmlFor="ld-pcity">Pickup city</label>
@@ -20216,7 +20336,7 @@ export function App() {
                   className="flex-1 rounded-xl bg-[var(--accent)] py-3.5 text-base font-bold text-black disabled:opacity-50"
                   aria-label="Save load"
                 >
-                  {editingLoadId ? "SAVE CHANGES" : "SAVE LOAD"}
+                  {editingLoadId ? "SAVE CHANGES" : saveLoadMut.isPending ? "SAVING…" : "SAVE LOAD"}
                 </button>
                 {editingLoadId && (
                   <button
@@ -20236,13 +20356,9 @@ export function App() {
                   </button>
                 )}
               </div>
-              {saveLoadMut.isError && (
+              {submitError && (
                 <p className="mt-2 rounded-lg bg-red-900/40 px-3 py-2 text-sm font-semibold leading-relaxed text-red-200" role="alert">
-                  ⚠ That load didn&apos;t save
-                  {saveLoadMut.error instanceof Error && saveLoadMut.error.message.replace(/^action \w+ error:\s*/, "").trim()
-                    ? ` — ${saveLoadMut.error.message.replace(/^action \w+ error:\s*/, "").trim()}`
-                    : ""}
-                  . Everything you entered is still here — check your connection and tap SAVE LOAD again.
+                  ⚠ {submitError}
                 </p>
               )}
             </section>
@@ -21016,10 +21132,33 @@ export function App() {
       {flowLoadId != null && flowLoad == null && (
         <div className="fixed inset-0 z-[920] flex items-end bg-black/70" role="dialog" aria-label="Opening your load">
           <div className="animate-sheet w-full rounded-t-3xl bg-[var(--surface)] p-5 pb-safe">
-            <p className="text-sm text-[var(--dim)]">Opening your load…</p>
-            <button type="button" className="btn-press mt-3 min-h-[44px] rounded-xl bg-[var(--surface2)] border border-[var(--border)] px-4 font-bold" onClick={() => setFlowLoadId(null)}>
-              ✕ Close
-            </button>
+            <p className="font-condensed text-xl font-bold">Opening your load…</p>
+            <p className="mt-1 text-sm leading-relaxed text-[var(--dim)]">
+              The load itself is saved in your loads — this screen is still catching up (the list refresh is lagging). Give it a moment, or jump straight to it:
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="btn-press min-h-[44px] rounded-xl bg-[var(--accent)] px-4 font-bold text-black"
+                onClick={() => void queryClient.refetchQueries({ queryKey: ["loads"] })}
+              >
+                Try opening it again
+              </button>
+              <button
+                type="button"
+                className="btn-press min-h-[44px] rounded-xl bg-[var(--surface2)] border border-[var(--border)] px-4 font-bold"
+                onClick={() => {
+                  setFlowLoadId(null);
+                  setTab("loads");
+                  setLoadsView("list");
+                }}
+              >
+                See it in my loads
+              </button>
+              <button type="button" className="btn-press min-h-[44px] rounded-xl bg-[var(--surface2)] border border-[var(--border)] px-4 font-bold" onClick={() => setFlowLoadId(null)}>
+                ✕ Close
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -205,6 +205,7 @@ export const pulseResponses = impl.pulseResponses;
 export const homeTimeFactSnapshots = impl.homeTimeFactSnapshots;
 export const fleetCalendarSettings = impl.fleetCalendarSettings;
 export const offDutyRequests = impl.offDutyRequests;
+export const calendarEvents = impl.calendarEvents;
 export const loadReleaseRequests = impl.loadReleaseRequests;
 export const loadReassignments = impl.loadReassignments;
 export const driverLoadHandbacks = impl.driverLoadHandbacks;

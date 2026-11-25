@@ -5629,6 +5629,25 @@ export const offDutyRequests = pgTable("off_duty_requests", {
     .$defaultFn(() => new Date()),
 });
 
+// The driver's OWN calendar events (migration 0145 / pg 0038) —
+// see schema-sqlite.ts. type: home_time | appointment | personal |
+// maintenance | other. Owned by profile (scopedDb-stamped).
+export const calendarEvents = pgTable("calendar_events", {
+  profileId: integer("profile_id"),
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  type: text("type").notNull(),
+  startsAt: timestamp("starts_at", { withTimezone: true, mode: "date" }).notNull(),
+  endsAt: timestamp("ends_at", { withTimezone: true, mode: "date" }).notNull(),
+  note: text("note"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
 // A driver's ask to be released from a LOCKED load (inside the
 // safety window, where unilateral decline is closed). The desk
 // decides: approved hands the load back to the board it came

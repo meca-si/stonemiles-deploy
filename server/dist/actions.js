@@ -51,6 +51,7 @@ __export(exports_schema_sqlite, {
   brokerPosterLoads: () => brokerPosterLoads,
   brokerSubmissions: () => brokerSubmissions,
   burnLedger: () => burnLedger,
+  calendarEvents: () => calendarEvents,
   cashoutHolds: () => cashoutHolds,
   chainLog: () => chainLog,
   chatBlocks: () => chatBlocks,
@@ -129,6 +130,7 @@ __export(exports_schema_sqlite, {
   loads: () => loads,
   lockerLedger: () => lockerLedger,
   loginSessions: () => loginSessions,
+  maintenanceFleetRecords: () => maintenanceFleetRecords,
   maintenanceLogAttachments: () => maintenanceLogAttachments,
   maintenanceLogEntries: () => maintenanceLogEntries,
   maintenanceServices: () => maintenanceServices,
@@ -266,6 +268,7 @@ __export(exports_schema_pg, {
   brokerPosterLoads: () => brokerPosterLoads2,
   brokerSubmissions: () => brokerSubmissions2,
   burnLedger: () => burnLedger2,
+  calendarEvents: () => calendarEvents2,
   cashoutHolds: () => cashoutHolds2,
   chainLog: () => chainLog2,
   chatBlocks: () => chatBlocks2,
@@ -344,6 +347,7 @@ __export(exports_schema_pg, {
   loads: () => loads2,
   lockerLedger: () => lockerLedger2,
   loginSessions: () => loginSessions2,
+  maintenanceFleetRecords: () => maintenanceFleetRecords2,
   maintenanceLogAttachments: () => maintenanceLogAttachments2,
   maintenanceLogEntries: () => maintenanceLogEntries2,
   maintenanceServices: () => maintenanceServices2,
@@ -8747,6 +8751,12 @@ var loads = sqliteTable("loads", {
   brokerMc: text2("broker_mc"),
   brokerSource: text2("broker_source"),
   brokerLinkId: integer3("broker_link_id"),
+  loadNumber: text2("load_number"),
+  pickupAddress: text2("pickup_address"),
+  deliveryAddress: text2("delivery_address"),
+  consignee: text2("consignee"),
+  carrier: text2("carrier"),
+  notes: text2("notes"),
   loadedHeightIn: integer3("loaded_height_in"),
   reeferSetpointF: real2("reefer_setpoint_f"),
   reeferBandF: real2("reefer_band_f"),
@@ -9228,6 +9238,7 @@ var eldConnections = sqliteTable("eld_connections", {
   status: text2("status").notNull().default("not_connected"),
   tokenEnc: text2("token_enc"),
   tokenLast4: text2("token_last4"),
+  providerAccount: text2("provider_account"),
   feedsJson: text2("feeds_json").notNull().default("[]"),
   lastError: text2("last_error"),
   connectedBy: text2("connected_by").notNull(),
@@ -10042,9 +10053,13 @@ var maintenanceLogEntries = sqliteTable("maintenance_log_entries", {
   performedAt: integer3("performed_at", { mode: "timestamp_ms" }).notNull(),
   odometer: real2("odometer"),
   category: text2("category").notNull(),
+  kind: text2("kind").notNull().default("service"),
   description: text2("description").notNull(),
   shop: text2("shop"),
   cost: real2("cost").notNull().default(0),
+  partsJson: text2("parts_json").notNull().default("[]"),
+  oilBrand: text2("oil_brand"),
+  oilWeight: text2("oil_weight"),
   nextDueMiles: real2("next_due_miles"),
   nextDueAt: integer3("next_due_at", { mode: "timestamp_ms" }),
   status: text2("status").notNull().default("logged"),
@@ -10060,6 +10075,27 @@ var maintenanceLogAttachments = sqliteTable("maintenance_log_attachments", {
   blobKey: text2("blob_key"),
   mime: text2("mime"),
   createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
+});
+var maintenanceFleetRecords = sqliteTable("maintenance_fleet_records", {
+  id: integer3("id").primaryKey({ autoIncrement: true }),
+  companyId: integer3("company_id").notNull(),
+  username: text2("username").notNull(),
+  entryId: integer3("entry_id").notNull(),
+  truckUnit: text2("truck_unit"),
+  truckLabel: text2("truck_label"),
+  kind: text2("kind").notNull().default("service"),
+  category: text2("category").notNull(),
+  performedAt: integer3("performed_at", { mode: "timestamp_ms" }).notNull(),
+  odometer: real2("odometer"),
+  description: text2("description").notNull(),
+  shop: text2("shop"),
+  cost: real2("cost").notNull().default(0),
+  partsJson: text2("parts_json").notNull().default("[]"),
+  oilBrand: text2("oil_brand"),
+  oilWeight: text2("oil_weight"),
+  nextDueMiles: real2("next_due_miles"),
+  nextDueAt: integer3("next_due_at", { mode: "timestamp_ms" }),
+  publishedAt: integer3("published_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
 });
 var vehiclePhotos = sqliteTable("vehicle_photos", {
   profileId: integer3("profile_id"),
@@ -10522,6 +10558,17 @@ var offDutyRequests = sqliteTable("off_duty_requests", {
   decisionNote: text2("decision_note"),
   decidedAt: integer3("decided_at", { mode: "timestamp_ms" }),
   commitmentId: integer3("commitment_id"),
+  createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
+  updatedAt: integer3("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
+});
+var calendarEvents = sqliteTable("calendar_events", {
+  profileId: integer3("profile_id"),
+  id: integer3("id").primaryKey({ autoIncrement: true }),
+  title: text2("title").notNull(),
+  type: text2("type").notNull(),
+  startsAt: integer3("starts_at", { mode: "timestamp_ms" }).notNull(),
+  endsAt: integer3("ends_at", { mode: "timestamp_ms" }).notNull(),
+  note: text2("note"),
   createdAt: integer3("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date),
   updatedAt: integer3("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date)
 });
@@ -11617,6 +11664,12 @@ var loads2 = pgTable("loads", {
   brokerMc: text("broker_mc"),
   brokerSource: text("broker_source"),
   brokerLinkId: integer2("broker_link_id"),
+  loadNumber: text("load_number"),
+  pickupAddress: text("pickup_address"),
+  deliveryAddress: text("delivery_address"),
+  consignee: text("consignee"),
+  carrier: text("carrier"),
+  notes: text("notes"),
   loadedHeightIn: integer2("loaded_height_in"),
   reeferSetpointF: doublePrecision("reefer_setpoint_f"),
   reeferBandF: doublePrecision("reefer_band_f"),
@@ -12098,6 +12151,7 @@ var eldConnections2 = pgTable("eld_connections", {
   status: text("status").notNull().default("not_connected"),
   tokenEnc: text("token_enc"),
   tokenLast4: text("token_last4"),
+  providerAccount: text("provider_account"),
   feedsJson: text("feeds_json").notNull().default("[]"),
   lastError: text("last_error"),
   connectedBy: text("connected_by").notNull(),
@@ -12912,9 +12966,13 @@ var maintenanceLogEntries2 = pgTable("maintenance_log_entries", {
   performedAt: timestamp("performed_at", { withTimezone: true, mode: "date" }).notNull(),
   odometer: doublePrecision("odometer"),
   category: text("category").notNull(),
+  kind: text("kind").notNull().default("service"),
   description: text("description").notNull(),
   shop: text("shop"),
   cost: doublePrecision("cost").notNull().default(0),
+  partsJson: text("parts_json").notNull().default("[]"),
+  oilBrand: text("oil_brand"),
+  oilWeight: text("oil_weight"),
   nextDueMiles: doublePrecision("next_due_miles"),
   nextDueAt: timestamp("next_due_at", { withTimezone: true, mode: "date" }),
   status: text("status").notNull().default("logged"),
@@ -12930,6 +12988,27 @@ var maintenanceLogAttachments2 = pgTable("maintenance_log_attachments", {
   blobKey: text("blob_key"),
   mime: text("mime"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
+});
+var maintenanceFleetRecords2 = pgTable("maintenance_fleet_records", {
+  id: serial("id").primaryKey(),
+  companyId: integer2("company_id").notNull(),
+  username: text("username").notNull(),
+  entryId: integer2("entry_id").notNull(),
+  truckUnit: text("truck_unit"),
+  truckLabel: text("truck_label"),
+  kind: text("kind").notNull().default("service"),
+  category: text("category").notNull(),
+  performedAt: timestamp("performed_at", { withTimezone: true, mode: "date" }).notNull(),
+  odometer: doublePrecision("odometer"),
+  description: text("description").notNull(),
+  shop: text("shop"),
+  cost: doublePrecision("cost").notNull().default(0),
+  partsJson: text("parts_json").notNull().default("[]"),
+  oilBrand: text("oil_brand"),
+  oilWeight: text("oil_weight"),
+  nextDueMiles: doublePrecision("next_due_miles"),
+  nextDueAt: timestamp("next_due_at", { withTimezone: true, mode: "date" }),
+  publishedAt: timestamp("published_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
 });
 var vehiclePhotos2 = pgTable("vehicle_photos", {
   profileId: integer2("profile_id"),
@@ -13395,6 +13474,17 @@ var offDutyRequests2 = pgTable("off_duty_requests", {
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date),
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
 });
+var calendarEvents2 = pgTable("calendar_events", {
+  profileId: integer2("profile_id"),
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  type: text("type").notNull(),
+  startsAt: timestamp("starts_at", { withTimezone: true, mode: "date" }).notNull(),
+  endsAt: timestamp("ends_at", { withTimezone: true, mode: "date" }).notNull(),
+  note: text("note"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().$defaultFn(() => new Date)
+});
 var loadReleaseRequests2 = pgTable("load_release_requests", {
   id: serial("id").primaryKey(),
   companyId: integer2("company_id").notNull(),
@@ -13783,6 +13873,7 @@ var claimEvents3 = impl.claimEvents;
 var maintenanceServices3 = impl.maintenanceServices;
 var maintenanceLogEntries3 = impl.maintenanceLogEntries;
 var maintenanceLogAttachments3 = impl.maintenanceLogAttachments;
+var maintenanceFleetRecords3 = impl.maintenanceFleetRecords;
 var vehiclePhotos3 = impl.vehiclePhotos;
 var posterReferrals3 = impl.posterReferrals;
 var sealedLanes3 = impl.sealedLanes;
@@ -13809,6 +13900,7 @@ var pulseResponses3 = impl.pulseResponses;
 var homeTimeFactSnapshots3 = impl.homeTimeFactSnapshots;
 var fleetCalendarSettings3 = impl.fleetCalendarSettings;
 var offDutyRequests3 = impl.offDutyRequests;
+var calendarEvents3 = impl.calendarEvents;
 var loadReleaseRequests3 = impl.loadReleaseRequests;
 var loadReassignments3 = impl.loadReassignments;
 var driverLoadHandbacks3 = impl.driverLoadHandbacks;
@@ -14005,6 +14097,118 @@ function payBookPeriodStart(period, nowMs) {
   }
 }
 
+// src/quarterlyTax.ts
+var MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+var PERIOD_DEFS = [
+  { period: 1, monthsLabel: "Jan \u2013 Mar", startMonth: 0, endMonth: 2, dueMonth: 3, dueDay: 15, dueYearOffset: 0 },
+  { period: 2, monthsLabel: "Apr \u2013 May", startMonth: 3, endMonth: 4, dueMonth: 5, dueDay: 15, dueYearOffset: 0 },
+  { period: 3, monthsLabel: "Jun \u2013 Aug", startMonth: 5, endMonth: 7, dueMonth: 8, dueDay: 15, dueYearOffset: 0 },
+  { period: 4, monthsLabel: "Sep \u2013 Dec", startMonth: 8, endMonth: 11, dueMonth: 0, dueDay: 15, dueYearOffset: 1 }
+];
+function dateIso(year, month0, day) {
+  return `${year}-${String(month0 + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+function lastDayIso(year, month0) {
+  const d = new Date(Date.UTC(year, month0 + 1, 0));
+  return dateIso(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+}
+function periodForMonth(month0) {
+  if (month0 <= 2)
+    return 1;
+  if (month0 <= 4)
+    return 2;
+  if (month0 <= 7)
+    return 3;
+  return 4;
+}
+function clampIncomeRatePct(rate) {
+  if (!Number.isFinite(rate))
+    return 12;
+  return Math.min(40, Math.max(0, Math.round(rate * 10) / 10));
+}
+function summarizeQuarterlyTax(entries, expenses, fuel, year, incomeRatePct, nowMs) {
+  const rate = clampIncomeRatePct(incomeRatePct);
+  const buckets = PERIOD_DEFS.map(() => ({ grossC: 0, stubC: 0, expC: 0, fuelC: 0, count: 0 }));
+  for (const e of entries) {
+    if (e.kind !== "1099" || e.isForm)
+      continue;
+    if (!Number.isFinite(e.paidAtMs))
+      continue;
+    const d = new Date(e.paidAtMs);
+    if (d.getUTCFullYear() !== year)
+      continue;
+    const b = buckets[periodForMonth(d.getUTCMonth()) - 1];
+    b.grossC += toCents(e.gross);
+    b.stubC += toCents(e.otherDeductions);
+    b.count += 1;
+  }
+  for (const e of expenses) {
+    if (!Number.isFinite(e.spentAtMs) || !Number.isFinite(e.amount))
+      continue;
+    const d = new Date(e.spentAtMs);
+    if (d.getUTCFullYear() !== year)
+      continue;
+    buckets[periodForMonth(d.getUTCMonth()) - 1].expC += toCents(e.amount);
+  }
+  for (const f of fuel) {
+    if (!Number.isFinite(f.purchasedAtMs) || !Number.isFinite(f.total))
+      continue;
+    const d = new Date(f.purchasedAtMs);
+    if (d.getUTCFullYear() !== year)
+      continue;
+    buckets[periodForMonth(d.getUTCMonth()) - 1].fuelC += toCents(f.total);
+  }
+  const periods = PERIOD_DEFS.map((def, i) => {
+    const b = buckets[i];
+    const netC = b.grossC - b.stubC - b.expC - b.fuelC;
+    const taxableC = Math.max(0, netC);
+    const seTaxC = Math.round(Math.round(taxableC * 0.9235) * 0.153);
+    const incomeTaxC = Math.round(taxableC * (rate / 100));
+    const startIso = dateIso(year, def.startMonth, 1);
+    const dueYear = year + def.dueYearOffset;
+    const dueIso = dateIso(dueYear, def.dueMonth, def.dueDay);
+    const startMs = Date.parse(`${startIso}T00:00:00Z`);
+    const dueEndMs = Date.parse(`${dueIso}T23:59:59.999Z`);
+    const dueState = nowMs < startMs ? "upcoming" : nowMs > dueEndMs ? "past" : "open";
+    return {
+      period: def.period,
+      monthsLabel: def.monthsLabel,
+      startIso,
+      endIso: lastDayIso(year, def.endMonth),
+      dueIso,
+      dueLabel: `${MONTH_NAMES[def.dueMonth]} ${def.dueDay}, ${dueYear}`,
+      dueState,
+      gross1099: fromCents(b.grossC),
+      stubDeductions: fromCents(b.stubC),
+      expenses: fromCents(b.expC),
+      fuel: fromCents(b.fuelC),
+      net: fromCents(netC),
+      seTax: fromCents(seTaxC),
+      incomeTax: fromCents(incomeTaxC),
+      setAside: fromCents(seTaxC + incomeTaxC),
+      count: b.count
+    };
+  });
+  const sum = (pick) => fromCents(periods.reduce((s, p) => s + toCents(pick(p)), 0));
+  return {
+    year,
+    incomeRatePct: rate,
+    periods,
+    totals: {
+      gross1099: sum((p) => p.gross1099),
+      stubDeductions: sum((p) => p.stubDeductions),
+      expenses: sum((p) => p.expenses),
+      fuel: sum((p) => p.fuel),
+      net: sum((p) => p.net),
+      seTax: sum((p) => p.seTax),
+      incomeTax: sum((p) => p.incomeTax),
+      setAside: sum((p) => p.setAside),
+      count: periods.reduce((s, p) => s + p.count, 0)
+    },
+    hasData: periods.some((p) => p.count > 0)
+  };
+}
+
 // src/moneyOverview.ts
 function classifyDeductionLabel(label) {
   const norm = label.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
@@ -14154,6 +14358,527 @@ function computeMoneyOverview(entries, loads, nowMs) {
       weeksElapsed: elapsedWeeks,
       weeksWithEntries
     } : null
+  };
+}
+
+// src/rateConText.ts
+var EMPTY_RATE_CON_TEXT_FIELDS = {
+  found: false,
+  docKind: null,
+  shipper: null,
+  consignee: null,
+  carrier: null,
+  brokerCompany: null,
+  brokerName: null,
+  brokerMc: null,
+  pickupCity: null,
+  pickupState: null,
+  pickupAddress: null,
+  deliveryCity: null,
+  deliveryState: null,
+  deliveryAddress: null,
+  pickupText: null,
+  deliveryText: null,
+  rate: null,
+  miles: null,
+  weightLbs: null,
+  commodity: null,
+  pieces: null,
+  sealNumber: null,
+  loadNumber: null,
+  poNumber: null,
+  proNumber: null,
+  chargesFuelSurcharge: null,
+  chargesDetention: null,
+  chargesLumper: null,
+  chargesOther: null,
+  chargesTotal: null,
+  totalPay: null
+};
+var MONEY = /\$\s?([\d,]+(?:\.\d{1,2})?)/;
+var BARE_MONEY = /([\d,]+\.\d{2}|[\d,]+)/;
+var DATE = /(\d{1,2}\/\d{1,2}\/\d{2,4}|\d{4}-\d{2}-\d{2}|(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4})/i;
+var TIME = /(\d{1,2}:\d{2}\s*(?:AM|PM)?)/i;
+var CITY_STATE_ZIP = /([A-Za-z][A-Za-z .'-]*?),\s*([A-Z]{2})\s+\d{5}(?:-\d{4})?\b/;
+function moneyOn(line) {
+  const m = MONEY.exec(line) ?? BARE_MONEY.exec(line.replace(/,/g, " ").replace(/\s+/g, " "));
+  if (!m)
+    return null;
+  const v = Number(String(m[1]).replace(/,/g, ""));
+  return Number.isFinite(v) && v >= 0 ? v : null;
+}
+function afterLabel(line, label) {
+  const m = label.exec(line);
+  if (!m)
+    return null;
+  const rest = line.slice(m.index + m[0].length).replace(/^[:#\s]+/, "").trim();
+  return rest || null;
+}
+function firstMoney(lines, label) {
+  for (const line of lines) {
+    if (label.test(line)) {
+      const v = moneyOn(line);
+      if (v != null)
+        return v;
+    }
+  }
+  return null;
+}
+function firstText(lines, label) {
+  for (const line of lines) {
+    const v = afterLabel(line, label);
+    if (v)
+      return v;
+  }
+  return null;
+}
+function isLabelLine(line) {
+  const t = line.trim();
+  if (!t)
+    return true;
+  if (/^(load|order|shipment|trip|ref(?:erence)?)\s*(#|no\.?|number|id)$/i.test(t))
+    return true;
+  if (/^(broker|carrier|shipper|consignee)\s+(name|phone|mc\s*#?|company|name and address)$/i.test(t))
+    return true;
+  if (/^(shipper|consignee)\s+\u2014\s+(pickup|delivery)$/i.test(t))
+    return true;
+  if (/^(shipper|consignee) name and address$/i.test(t))
+    return true;
+  if (/^(pickup|delivery) instructions$/i.test(t))
+    return true;
+  if (/^(shipper|consignee) references$/i.test(t))
+    return true;
+  if (/^expected date\b/i.test(t))
+    return true;
+  if (/^(equipment type|shipment information|carrier fees|signature date|load accepted by|driver name|cell phone|truck #|trailer #|date|signature)$/i.test(t))
+    return true;
+  if (/^(p\.?o\.?|purchase order|pro|seal)\s*(#|no\.?|number)?$/i.test(t))
+    return true;
+  return false;
+}
+function nextLineValue(lines, label) {
+  for (let i = 0;i < lines.length; i++) {
+    const line = lines[i];
+    if (line === undefined || !label.test(line))
+      continue;
+    const same = afterLabel(line, label);
+    if (same)
+      return same;
+    for (let j = i + 1;j < Math.min(i + 3, lines.length); j++) {
+      const cand = lines[j];
+      if (cand === undefined)
+        continue;
+      if (isLabelLine(cand))
+        return null;
+      return cand;
+    }
+    return null;
+  }
+  return null;
+}
+function firstChargeMoney(lines, label) {
+  for (const line of lines) {
+    if (label.test(line) && /\$/.test(line)) {
+      const v = moneyOn(line);
+      if (v != null)
+        return v;
+    }
+  }
+  return null;
+}
+function dateNear(lines, label) {
+  const withTime = (line) => {
+    const d = DATE.exec(line);
+    if (!d)
+      return null;
+    const t = TIME.exec(line);
+    return t && !d[0].includes(t[0]) ? `${d[0]} ${t[0]}` : d[0];
+  };
+  for (const line of lines) {
+    if (label.test(line)) {
+      const v = withTime(line);
+      if (v)
+        return v;
+    }
+  }
+  for (let i = 0;i < lines.length; i++) {
+    const head = lines[i];
+    if (head === undefined || !label.test(head))
+      continue;
+    for (let j = i;j < Math.min(i + 5, lines.length); j++) {
+      const lj = lines[j];
+      if (lj === undefined)
+        continue;
+      const v = withTime(lj);
+      if (v)
+        return v;
+    }
+    return null;
+  }
+  return null;
+}
+function sectionPlace(lines) {
+  let labelledAddress = null;
+  for (let i = 0;i < lines.length; i++) {
+    const line = lines[i];
+    if (line === undefined)
+      continue;
+    const am = /^address\s*:\s*(.+)$/i.exec(line);
+    if (am && labelledAddress == null) {
+      const v = am[1].trim().replace(/\.$/, "").trim();
+      if (v)
+        labelledAddress = v;
+      continue;
+    }
+    const m = CITY_STATE_ZIP.exec(line);
+    if (m) {
+      let address = null;
+      if (i > 0) {
+        const prev = lines[i - 1];
+        if (prev !== undefined && /^\d+\s+\S/.test(prev) && !/:/.test(prev))
+          address = prev;
+      }
+      const inline = line.slice(0, m.index).trim();
+      if (!address && /^\d+\s+\S/.test(inline))
+        address = inline;
+      return { city: m[1].trim(), state: m[2], address: labelledAddress ?? address };
+    }
+  }
+  return { city: null, state: null, address: labelledAddress };
+}
+function splitSections(lines) {
+  const pickupHead = /^(pickup|pick up|shipper|origin|load at|collect)\b/i;
+  const deliveryHead = /^(delivery|deliver to|consignee|destination|unload|drop)\b/i;
+  let pStart = -1;
+  let dStart = -1;
+  for (let i = 0;i < lines.length; i++) {
+    const line = lines[i];
+    if (line === undefined)
+      continue;
+    if (pStart < 0 && pickupHead.test(line))
+      pStart = i;
+    if (dStart < 0 && deliveryHead.test(line))
+      dStart = i;
+  }
+  if (pStart < 0 && dStart < 0)
+    return { pickup: null, delivery: null };
+  const pickup = pStart >= 0 ? lines.slice(pStart, dStart > pStart ? dStart : undefined) : null;
+  const delivery = dStart >= 0 ? lines.slice(dStart, pStart > dStart ? pStart : undefined) : null;
+  return { pickup, delivery };
+}
+function parseRateConText(rawText) {
+  const out = { ...EMPTY_RATE_CON_TEXT_FIELDS };
+  const text = (rawText ?? "").replace(/\r/g, "");
+  const lines = text.split(`
+`).map((l) => l.replace(/\s+/g, " ").trim()).filter((l) => l.length > 0);
+  if (lines.length === 0)
+    return out;
+  const whole = lines.join(`
+`);
+  if (/rate confirmation/i.test(whole))
+    out.docKind = "rate_con";
+  else if (/bill of lading/i.test(whole))
+    out.docKind = "bol";
+  else if (/load (tender|sheet|offer)/i.test(whole))
+    out.docKind = "load_sheet";
+  out.loadNumber = nextLineValue(lines, /\b(load|order|shipment|trip|ref(?:erence)?)\s*(#|no\.?|number|id)\b/i) ?? nextLineValue(lines, /\b(load|order|shipment)\s*#/i);
+  out.poNumber = nextLineValue(lines, /\b(p\.?o\.?|purchase order)\s*(#|no\.?|number)?\b/i);
+  out.proNumber = nextLineValue(lines, /\bpro\s*(#|no\.?|number)\b/i);
+  out.brokerMc = null;
+  for (const line of lines) {
+    const mm = /\bMC\s*#?\s*:?\s*(\d{5,8})\b/.exec(line);
+    if (mm && !/carrier/i.test(line)) {
+      out.brokerMc = mm[1];
+      break;
+    }
+  }
+  out.chargesFuelSurcharge = firstChargeMoney(lines, /fuel surcharge/i);
+  out.chargesDetention = firstChargeMoney(lines, /detention/i);
+  out.chargesLumper = firstChargeMoney(lines, /lumper/i);
+  out.chargesOther = firstChargeMoney(lines, /(other charges|accessorial(?!.*total))/i);
+  out.chargesTotal = firstChargeMoney(lines, /(total (accessorial|additional|charges)|accessorial total)/i);
+  out.totalPay = firstMoney(lines, /(grand total|total pay|total amount|total rate|total due|total cost|total:)/i);
+  out.rate = firstMoney(lines, /(linehaul|flat rate|load rate|rate\s*\/|rate:)/i) ?? firstMoney(lines, /^(rate|amount)\b/i);
+  const anyCharges = out.chargesFuelSurcharge != null || out.chargesDetention != null || out.chargesLumper != null || out.chargesOther != null || out.chargesTotal != null;
+  out.miles = firstMoney(lines, /(loaded miles|total miles|distance|miles:)/i);
+  if (out.miles == null) {
+    const all = [...whole.matchAll(/([\d,]+(?:\.\d+)?)\s*(?:miles|mi)\b/gi)].map((m) => Number((m[1] ?? "").replace(/,/g, ""))).filter((v) => Number.isFinite(v) && v >= 50 && v <= 5000);
+    const unique = [...new Set(all)];
+    if (unique.length === 1)
+      out.miles = unique[0];
+  }
+  for (const line of lines) {
+    if (out.weightLbs == null && /weight/i.test(line)) {
+      const w = /([\d,]+)\s*(lbs?|pounds?)\b/i.exec(line);
+      if (w) {
+        const v = Number(w[1].replace(/,/g, ""));
+        if (Number.isFinite(v) && v > 0)
+          out.weightLbs = Math.round(v);
+      }
+    }
+    if (out.pieces == null && /\b(pieces|pallets|skids|units|count)\b/i.test(line)) {
+      const p = afterLabel(line, /\b(pieces|pallets|skids|units|count)\b/i);
+      const v = p ? Number(p.replace(/[^0-9]/g, "")) : NaN;
+      if (Number.isFinite(v) && v > 0)
+        out.pieces = Math.round(v);
+    }
+  }
+  out.commodity = firstText(lines, /\b(commodity|freight|product|description of goods|goods)\s*:/i) ?? firstText(lines, /\b(commodity|freight)\b/i);
+  if (out.commodity && /(ltl only|nmfc|handling unit)/i.test(out.commodity)) {
+    out.commodity = null;
+  }
+  out.sealNumber = nextLineValue(lines, /\bseal\s*(#|no\.?|number)\b/i);
+  out.brokerCompany = nextLineValue(lines, /\bbroker\s*:/i) ?? nextLineValue(lines, /\bbroker company\b/i);
+  out.brokerName = nextLineValue(lines, /\b(broker contact|dispatcher|agent)\s*:/i) ?? nextLineValue(lines, /\bbroker\s+name\b/i);
+  out.carrier = nextLineValue(lines, /\bcarrier\s+name\b/i);
+  if (!out.brokerCompany && out.brokerMc) {
+    const mcIdx = lines.findIndex((l) => /\bMC\s*#?\s*:?\s*(\d{5,8})\b/.test(l) && !/carrier/i.test(l));
+    if (mcIdx > 0) {
+      for (let j = mcIdx - 1;j >= Math.max(0, mcIdx - 6); j--) {
+        const cand = lines[j];
+        if (/\b(LLC|L\.L\.C\.|INC|CORP|LTD)\b/i.test(cand) && !/rate confirmation/i.test(cand)) {
+          out.brokerCompany = cand;
+          break;
+        }
+      }
+    }
+  }
+  const { pickup, delivery } = splitSections(lines);
+  const sectionName = (section, city) => {
+    for (const line of section.slice(1)) {
+      if (CITY_STATE_ZIP.test(line))
+        break;
+      if (/^address\s*:/i.test(line))
+        continue;
+      if (/name and address/i.test(line))
+        continue;
+      if (/^expected date\b/i.test(line))
+        break;
+      if (/instructions/i.test(line))
+        break;
+      if (/^\d+\s+\S/.test(line))
+        continue;
+      if (/:/.test(line))
+        continue;
+      const dash = /^([A-Za-z0-9]{2,8})--\s*(.+)$/.exec(line);
+      if (dash) {
+        const rest = dash[2].trim();
+        return city && rest.toLowerCase() === city.toLowerCase() ? dash[1] : rest;
+      }
+      if (line.length >= 3)
+        return line;
+    }
+    return null;
+  };
+  if (pickup) {
+    const s = sectionPlace(pickup);
+    out.pickupCity = s.city;
+    out.pickupState = s.state;
+    out.pickupAddress = s.address;
+    out.shipper = sectionName(pickup, s.city);
+  }
+  if (delivery) {
+    const s = sectionPlace(delivery);
+    out.deliveryCity = s.city;
+    out.deliveryState = s.state;
+    out.deliveryAddress = s.address;
+    out.consignee = sectionName(delivery, s.city);
+  }
+  if (!pickup && !delivery) {
+    const places = [];
+    for (const line of lines) {
+      const m = CITY_STATE_ZIP.exec(line);
+      if (m)
+        places.push({ city: m[1].trim(), state: m[2], address: null });
+      if (places.length === 2)
+        break;
+    }
+    if (places[0]) {
+      out.pickupCity = places[0].city;
+      out.pickupState = places[0].state;
+    }
+    if (places[1]) {
+      out.deliveryCity = places[1].city;
+      out.deliveryState = places[1].state;
+    }
+  }
+  out.pickupText = dateNear(lines, /\b(pickup|pick up|ship date|load date|origin)\b/i);
+  out.deliveryText = dateNear(lines, /\b(delivery|deliver|due|appointment|destination)\b/i);
+  if (!out.pickupText && !out.deliveryText) {
+    const dates = [...whole.matchAll(new RegExp(DATE.source, "gi"))].map((m) => m[0]);
+    if (dates[0])
+      out.pickupText = dates[0];
+    if (dates[1])
+      out.deliveryText = dates[1];
+  }
+  const sectionBareTime = (section) => {
+    if (!section)
+      return null;
+    for (let i = 0;i < section.length; i++) {
+      if (!/instructions/i.test(section[i]))
+        continue;
+      for (let j = i + 1;j < Math.min(i + 3, section.length); j++) {
+        const t = section[j].trim();
+        if (/^\d{1,2}(:\d{2})?\s*(AM|PM)$/i.test(t))
+          return t.replace(/\s+/g, "");
+        if (t)
+          break;
+      }
+    }
+    return null;
+  };
+  const hasTime = (s) => /(AM|PM)|\d{1,2}:\d{2}/i.test(s);
+  const pTime = sectionBareTime(pickup);
+  if (pTime && out.pickupText && !hasTime(out.pickupText))
+    out.pickupText = `${out.pickupText} ${pTime}`;
+  const dTime = sectionBareTime(delivery);
+  if (dTime && out.deliveryText && !hasTime(out.deliveryText))
+    out.deliveryText = `${out.deliveryText} ${dTime}`;
+  const hasFreightContext = out.loadNumber != null || out.weightLbs != null || out.miles != null || out.commodity != null || out.pickupCity != null && out.deliveryCity != null || out.docKind === "rate_con" || out.docKind === "load_sheet";
+  if (out.rate == null && out.totalPay != null && !anyCharges && hasFreightContext) {
+    out.rate = out.totalPay;
+  }
+  const totalWithFreight = out.totalPay != null && (out.miles != null || out.weightLbs != null || out.commodity != null || out.docKind === "rate_con");
+  out.found = out.rate != null || totalWithFreight || out.loadNumber != null || out.pickupCity != null && out.deliveryCity != null;
+  if (out.found && out.docKind == null)
+    out.docKind = "other";
+  return out;
+}
+
+// src/payRpm.ts
+var DAY_MS2 = 86400000;
+function round2(v) {
+  return Math.round(v * 100) / 100;
+}
+function computePayRpm(loads, nowMs, windowDays = 30) {
+  const from = nowMs - windowDays * DAY_MS2;
+  let revenue = 0;
+  let miles = 0;
+  let loadCount = 0;
+  let loadsSkippedNoMiles = 0;
+  for (const l of loads) {
+    if (!(l.sealedAtMs > from && l.sealedAtMs <= nowMs))
+      continue;
+    if (l.revenue == null || !Number.isFinite(l.revenue))
+      continue;
+    if (l.loadedMiles == null || !(l.loadedMiles > 0)) {
+      loadsSkippedNoMiles++;
+      continue;
+    }
+    revenue += l.revenue;
+    miles += l.loadedMiles;
+    loadCount++;
+  }
+  revenue = round2(revenue);
+  miles = Math.round(miles * 10) / 10;
+  return {
+    hasData: miles > 0,
+    windowDays,
+    revenue,
+    miles,
+    loadCount,
+    loadsSkippedNoMiles,
+    rpm: miles > 0 ? round2(revenue / miles) : null
+  };
+}
+
+// src/rateWatch.ts
+var RATE_WATCH_BENCHMARKS = {
+  weekLabel: "Week 45",
+  weekEndingLabel: "week ending Nov 13, 2026",
+  source: "Truckstop.com / FTR \u2014 broker-posted spot averages, includes fuel",
+  totalSpotPerMile: 3.16,
+  rows: [
+    {
+      equipment: "dry_van",
+      label: "Dry van",
+      ratePerMile: null,
+      weeklyChange: "eased <1\xA2",
+      loadsChangePct: -2.2,
+      vsLastYearPct: 48,
+      note: null
+    },
+    {
+      equipment: "reefer",
+      label: "Reefer",
+      ratePerMile: null,
+      weeklyChange: "+3\xA2",
+      loadsChangePct: -1.8,
+      vsLastYearPct: 41,
+      note: null
+    },
+    {
+      equipment: "flatbed",
+      label: "Flatbed",
+      ratePerMile: null,
+      weeklyChange: "\u22127.6\xA2",
+      loadsChangePct: -7.3,
+      vsLastYearPct: 39,
+      note: "Biggest weekly drop since August"
+    }
+  ]
+};
+var RATE_INDEX_EQUIPMENT_LABELS = {
+  flatbed: "Flatbed",
+  open_deck: "Open deck",
+  rgn: "RGN",
+  oversized: "Oversized",
+  dry_van: "Dry van",
+  reefer: "Reefer",
+  container: "Container"
+};
+var MIN_INDEX_LOADS = 5;
+var DAY_MS3 = 86400000;
+function round22(v) {
+  return Math.round(v * 100) / 100;
+}
+function computeRateIndex(loads, nowMs, windowDays = 90, minLoads = MIN_INDEX_LOADS) {
+  const from = nowMs - windowDays * DAY_MS3;
+  let sealedLoadCount = 0;
+  let countedLoadCount = 0;
+  let totalRevenue = 0;
+  let totalMiles = 0;
+  const buckets = new Map;
+  for (const l of loads) {
+    if (!(l.sealedAtMs > from && l.sealedAtMs <= nowMs))
+      continue;
+    sealedLoadCount++;
+    if (l.revenue == null || !Number.isFinite(l.revenue))
+      continue;
+    if (l.loadedMiles == null || !(l.loadedMiles > 0))
+      continue;
+    countedLoadCount++;
+    totalRevenue += l.revenue;
+    totalMiles += l.loadedMiles;
+    if (l.equipmentType) {
+      const b = buckets.get(l.equipmentType) ?? { revenue: 0, miles: 0, count: 0 };
+      b.revenue += l.revenue;
+      b.miles += l.loadedMiles;
+      b.count++;
+      buckets.set(l.equipmentType, b);
+    }
+  }
+  const overall = countedLoadCount >= minLoads && totalMiles > 0 ? { equipment: "all", label: "All equipment", loadCount: countedLoadCount, rpm: round22(totalRevenue / totalMiles) } : null;
+  const byEquipment = [];
+  for (const [equipment, b] of buckets) {
+    if (b.count < minLoads || !(b.miles > 0))
+      continue;
+    byEquipment.push({
+      equipment,
+      label: RATE_INDEX_EQUIPMENT_LABELS[equipment] ?? equipment,
+      loadCount: b.count,
+      rpm: round22(b.revenue / b.miles)
+    });
+  }
+  byEquipment.sort((a, b) => b.loadCount - a.loadCount || a.label.localeCompare(b.label));
+  return {
+    windowDays,
+    minLoads,
+    sealedLoadCount,
+    countedLoadCount,
+    overall,
+    byEquipment,
+    hasIndex: overall != null
   };
 }
 
@@ -14909,7 +15634,7 @@ async function fetchExplorePois(lat, lon, category) {
 }
 
 // src/taxYear.ts
-var DAY_MS2 = 86400000;
+var DAY_MS4 = 86400000;
 function utcDateKey(ms) {
   return new Date(ms).toISOString().slice(0, 10);
 }
@@ -14918,10 +15643,10 @@ function perDiemDates(trips, year) {
   for (const t of trips) {
     if (!Number.isFinite(t.startedAtMs))
       continue;
-    const startDay = Math.floor(t.startedAtMs / DAY_MS2) * DAY_MS2;
+    const startDay = Math.floor(t.startedAtMs / DAY_MS4) * DAY_MS4;
     const endMs = Number.isFinite(t.endedAtMs) && t.endedAtMs >= t.startedAtMs ? t.endedAtMs : t.startedAtMs;
-    const endDay = Math.floor(endMs / DAY_MS2) * DAY_MS2;
-    for (let d = startDay;d <= endDay; d += DAY_MS2) {
+    const endDay = Math.floor(endMs / DAY_MS4) * DAY_MS4;
+    for (let d = startDay;d <= endDay; d += DAY_MS4) {
       const key = utcDateKey(d);
       if (Number(key.slice(0, 4)) === year)
         days.add(key);
@@ -14976,7 +15701,7 @@ var WORKSHEET_SECTIONS = [
     ]
   }
 ];
-var round2 = (n) => Math.round(n * 100) / 100;
+var round23 = (n) => Math.round(n * 100) / 100;
 function buildTaxWorksheet(input) {
   const { year } = input;
   const rows = [];
@@ -14996,15 +15721,15 @@ function buildTaxWorksheet(input) {
       payer: e.payer,
       lane,
       miles: typeof e.miles === "number" && Number.isFinite(e.miles) ? e.miles : null,
-      gross: round2(e.gross)
+      gross: round23(e.gross)
     });
     const bucket = lane === "1099" ? ten99 : w2;
     bucket.gross += e.gross;
     bucket.count += 1;
   }
   rows.sort((a, b) => a.paidAtMs - b.paidAtMs);
-  w2.gross = round2(w2.gross);
-  ten99.gross = round2(ten99.gross);
+  w2.gross = round23(w2.gross);
+  ten99.gross = round23(ten99.gross);
   const totals = expenseTotalsForYear(input.expenses, year);
   const byCategory = new Map(totals.byCategory.map((c) => [c.category, c]));
   const mapped = new Set;
@@ -15020,20 +15745,20 @@ function buildTaxWorksheet(input) {
           mapped.add(cat);
         }
       }
-      return { key: lineDef.key, label: lineDef.label, categories: lineDef.categories, total: round2(total), count };
+      return { key: lineDef.key, label: lineDef.label, categories: lineDef.categories, total: round23(total), count };
     });
-    return { key: def.key, title: def.title, lines, subtotal: round2(lines.reduce((s, l) => s + l.total, 0)) };
+    return { key: def.key, title: def.title, lines, subtotal: round23(lines.reduce((s, l) => s + l.total, 0)) };
   });
   const unmapped = totals.byCategory.filter((c) => !mapped.has(c.category));
   if (unmapped.length) {
     const other = sections[0].lines.find((l) => l.key === "other");
     for (const c of unmapped) {
-      other.total = round2(other.total + c.total);
+      other.total = round23(other.total + c.total);
       other.count += c.count;
       if (!other.categories.includes(c.category))
         other.categories = [...other.categories, c.category];
     }
-    sections[0].subtotal = round2(sections[0].lines.reduce((s, l) => s + l.total, 0));
+    sections[0].subtotal = round23(sections[0].lines.reduce((s, l) => s + l.total, 0));
   }
   return {
     year,
@@ -15158,7 +15883,7 @@ var COLLECTION_WINDOW_DAYS = 7;
 var REVOKE_DAYS = 10;
 var DISPATCH_FEE_CRYPTO_ADDRESS = "0x3a6fEBE311F98629C9A98452dB0968C315930447";
 var DISPATCH_FEE_CARD_LINK = null;
-var DAY_MS3 = 86400000;
+var DAY_MS5 = 86400000;
 var CENT_EPSILON = 0.005;
 function roundCents(n) {
   return Math.round(n * 100) / 100;
@@ -15172,7 +15897,7 @@ function dispatchFeeFor(freightAmount) {
   return roundCents(freightAmount * DISPATCH_FEE_RATE);
 }
 function daysOutstandingFor(deliveredAtMs, nowMs) {
-  return Math.max(0, Math.floor((nowMs - deliveredAtMs) / DAY_MS3));
+  return Math.max(0, Math.floor((nowMs - deliveredAtMs) / DAY_MS5));
 }
 function ladderFor(input) {
   const balanceDue = roundCents(Math.max(0, input.feeAmount - input.paidAmount));
@@ -15230,7 +15955,7 @@ function gateFor(invoices) {
 }
 
 // src/loadFees.ts
-var round22 = (n) => Math.round(n * 100) / 100;
+var round24 = (n) => Math.round(n * 100) / 100;
 function clampPct(pct) {
   if (pct == null || !Number.isFinite(pct))
     return 0;
@@ -15243,10 +15968,10 @@ function clampPct(pct) {
 function loadFeeBreakdown(grossRate, factoringPct, dispatcherPct) {
   const fPct = clampPct(factoringPct);
   const dPct = clampPct(dispatcherPct);
-  const factoringAmt = round22(grossRate * fPct / 100);
-  const dispatcherAmt = round22(grossRate * dPct / 100);
-  const totalFees = round22(factoringAmt + dispatcherAmt);
-  const netRate = round22(grossRate - totalFees);
+  const factoringAmt = round24(grossRate * fPct / 100);
+  const dispatcherAmt = round24(grossRate * dPct / 100);
+  const totalFees = round24(factoringAmt + dispatcherAmt);
+  const netRate = round24(grossRate - totalFees);
   return { factoringPct: fPct, dispatcherPct: dPct, factoringAmt, dispatcherAmt, totalFees, netRate };
 }
 
@@ -16537,7 +17262,7 @@ function howToEarnLayer2() {
   ];
 }
 var LAYER2_TZ = "America/Chicago";
-var DAY_MS4 = 86400000;
+var DAY_MS6 = 86400000;
 function layer2DayKey(ms) {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: LAYER2_TZ,
@@ -16574,11 +17299,11 @@ function weekdayOfDayStart(dayStartMs) {
 function weekFromDayStart(dayStartMs) {
   const wd = weekdayOfDayStart(dayStartMs);
   const back = (wd + 6) % 7;
-  const startMs = dayStartMs - back * DAY_MS4;
+  const startMs = dayStartMs - back * DAY_MS6;
   const dayKeys = [];
   for (let i = 0;i < 7; i++)
-    dayKeys.push(layer2DayKey(startMs + i * DAY_MS4 + 12 * 3600000));
-  return { startMs, endMs: startMs + 7 * DAY_MS4, mondayKey: dayKeys[0], dayKeys };
+    dayKeys.push(layer2DayKey(startMs + i * DAY_MS6 + 12 * 3600000));
+  return { startMs, endMs: startMs + 7 * DAY_MS6, mondayKey: dayKeys[0], dayKeys };
 }
 function calendarWeekOf(ms) {
   return weekFromDayStart(layer2DayStartMs(ms));
@@ -16619,7 +17344,7 @@ function birthdayAwardFor(birth, nowMs) {
   const { year } = layer2DayParts(nowMs);
   for (const y of [year, year - 1]) {
     const start = monthDayStartMs(y, birth.month, birth.day);
-    if (nowMs >= start && nowMs < start + (1 + LAYER2_CALENDAR_GRACE_DAYS) * DAY_MS4) {
+    if (nowMs >= start && nowMs < start + (1 + LAYER2_CALENDAR_GRACE_DAYS) * DAY_MS6) {
       return {
         refKey: `layer2-birthday-${y}`,
         source: LAYER2_BIRTHDAY_SOURCE,
@@ -16640,7 +17365,7 @@ function anniversaryAwardFor(createdMs, nowMs) {
     if (years < 1)
       continue;
     const start = monthDayStartMs(y, c.month, c.day);
-    if (nowMs >= start && nowMs < start + (1 + LAYER2_CALENDAR_GRACE_DAYS) * DAY_MS4) {
+    if (nowMs >= start && nowMs < start + (1 + LAYER2_CALENDAR_GRACE_DAYS) * DAY_MS6) {
       return {
         refKey: `layer2-anniversary-${years}`,
         source: LAYER2_ANNIVERSARY_SOURCE,
@@ -16856,7 +17581,7 @@ function evaluateMaintenance(entries, services, sealedOdometerMax) {
     const chain = chains.get(e.category);
     if (chain) {
       const dueByOdo = chain.nextDueOdo != null && e.odometer != null && e.odometer >= chain.nextDueOdo - LAYER2_MAINTENANCE_DUE_EARLY_TOLERANCE_MI;
-      const dueByDate = chain.nextDueAt != null && e.performedMs >= chain.nextDueAt - LAYER2_MAINTENANCE_DUE_EARLY_TOLERANCE_DAYS * DAY_MS4;
+      const dueByDate = chain.nextDueAt != null && e.performedMs >= chain.nextDueAt - LAYER2_MAINTENANCE_DUE_EARLY_TOLERANCE_DAYS * DAY_MS6;
       if (dueByOdo || dueByDate) {
         const cycleKey = chain.nextDueOdo != null ? `m${Math.round(chain.nextDueOdo)}` : chain.nextDueAt != null ? `d${chain.nextDueAt}` : "open";
         const odoBad = e.odometer == null || contradicts;
@@ -17134,12 +17859,12 @@ var CREDENTIAL_LABELS = {
   medical: "Medical card",
   twic: "TWIC"
 };
-var DAY_MS5 = 86400000;
+var DAY_MS7 = 86400000;
 function expiryInstantMs(expiresOn) {
   return Date.parse(`${expiresOn}T12:00:00.000Z`);
 }
 function credentialDaysLeft(expiresOn, nowMs) {
-  return Math.ceil((expiryInstantMs(expiresOn) - nowMs) / DAY_MS5);
+  return Math.ceil((expiryInstantMs(expiresOn) - nowMs) / DAY_MS7);
 }
 function credentialThresholdFor(daysLeft) {
   if (daysLeft == null)
@@ -17178,10 +17903,10 @@ function activeCredentialAlerts(statuses) {
 
 // src/settlement.ts
 var DEFAULT_DRIVER_CPM = 0.55;
-var round23 = (n) => Math.round(n * 100) / 100;
+var round25 = (n) => Math.round(n * 100) / 100;
 var money = (n) => n.toLocaleString("en-US", { style: "currency", currency: "USD" });
 function settlementLineFor(setting, load) {
-  const gross = load.rate != null ? round23(load.rate + (load.extraCharges ?? 0)) : null;
+  const gross = load.rate != null ? round25(load.rate + (load.extraCharges ?? 0)) : null;
   const miles = load.loadedMiles ?? null;
   if (setting.payBasis === "percent") {
     if (setting.driverPayPct == null) {
@@ -17207,7 +17932,7 @@ function settlementLineFor(setting, load) {
     return {
       gross,
       miles,
-      pay: round23(gross * setting.driverPayPct / 100),
+      pay: round25(gross * setting.driverPayPct / 100),
       cpmUsed: null,
       cpmDefaulted: false,
       basisNote: `${setting.driverPayPct}% of the load's pay (${money(gross)})`
@@ -17228,7 +17953,7 @@ function settlementLineFor(setting, load) {
   return {
     gross,
     miles,
-    pay: round23(cpmUsed * miles),
+    pay: round25(cpmUsed * miles),
     cpmUsed,
     cpmDefaulted,
     basisNote: cpmDefaulted ? `Standard ${money(DEFAULT_DRIVER_CPM)}/mi \xD7 ${miles.toLocaleString("en-US")} loaded mi \u2014 your own CPM isn't set (Settings \u2192 My pay)` : `${money(cpmUsed)}/mi \xD7 ${miles.toLocaleString("en-US")} loaded mi`
@@ -17247,8 +17972,8 @@ function settlementTotals(lines) {
       totalGross += l.gross;
   }
   return {
-    totalPay: round23(totalPay),
-    totalGross: round23(totalGross),
+    totalPay: round25(totalPay),
+    totalGross: round25(totalGross),
     figured,
     unfigured: lines.length - figured
   };
@@ -17256,15 +17981,15 @@ function settlementTotals(lines) {
 
 // src/settlementCheck.ts
 var SETTLEMENT_MATCH_TOLERANCE = 1;
-var DAY_MS6 = 86400000;
-var round24 = (n) => Math.round(n * 100) / 100;
+var DAY_MS8 = 86400000;
+var round26 = (n) => Math.round(n * 100) / 100;
 function computeSettlementCheck(expectedLines, entry, adjustments) {
   const lines = [...expectedLines];
   const unfigured = lines.filter((l) => l.expectedPay == null).map((l) => ({ loadId: l.loadId, label: l.label, reason: l.basisNote }));
   const figured = lines.filter((l) => l.expectedPay != null);
   const expectedTotal = fromCents(figured.reduce((s, l) => s + toCents(l.expectedPay ?? 0), 0));
-  const actualGross = round24(entry.gross);
-  const difference = round24(actualGross - expectedTotal);
+  const actualGross = round26(entry.gross);
+  const difference = round26(actualGross - expectedTotal);
   let status;
   let statusReason = null;
   if (figured.length === 0) {
@@ -17277,7 +18002,7 @@ function computeSettlementCheck(expectedLines, entry, adjustments) {
   } else {
     status = "over";
   }
-  const itemizedLines = (entry.deductionLines ?? []).filter((l) => toCents(l.amount) > 0).map((l) => ({ label: l.label, amount: round24(l.amount), category: classifyDeductionLabel(l.label) }));
+  const itemizedLines = (entry.deductionLines ?? []).filter((l) => toCents(l.amount) > 0).map((l) => ({ label: l.label, amount: round26(l.amount), category: classifyDeductionLabel(l.label) }));
   const itemizedC = itemizedLines.reduce((s, l) => s + toCents(l.amount), 0);
   const otherC = toCents(entry.otherDeductions);
   const withheldC = toCents(entry.federalWithheld) + toCents(entry.stateWithheld);
@@ -17295,8 +18020,8 @@ function computeSettlementCheck(expectedLines, entry, adjustments) {
   const deductionBreakdown = [...catCents.entries()].map(([category, c]) => ({ category, amount: fromCents(c) })).sort((a, b) => b.amount - a.amount);
   const totalDeductions = fromCents(otherC);
   const withheld = fromCents(withheldC);
-  const actualNet = round24(actualGross - totalDeductions - withheld);
-  const expectedNet = round24(expectedTotal - totalDeductions - withheld);
+  const actualNet = round26(actualGross - totalDeductions - withheld);
+  const expectedNet = round26(expectedTotal - totalDeductions - withheld);
   const entryMathOk = itemizedC <= otherC;
   const entryMathNote = entryMathOk ? "This entry's figures reconcile." : "Heads up: this entry's itemized deduction lines add up to more than its recorded deductions total \u2014 the entry's own figures don't reconcile. Edit the entry's deductions in the Pay Book to fix the record.";
   const heldOut = (adjustments?.heldOut ?? []).map((l) => ({ loadId: l.loadId, label: l.label }));
@@ -17321,15 +18046,15 @@ function computeSettlementCheck(expectedLines, entry, adjustments) {
     difference,
     status,
     statusReason,
-    shortBy: status === "short" ? round24(-difference) : 0,
-    overBy: status === "over" ? round24(difference) : 0,
+    shortBy: status === "short" ? round26(-difference) : 0,
+    overBy: status === "over" ? round26(difference) : 0,
     totalDeductions,
     withheld,
     itemizedLines,
     deductionBreakdown,
     actualNet,
     expectedNet,
-    perDiem: round24(entry.perDiem ?? 0),
+    perDiem: round26(entry.perDiem ?? 0),
     entryMathOk,
     entryMathNote,
     adjusted,
@@ -17370,15 +18095,15 @@ function settlementWindowFor(payer, paidAtMs, prevWindowEndMs, lagDays, opts) {
       basis: `Window: ${dayLabel(rp.fromMs)} \u2013 ${dayLabel(rp.toMs)} \xB7 the period recorded on this ${payer} settlement itself \u2014 a recorded period always wins over pay-lag math.`
     };
   }
-  const endDayStart = startOfDayMs(paidAtMs) - lag * DAY_MS6;
-  const autoToMs = endDayStart + DAY_MS6 - 1;
+  const endDayStart = startOfDayMs(paidAtMs) - lag * DAY_MS8;
+  const autoToMs = endDayStart + DAY_MS8 - 1;
   let autoFromMs;
   if (prevWindowEndMs != null) {
     autoFromMs = prevWindowEndMs + 1;
     if (autoFromMs > endDayStart)
       autoFromMs = endDayStart;
   } else {
-    autoFromMs = endDayStart - 6 * DAY_MS6;
+    autoFromMs = endDayStart - 6 * DAY_MS8;
   }
   if (opts?.overrideWindow) {
     const ow = opts.overrideWindow;
@@ -17419,7 +18144,7 @@ function applyLoadOverrides(windowLines, allLines, override) {
 }
 
 // src/invoicing.ts
-var round25 = (n) => Math.round(n * 100) / 100;
+var round27 = (n) => Math.round(n * 100) / 100;
 var CLAIM_KIND_LABELS = {
   tonu: "TONU (truck ordered, not used)",
   layover: "Layover",
@@ -17429,14 +18154,14 @@ function claimKindLabel(kind) {
   return CLAIM_KIND_LABELS[kind] ?? kind;
 }
 function invoiceLinesFor(load, claims) {
-  const freight = load.rate != null ? round25(load.rate + (load.extraCharges ?? 0)) : null;
+  const freight = load.rate != null ? round27(load.rate + (load.extraCharges ?? 0)) : null;
   const lines = [];
   if (freight != null) {
-    lines.push({ label: "Freight", amount: round25(load.rate) });
+    lines.push({ label: "Freight", amount: round27(load.rate) });
     if ((load.extraCharges ?? 0) > 0) {
       lines.push({
         label: `Additional charges${load.extraChargesNote ? ` \u2014 ${load.extraChargesNote}` : ""}`,
-        amount: round25(load.extraCharges)
+        amount: round27(load.extraCharges)
       });
     }
   }
@@ -17444,7 +18169,7 @@ function invoiceLinesFor(load, claims) {
   for (const c of claims) {
     if (!Number.isFinite(c.amount))
       continue;
-    byKind.set(c.kind, round25((byKind.get(c.kind) ?? 0) + c.amount));
+    byKind.set(c.kind, round27((byKind.get(c.kind) ?? 0) + c.amount));
   }
   let claimsTotal = 0;
   for (const [kind, amt] of byKind) {
@@ -17453,8 +18178,8 @@ function invoiceLinesFor(load, claims) {
     lines.push({ label: claimKindLabel(kind), amount: amt });
     claimsTotal += amt;
   }
-  claimsTotal = round25(claimsTotal);
-  const amount = freight != null ? round25(freight + claimsTotal) : null;
+  claimsTotal = round27(claimsTotal);
+  const amount = freight != null ? round27(freight + claimsTotal) : null;
   return { lines, freight, claimsTotal, amount };
 }
 function formatInvoiceNumber(year, seq) {
@@ -17468,7 +18193,7 @@ function invoiceDisplayStatus(inv, nowMs) {
   return inv.status === "issued" ? "issued" : "draft";
 }
 var DEFAULT_DUE_DAYS = 30;
-var MONTH_NAMES = [
+var MONTH_NAMES2 = [
   "January",
   "February",
   "March",
@@ -17493,7 +18218,7 @@ function plPeriodRange(kind, year, index) {
       startMs: Date.UTC(y, m - 1, 1),
       endMs: Date.UTC(y, m, 1),
       key: `month:${y}:${m}`,
-      label: `${MONTH_NAMES[m - 1]} ${y}`
+      label: `${MONTH_NAMES2[m - 1]} ${y}`
     };
   }
   if (kind === "quarter") {
@@ -17550,11 +18275,11 @@ function buildProfitLoss(input) {
       incomeByLoad.set(l.loadId, null);
     } else {
       incomeFreight += l.gross;
-      incomeByLoad.set(l.loadId, round25(l.gross + l.claimsTotal));
+      incomeByLoad.set(l.loadId, round27(l.gross + l.claimsTotal));
     }
   }
-  incomeFreight = round25(incomeFreight);
-  incomeClaims = round25(incomeClaims);
+  incomeFreight = round27(incomeFreight);
+  incomeClaims = round27(incomeClaims);
   const taggedByLoad = new Map;
   const byCategory = new Map;
   let unassignedExpenses = 0;
@@ -17563,30 +18288,30 @@ function buildProfitLoss(input) {
     if (!inPeriod(e.spentAtMs, period) || !Number.isFinite(e.amount))
       continue;
     expenseTotal += e.amount;
-    byCategory.set(e.category, round25((byCategory.get(e.category) ?? 0) + e.amount));
+    byCategory.set(e.category, round27((byCategory.get(e.category) ?? 0) + e.amount));
     if (e.loadId != null && loadsIn.some((l) => l.loadId === e.loadId)) {
-      taggedByLoad.set(e.loadId, round25((taggedByLoad.get(e.loadId) ?? 0) + e.amount));
+      taggedByLoad.set(e.loadId, round27((taggedByLoad.get(e.loadId) ?? 0) + e.amount));
     } else {
       unassignedExpenses += e.amount;
     }
   }
-  expenseTotal = round25(expenseTotal);
-  unassignedExpenses = round25(unassignedExpenses);
-  const fuelTotal = round25(input.fuelPurchases.filter((f) => inPeriod(f.purchasedAtMs, period)).reduce((s, f) => s + (Number.isFinite(f.total) ? f.total : 0), 0));
-  const maintTotal = round25(input.maintenance.filter((m) => inPeriod(m.performedAtMs, period)).reduce((s, m) => s + (Number.isFinite(m.cost) ? m.cost : 0), 0));
+  expenseTotal = round27(expenseTotal);
+  unassignedExpenses = round27(unassignedExpenses);
+  const fuelTotal = round27(input.fuelPurchases.filter((f) => inPeriod(f.purchasedAtMs, period)).reduce((s, f) => s + (Number.isFinite(f.total) ? f.total : 0), 0));
+  const maintTotal = round27(input.maintenance.filter((m) => inPeriod(m.performedAtMs, period)).reduce((s, m) => s + (Number.isFinite(m.cost) ? m.cost : 0), 0));
   const costLines = [];
   if (fuelTotal > 0)
     costLines.push({ key: "fuel_purchases", label: "Fuel purchases", amount: fuelTotal });
-  const catLines = [...byCategory.entries()].map(([category, amount]) => ({ key: `expense:${category}`, label: PL_EXPENSE_LABELS[category] ?? category, amount: round25(amount) })).sort((a, b) => b.amount - a.amount || a.label.localeCompare(b.label));
+  const catLines = [...byCategory.entries()].map(([category, amount]) => ({ key: `expense:${category}`, label: PL_EXPENSE_LABELS[category] ?? category, amount: round27(amount) })).sort((a, b) => b.amount - a.amount || a.label.localeCompare(b.label));
   costLines.push(...catLines);
   if (maintTotal > 0)
     costLines.push({ key: "maintenance_log", label: "Maintenance log", amount: maintTotal });
-  const costsTotal = round25(costLines.reduce((s, l) => s + l.amount, 0));
-  const incomeTotal = round25(incomeFreight + incomeClaims);
+  const costsTotal = round27(costLines.reduce((s, l) => s + l.amount, 0));
+  const incomeTotal = round27(incomeFreight + incomeClaims);
   const perLoad = loadsIn.map((l) => {
     const income = incomeByLoad.get(l.loadId) ?? null;
     const costs = taggedByLoad.get(l.loadId) ?? 0;
-    return { loadId: l.loadId, income, costs, net: income != null ? round25(income - costs) : null };
+    return { loadId: l.loadId, income, costs, net: income != null ? round27(income - costs) : null };
   }).sort((a, b) => a.loadId - b.loadId);
   return {
     period,
@@ -17596,7 +18321,7 @@ function buildProfitLoss(input) {
     unfiguredLoads,
     costLines,
     costsTotal,
-    net: round25(incomeTotal - costsTotal),
+    net: round27(incomeTotal - costsTotal),
     perLoad,
     unassignedExpenses
   };
@@ -18620,6 +19345,145 @@ function docsDoorStateFor(args) {
   return "live";
 }
 
+// src/uploadArmor.ts
+var KIND_MIME = {
+  pdf: "application/pdf",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
+  gif: "image/gif",
+  heic: "image/heic",
+  heif: "image/heif",
+  mp4: "video/mp4",
+  quicktime: "video/quicktime",
+  webm: "video/webm",
+  zip: "application/zip"
+};
+function startsWith(bytes, sig, offset = 0) {
+  if (bytes.length < offset + sig.length)
+    return false;
+  for (let i = 0;i < sig.length; i++) {
+    if (bytes[offset + i] !== sig[i])
+      return false;
+  }
+  return true;
+}
+function asciiAt(bytes, offset, text) {
+  if (bytes.length < offset + text.length)
+    return false;
+  for (let i = 0;i < text.length; i++) {
+    if (bytes[offset + i] !== text.charCodeAt(i))
+      return false;
+  }
+  return true;
+}
+function markupStart(bytes) {
+  let i = 0;
+  if (startsWith(bytes, [239, 187, 191]))
+    i = 3;
+  while (i < bytes.length && (bytes[i] === 32 || bytes[i] === 9 || bytes[i] === 10 || bytes[i] === 13))
+    i++;
+  return i;
+}
+function sniffMarkup(bytes) {
+  const i = markupStart(bytes);
+  if (bytes[i] !== 60)
+    return false;
+  const head = new TextDecoder("utf-8", { fatal: false }).decode(bytes.subarray(i, Math.min(bytes.length, i + 512))).toLowerCase();
+  return head.startsWith("<!doctype html") || head.startsWith("<html") || head.startsWith("<svg") || head.startsWith("<script") || head.startsWith("<?xml") || head.startsWith("<body") || head.startsWith("<head");
+}
+function sniffFtyp(bytes) {
+  if (bytes.length < 12)
+    return null;
+  if (!asciiAt(bytes, 4, "ftyp"))
+    return null;
+  const brand = new TextDecoder().decode(bytes.subarray(8, 12));
+  if (brand === "heic" || brand === "heix" || brand === "heim" || brand === "heis" || brand === "mif1" || brand === "msf1") {
+    return brand === "mif1" || brand === "msf1" ? "heif" : "heic";
+  }
+  if (brand === "heif" || brand === "hevc")
+    return "heif";
+  if (brand === "qt  ")
+    return "quicktime";
+  if (brand === "M4V " || brand === "M4VH" || brand === "M4VP")
+    return "mp4";
+  if (brand === "isom" || brand === "iso2" || brand === "iso5" || brand === "iso6" || brand === "mp41" || brand === "mp42" || brand === "avc1" || brand === "dash") {
+    return "mp4";
+  }
+  return null;
+}
+function sniffUpload(bytes) {
+  const done = (kind, dangerous = false) => ({
+    kind,
+    mime: KIND_MIME[kind] ?? null,
+    dangerous
+  });
+  if (bytes.length === 0)
+    return done("unknown");
+  if (startsWith(bytes, [77, 90]))
+    return done("executable", true);
+  if (startsWith(bytes, [127, 69, 76, 70]))
+    return done("executable", true);
+  if (startsWith(bytes, [254, 237, 250, 206]) || startsWith(bytes, [254, 237, 250, 207]) || startsWith(bytes, [206, 250, 237, 254]) || startsWith(bytes, [207, 250, 237, 254]) || startsWith(bytes, [202, 254, 186, 190])) {
+    return done("executable", true);
+  }
+  if (startsWith(bytes, [35, 33]))
+    return done("script", true);
+  if (sniffMarkup(bytes))
+    return done("markup", true);
+  if (startsWith(bytes, [80, 75, 3, 4]) || startsWith(bytes, [80, 75, 5, 6]) || startsWith(bytes, [80, 75, 7, 8])) {
+    return done("zip", true);
+  }
+  if (startsWith(bytes, [82, 97, 114, 33]))
+    return done("zip", true);
+  if (asciiAt(bytes, 0, "%PDF-"))
+    return done("pdf");
+  if (startsWith(bytes, [255, 216, 255]))
+    return done("jpeg");
+  if (startsWith(bytes, [137, 80, 78, 71, 13, 10, 26, 10]))
+    return done("png");
+  if (asciiAt(bytes, 0, "RIFF") && asciiAt(bytes, 8, "WEBP"))
+    return done("webp");
+  if (asciiAt(bytes, 0, "GIF87a") || asciiAt(bytes, 0, "GIF89a"))
+    return done("gif");
+  if (startsWith(bytes, [26, 69, 223, 163]))
+    return done("webm");
+  const ftyp = sniffFtyp(bytes);
+  if (ftyp)
+    return done(ftyp);
+  return done("unknown");
+}
+var MIME_FAMILY = {
+  "image/heic": ["image/heic", "image/heif"],
+  "image/heif": ["image/heic", "image/heif"],
+  "video/mp4": ["video/mp4", "video/x-m4v"],
+  "video/x-m4v": ["video/mp4", "video/x-m4v"]
+};
+var UPLOAD_DANGEROUS_ERROR = "That file is a program, script, or archive \u2014 not a document or photo, so it can't be accepted.";
+var UPLOAD_MISMATCH_ERROR = "That file doesn't match the type it claims to be \u2014 nothing was stored. Send the document as it really is (PDF or a photo).";
+var UPLOAD_UNKNOWN_ERROR = "That file's type couldn't be verified from its contents \u2014 nothing was stored. Send a PDF or a photo instead.";
+function assessUpload(bytes, claimedMime, opts) {
+  const sniff = sniffUpload(bytes);
+  if (sniff.dangerous) {
+    return { ok: false, error: UPLOAD_DANGEROUS_ERROR, kind: sniff.kind };
+  }
+  if (opts.mode === "guard") {
+    return { ok: true, mime: claimedMime, kind: sniff.kind };
+  }
+  if (!sniff.mime) {
+    return { ok: false, error: UPLOAD_UNKNOWN_ERROR, kind: sniff.kind };
+  }
+  const claimed = claimedMime.trim().toLowerCase();
+  const family = MIME_FAMILY[claimed] ?? [claimed];
+  if (!family.includes(sniff.mime)) {
+    return { ok: false, error: UPLOAD_MISMATCH_ERROR, kind: sniff.kind };
+  }
+  if (opts.allowedMimes && !opts.allowedMimes.includes(sniff.mime)) {
+    return { ok: false, error: UPLOAD_MISMATCH_ERROR, kind: sniff.kind };
+  }
+  return { ok: true, mime: sniff.mime, kind: sniff.kind };
+}
+
 // src/brokerIdentity.ts
 var BOND_MINIMUM_USD = 75000;
 var IDENTITY_FRESH_DAYS = 30;
@@ -19269,6 +20133,1333 @@ function summarizeEldSync(results) {
   };
 }
 
+// src/geotab.ts
+function isRecord2(v) {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+function str(v) {
+  return typeof v === "string" && v.trim() !== "" ? v.trim() : null;
+}
+function num(v) {
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+function normalizeGeotabServer(raw) {
+  const s = (raw ?? "").trim().replace(/^https?:\/\//i, "").replace(/\/+$/, "");
+  return s === "" ? "my.geotab.com" : s;
+}
+function parseGeotabAccount(json) {
+  if (!json)
+    return null;
+  try {
+    const v = JSON.parse(json);
+    const database = str(v.database);
+    const username = str(v.username);
+    if (!database || !username)
+      return null;
+    return { server: normalizeGeotabServer(str(v.server) ?? undefined), database, username };
+  } catch {
+    return null;
+  }
+}
+async function geotabRpc(fetchFn, server, method, params) {
+  const res = await fetchFn(`https://${server}/apiv1`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ method, params })
+  });
+  if (!res.ok)
+    throw new Error(`Geotab answered HTTP ${res.status} \u2014 the sync couldn't run. Nothing was stored.`);
+  const body = await res.json();
+  if (isRecord2(body.error)) {
+    const name = str(body.error.name) ?? "Error";
+    const message = str(body.error.message) ?? name;
+    throw new Error(`Geotab refused the call (${name}): ${message}`);
+  }
+  return body.result;
+}
+async function geotabAuthenticate(fetchFn, creds) {
+  const server = normalizeGeotabServer(creds.server);
+  const result = await geotabRpc(fetchFn, server, "Authenticate", {
+    database: creds.database,
+    userName: creds.username,
+    password: creds.password
+  });
+  if (!isRecord2(result) || !isRecord2(result.credentials)) {
+    throw new Error("Geotab answered the sign-in without a session \u2014 the login may not have API access. Ask the fleet admin to check the MyGeotab user's security clearance.");
+  }
+  const c = result.credentials;
+  const sessionId = str(c.sessionId);
+  if (!sessionId)
+    throw new Error("Geotab answered the sign-in without a session id \u2014 nothing was stored.");
+  const path = str(result.path);
+  const sessionServer = path ? normalizeGeotabServer(path) : server;
+  return {
+    server: sessionServer,
+    credentials: {
+      database: str(c.database) ?? creds.database,
+      sessionId,
+      userName: str(c.userName) ?? creds.username
+    }
+  };
+}
+async function geotabGet(fetchFn, session, typeName, search, resultsLimit) {
+  const result = await geotabRpc(fetchFn, session.server, "Get", {
+    typeName,
+    credentials: session.credentials,
+    ...search ? { search } : {},
+    ...resultsLimit ? { resultsLimit } : {}
+  });
+  if (!Array.isArray(result))
+    return [];
+  return result.filter(isRecord2);
+}
+var DUTY_STATUS_MAP = {
+  D: "driving",
+  DR: "driving",
+  ON: "on_duty",
+  OFF: "off_duty",
+  SB: "sleeper",
+  SLEEPER: "sleeper"
+};
+function dutyLocation(log) {
+  const loc = log.location;
+  if (typeof loc === "string" && loc.trim() !== "")
+    return loc.trim();
+  if (isRecord2(loc)) {
+    const lat = num(loc.latitude) ?? num(loc.y);
+    const lon = num(loc.longitude) ?? num(loc.x);
+    if (lat != null && lon != null)
+      return `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+    const name = str(loc.name);
+    if (name)
+      return name;
+  }
+  return;
+}
+function mapGeotabDutyLogs(rawLogs) {
+  const out = [];
+  for (const log of rawLogs) {
+    const state = DUTY_STATUS_MAP[(str(log.status) ?? "").toUpperCase()];
+    const at = str(log.dateTime);
+    if (!state || !at || Number.isNaN(Date.parse(at)))
+      continue;
+    const location = dutyLocation(log);
+    out.push(location ? { state, at, location } : { state, at });
+  }
+  out.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+  return { logs: out.slice(-500) };
+}
+var HOUR = 3600000;
+var DRIVE_LIMIT_H = 11;
+var WINDOW_LIMIT_H = 14;
+var CYCLE_LIMIT_H = 70;
+var CYCLE_SPAN_H = 8 * 24;
+var BREAK_AFTER_DRIVE_H = 8;
+var BREAK_MIN_H = 0.5;
+var RESET_MIN_H = 10;
+var RESTART_MIN_H = 34;
+function computeGeotabHosClocks(logs, now) {
+  if (logs.length === 0)
+    return null;
+  const sorted = [...logs].sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+  const segs = sorted.map((l, i) => ({
+    start: Date.parse(l.at),
+    end: i + 1 < sorted.length ? Date.parse(sorted[i + 1].at) : now.getTime(),
+    state: l.state
+  }));
+  const isBreakState = (s) => s === "off_duty" || s === "sleeper";
+  const isOnDuty = (s) => s === "driving" || s === "on_duty";
+  const round2 = (h) => Math.max(0, Math.round(h * 100) / 100);
+  const rests = [];
+  {
+    let cur = null;
+    for (const s of segs) {
+      if (isBreakState(s.state)) {
+        if (cur && cur.end === s.start)
+          cur.end = s.end;
+        else {
+          if (cur)
+            rests.push(cur);
+          cur = { start: s.start, end: s.end };
+        }
+      } else if (cur) {
+        rests.push(cur);
+        cur = null;
+      }
+    }
+    if (cur)
+      rests.push(cur);
+  }
+  const nowMs = now.getTime();
+  let windowStart = null;
+  for (const r of rests) {
+    if ((r.end - r.start) / HOUR >= RESET_MIN_H && r.start <= nowMs) {
+      windowStart = Math.max(windowStart ?? 0, Math.min(r.end, nowMs));
+    }
+  }
+  if (windowStart == null)
+    windowStart = segs[0].start;
+  let driveInWindowH = 0;
+  for (const s of segs) {
+    if (s.state !== "driving")
+      continue;
+    const from = Math.max(s.start, windowStart);
+    if (s.end > from)
+      driveInWindowH += (s.end - from) / HOUR;
+  }
+  let cycleAnchor = nowMs - CYCLE_SPAN_H * HOUR;
+  for (const r of rests) {
+    if ((r.end - r.start) / HOUR >= RESTART_MIN_H && r.end > cycleAnchor && r.end <= nowMs) {
+      cycleAnchor = r.end;
+    }
+  }
+  let cycleUsedH = 0;
+  for (const s of segs) {
+    if (!isOnDuty(s.state))
+      continue;
+    const from = Math.max(s.start, cycleAnchor);
+    if (s.end > from)
+      cycleUsedH += (s.end - from) / HOUR;
+  }
+  let breakAnchor = windowStart;
+  for (let i = segs.length - 1;i >= 0; i--) {
+    const s = segs[i];
+    if (s.state !== "driving" && (s.end - s.start) / HOUR >= BREAK_MIN_H) {
+      breakAnchor = s.end;
+      break;
+    }
+  }
+  let driveSinceBreakH = 0;
+  for (const s of segs) {
+    if (s.state !== "driving")
+      continue;
+    const from = Math.max(s.start, breakAnchor);
+    if (s.end > from)
+      driveSinceBreakH += (s.end - from) / HOUR;
+  }
+  return {
+    driveRemainH: round2(DRIVE_LIMIT_H - driveInWindowH),
+    windowRemainH: round2(WINDOW_LIMIT_H - (nowMs - windowStart) / HOUR),
+    cycleRemainH: round2(CYCLE_LIMIT_H - cycleUsedH),
+    breakRemainH: round2(BREAK_AFTER_DRIVE_H - driveSinceBreakH)
+  };
+}
+function mapGeotabVehicleStats(statusInfo, engineHours) {
+  if (!statusInfo)
+    return engineHours != null ? { engineHours } : null;
+  const out = {};
+  const odoM = num(statusInfo.odometer);
+  if (odoM != null && odoM > 0)
+    out.odometerMi = Math.round(odoM / 1609.344 * 10) / 10;
+  const lat = num(statusInfo.latitude);
+  const lon = num(statusInfo.longitude);
+  if (lat != null && lon != null && (lat !== 0 || lon !== 0)) {
+    out.lat = lat;
+    out.lon = lon;
+  }
+  if (engineHours != null && engineHours > 0)
+    out.engineHours = engineHours;
+  return Object.keys(out).length > 0 ? out : null;
+}
+function mapGeotabDvirs(rawLogs, deviceName) {
+  const out = [];
+  for (const log of rawLogs) {
+    const unsafe = log.isSafeToOperate === false;
+    const defects = [];
+    if (Array.isArray(log.defects)) {
+      for (const d of log.defects) {
+        if (!isRecord2(d))
+          continue;
+        const defectEntity = isRecord2(d.defect) ? d.defect : null;
+        const item = defectEntity && str(defectEntity.name) || str(d.name) || "Defect noted";
+        const note = str(d.comment) ?? undefined;
+        defects.push({ item, ...note ? { note } : {}, ...unsafe ? { critical: true } : {} });
+      }
+    }
+    const entry = {};
+    const id = str(log.id);
+    if (id)
+      entry.id = id;
+    const at = str(log.dateTime);
+    if (at && !Number.isNaN(Date.parse(at)))
+      entry.inspectedAt = at;
+    if (deviceName)
+      entry.vehicle = deviceName;
+    entry.status = unsafe || defects.length > 0 ? "defects_found" : "no_defects";
+    entry.defects = defects;
+    out.push(entry);
+  }
+  return { dvirs: out.slice(0, 200) };
+}
+function mapGeotabIfta(rawDetails) {
+  const byState = new Map;
+  for (const d of rawDetails) {
+    const state = (str(d.stateProvince) ?? str(d.state) ?? str(d.jurisdiction) ?? str(d.authority) ?? "").toUpperCase();
+    if (!state)
+      continue;
+    let miles = null;
+    const distKm = num(d.distanceKm) ?? num(d.distance);
+    if (distKm != null)
+      miles = distKm / 1.609344;
+    if (miles == null) {
+      const start = num(d.odometerStart) ?? num(d.enterOdometer);
+      const stop = num(d.odometerStop) ?? num(d.exitOdometer);
+      if (start != null && stop != null && stop >= start)
+        miles = (stop - start) / 1609.344;
+    }
+    if (miles == null || miles < 0)
+      continue;
+    byState.set(state, (byState.get(state) ?? 0) + miles);
+  }
+  if (byState.size === 0)
+    return null;
+  return {
+    states: [...byState.entries()].map(([state, miles]) => ({ state, miles: Math.round(miles * 10) / 10 })).sort((a, b) => a.state.localeCompare(b.state))
+  };
+}
+function mapGeotabIdentity(user, device, odometerMi) {
+  const driver = {};
+  if (user) {
+    const name = str(user.name) ?? [str(user.firstName), str(user.lastName)].filter(Boolean).join(" ") ?? null;
+    if (name)
+      driver.name = name;
+    const id = str(user.id);
+    if (id)
+      driver.driverId = id;
+    const lic = str(user.licenseNumber);
+    if (lic)
+      driver.cdlNumber = lic;
+    const prov = str(user.licenseProvince) ?? str(user.licenseState);
+    if (prov)
+      driver.cdlState = prov;
+  }
+  const truck = {};
+  if (device) {
+    const unit = str(device.name);
+    if (unit)
+      truck.unitNumber = unit;
+    const vin = str(device.vehicleIdentificationNumber);
+    if (vin)
+      truck.vin = vin;
+    const plate = str(device.licensePlate);
+    if (plate)
+      truck.plate = plate;
+    const make = str(device.make);
+    if (make)
+      truck.make = make;
+    const model = str(device.model);
+    if (model)
+      truck.model = model;
+    const year = num(device.year) ?? num(device.vehicleYear);
+    if (year)
+      truck.year = year;
+  }
+  if (odometerMi != null)
+    truck.odometerMi = odometerMi;
+  return { driver, truck };
+}
+async function fetchGeotabBatch(fetchFn, creds, opts) {
+  const session = await geotabAuthenticate(fetchFn, creds);
+  const devices = await geotabGet(fetchFn, session, "Device", undefined, 1000);
+  const vinWanted = opts.vin.trim().toUpperCase();
+  const device = devices.find((d) => (str(d.vehicleIdentificationNumber) ?? "").toUpperCase() === vinWanted);
+  if (!device) {
+    throw new Error(`Geotab signed in, but no device in the "${creds.database}" database carries VIN ${opts.vin}. The VIN in Settings \u2192 Truck has to match the Geotab device exactly \u2014 check both and sync again.`);
+  }
+  const deviceId = str(device.id);
+  const deviceName = str(device.name);
+  const deviceSearch = deviceId ? { deviceSearch: { id: deviceId } } : undefined;
+  const nowIso = opts.now.toISOString();
+  const eightDaysAgo = new Date(opts.now.getTime() - CYCLE_SPAN_H * HOUR).toISOString();
+  const thirtyDaysAgo = new Date(opts.now.getTime() - 30 * 24 * HOUR).toISOString();
+  const quarterStart = new Date(Date.UTC(opts.now.getUTCFullYear(), Math.floor(opts.now.getUTCMonth() / 3) * 3, 1)).toISOString();
+  const dutyRaw = await geotabGet(fetchFn, session, "DutyStatusLog", { ...deviceSearch, fromDate: eightDaysAgo, toDate: nowIso }, 1000);
+  const statusRows = await geotabGet(fetchFn, session, "DeviceStatusInfo", deviceSearch, 1);
+  const dvirRaw = await geotabGet(fetchFn, session, "DVIRLog", { ...deviceSearch, fromDate: thirtyDaysAgo, toDate: nowIso }, 200);
+  const iftaRaw = await geotabGet(fetchFn, session, "FuelTaxDetail", { ...deviceSearch, fromDate: quarterStart, toDate: nowIso }, 1000);
+  let engineHours = null;
+  try {
+    const hoursRows = await geotabGet(fetchFn, session, "StatusData", { ...deviceSearch, diagnosticSearch: { id: "DiagnosticEngineHoursId" }, fromDate: thirtyDaysAgo, toDate: nowIso }, 1);
+    engineHours = hoursRows.length > 0 ? num(hoursRows[hoursRows.length - 1].data) : null;
+  } catch {
+    engineHours = null;
+  }
+  let user = null;
+  const lastDriverId = [...dutyRaw].reverse().map((l) => isRecord2(l.driver) ? str(l.driver.id) : null).find(Boolean);
+  if (lastDriverId) {
+    const users = await geotabGet(fetchFn, session, "User", { id: lastDriverId }, 1).catch(() => []);
+    user = users[0] ?? null;
+  }
+  const batch = [];
+  const skipped = [];
+  const hosLogs = mapGeotabDutyLogs(dutyRaw);
+  if (hosLogs.logs.length > 0) {
+    batch.push({ feed: "hos_logs", payload: hosLogs });
+    const clocks = computeGeotabHosClocks(hosLogs.logs, opts.now);
+    if (clocks)
+      batch.push({ feed: "hos_clocks", payload: clocks });
+    else
+      skipped.push("hos_clocks");
+  } else {
+    skipped.push("hos_logs", "hos_clocks");
+  }
+  const stats = mapGeotabVehicleStats(statusRows[0] ?? null, engineHours);
+  if (stats)
+    batch.push({ feed: "vehicle_stats", payload: stats });
+  else
+    skipped.push("vehicle_stats");
+  if (dvirRaw.length > 0)
+    batch.push({ feed: "dvirs", payload: mapGeotabDvirs(dvirRaw, deviceName) });
+  else
+    skipped.push("dvirs");
+  const ifta = mapGeotabIfta(iftaRaw);
+  if (ifta)
+    batch.push({ feed: "ifta", payload: ifta });
+  else
+    skipped.push("ifta");
+  const identity = mapGeotabIdentity(user, device, stats?.odometerMi ?? null);
+  if (Object.keys(identity.driver).length > 0 || Object.keys(identity.truck).length > 0) {
+    batch.push({ feed: "identity", payload: identity });
+  } else {
+    skipped.push("identity");
+  }
+  return { batch, deviceName, skipped };
+}
+
+// src/motive.ts
+var MOTIVE_API_BASE = "https://api.gomotive.com";
+
+class MotiveApiError extends Error {
+  status;
+  constructor(message, status) {
+    super(message);
+    this.name = "MotiveApiError";
+    this.status = status;
+  }
+}
+function isRec(v) {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+function asRec(v) {
+  return isRec(v) ? v : null;
+}
+function str2(v) {
+  return typeof v === "string" ? v.trim() : "";
+}
+function num2(v) {
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+function round28(v) {
+  return Math.round(v * 100) / 100;
+}
+function secToHours(sec) {
+  return round28(sec / 3600);
+}
+async function motiveGet(fetchFn, apiKey, path, params = {}) {
+  const qs = new URLSearchParams(params).toString();
+  const url = `${MOTIVE_API_BASE}${path}${qs ? `?${qs}` : ""}`;
+  const res = await fetchFn(url, {
+    method: "GET",
+    headers: { "X-Api-Key": apiKey, Accept: "application/json" }
+  });
+  let body = null;
+  try {
+    body = await res.json();
+  } catch {
+    body = null;
+  }
+  if (!res.ok) {
+    const b = asRec(body);
+    const msg = typeof b?.error_message === "string" && b.error_message || typeof b?.message === "string" && b.message || `Motive refused the request (HTTP ${res.status}). Check the API key and its scopes.`;
+    throw new MotiveApiError(msg, res.status);
+  }
+  return body;
+}
+function unwrapMotiveList(body, plural, singular) {
+  const b = asRec(body);
+  const arr = Array.isArray(b?.[plural]) ? b[plural] : Array.isArray(body) ? body : [];
+  const out = [];
+  for (const item of arr) {
+    if (!isRec(item))
+      continue;
+    const inner = asRec(item[singular]);
+    out.push(inner ?? item);
+  }
+  return out;
+}
+async function motiveList(fetchFn, apiKey, path, plural, singular, params = {}, maxPages = 5) {
+  const out = [];
+  for (let page = 1;page <= maxPages; page++) {
+    const body = await motiveGet(fetchFn, apiKey, path, {
+      ...params,
+      per_page: "100",
+      page_no: String(page)
+    });
+    const rows = unwrapMotiveList(body, plural, singular);
+    out.push(...rows);
+    if (rows.length < 100)
+      break;
+  }
+  return out;
+}
+function mapMotiveVehicle(row) {
+  const id = row.id != null ? String(row.id) : "";
+  if (!id)
+    return null;
+  const yr = num2(row.year);
+  const cur = asRec(row.current_driver);
+  return {
+    id,
+    number: str2(row.number),
+    vin: str2(row.vin).toUpperCase(),
+    plate: str2(row.license_plate_number ?? row.license_plate ?? row.plate),
+    make: str2(row.make),
+    model: str2(row.model),
+    year: yr != null && yr > 1900 ? Math.trunc(yr) : null,
+    currentDriverId: (cur?.id != null ? String(cur.id) : "") || (row.current_driver_id != null ? String(row.current_driver_id) : "") || (row.permanent_driver_id != null ? String(row.permanent_driver_id) : "")
+  };
+}
+function findMotiveVehicleByVin(vehicles, vin) {
+  const want = vin.trim().toUpperCase();
+  if (!want)
+    return null;
+  return vehicles.find((v) => v.vin === want) ?? null;
+}
+function motiveUserName(u) {
+  const full = `${str2(u.first_name)} ${str2(u.last_name)}`.trim();
+  return full || str2(u.name) || str2(u.username);
+}
+var MOTIVE_STATUS_MAP = {
+  driving: "driving",
+  on_duty: "on_duty",
+  onduty: "on_duty",
+  off_duty: "off_duty",
+  offduty: "off_duty",
+  sleeper: "sleeper",
+  sleeper_berth: "sleeper",
+  sleeperberth: "sleeper",
+  yard_move: "on_duty",
+  yardmove: "on_duty",
+  personal_conveyance: "off_duty",
+  personalconveyance: "off_duty"
+};
+function mapMotiveHosStatus(raw) {
+  const key = str2(raw).toLowerCase().replace(/[\s-]+/g, "_");
+  return MOTIVE_STATUS_MAP[key] ?? MOTIVE_STATUS_MAP[key.replace(/_/g, "")] ?? null;
+}
+function motiveLogLocation(raw) {
+  const loc = raw.location;
+  if (typeof loc === "string" && loc.trim())
+    return loc.trim();
+  const l = asRec(loc);
+  if (l) {
+    const desc = str2(l.description ?? l.name ?? l.address);
+    if (desc)
+      return desc;
+    const lat = num2(l.lat ?? l.latitude);
+    const lon = num2(l.lon ?? l.lng ?? l.longitude);
+    if (lat != null && lon != null && (lat !== 0 || lon !== 0))
+      return `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+  }
+  const lat = num2(raw.latitude ?? raw.lat);
+  const lon = num2(raw.longitude ?? raw.lon ?? raw.lng);
+  if (lat != null && lon != null && (lat !== 0 || lon !== 0))
+    return `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+  return;
+}
+function motiveRowVehicleId(raw) {
+  if (raw.vehicle_id != null)
+    return String(raw.vehicle_id);
+  const v = asRec(raw.vehicle);
+  return v?.id != null ? String(v.id) : "";
+}
+function motiveLogDriverId(raw) {
+  if (raw.user_id != null)
+    return String(raw.user_id);
+  if (raw.driver_id != null)
+    return String(raw.driver_id);
+  const d = asRec(raw.driver) ?? asRec(raw.user);
+  return d?.id != null ? String(d.id) : "";
+}
+function mapMotiveHosLogs(rows, vehicleId) {
+  const out = [];
+  for (const raw of rows) {
+    if (motiveRowVehicleId(raw) !== vehicleId)
+      continue;
+    const state = mapMotiveHosStatus(raw.duty_status ?? raw.status);
+    const at = str2(raw.start_time ?? raw.start_at ?? raw.log_start_time);
+    if (!state || !at || Number.isNaN(Date.parse(at)))
+      continue;
+    const location = motiveLogLocation(raw);
+    out.push(location ? { state, at, location } : { state, at });
+  }
+  out.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+  return { logs: out.slice(-500) };
+}
+function motiveAvailabilityRows(body) {
+  const b = asRec(body);
+  const arr = Array.isArray(b?.users) ? b.users : Array.isArray(body) ? body : [];
+  const out = [];
+  for (const item of arr) {
+    if (!isRec(item))
+      continue;
+    const user = asRec(item.user) ?? asRec(item.driver);
+    const avail = asRec(item.available_time) ?? asRec(user?.available_time) ?? asRec(item.availableTime);
+    out.push({
+      ...user ?? item,
+      ...avail ? { available_time: avail } : {},
+      user_id: item.user_id ?? user?.id ?? item.id
+    });
+  }
+  return out;
+}
+function mapMotiveAvailableTime(rows, driverId) {
+  const row = rows.find((r) => {
+    const u = asRec(r.user) ?? asRec(r.driver);
+    const id = r.user_id ?? r.driver_id ?? u?.id;
+    return driverId !== "" && id != null && String(id) === driverId;
+  }) ?? (rows.length === 1 ? rows[0] : null);
+  if (!row)
+    return null;
+  const at = asRec(row.available_time) ?? asRec(row.availableTime) ?? row;
+  const drive = num2(at.drive);
+  const shift = num2(at.shift);
+  const cycle = num2(at.cycle);
+  const brk = num2(at.break);
+  if (drive == null || shift == null || cycle == null || brk == null)
+    return null;
+  return {
+    driveRemainH: secToHours(drive),
+    windowRemainH: secToHours(shift),
+    cycleRemainH: secToHours(cycle),
+    breakRemainH: secToHours(brk)
+  };
+}
+function mapMotiveVehicleStats(rows, vehicleId) {
+  const row = rows.find((r) => motiveRowVehicleId(r) === vehicleId);
+  if (!row)
+    return null;
+  const out = {};
+  const loc = asRec(row.current_location) ?? asRec(row.location) ?? row;
+  const lat = num2(loc.lat ?? loc.latitude);
+  const lon = num2(loc.lon ?? loc.lng ?? loc.longitude);
+  if (lat != null && lon != null && (lat !== 0 || lon !== 0)) {
+    out.lat = lat;
+    out.lon = lon;
+  }
+  const odoRaw = num2(row.odometer) ?? num2(asRec(row.odometer)?.value) ?? num2(loc.odometer) ?? num2(row.odometer_miles) ?? num2(row.odometer_mi);
+  const odoKm = num2(row.odometer_km) ?? num2(row.odometer_kilometers);
+  if (odoRaw != null && odoRaw > 0)
+    out.odometerMi = round28(odoRaw);
+  else if (odoKm != null && odoKm > 0)
+    out.odometerMi = round28(odoKm / 1.609344);
+  const engH = num2(row.engine_hours) ?? num2(asRec(row.engine_hours)?.value) ?? num2(row.engineHours);
+  const engSec = num2(row.engine_seconds) ?? num2(row.engine_runtime_seconds);
+  if (engH != null && engH > 0)
+    out.engineHours = round28(engH);
+  else if (engSec != null && engSec > 0)
+    out.engineHours = secToHours(engSec);
+  return Object.keys(out).length > 0 ? out : null;
+}
+function mapMotiveDvirs(rows, vehicleId, vehicleName) {
+  const out = [];
+  for (const row of rows) {
+    const veh = asRec(row.vehicle);
+    const vid = motiveRowVehicleId(row);
+    const vnum = str2(row.vehicle_number) || str2(veh?.number);
+    if (vid !== vehicleId && !(vid === "" && vnum !== "" && vnum === (vehicleName ?? "")))
+      continue;
+    const defects = [];
+    const rawDefects = [
+      ...Array.isArray(row.defects) ? row.defects : [],
+      ...Array.isArray(row.inspection_items) ? row.inspection_items : [],
+      ...Array.isArray(row.items) ? row.items : []
+    ].filter(isRec);
+    for (const d of rawDefects) {
+      const item = str2(d.area ?? d.name ?? d.item ?? d.defect_type ?? d.type);
+      if (!item)
+        continue;
+      const note = str2(d.description ?? d.comment ?? d.notes);
+      const resolved = d.is_resolved === true || str2(d.status).toLowerCase() === "resolved";
+      defects.push({
+        item,
+        ...note && note !== item ? { note } : {},
+        ...!resolved && (d.critical === true || str2(d.severity).toLowerCase() === "critical") ? { critical: true } : {}
+      });
+    }
+    const entry = {};
+    const id = row.id != null ? String(row.id) : "";
+    if (id)
+      entry.id = id;
+    const at = str2(row.created_at ?? row.inspection_time ?? row.date ?? row.updated_at);
+    if (at && !Number.isNaN(Date.parse(at)))
+      entry.inspectedAt = at;
+    if (vnum || vehicleName)
+      entry.vehicle = vnum || vehicleName;
+    const statusRaw = str2(row.status).toLowerCase();
+    entry.status = defects.length > 0 || statusRaw === "defects_found" ? "defects_found" : "no_defects";
+    entry.defects = defects;
+    out.push(entry);
+  }
+  return { dvirs: out.slice(0, 200) };
+}
+var METERS_PER_MILE = 1609.344;
+function motiveMilesFrom(rec) {
+  const miles = [
+    rec.miles,
+    rec.distance_miles,
+    rec.distanceMiles,
+    rec.total_miles,
+    rec.totalMiles,
+    rec.distance_in_miles
+  ];
+  for (const v of miles) {
+    const n = num2(v);
+    if (n != null)
+      return n;
+  }
+  const km = num2(rec.distance_km) ?? num2(rec.distance_kilometers);
+  const meters = [rec.distance_meters, rec.distanceMeters, rec.meters, ...km != null ? [km * 1000] : []];
+  for (const v of meters) {
+    const n = num2(v);
+    if (n != null)
+      return n / METERS_PER_MILE;
+  }
+  const d = num2(rec.distance);
+  if (d != null) {
+    return d;
+  }
+  return null;
+}
+function mapMotiveIfta(tripRows, summaryRows, vehicleId) {
+  const byState = new Map;
+  const addMiles = (stateRaw, rec) => {
+    const state = str2(stateRaw).toUpperCase();
+    if (!/^[A-Z]{2}$/.test(state))
+      return;
+    const miles = motiveMilesFrom(rec);
+    if (miles == null || miles < 0)
+      return;
+    byState.set(state, (byState.get(state) ?? 0) + miles);
+  };
+  const walk = (rows) => {
+    for (const row of rows) {
+      const vid = motiveRowVehicleId(row);
+      if (vid !== "" && vid !== vehicleId)
+        continue;
+      addMiles(row.jurisdiction ?? row.state ?? row.state_code ?? row.jurisdiction_code, row);
+      const segs = row.jurisdictions ?? row.segments ?? row.jurisdiction_breakdown ?? row.states;
+      if (Array.isArray(segs)) {
+        for (const s of segs) {
+          if (isRec(s))
+            addMiles(s.jurisdiction ?? s.state ?? s.state_code ?? s.jurisdiction_code, s);
+        }
+      }
+    }
+  };
+  walk(tripRows);
+  if (byState.size === 0)
+    walk(summaryRows);
+  if (byState.size === 0)
+    return null;
+  return {
+    states: [...byState.entries()].map(([state, miles]) => ({ state, miles: Math.round(miles * 10) / 10 })).sort((a, b) => a.state.localeCompare(b.state))
+  };
+}
+function mapMotiveIdentity(vehicle, userRow, odometerMi) {
+  const driver = {};
+  if (userRow) {
+    const name = motiveUserName(userRow);
+    if (name)
+      driver.name = name;
+    if (userRow.id != null)
+      driver.driverId = String(userRow.id);
+    const cdl = str2(userRow.license_number ?? userRow.drivers_license_number ?? userRow.cdl_number);
+    if (cdl)
+      driver.cdlNumber = cdl;
+    const cdlState = str2(userRow.license_state ?? userRow.cdl_state).toUpperCase();
+    if (cdlState)
+      driver.cdlState = cdlState;
+    const terminal = str2(userRow.home_terminal);
+    if (terminal)
+      driver.homeTerminal = terminal;
+  }
+  const truck = {};
+  if (vehicle.number)
+    truck.unitNumber = vehicle.number;
+  if (vehicle.vin)
+    truck.vin = vehicle.vin;
+  if (vehicle.plate)
+    truck.plate = vehicle.plate;
+  if (vehicle.make)
+    truck.make = vehicle.make;
+  if (vehicle.model)
+    truck.model = vehicle.model;
+  if (vehicle.year != null)
+    truck.year = vehicle.year;
+  if (odometerMi != null)
+    truck.odometerMi = odometerMi;
+  return { driver, truck };
+}
+function ymd(d) {
+  return d.toISOString().slice(0, 10);
+}
+async function fetchMotiveBatch(fetchFn, apiKey, opts) {
+  const now = opts.now ?? new Date;
+  const vehicleRows = await motiveList(fetchFn, apiKey, "/v1/vehicles", "vehicles", "vehicle");
+  const vehicles = vehicleRows.map(mapMotiveVehicle).filter((v) => v != null);
+  const vehicle = findMotiveVehicleByVin(vehicles, opts.vin);
+  if (!vehicle) {
+    throw new Error(`No Motive vehicle carries VIN ${opts.vin.trim().toUpperCase()} \u2014 check the VIN in Settings \u2192 Truck against the vehicle list in Motive, then sync again. Nothing was stored.`);
+  }
+  const batch = [];
+  const skipped = [];
+  const startDate = ymd(new Date(now.getTime() - 8 * 24 * 3600 * 1000));
+  const endDate = ymd(now);
+  let users = [];
+  try {
+    users = await motiveList(fetchFn, apiKey, "/v1/users", "users", "user");
+  } catch {
+    users = [];
+  }
+  let rawLogs = [];
+  try {
+    rawLogs = await motiveList(fetchFn, apiKey, "/v1/logs", "logs", "log", {
+      start_date: startDate,
+      end_date: endDate
+    });
+  } catch {
+    rawLogs = [];
+  }
+  const vehicleLogRows = rawLogs.filter((r) => motiveRowVehicleId(r) === vehicle.id);
+  let driverId = vehicle.currentDriverId;
+  if (!driverId && vehicleLogRows.length > 0) {
+    let newestRow = null;
+    let newestTs = -Infinity;
+    for (const r of vehicleLogRows) {
+      const ts = Date.parse(str2(r.start_time ?? r.start_at ?? r.log_start_time));
+      if (!Number.isNaN(ts) && ts > newestTs) {
+        newestTs = ts;
+        newestRow = r;
+      }
+    }
+    if (newestRow)
+      driverId = motiveLogDriverId(newestRow);
+  }
+  const driverLogRows = driverId ? vehicleLogRows.filter((r) => motiveLogDriverId(r) === driverId || motiveLogDriverId(r) === "") : vehicleLogRows;
+  const hosLogs = mapMotiveHosLogs(driverLogRows, vehicle.id);
+  if (hosLogs.logs.length > 0)
+    batch.push({ feed: "hos_logs", payload: hosLogs });
+  else
+    skipped.push("hos_logs");
+  let clocks = null;
+  try {
+    const availRows = motiveAvailabilityRows(await motiveGet(fetchFn, apiKey, "/v1/available_time"));
+    clocks = mapMotiveAvailableTime(availRows, driverId);
+  } catch {
+    clocks = null;
+  }
+  if (!clocks && hosLogs.logs.length > 0)
+    clocks = computeGeotabHosClocks(hosLogs.logs, now);
+  if (clocks)
+    batch.push({ feed: "hos_clocks", payload: clocks });
+  else
+    skipped.push("hos_clocks");
+  let stats = null;
+  try {
+    const locRows = await motiveList(fetchFn, apiKey, "/v1/vehicle_locations", "vehicle_locations", "vehicle_location");
+    stats = mapMotiveVehicleStats(locRows, vehicle.id);
+  } catch {
+    stats = null;
+  }
+  if (stats)
+    batch.push({ feed: "vehicle_stats", payload: stats });
+  else
+    skipped.push("vehicle_stats");
+  try {
+    const dvirRows = await motiveList(fetchFn, apiKey, "/v1/inspection_reports", "inspection_reports", "inspection_report", {
+      start_date: startDate,
+      end_date: endDate
+    });
+    const dvirs = mapMotiveDvirs(dvirRows, vehicle.id, vehicle.number || null);
+    if (dvirs.dvirs.length > 0)
+      batch.push({ feed: "dvirs", payload: dvirs });
+    else
+      skipped.push("dvirs");
+  } catch {
+    skipped.push("dvirs");
+  }
+  try {
+    const year = now.getUTCFullYear();
+    const quarter = Math.floor(now.getUTCMonth() / 3) + 1;
+    const qStart = ymd(new Date(Date.UTC(year, (quarter - 1) * 3, 1)));
+    let tripRows = [];
+    let summaryRows = [];
+    try {
+      tripRows = await motiveList(fetchFn, apiKey, "/v1/ifta/trips", "trips", "trip", {
+        start_date: qStart,
+        end_date: endDate
+      });
+    } catch {
+      tripRows = [];
+    }
+    if (tripRows.length === 0) {
+      try {
+        summaryRows = await motiveList(fetchFn, apiKey, "/v1/ifta/summary", "summaries", "summary", {
+          start_date: qStart,
+          end_date: endDate
+        });
+      } catch {
+        summaryRows = [];
+      }
+    }
+    const ifta = mapMotiveIfta(tripRows, summaryRows, vehicle.id);
+    if (ifta)
+      batch.push({ feed: "ifta", payload: ifta });
+    else
+      skipped.push("ifta");
+  } catch {
+    skipped.push("ifta");
+  }
+  const userRow = driverId ? users.find((u) => u.id != null && String(u.id) === driverId) ?? null : null;
+  const identity = mapMotiveIdentity(vehicle, userRow, stats?.odometerMi ?? null);
+  if (Object.keys(identity.driver).length > 0 || Object.keys(identity.truck).length > 0) {
+    batch.push({ feed: "identity", payload: identity });
+  } else {
+    skipped.push("identity");
+  }
+  return { batch, deviceName: vehicle.number || null, skipped };
+}
+
+// src/samsara.ts
+var SAMSARA_API_BASE = "https://api.samsara.com";
+
+class SamsaraApiError extends Error {
+  status;
+  constructor(message, status) {
+    super(message);
+    this.name = "SamsaraApiError";
+    this.status = status;
+  }
+}
+function isRec2(v) {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+function asRec2(v) {
+  return isRec2(v) ? v : null;
+}
+function str3(v) {
+  return typeof v === "string" ? v.trim() : "";
+}
+function num3(v) {
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+function round29(v) {
+  return Math.round(v * 100) / 100;
+}
+function msToHours(ms) {
+  return round29(ms / 3600000);
+}
+async function samsaraGet(fetchFn, token, path, params = {}) {
+  const qs = new URLSearchParams(params).toString();
+  const url = `${SAMSARA_API_BASE}${path}${qs ? `?${qs}` : ""}`;
+  const res = await fetchFn(url, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" }
+  });
+  let body = null;
+  try {
+    body = await res.json();
+  } catch {
+    body = null;
+  }
+  if (!res.ok) {
+    const msg = isRec2(body) && typeof body.message === "string" && body.message || `Samsara refused the request (HTTP ${res.status}). Check the API token and that the fleet plan includes the data being requested.`;
+    throw new SamsaraApiError(msg, res.status);
+  }
+  return body;
+}
+function pageData(body) {
+  const b = asRec2(body);
+  const rows = (Array.isArray(b?.data) ? b.data : []).filter(isRec2);
+  const pg = asRec2(b?.pagination);
+  return {
+    rows,
+    endCursor: typeof pg?.endCursor === "string" && pg.endCursor ? pg.endCursor : null,
+    hasNext: pg?.hasNextPage === true
+  };
+}
+async function samsaraList(fetchFn, token, path, params = {}, maxPages = 10) {
+  const out = [];
+  let after = null;
+  for (let page = 0;page < maxPages; page++) {
+    const body = await samsaraGet(fetchFn, token, path, after ? { ...params, after } : params);
+    const { rows, endCursor, hasNext } = pageData(body);
+    out.push(...rows);
+    if (!hasNext || !endCursor || rows.length === 0)
+      break;
+    after = endCursor;
+  }
+  return out;
+}
+function mapSamsaraVehicle(row) {
+  const id = row.id != null ? String(row.id) : "";
+  if (!id)
+    return null;
+  const yr = num3(row.year);
+  return {
+    id,
+    name: str3(row.name),
+    vin: str3(row.vin).toUpperCase(),
+    plate: str3(row.licensePlate),
+    make: str3(row.make),
+    model: str3(row.model),
+    year: yr != null && yr > 1900 ? Math.trunc(yr) : null
+  };
+}
+function findSamsaraVehicleByVin(vehicles, vin) {
+  const want = vin.trim().toUpperCase();
+  if (!want)
+    return null;
+  return vehicles.find((v) => v.vin === want) ?? null;
+}
+var SAMSARA_STATUS_MAP = {
+  OFFDUTY: "off_duty",
+  SLEEPERBED: "sleeper",
+  SLEEPERBERTH: "sleeper",
+  SLEEPER: "sleeper",
+  DRIVING: "driving",
+  ONDUTY: "on_duty",
+  YARDMOVE: "on_duty",
+  PERSONALCONVEYANCE: "off_duty"
+};
+function mapSamsaraHosStatus(raw) {
+  const key = str3(raw).replace(/[^a-zA-Z]/g, "").toUpperCase();
+  return SAMSARA_STATUS_MAP[key] ?? null;
+}
+function mapSamsaraHosLogs(entries, vehicleId) {
+  const byDriver = new Map;
+  for (const entry of entries) {
+    const driver = asRec2(entry.driver);
+    const driverId = driver?.id != null ? String(driver.id) : "";
+    const driverName = str3(driver?.name);
+    const rawLogs = Array.isArray(entry.hosLogs) ? entry.hosLogs : [];
+    for (const raw of rawLogs) {
+      if (!isRec2(raw))
+        continue;
+      const veh = asRec2(raw.vehicle);
+      if (!veh || veh.id == null || String(veh.id) !== vehicleId)
+        continue;
+      const state = mapSamsaraHosStatus(raw.hosStatusType);
+      const at = str3(raw.logStartTime);
+      if (!state || !at || Number.isNaN(Date.parse(at)))
+        continue;
+      const loc = asRec2(raw.logRecordedLocation);
+      const lat = num3(loc?.latitude);
+      const lon = num3(loc?.longitude);
+      const location = lat != null && lon != null && (lat !== 0 || lon !== 0) ? `${lat.toFixed(5)}, ${lon.toFixed(5)}` : undefined;
+      const key = driverId || driverName;
+      if (!key)
+        continue;
+      let group = byDriver.get(key);
+      if (!group) {
+        group = { driverId, driverName, logs: [] };
+        byDriver.set(key, group);
+      }
+      group.logs.push(location ? { state, at, location } : { state, at });
+    }
+  }
+  const groups = [...byDriver.values()];
+  for (const g of groups) {
+    g.logs.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+    g.logs = g.logs.slice(-500);
+  }
+  return groups;
+}
+function mapSamsaraHosClocks(entries, driverId, vehicleId) {
+  const entry = entries.find((e) => {
+    const d = asRec2(e.driver);
+    return driverId !== "" && d?.id != null && String(d.id) === driverId;
+  }) ?? entries.find((e) => {
+    const v = asRec2(e.currentVehicle);
+    return v?.id != null && String(v.id) === vehicleId;
+  }) ?? null;
+  if (!entry)
+    return null;
+  const clocks = asRec2(entry.clocks);
+  if (!clocks)
+    return null;
+  const rem = (k) => {
+    const c = asRec2(clocks[k]);
+    const ms = num3(c?.timeUntilBreakDurationMs) ?? num3(c?.remainingDurationMs) ?? num3(c?.durationMs);
+    return ms != null ? msToHours(ms) : null;
+  };
+  const drive = rem("drive");
+  const shift = rem("shift");
+  const cycle = rem("cycle");
+  const brk = rem("break");
+  if (drive == null || shift == null || cycle == null || brk == null)
+    return null;
+  return { driveRemainH: drive, windowRemainH: shift, cycleRemainH: cycle, breakRemainH: brk };
+}
+function mapSamsaraVehicleStats(row) {
+  if (!row)
+    return null;
+  const out = {};
+  const gps = asRec2(row.gps);
+  const odo = asRec2(row.obdOdometerMeters) ?? asRec2(row.odometerMeters);
+  const engSec = asRec2(row.obdEngineSeconds) ?? asRec2(row.engineSeconds);
+  const engHrs = asRec2(row.engineHours);
+  const odoM = num3(odo?.value);
+  if (odoM != null && odoM > 0)
+    out.odometerMi = Math.round(odoM / 1609.344 * 10) / 10;
+  const sec = num3(engSec?.value);
+  const hrs = num3(engHrs?.value);
+  if (sec != null && sec > 0)
+    out.engineHours = round29(sec / 3600);
+  else if (hrs != null && hrs > 0)
+    out.engineHours = round29(hrs);
+  const lat = num3(gps?.latitude);
+  const lon = num3(gps?.longitude);
+  if (lat != null && lon != null && (lat !== 0 || lon !== 0)) {
+    out.lat = lat;
+    out.lon = lon;
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+function mapSamsaraDvirs(rows, vehicleId, vehicleName) {
+  const out = [];
+  for (const row of rows) {
+    const veh = asRec2(row.vehicle);
+    if (!veh || veh.id == null || String(veh.id) !== vehicleId)
+      continue;
+    const unsafe = str3(row.safetyStatus) === "unsafe";
+    const rawDefects = [
+      ...Array.isArray(row.vehicleDefects) ? row.vehicleDefects : [],
+      ...Array.isArray(row.trailerDefects) ? row.trailerDefects : []
+    ].filter(isRec2);
+    const defects = [];
+    for (const d of rawDefects) {
+      const typeRaw = d.defectType;
+      const item = typeof typeRaw === "string" ? typeRaw : str3(asRec2(typeRaw)?.name) || str3(d.comment);
+      if (!item)
+        continue;
+      const note = str3(d.comment);
+      defects.push({
+        item,
+        ...note && note !== item ? { note } : {},
+        ...unsafe && d.isResolved !== true ? { critical: true } : {}
+      });
+    }
+    const entry = {};
+    const id = row.id != null ? String(row.id) : "";
+    if (id)
+      entry.id = id;
+    const at = str3(row.startTime) || str3(row.endTime) || str3(row.createdAt);
+    if (at && !Number.isNaN(Date.parse(at)))
+      entry.inspectedAt = at;
+    const vname = str3(veh.name) || vehicleName;
+    if (vname)
+      entry.vehicle = vname;
+    entry.status = unsafe || defects.length > 0 ? "defects_found" : "no_defects";
+    entry.defects = defects;
+    out.push(entry);
+  }
+  return { dvirs: out.slice(0, 200) };
+}
+var METERS_PER_MILE2 = 1609.344;
+function samsaraRowMiles(row) {
+  const direct = [row.distanceMiles, row.totalDistanceMiles, row.totalMiles, row.miles, row.distanceInMiles];
+  for (const v of direct) {
+    const n = num3(v);
+    if (n != null)
+      return n;
+  }
+  const dist = asRec2(row.distance);
+  if (dist) {
+    const mi = num3(dist.miles) ?? num3(dist.value);
+    if (mi != null)
+      return mi;
+    const m = num3(dist.meters);
+    if (m != null)
+      return m / METERS_PER_MILE2;
+  }
+  const meters = [row.distanceMeters, row.totalDistanceMeters, row.driveDistanceMeters, row.meters];
+  for (const v of meters) {
+    const n = num3(v);
+    if (n != null)
+      return n / METERS_PER_MILE2;
+  }
+  return null;
+}
+function mapSamsaraIfta(rows) {
+  const byState = new Map;
+  const addRow = (row) => {
+    const state = str3(row.jurisdiction ?? row.state ?? row.jurisdictionCode).toUpperCase();
+    if (!/^[A-Z]{2}$/.test(state))
+      return;
+    const miles = samsaraRowMiles(row);
+    if (miles == null || miles < 0)
+      return;
+    byState.set(state, (byState.get(state) ?? 0) + miles);
+  };
+  for (const row of rows) {
+    addRow(row);
+    const nested = row.jurisdictions ?? row.jurisdictionSummaries;
+    if (Array.isArray(nested)) {
+      for (const n of nested)
+        if (isRec2(n))
+          addRow(n);
+    }
+  }
+  if (byState.size === 0)
+    return null;
+  return {
+    states: [...byState.entries()].map(([state, miles]) => ({ state, miles: Math.round(miles * 10) / 10 })).sort((a, b) => a.state.localeCompare(b.state))
+  };
+}
+function mapSamsaraIdentity(vehicle, driverRow, driverNameFallback, odometerMi) {
+  const driver = {};
+  const name = str3(driverRow?.name) || driverNameFallback;
+  if (name)
+    driver.name = name;
+  if (driverRow?.id != null)
+    driver.driverId = String(driverRow.id);
+  const cdl = str3(driverRow?.licenseNumber);
+  if (cdl)
+    driver.cdlNumber = cdl;
+  const cdlState = str3(driverRow?.licenseState).toUpperCase();
+  if (cdlState)
+    driver.cdlState = cdlState;
+  const truck = {};
+  if (vehicle.name)
+    truck.unitNumber = vehicle.name;
+  if (vehicle.vin)
+    truck.vin = vehicle.vin;
+  if (vehicle.plate)
+    truck.plate = vehicle.plate;
+  if (vehicle.make)
+    truck.make = vehicle.make;
+  if (vehicle.model)
+    truck.model = vehicle.model;
+  if (vehicle.year != null)
+    truck.year = vehicle.year;
+  if (odometerMi != null)
+    truck.odometerMi = odometerMi;
+  return { driver, truck };
+}
+async function fetchSamsaraBatch(fetchFn, token, opts) {
+  const now = opts.now ?? new Date;
+  const nowIso = now.toISOString();
+  const vehicleRows = await samsaraList(fetchFn, token, "/fleet/vehicles");
+  const vehicles = vehicleRows.map(mapSamsaraVehicle).filter((v) => v != null);
+  const vehicle = findSamsaraVehicleByVin(vehicles, opts.vin);
+  if (!vehicle) {
+    throw new Error(`No Samsara vehicle carries VIN ${opts.vin.trim().toUpperCase()} \u2014 check the VIN in Settings \u2192 Truck against the vehicle list in Samsara, then sync again. Nothing was stored.`);
+  }
+  const batch = [];
+  const skipped = [];
+  const windowStart = new Date(now.getTime() - 8 * 24 * 3600 * 1000).toISOString();
+  let groups = [];
+  try {
+    const logEntries = await samsaraList(fetchFn, token, "/fleet/hos/logs", {
+      startTime: windowStart,
+      endTime: nowIso
+    });
+    groups = mapSamsaraHosLogs(logEntries, vehicle.id);
+  } catch {
+    groups = [];
+  }
+  let driverGroup = null;
+  let newest = -Infinity;
+  for (const g of groups) {
+    const last = g.logs[g.logs.length - 1];
+    if (last && Date.parse(last.at) > newest) {
+      newest = Date.parse(last.at);
+      driverGroup = g;
+    }
+  }
+  if (driverGroup && driverGroup.logs.length > 0) {
+    batch.push({ feed: "hos_logs", payload: { logs: driverGroup.logs } });
+  } else {
+    skipped.push("hos_logs");
+  }
+  let clocks = null;
+  try {
+    const clockEntries = pageData(await samsaraGet(fetchFn, token, "/fleet/hos/clocks")).rows;
+    clocks = mapSamsaraHosClocks(clockEntries, driverGroup?.driverId ?? "", vehicle.id);
+  } catch {
+    clocks = null;
+  }
+  if (!clocks && driverGroup)
+    clocks = computeGeotabHosClocks(driverGroup.logs, now);
+  if (clocks)
+    batch.push({ feed: "hos_clocks", payload: clocks });
+  else
+    skipped.push("hos_clocks");
+  let stats = null;
+  try {
+    const body = await samsaraGet(fetchFn, token, "/fleet/vehicles/stats", {
+      types: "gps,obdOdometerMeters,obdEngineSeconds",
+      vehicleIds: vehicle.id
+    });
+    const rows = pageData(body).rows;
+    const row = rows.find((r) => r.id != null && String(r.id) === vehicle.id) ?? rows[0] ?? null;
+    stats = mapSamsaraVehicleStats(row);
+  } catch {
+    stats = null;
+  }
+  if (stats)
+    batch.push({ feed: "vehicle_stats", payload: stats });
+  else
+    skipped.push("vehicle_stats");
+  try {
+    const dvirRows = await samsaraList(fetchFn, token, "/fleet/dvirs/history", {
+      startTime: windowStart,
+      endTime: nowIso
+    });
+    const dvirs = mapSamsaraDvirs(dvirRows, vehicle.id, vehicle.name || null);
+    if (dvirs.dvirs.length > 0)
+      batch.push({ feed: "dvirs", payload: dvirs });
+    else
+      skipped.push("dvirs");
+  } catch {
+    skipped.push("dvirs");
+  }
+  try {
+    const year = now.getUTCFullYear();
+    const quarter = Math.floor(now.getUTCMonth() / 3) + 1;
+    const body = await samsaraGet(fetchFn, token, "/fleet/reports/ifta/jurisdiction", {
+      year: String(year),
+      quarter: `Q${quarter}`,
+      vehicleIds: `samsara.vin:${vehicle.vin}`
+    });
+    const ifta = mapSamsaraIfta(pageData(body).rows);
+    if (ifta)
+      batch.push({ feed: "ifta", payload: ifta });
+    else
+      skipped.push("ifta");
+  } catch {
+    skipped.push("ifta");
+  }
+  let driverRow = null;
+  if (driverGroup?.driverId) {
+    try {
+      const drivers = await samsaraList(fetchFn, token, "/fleet/drivers");
+      driverRow = drivers.find((d) => d.id != null && String(d.id) === driverGroup.driverId) ?? null;
+    } catch {
+      driverRow = null;
+    }
+  }
+  const identity = mapSamsaraIdentity(vehicle, driverRow, driverGroup?.driverName ?? "", stats?.odometerMi ?? null);
+  if (Object.keys(identity.driver).length > 0 || Object.keys(identity.truck).length > 0) {
+    batch.push({ feed: "identity", payload: identity });
+  } else {
+    skipped.push("identity");
+  }
+  return { batch, deviceName: vehicle.name || null, skipped };
+}
+
 // src/parking.ts
 var PARKING_TIGHT_MARGIN_MIN = 45;
 function parkingArrivalPlan(args) {
@@ -19344,7 +21535,7 @@ function dashcamPartnerFromEnv(env, _transport) {
   const name = env.DASHCAM_PARTNER_NAME?.trim() || "Dashcam partner";
   return { name };
 }
-function isRecord2(v) {
+function isRecord3(v) {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 function strField(p, key) {
@@ -19352,7 +21543,7 @@ function strField(p, key) {
   return typeof v === "string" && v.trim() !== "" ? v.trim() : null;
 }
 function validateDashcamEventPayload(payload) {
-  if (!isRecord2(payload))
+  if (!isRecord3(payload))
     return { ok: false, errors: ["payload must be a JSON object"] };
   const errors = [];
   const partnerEventId = strField(payload, "partnerEventId") ?? strField(payload, "eventId") ?? strField(payload, "id");
@@ -19611,14 +21802,14 @@ function trailerPartnerFromEnv(env, transport) {
     }
   };
 }
-function isRecord3(v) {
+function isRecord4(v) {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 function numIn(v, min, max) {
   return typeof v === "number" && Number.isFinite(v) && v >= min && v <= max ? v : null;
 }
 function validateTrailerReading(raw) {
-  if (!isRecord3(raw))
+  if (!isRecord4(raw))
     return { ok: false, errors: ["reading must be a JSON object"] };
   const errors = [];
   const kindRaw = typeof raw.kind === "string" ? raw.kind : "";
@@ -19696,7 +21887,7 @@ function simulatedTrailerReadings(now) {
 }
 
 // src/factoring.ts
-var round26 = (n) => Math.round(n * 100) / 100;
+var round210 = (n) => Math.round(n * 100) / 100;
 var FACTOR_STATUS_LABELS = {
   none: "Not packaged",
   packaged: "Packaged \u2014 ready to send",
@@ -19788,15 +21979,15 @@ function buildArSummary(invoices, nowMs) {
       key: b.key,
       label: b.label,
       count: byKey.get(b.key).count,
-      total: round26(byKey.get(b.key).total)
+      total: round210(byKey.get(b.key).total)
     })),
     outstandingCount,
-    outstandingTotal: round26(outstandingTotal),
+    outstandingTotal: round210(outstandingTotal),
     factoredCount,
-    factoredTotal: round26(factoredTotal),
+    factoredTotal: round210(factoredTotal),
     packagedCount,
     paidCount,
-    paidTotal: round26(paidTotal),
+    paidTotal: round210(paidTotal),
     settledFactoredCount,
     draftCount
   };
@@ -19861,7 +22052,7 @@ function brokerCreditSummary(facts) {
 }
 
 // src/fuelOptimizer.ts
-var round27 = (n) => Math.round(n * 100) / 100;
+var round211 = (n) => Math.round(n * 100) / 100;
 var round3 = (n) => Math.round(n * 1000) / 1000;
 var DIESEL_PRICE_BAND = { min: 0.5, max: 15 };
 var sanePrice = (price) => price != null && Number.isFinite(price) && price >= DIESEL_PRICE_BAND.min && price <= DIESEL_PRICE_BAND.max ? price : null;
@@ -20028,7 +22219,7 @@ function simulate(input, stops, rank) {
         basePrice: stop.base,
         taxPerGal: stop.tax,
         surcharge: stop.surcharge,
-        cost: stop.price != null ? round27(buy * stop.price) : null,
+        cost: stop.price != null ? round211(buy * stop.price) : null,
         why
       };
       purchases.push(purchase);
@@ -20055,11 +22246,11 @@ function simulate(input, stops, rank) {
       credit += p.gallons * p.taxPerGal;
     }
   }
-  const iftaSettlement = settlementKnown ? round27(owed - credit) : null;
-  const pumpCost = round27(purchases.reduce((sum, p) => sum + (p.cost ?? 0), 0));
+  const iftaSettlement = settlementKnown ? round211(owed - credit) : null;
+  const pumpCost = round211(purchases.reduce((sum, p) => sum + (p.cost ?? 0), 0));
   const unpricedGallons = round3(purchases.filter((p) => p.price == null).reduce((sum, p) => sum + p.gallons, 0));
   const totalGallons = round3(purchases.reduce((sum, p) => sum + p.gallons, 0));
-  const netTripCost = iftaSettlement != null && unpricedGallons === 0 ? round27(pumpCost + iftaSettlement) : null;
+  const netTripCost = iftaSettlement != null && unpricedGallons === 0 ? round211(pumpCost + iftaSettlement) : null;
   const verdicts = stops.map((s) => {
     const bought = boughtAt.get(s.id);
     if (bought)
@@ -20113,7 +22304,7 @@ function planRouteFuel(input) {
   const effective = { ...input, segments };
   const optimized = simulate(effective, stops, "base");
   const naive = simulate(effective, stops, "pump");
-  const savingsEstimate = optimized.totals.netTripCost != null && naive.totals.netTripCost != null ? round27(naive.totals.netTripCost - optimized.totals.netTripCost) : null;
+  const savingsEstimate = optimized.totals.netTripCost != null && naive.totals.netTripCost != null ? round211(naive.totals.netTripCost - optimized.totals.netTripCost) : null;
   const notes = [];
   notes.push("Every price in this plan is an estimate from your fuel log and labelled driver reports \u2014 no live feed, and no price is invented for a stop that has none.");
   if (optimized.purchases.length === 0 && optimized.rangeGaps.length === 0) {
@@ -20274,20 +22465,20 @@ var DQF_ENTRY_LABELS = {
   violation_record: "Violations record",
   training: "Training record"
 };
-var str = (v) => typeof v === "string" && v.trim() !== "" ? v.trim() : null;
+var str4 = (v) => typeof v === "string" && v.trim() !== "" ? v.trim() : null;
 var dqfPayload = {
-  employer: (e) => str(e.payload.employer),
-  cdlState: (e) => str(e.payload.state),
-  cdlClass: (e) => str(e.payload.licenseClass),
-  examinerName: (e) => str(e.payload.examinerName),
-  registryNumber: (e) => str(e.payload.registryNumber),
-  reviewOutcome: (e) => str(e.payload.outcome),
-  queryType: (e) => str(e.payload.queryType),
-  queryResult: (e) => str(e.payload.result),
-  verifyOutcome: (e) => str(e.payload.outcome),
-  verifySource: (e) => str(e.payload.source),
-  topic: (e) => str(e.payload.topic),
-  description: (e) => str(e.payload.description)
+  employer: (e) => str4(e.payload.employer),
+  cdlState: (e) => str4(e.payload.state),
+  cdlClass: (e) => str4(e.payload.licenseClass),
+  examinerName: (e) => str4(e.payload.examinerName),
+  registryNumber: (e) => str4(e.payload.registryNumber),
+  reviewOutcome: (e) => str4(e.payload.outcome),
+  queryType: (e) => str4(e.payload.queryType),
+  queryResult: (e) => str4(e.payload.result),
+  verifyOutcome: (e) => str4(e.payload.outcome),
+  verifySource: (e) => str4(e.payload.source),
+  topic: (e) => str4(e.payload.topic),
+  description: (e) => str4(e.payload.description)
 };
 function isYmd(s) {
   return typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(`${s}T12:00:00.000Z`));
@@ -20572,7 +22763,7 @@ function dqfAlertNotification(args) {
 }
 
 // src/homeTime.ts
-var DAY_MS7 = 86400000;
+var DAY_MS9 = 86400000;
 var HOUR_MS2 = 3600000;
 var RETURN_ALLOWANCE_SAME_STATE_MS = 6 * HOUR_MS2;
 var RETURN_ALLOWANCE_OUT_OF_STATE_MS = 24 * HOUR_MS2;
@@ -20615,7 +22806,7 @@ function commitmentDeadlines(c, fromMs, toMs) {
     const anchor = ms(c.anchorAt);
     const n = c.everyNDays;
     if (anchor != null && n != null && Number.isFinite(n) && n >= 1) {
-      const step = Math.floor(n) * DAY_MS7;
+      const step = Math.floor(n) * DAY_MS9;
       const kMin = Math.ceil((fromMs - anchor) / step);
       const kMax = Math.floor((toMs - 1 - anchor) / step);
       for (let k = kMin;k <= kMax; k++)
@@ -20626,10 +22817,10 @@ function commitmentDeadlines(c, fromMs, toMs) {
     d.setUTCHours(0, 0, 0, 0);
     let t = d.getTime();
     while (new Date(t).getUTCDay() !== 6)
-      t += DAY_MS7;
+      t += DAY_MS9;
     if (t < fromMs)
-      t += 7 * DAY_MS7;
-    for (;t < toMs; t += 7 * DAY_MS7)
+      t += 7 * DAY_MS9;
+    for (;t < toMs; t += 7 * DAY_MS9)
       push(t);
   }
   return out.sort((a, b) => a - b);
@@ -20643,7 +22834,7 @@ function allDeadlines(commitments, fromMs, toMs) {
   return out.sort((a, b) => a.deadlineAt - b.deadlineAt);
 }
 function nextHomeDeadline(commitments, nowMs) {
-  const all = allDeadlines(commitments, nowMs - DEADLINE_LOOKBACK_MS, nowMs + 366 * DAY_MS7);
+  const all = allDeadlines(commitments, nowMs - DEADLINE_LOOKBACK_MS, nowMs + 366 * DAY_MS9);
   return all[0] ?? null;
 }
 function describeCommitment(c) {
@@ -20820,7 +23011,7 @@ function retentionSignals(f) {
   }
   return out;
 }
-var PULSE_EPISODE_MS = 14 * DAY_MS7;
+var PULSE_EPISODE_MS = 14 * DAY_MS9;
 var PULSE_MIN_RESPONDENTS = 3;
 var PULSE_QUESTIONS = [
   { key: "home_time", label: "How is home time holding up lately?", low: "Rough", high: "Great" },
@@ -20978,7 +23169,7 @@ function facilityDetentionStats(visits) {
 }
 
 // src/accounting.ts
-var round28 = (n) => Math.round(n * 100) / 100;
+var round212 = (n) => Math.round(n * 100) / 100;
 var ACCOUNTING_PROVIDERS = [
   { kind: "quickbooks", name: "QuickBooks Online" },
   { kind: "xero", name: "Xero" }
@@ -20986,31 +23177,31 @@ var ACCOUNTING_PROVIDERS = [
 function accountingProviderName(kind) {
   return ACCOUNTING_PROVIDERS.find((p) => p.kind === kind)?.name ?? kind;
 }
-var ymd = (iso) => iso ? iso.slice(0, 10) : null;
+var ymd2 = (iso) => iso ? iso.slice(0, 10) : null;
 function mapInvoiceToProvider(inv) {
   return {
     docNumber: inv.number,
     customerName: inv.billToCompany?.trim() || inv.billToName,
-    lines: inv.lines.filter((l) => Number.isFinite(l.amount)).map((l) => ({ description: l.label, amount: round28(l.amount) })),
-    amount: round28(inv.amount),
-    issueDate: ymd(inv.issuedAtIso),
-    dueDate: ymd(inv.dueAtIso),
+    lines: inv.lines.filter((l) => Number.isFinite(l.amount)).map((l) => ({ description: l.label, amount: round212(l.amount) })),
+    amount: round212(inv.amount),
+    issueDate: ymd2(inv.issuedAtIso),
+    dueDate: ymd2(inv.dueAtIso),
     status: inv.status === "paid" ? "paid" : "issued",
     memo: inv.referenceNumber?.trim() ? inv.referenceNumber.trim() : null
   };
 }
 function mapPaymentToProvider(pay, link) {
   return {
-    amount: round28(pay.amount),
-    paidDate: ymd(pay.paidAtIso) ?? "",
+    amount: round212(pay.amount),
+    paidDate: ymd2(pay.paidAtIso) ?? "",
     invoiceDocNumber: link.invoiceDocNumber,
     providerInvoiceId: link.providerInvoiceId,
     memo: pay.note?.trim() ? pay.note.trim() : null
   };
 }
 function mapSettlementToProvider(s) {
-  const net = s.net != null && Number.isFinite(s.net) ? round28(s.net) : null;
-  const gross = s.gross != null && Number.isFinite(s.gross) ? round28(s.gross) : null;
+  const net = s.net != null && Number.isFinite(s.net) ? round212(s.net) : null;
+  const gross = s.gross != null && Number.isFinite(s.gross) ? round212(s.gross) : null;
   const amount = net ?? gross;
   if (amount == null)
     return null;
@@ -21021,7 +23212,7 @@ function mapSettlementToProvider(s) {
       lines = parsed.map((raw) => {
         const r = raw ?? {};
         const description = typeof r.description === "string" && r.description.trim() ? r.description.trim() : typeof r.label === "string" && r.label.trim() ? r.label.trim() : null;
-        const amt = typeof r.amount === "number" && Number.isFinite(r.amount) ? round28(r.amount) : null;
+        const amt = typeof r.amount === "number" && Number.isFinite(r.amount) ? round212(r.amount) : null;
         return description && amt != null ? { description, amount: amt } : null;
       }).filter((l) => l != null);
     }
@@ -21133,6 +23324,9 @@ function basicAuth(id, secret) {
 function formBody(fields) {
   return Object.entries(fields).map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join("&");
 }
+function escapeQboLiteral(value) {
+  return value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+}
 function quickbooksPartner(clientId, clientSecret, fetchFn) {
   const tokenUrl = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer";
   const base = (realmId) => `https://quickbooks.api.intuit.com/v3/company/${realmId ?? ""}`;
@@ -21169,7 +23363,7 @@ function quickbooksPartner(clientId, clientSecret, fetchFn) {
     return await r.json();
   }
   async function customerIdFor(access, name) {
-    const found = await query(access, `select Id from Customer where DisplayName = '${name.replace(/'/g, "\\'")}'`);
+    const found = await query(access, `select Id from Customer where DisplayName = '${escapeQboLiteral(name)}'`);
     const rows = found.QueryResponse?.Customer ?? [];
     if (rows[0]?.Id)
       return rows[0].Id;
@@ -22071,7 +24265,7 @@ function cleanReferenceNumber(input) {
 }
 
 // src/driverCalendar.ts
-var DAY_MS8 = 86400000;
+var DAY_MS10 = 86400000;
 var HOUR_MS3 = 3600000;
 var DEFAULT_DISPATCH_MODE = "offered";
 var DEFAULT_SAFETY_WINDOW_HOURS = 24;
@@ -22144,7 +24338,7 @@ var OFF_DUTY_REQUEST_LABELS = {
   reset: "34-hour reset"
 };
 var RESET_MIN_MS = 34 * HOUR_MS3;
-var OFF_DUTY_MAX_MS = 60 * DAY_MS8;
+var OFF_DUTY_MAX_MS = 60 * DAY_MS10;
 function validateOffDutyRequest(input) {
   if (typeof input.type !== "string" || !OFF_DUTY_REQUEST_TYPES.includes(input.type)) {
     return { ok: false, error: "Pick what the time off is for \u2014 home time, medical, family, personal, or a 34-hour reset." };
@@ -22180,8 +24374,8 @@ function projectPaydays(settings, fromMs, toMs) {
   if (settings.payCycleKind === "weekly") {
     let t = utcDayStart(fromMs);
     while (new Date(t).getUTCDay() !== settings.payWeekday)
-      t += DAY_MS8;
-    for (;t < toMs; t += 7 * DAY_MS8)
+      t += DAY_MS10;
+    for (;t < toMs; t += 7 * DAY_MS10)
       out.push(t);
     return out;
   }
@@ -22191,7 +24385,7 @@ function projectPaydays(settings, fromMs, toMs) {
     const anchor = utcDayStart(expiryInstantMs(settings.payAnchorOn));
     if (!Number.isFinite(anchor))
       return [];
-    const step = 14 * DAY_MS8;
+    const step = 14 * DAY_MS10;
     const kMin = Math.ceil((utcDayStart(fromMs) - anchor) / step);
     const kMax = Math.floor((utcDayStart(toMs) - anchor) / step);
     for (let k = kMin;k <= kMax; k++) {
@@ -22219,7 +24413,7 @@ function credentialCalendarMarkers(statuses, fromMs, toMs, nowMs) {
       out.push({ credentialKey: s.key, label: s.label, kind: "expiry", atMs: expiryMs, daysBefore: 0, expiresOn: s.expiresOn, daysLeft });
     }
     for (const d of CREDENTIAL_WARNING_DAYS) {
-      const atMs = expiryMs - d * DAY_MS8;
+      const atMs = expiryMs - d * DAY_MS10;
       if (atMs >= fromMs && atMs < toMs) {
         out.push({ credentialKey: s.key, label: s.label, kind: "warning", atMs, daysBefore: d, expiresOn: s.expiresOn, daysLeft });
       }
@@ -22493,6 +24687,143 @@ ${xrefAt}
     at += u.length;
   }
   return out;
+}
+
+// src/maintenanceSheet.ts
+function maintenanceKindOf(v) {
+  return v === "repair" ? "repair" : "service";
+}
+function maintenanceKindLabel(kind) {
+  return maintenanceKindOf(kind) === "repair" ? "Repair \u2014 unscheduled fix" : "Scheduled service";
+}
+function maintenanceCategoryLabel(key) {
+  switch (key) {
+    case "oil":
+      return "Oil & filters";
+    case "tires":
+      return "Tires";
+    case "brakes":
+      return "Brakes";
+    case "dot_inspection":
+      return "Annual DOT inspection";
+    case "engine":
+      return "Engine";
+    case "transmission":
+      return "Transmission";
+    case "suspension":
+      return "Suspension & steering";
+    case "electrical":
+      return "Electrical";
+    case "ac":
+      return "A/C & heating";
+    default:
+      return "Other";
+  }
+}
+var MAX_PARTS = 24;
+function parseMaintenanceParts(json) {
+  if (!json)
+    return [];
+  let parsed;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed))
+    return [];
+  const out = [];
+  for (const item of parsed) {
+    if (item == null || typeof item !== "object")
+      continue;
+    const rec = item;
+    const name = typeof rec.name === "string" ? rec.name.trim() : "";
+    if (!name)
+      continue;
+    const pn = typeof rec.partNumber === "string" ? rec.partNumber.trim() : "";
+    out.push({ name, partNumber: pn || null });
+    if (out.length >= MAX_PARTS)
+      break;
+  }
+  return out;
+}
+function cleanMaintenancePartsJson(parts) {
+  const out = [];
+  for (const p of parts ?? []) {
+    const name = (p?.name ?? "").trim();
+    if (!name)
+      continue;
+    const pn = (p?.partNumber ?? "")?.trim() ?? "";
+    out.push({ name, partNumber: pn || null });
+    if (out.length >= MAX_PARTS)
+      break;
+  }
+  return JSON.stringify(out);
+}
+var day = (ms) => new Date(ms).toISOString().slice(0, 10);
+var miles = (n) => `${Math.round(n).toLocaleString("en-US")} mi`;
+var money4 = (n) => `$${(Math.round(n * 100) / 100).toFixed(2)}`;
+function buildMaintenanceSheet(entry, truck) {
+  const truckName = [truck.truckYear ?? null, truck.truckMake?.trim() || null, truck.truckModel?.trim() || null].filter(Boolean).join(" ") || "Truck not named yet";
+  const kindLabel = maintenanceKindLabel(entry.kind);
+  const catLabel = maintenanceCategoryLabel(entry.category);
+  const title = `MAINTENANCE SHEET #${entry.id}`;
+  const subtitle = `${truckName}${truck.truckUnitNumber?.trim() ? ` - Unit ${truck.truckUnitNumber.trim()}` : ""} - ${kindLabel} - ${day(entry.performedAtMs)}`;
+  const truckLines = [
+    `Truck: ${truckName}`,
+    `Unit: ${truck.truckUnitNumber?.trim() || "-"}`,
+    `VIN: ${truck.truckVin?.trim() || "-"}`,
+    `Plate: ${truck.truckPlate?.trim() || "-"}`,
+    ...truck.truckEngine?.trim() ? [`Engine: ${truck.truckEngine.trim()}`] : []
+  ];
+  const workLines = [
+    `Date: ${day(entry.performedAtMs)}`,
+    `Odometer: ${entry.odometer != null ? miles(entry.odometer) : "-"}`,
+    `Kind: ${kindLabel}`,
+    `Category: ${catLabel}`,
+    `Work done: ${entry.description}`,
+    `Performed by: ${entry.shop?.trim() || "Driver (self)"}`,
+    `Cost: ${money4(entry.cost)}`,
+    ...entry.nextDueMiles != null || entry.nextDueAtMs != null ? [`Next due: ${[entry.nextDueMiles != null ? miles(entry.nextDueMiles) : null, entry.nextDueAtMs != null ? day(entry.nextDueAtMs) : null].filter(Boolean).join(" / ")}`] : [],
+    ...entry.notes?.trim() ? [`Notes: ${entry.notes.trim()}`] : []
+  ];
+  const partLines = [];
+  if (entry.oilBrand?.trim() || entry.oilWeight?.trim()) {
+    partLines.push(`Oil: ${[entry.oilBrand?.trim() || null, entry.oilWeight?.trim() || null].filter(Boolean).join(" ")}`);
+  }
+  for (const p of entry.parts) {
+    partLines.push(`${p.name}${p.partNumber ? ` - Part # ${p.partNumber}` : ""}`);
+  }
+  if (partLines.length === 0)
+    partLines.push("(no parts recorded)");
+  const sections = [
+    { heading: "Truck", lines: truckLines },
+    { heading: "Work performed", lines: workLines },
+    { heading: "Parts used", lines: partLines },
+    ...entry.attachmentLabels.length > 0 ? [{ heading: "Receipts on file", lines: entry.attachmentLabels.map((l) => `${l} (file stays in the app - download it from the log entry)`) }] : []
+  ];
+  const textLines = [
+    "STONEMILES - MAINTENANCE SHEET",
+    `${title} - ${kindLabel} - ${catLabel}`,
+    "",
+    ...truckLines,
+    "",
+    "WORK PERFORMED",
+    ...workLines,
+    "",
+    "PARTS USED",
+    ...partLines,
+    ...entry.attachmentLabels.length > 0 ? ["", "RECEIPTS ON FILE", ...entry.attachmentLabels.map((l) => `${l} (file stays in the app - download it from the log entry)`)] : [],
+    "",
+    "The driver's own maintenance record, kept and sealed in STONEMILES. Send this sheet to your carrier as the maintenance record for this work."
+  ];
+  return {
+    title,
+    subtitle,
+    sections,
+    textLines,
+    filenameStem: `stonemiles-maintenance-sheet-${entry.id}`
+  };
 }
 
 // src/qrCode.ts
@@ -22801,6 +25132,91 @@ function encodeQr(text) {
     }
   }
   return { version, size: modules.length, modules: best };
+}
+
+// src/loadApptText.ts
+var MONTHS6 = {
+  jan: 1,
+  feb: 2,
+  mar: 3,
+  apr: 4,
+  may: 5,
+  jun: 6,
+  jul: 7,
+  aug: 8,
+  sep: 9,
+  sept: 9,
+  oct: 10,
+  nov: 11,
+  dec: 12
+};
+function timeIn(text) {
+  const t = text.replace(/,/g, " ");
+  let m = /(?<!\d)(\d{1,2}):(\d{2})\s*([AaPp])\.?[Mm]\b/.exec(t) ?? /(?<!\d)(\d{1,2}):(\d{2})(?!\d)/.exec(t);
+  if (m) {
+    let h = Number(m[1]);
+    const min = Number(m[2]);
+    const ap = m[3]?.toLowerCase();
+    if (ap === "p" && h < 12)
+      h += 12;
+    if (ap === "a" && h === 12)
+      h = 0;
+    if (h > 23 || min > 59)
+      return null;
+    return { h, m: min };
+  }
+  m = /\b(\d{1,2})\s*([AaPp])\.?[Mm]\b/.exec(t);
+  if (m) {
+    const raw = Number(m[1]);
+    if (raw < 1 || raw > 12)
+      return null;
+    let h = raw;
+    const ap = m[2]?.toLowerCase();
+    if (ap === "p" && h < 12)
+      h += 12;
+    if (ap === "a" && h === 12)
+      h = 0;
+    return { h, m: 0 };
+  }
+  const noYears = t.replace(/\b(?:19|20|21)\d{2}\b/g, " ");
+  m = /(?<![\d/:.\-])([01]\d|2[0-3])([0-5]\d)(?![\d/:.\-])/.exec(noYears);
+  if (m)
+    return { h: Number(m[1]), m: Number(m[2]) };
+  return null;
+}
+function buildMs(year, month, day, time, utcOffsetMinutes) {
+  if (month < 1 || month > 12 || day < 1 || day > 31 || year < 2000 || year > 2100)
+    return null;
+  const ms = Date.UTC(year, month - 1, day, time ? time.h : 12, time ? time.m : 0) + utcOffsetMinutes * 60000;
+  const d = new Date(ms - utcOffsetMinutes * 60000);
+  if (d.getUTCFullYear() !== year || d.getUTCMonth() !== month - 1 || d.getUTCDate() !== day)
+    return null;
+  return ms;
+}
+function parseLoadApptText(text, utcOffsetMinutes = 0) {
+  if (!text)
+    return null;
+  const t = text.trim();
+  if (!t)
+    return null;
+  const off = Number.isFinite(utcOffsetMinutes) ? Math.max(-840, Math.min(840, Math.round(utcOffsetMinutes))) : 0;
+  let m = /(?<!\d)(\d{4})-(\d{1,2})-(\d{1,2})(?!\d)/.exec(t);
+  if (m)
+    return buildMs(Number(m[1]), Number(m[2]), Number(m[3]), timeIn(t), off);
+  m = /\b(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})(?!\d)/.exec(t);
+  if (m) {
+    let year = Number(m[3]);
+    if (year < 100)
+      year += 2000;
+    return buildMs(year, Number(m[1]), Number(m[2]), timeIn(t), off);
+  }
+  m = /\b(jan|feb|mar|apr|may|jun|jul|aug|sept?|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?\s*,?\s*(\d{4})\b/i.exec(t);
+  if (m)
+    return buildMs(Number(m[3]), MONTHS6[m[1].toLowerCase()], Number(m[2]), timeIn(t), off);
+  m = /\b(\d{1,2})(?:st|nd|rd|th)?\s+(jan|feb|mar|apr|may|jun|jul|aug|sept?|oct|nov|dec)[a-z]*\.?\s*,?\s*(\d{4})\b/i.exec(t);
+  if (m)
+    return buildMs(Number(m[3]), MONTHS6[m[2].toLowerCase()], Number(m[1]), timeIn(t), off);
+  return null;
 }
 
 // src/platformFee.ts
@@ -24092,7 +26508,7 @@ var EIA_SEED = {
   source: "EIA weekly on-highway diesel averages via the Oct 22, 2026 research snapshot (seed \u2014 awaiting the first live weekly refresh)",
   fetchedAt: new Date("2026-10-22T12:00:00Z")
 };
-var MONTHS6 = [
+var MONTHS7 = [
   "Jan",
   "Feb",
   "Mar",
@@ -24108,7 +26524,7 @@ var MONTHS6 = [
 ];
 function eiaWeekLabel(weekOfIso) {
   const [y = 1970, m = 1, d = 1] = weekOfIso.split("-").map(Number);
-  return `week of ${MONTHS6[(m - 1 + 12) % 12]} ${d}, ${y}`;
+  return `week of ${MONTHS7[(m - 1 + 12) % 12]} ${d}, ${y}`;
 }
 function parseEiaDieselPage(html, seriesId) {
   if (!html || !seriesId)
@@ -24266,7 +26682,7 @@ function orderedEquipment(rec) {
     ...rec[key]
   }));
 }
-var MONTHS7 = [
+var MONTHS8 = [
   "Jan",
   "Feb",
   "Mar",
@@ -24282,7 +26698,7 @@ var MONTHS7 = [
 ];
 function marketPulseEndingShort(weekEndingIso) {
   const [, m = 1, d = 1] = weekEndingIso.split("-").map(Number);
-  return `${MONTHS7[(m - 1 + 12) % 12]} ${d}`;
+  return `${MONTHS8[(m - 1 + 12) % 12]} ${d}`;
 }
 function marketPulseWeekLabel(weekEndingIso, weekNumber) {
   const [y = 1970] = weekEndingIso.split("-").map(Number);
@@ -24788,6 +27204,45 @@ var privileged = definePrivilegedContracts({
 });
 
 // src/actions.ts
+var geotabHttpFetch = async (url, init) => {
+  const ctrl = new AbortController;
+  const timer = setTimeout(() => ctrl.abort(), 20000);
+  try {
+    return await globalThis.fetch(url, { ...init, signal: ctrl.signal });
+  } catch (e) {
+    if (ctrl.signal.aborted)
+      throw new Error("Geotab didn't answer in 20 seconds \u2014 check the server address and try again. Nothing was stored.");
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+};
+var samsaraHttpFetch = async (url, init) => {
+  const ctrl = new AbortController;
+  const timer = setTimeout(() => ctrl.abort(), 20000);
+  try {
+    return await globalThis.fetch(url, { ...init, signal: ctrl.signal });
+  } catch (e) {
+    if (ctrl.signal.aborted)
+      throw new Error("Samsara didn't answer in 20 seconds \u2014 check the connection and try again. Nothing was stored.");
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+};
+var motiveHttpFetch = async (url, init) => {
+  const ctrl = new AbortController;
+  const timer = setTimeout(() => ctrl.abort(), 20000);
+  try {
+    return await globalThis.fetch(url, { ...init, signal: ctrl.signal });
+  } catch (e) {
+    if (ctrl.signal.aborted)
+      throw new Error("Motive didn't answer in 20 seconds \u2014 check the connection and try again. Nothing was stored.");
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+};
 var GENESIS_HASH = "GENESIS";
 var TRAINING_PASSING_PCT = 80;
 var TRAINING_COURSES = [
@@ -25025,6 +27480,7 @@ async function insertSignedDvir(ctx, args, opts) {
       performedAt: now,
       odometer: args.odometer,
       category,
+      kind: "repair",
       description: dvirDraftDescription(d.item),
       shop: null,
       cost: 0,
@@ -25043,14 +27499,17 @@ async function insertSignedDvir(ctx, args, opts) {
       maintenanceEntryId: entry.id
     });
     if (d.photoDataBase64 && d.photoMime) {
-      const blobKey = `dvir-defect-${row.id}-${entry.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      await ctx.blobs.put(blobKey, base64ToBytes(d.photoDataBase64), { contentType: d.photoMime });
-      await db.insert(maintenanceLogAttachments3).values({
-        entryId: entry.id,
-        label: `Defect photo \u2014 ${d.item}`,
-        blobKey,
-        mime: d.photoMime
-      });
+      const photoBytes = base64ToBytes(d.photoDataBase64);
+      if (assessUpload(new Uint8Array(photoBytes), d.photoMime, { mode: "guard" }).ok) {
+        const blobKey = `dvir-defect-${row.id}-${entry.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        await ctx.blobs.put(blobKey, photoBytes, { contentType: d.photoMime });
+        await db.insert(maintenanceLogAttachments3).values({
+          entryId: entry.id,
+          label: `Defect photo \u2014 ${d.item}`,
+          blobKey,
+          mime: d.photoMime
+        });
+      }
     }
   }
   const chainHash = await appendChain(ctx, {
@@ -25125,7 +27584,7 @@ async function applyEldSyncBatch(ctx, conn, batch, source) {
           continue;
         if (r.ok) {
           entry.state = "received";
-          entry.detail = source === "test_harness" ? "Test sync \u2014 simulated device data received through the sync pipeline. Live sync awaits a real ELD device." : `Last received ${new Date().toLocaleString()} from the provider.`;
+          entry.detail = source === "test_harness" ? "Test sync \u2014 simulated device data received through the sync pipeline. For real data, use \u201CSync now\u201D on a connected ELD." : `Last received ${new Date().toLocaleString()} from the provider.`;
         } else {
           entry.detail = `Last sync rejected this feed: ${r.errors.join("; ")}`;
         }
@@ -25193,6 +27652,7 @@ async function recordFaultReport(ctx, args) {
       performedAt: args.occurredAt,
       odometer: args.odometer,
       category: lookup.category ?? "other",
+      kind: "repair",
       description: lookup.meaning ? `Fault code ${lookup.code} \u2014 ${lookup.meaning}`.slice(0, 240) : `Fault code ${lookup.code} \u2014 recorded as reported`.slice(0, 240),
       shop: null,
       cost: 0,
@@ -25736,6 +28196,48 @@ async function myUsername(ctx) {
   const rows = await db.select().from(profile3).where(eq(profile3.id, myProfileId(ctx))).limit(1);
   return rows[0]?.socialUsername ?? "driver";
 }
+async function publishMaintenanceFleetCopy(ctx, entry) {
+  const db = ctx.db();
+  const me = await myUsername(ctx);
+  const memberships = await db.select().from(companyMembers3).where(eq(companyMembers3.username, me));
+  if (memberships.length === 0)
+    return;
+  const prof = await db.select().from(profile3).where(eq(profile3.id, myProfileId(ctx))).limit(1);
+  const p = prof[0];
+  const truckName = [p?.truckYear ?? null, p?.truckMake?.trim() || null, p?.truckModel?.trim() || null].filter(Boolean).join(" ");
+  const values = {
+    username: me,
+    entryId: entry.id,
+    truckUnit: p?.truckUnitNumber?.trim() || null,
+    truckLabel: truckName || null,
+    kind: maintenanceKindOf(entry.kind),
+    category: entry.category,
+    performedAt: entry.performedAt,
+    odometer: entry.odometer ?? null,
+    description: entry.description,
+    shop: entry.shop ?? null,
+    cost: entry.cost || 0,
+    partsJson: entry.partsJson ?? "[]",
+    oilBrand: entry.oilBrand ?? null,
+    oilWeight: entry.oilWeight ?? null,
+    nextDueMiles: entry.nextDueMiles ?? null,
+    nextDueAt: entry.nextDueAt ?? null,
+    publishedAt: new Date
+  };
+  for (const m of memberships) {
+    const existing = await db.select().from(maintenanceFleetRecords3).where(and(eq(maintenanceFleetRecords3.companyId, m.companyId), eq(maintenanceFleetRecords3.username, me), eq(maintenanceFleetRecords3.entryId, entry.id))).limit(1);
+    if (existing[0]) {
+      await db.update(maintenanceFleetRecords3).set(values).where(eq(maintenanceFleetRecords3.id, existing[0].id));
+    } else {
+      await db.insert(maintenanceFleetRecords3).values({ ...values, companyId: m.companyId });
+    }
+  }
+}
+async function removeMaintenanceFleetCopies(ctx, entryId) {
+  const db = ctx.db();
+  const me = await myUsername(ctx);
+  await db.delete(maintenanceFleetRecords3).where(and(eq(maintenanceFleetRecords3.username, me), eq(maintenanceFleetRecords3.entryId, entryId)));
+}
 async function notHereSetsFor(ctx, username) {
   const db = ctx.db();
   const hideRows = await db.select({ placeId: roadPlaceHides3.placeId }).from(roadPlaceHides3).where(eq(roadPlaceHides3.username, username));
@@ -26079,11 +28581,16 @@ async function resolveReceiveToken(ctx, token) {
 async function deliveryConfirmationFor(ctx, loadId) {
   const db = ctx.db();
   const rows = await db.select().from(chainLog3).where(and(eq(chainLog3.refKind, "load"), eq(chainLog3.refId, loadId))).orderBy(asc(chainLog3.id));
-  let sealHash = null;
+  let floorId = 0;
   for (const r of rows)
+    if (r.event === "load_saved")
+      floorId = Math.max(floorId, r.id);
+  const own = floorId > 0 ? rows.filter((r) => r.id >= floorId) : rows;
+  let sealHash = null;
+  for (const r of own)
     if (r.event === "pod_seal")
       sealHash = r.hash;
-  for (const r of rows) {
+  for (const r of own) {
     if (r.event !== "delivery_confirmed")
       continue;
     try {
@@ -26107,7 +28614,7 @@ async function deliveryConfirmationFor(ctx, loadId) {
     }
   }
   if (sealHash) {
-    const seal = rows.find((r) => r.event === "pod_seal" && r.hash === sealHash);
+    const seal = own.find((r) => r.event === "pod_seal" && r.hash === sealHash);
     let receiverName = null;
     let exceptionNotes = null;
     let at = null;
@@ -26150,6 +28657,9 @@ async function completeDeliveryConfirmation(ctx, opts) {
   let docSha256 = null;
   if (opts.doc) {
     const bytes = base64ToBytes(opts.doc.base64);
+    if (!assessUpload(new Uint8Array(bytes), opts.doc.mime, { mode: "guard" }).ok) {
+      throw new Error("That file is a program, script, or archive \u2014 not a delivery document, so it can't be attached.");
+    }
     docSha256 = await sha256Bytes(new Uint8Array(bytes));
     docBlobKey = `delivery-doc-${load.id}-${docSha256.slice(0, 16)}`;
     await ctx.blobs.put(docBlobKey, bytes, { contentType: opts.doc.mime });
@@ -26611,6 +29121,8 @@ async function runPaperworkExtraction(ctx, row) {
   return status;
 }
 async function filePaperworkDocument(ctx, args) {
+  if (!assessUpload(args.bytes, args.mime, { mode: "guard" }).ok)
+    return null;
   const db = ctx.db();
   const sha256 = await sha256Bytes(new Uint8Array(args.bytes));
   const blobKey = `paperwork-${args.loadId}-${args.docKind}-${sha256.slice(0, 16)}`;
@@ -27675,6 +30187,8 @@ async function evaluatePointsLanes(ctx, me) {
   for (const r of chain) {
     if (r.refId == null)
       continue;
+    if (r.event === "load_saved")
+      sealMs.delete(r.refId);
     if (r.event === "pod_seal") {
       try {
         const p = JSON.parse(r.payload);
@@ -30936,9 +33450,13 @@ var maintenanceLogEntryShape = object({
   performedAt: string2(),
   odometer: number2().nullable(),
   category: string2(),
+  kind: string2(),
   description: string2(),
   shop: string2().nullable(),
   cost: number2(),
+  parts: array(object({ name: string2(), partNumber: string2().nullable() })),
+  oilBrand: string2().nullable(),
+  oilWeight: string2().nullable(),
   nextDueMiles: number2().nullable(),
   nextDueAt: string2().nullable(),
   notes: string2().nullable(),
@@ -31293,6 +33811,12 @@ var loadShape = object({
   brokerMc: string2().nullable(),
   brokerSource: string2().nullable(),
   referenceNumber: string2().nullable(),
+  loadNumber: string2().nullable(),
+  pickupAddress: string2().nullable(),
+  deliveryAddress: string2().nullable(),
+  consignee: string2().nullable(),
+  carrier: string2().nullable(),
+  notes: string2().nullable(),
   packet: packetShape.nullable(),
   hasDoc: boolean2(),
   docMime: string2().nullable(),
@@ -31416,6 +33940,12 @@ function toLoad(row, pod = NO_POD, extraSecurementCount = 0, packet = null, reef
     brokerMc: row.brokerMc ?? null,
     brokerSource: row.brokerSource ?? null,
     referenceNumber: row.referenceNumber ?? null,
+    loadNumber: row.loadNumber ?? null,
+    pickupAddress: row.pickupAddress ?? null,
+    deliveryAddress: row.deliveryAddress ?? null,
+    consignee: row.consignee ?? null,
+    carrier: row.carrier ?? null,
+    notes: row.notes ?? null,
     packet: packet ? toPacket(packet) : null,
     hasDoc: row.docBlobKey != null,
     docMime: row.docMime,
@@ -31464,6 +33994,10 @@ async function podStatusByLoad(ctx) {
   for (const r of rows) {
     if (r.refId == null)
       continue;
+    if (r.event === "load_saved") {
+      map.delete(r.refId);
+      continue;
+    }
     if (r.event === "pod_seal") {
       let auto = false;
       let grade = null;
@@ -33460,6 +35994,7 @@ function cleanBrokerFields(args) {
 var ELD_PROVIDER_NAMES = {
   samsara: "Samsara",
   motive: "Motive",
+  geotab: "Geotab",
   simulated: "Simulated ELD"
 };
 var eldFeedShape = object({
@@ -33473,18 +36008,26 @@ var ELD_FEED_MAP = {
   samsara: [
     { feed: "hos_clocks", label: "HOS clocks", endpoint: "GET /fleet/hos/clocks" },
     { feed: "hos_logs", label: "HOS logs", endpoint: "GET /fleet/hos/logs" },
-    { feed: "dvirs", label: "DVIRs", endpoint: "GET /fleet/dvirs" },
+    { feed: "dvirs", label: "DVIRs", endpoint: "GET /fleet/dvirs/history" },
     { feed: "vehicle_stats", label: "Vehicle stats \u2014 odometer + GPS", endpoint: "GET /fleet/vehicles/stats" },
-    { feed: "ifta", label: "IFTA jurisdiction miles", endpoint: "GET /fleet/reports/ifta" },
+    { feed: "ifta", label: "IFTA jurisdiction miles", endpoint: "GET /fleet/reports/ifta/jurisdiction" },
     { feed: "identity", label: "Driver & truck identity (logged on connect)", endpoint: "GET /fleet/drivers \xB7 /fleet/vehicles" }
   ],
   motive: [
-    { feed: "hos_clocks", label: "HOS clocks", endpoint: "GET /v1/hos/clocks (driver HOS availability)" },
+    { feed: "hos_clocks", label: "HOS clocks", endpoint: "GET /v1/available_time" },
     { feed: "hos_logs", label: "HOS logs", endpoint: "GET /v1/logs" },
-    { feed: "dvirs", label: "DVIRs / vehicle inspections", endpoint: "GET /v1/vehicle_inspections" },
+    { feed: "dvirs", label: "DVIRs / vehicle inspections", endpoint: "GET /v1/inspection_reports" },
     { feed: "vehicle_stats", label: "Vehicle locations + odometer", endpoint: "GET /v1/vehicle_locations" },
     { feed: "ifta", label: "IFTA trips + summaries", endpoint: "GET /v1/ifta/trips \xB7 /v1/ifta/summary" },
-    { feed: "identity", label: "Driver & truck identity (logged on connect)", endpoint: "GET /v1/drivers \xB7 /v1/vehicles" }
+    { feed: "identity", label: "Driver & truck identity (logged on connect)", endpoint: "GET /v1/users \xB7 /v1/vehicles" }
+  ],
+  geotab: [
+    { feed: "hos_clocks", label: "HOS clocks", endpoint: "MyGeotab API \u2014 Get DutyStatusLog (clocks computed from your duty logs)" },
+    { feed: "hos_logs", label: "HOS logs", endpoint: "MyGeotab API \u2014 Get DutyStatusLog" },
+    { feed: "dvirs", label: "DVIRs", endpoint: "MyGeotab API \u2014 Get DVIRLog" },
+    { feed: "vehicle_stats", label: "Vehicle stats \u2014 odometer + GPS", endpoint: "MyGeotab API \u2014 Get DeviceStatusInfo" },
+    { feed: "ifta", label: "IFTA jurisdiction miles", endpoint: "MyGeotab API \u2014 Get FuelTaxDetail" },
+    { feed: "identity", label: "Driver & truck identity (logged on connect)", endpoint: "MyGeotab API \u2014 Get User \xB7 Get Device" }
   ],
   simulated: [
     { feed: "hos_clocks", label: "HOS clocks", endpoint: "simulated device payload" },
@@ -33502,6 +36045,7 @@ var eldConnectionShape = object({
   label: string2(),
   status: string2(),
   tokenMasked: string2().nullable(),
+  accountNote: string2().nullable(),
   feeds: array(eldFeedShape),
   lastError: string2().nullable(),
   connectedBy: string2(),
@@ -33726,13 +36270,13 @@ async function eldFeedsFor(ctx, conn) {
       return {
         ...f,
         state: "received",
-        detail: simulated ? `Test sync ${snap.receivedAt.toLocaleString()} \u2014 simulated device data through the sync pipeline. Live sync awaits a real ELD device.` : `Last received ${snap.receivedAt.toLocaleString()} from ${ELD_PROVIDER_NAMES[conn.provider] ?? conn.provider}.`
+        detail: simulated ? `Test sync ${snap.receivedAt.toLocaleString()} \u2014 simulated device data through the sync pipeline. For real data, use \u201CSync now\u201D on a connected ELD.` : `Last received ${snap.receivedAt.toLocaleString()} from ${ELD_PROVIDER_NAMES[conn.provider] ?? conn.provider}.`
       };
     }
     const marked = stored.find((s) => s.feed === f.feed && s.state === "blocked_by_plan");
     if (marked)
       return { ...f, state: "blocked_by_plan", detail: marked.detail };
-    const stagedDetail = conn.provider === "samsara" && (f.feed === "hos_logs" || f.feed === "hos_clocks" || f.feed === "dvirs") ? "Awaiting first sync \u2014 live sync activates at go-live. Note: Samsara only returns HOS/DVIR data when the fleet plan carries the Telematics license; a Safety-only plan will report this feed as blocked by plan after the first sync, never as silently empty." : "Awaiting first sync \u2014 live sync activates at go-live; nothing has been pulled from the provider yet.";
+    const stagedDetail = conn.provider === "geotab" ? "Awaiting first sync \u2014 Geotab sync is wired: tap \u201CSync now\u201D on this connection and STONEMILES pulls this feed from MyGeotab. Nothing has been pulled yet." : conn.provider === "samsara" && (f.feed === "hos_logs" || f.feed === "hos_clocks" || f.feed === "dvirs") ? "Awaiting first sync \u2014 Samsara sync is wired: tap \u201CSync now\u201D on this connection and STONEMILES pulls this feed from Samsara. Note: Samsara only returns HOS/DVIR data when the fleet plan carries the Telematics license; a Safety-only plan returns nothing for this feed \u2014 the sync reports that plainly, never as silently empty." : conn.provider === "samsara" || conn.provider === "motive" ? `Awaiting first sync \u2014 ${ELD_PROVIDER_NAMES[conn.provider]} sync is wired: tap \u201CSync now\u201D on this connection and STONEMILES pulls this feed from ${ELD_PROVIDER_NAMES[conn.provider]}. Nothing has been pulled yet.` : "Awaiting first sync \u2014 live sync activates at go-live; nothing has been pulled from the provider yet.";
     return { ...f, state: "awaiting_first_sync", detail: stagedDetail };
   });
 }
@@ -33746,6 +36290,10 @@ async function toEldConnection(ctx, row) {
     label: row.label,
     status: row.status,
     tokenMasked: row.tokenLast4 ? `\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022${row.tokenLast4}` : null,
+    accountNote: (() => {
+      const acct = parseGeotabAccount(row.providerAccount);
+      return acct ? `MyGeotab database \u201C${acct.database}\u201D \xB7 user ${acct.username} \xB7 ${acct.server}` : null;
+    })(),
     feeds: row.status === "connected" || row.status === "error" || row.status === "simulated" ? await eldFeedsFor(ctx, row) : [],
     lastError: row.lastError,
     connectedBy: row.connectedBy,
@@ -35779,7 +38327,7 @@ async function retentionFactsFor(ctx, profileId, nowMs) {
   for (const r of det) {
     if (!r.departedAt)
       continue;
-    if (r.arrivedAt.getTime() < nowMs - 90 * DAY_MS7)
+    if (r.arrivedAt.getTime() < nowMs - 90 * DAY_MS9)
       continue;
     if (r.departedAt.getTime() - r.arrivedAt.getTime() > r.graceMinutes * 60000)
       detentionOverruns90++;
@@ -35789,9 +38337,9 @@ async function retentionFactsFor(ctx, profileId, nowMs) {
   let milesPrior30 = 0;
   for (const t of tripRows) {
     const ended = t.endedAt.getTime();
-    if (ended >= nowMs - 30 * DAY_MS7 && ended < nowMs)
+    if (ended >= nowMs - 30 * DAY_MS9 && ended < nowMs)
       milesRecent30 += t.totalMiles;
-    else if (ended >= nowMs - 60 * DAY_MS7 && ended < nowMs - 30 * DAY_MS7)
+    else if (ended >= nowMs - 60 * DAY_MS9 && ended < nowMs - 30 * DAY_MS9)
       milesPrior30 += t.totalMiles;
   }
   return { detentionOverruns90, milesRecent30, milesPrior30 };
@@ -35804,7 +38352,7 @@ async function homeTimePictureFor(ctx, companyId, driverUsername, opts) {
   const active = likes.filter((c) => c.voidedAt == null);
   const next = nextHomeDeadline(active, nowMs);
   const home = await homeProfileFor(ctx, driverUsername);
-  const deadlines = allDeadlines(likes, nowMs - 90 * DAY_MS7, nowMs);
+  const deadlines = allDeadlines(likes, nowMs - 90 * DAY_MS9, nowMs);
   const overrideRows = await homeTimeOverrideRowsFor(ctx, companyId, driverUsername);
   const dutyEvents = await driverDutyEventsFor(ctx, driverUsername);
   const seals = await driverDeliverySealsMs(ctx, driverUsername);
@@ -37369,6 +39917,44 @@ async function resolveLibraryDocument(ctx, ref) {
     });
     return { ok: true, error: null, docKind: "factor_package", title, filename: `factoring-package-${r.number}.pdf`, mime: "application/pdf", bytes };
   }
+  if (kind === "maintenance-sheet") {
+    const id = Number(parts[1]);
+    const rows = await db.select().from(maintenanceLogEntries3).where(eq(maintenanceLogEntries3.id, id)).limit(1);
+    const r = rows[0];
+    if (!r)
+      return docRefused("maintenance sheet");
+    const atts = await db.select().from(maintenanceLogAttachments3).where(eq(maintenanceLogAttachments3.entryId, r.id)).orderBy(asc(maintenanceLogAttachments3.id));
+    const prof = await db.select().from(profile3).where(eq(profile3.id, myProfileId(ctx))).limit(1);
+    const p = prof[0];
+    const doc = buildMaintenanceSheet({
+      id: r.id,
+      kind: maintenanceKindOf(r.kind),
+      category: r.category,
+      performedAtMs: r.performedAt.getTime(),
+      odometer: r.odometer ?? null,
+      description: r.description,
+      shop: r.shop ?? null,
+      cost: r.cost || 0,
+      parts: parseMaintenanceParts(r.partsJson),
+      oilBrand: r.oilBrand ?? null,
+      oilWeight: r.oilWeight ?? null,
+      nextDueMiles: r.nextDueMiles ?? null,
+      nextDueAtMs: r.nextDueAt ? r.nextDueAt.getTime() : null,
+      notes: r.notes ?? null,
+      attachmentLabels: atts.map((a) => a.label)
+    }, {
+      truckYear: p?.truckYear ?? null,
+      truckMake: p?.truckMake ?? null,
+      truckModel: p?.truckModel ?? null,
+      truckUnitNumber: p?.truckUnitNumber ?? null,
+      truckVin: p?.truckVin ?? null,
+      truckPlate: p?.truckPlate ?? null,
+      truckEngine: p?.truckEngine ?? null
+    });
+    const title = `Maintenance sheet #${r.id} - ${doc.subtitle}`;
+    const bytes = libraryPdfBytes({ title: doc.title, subtitle: doc.subtitle, sections: doc.sections });
+    return { ok: true, error: null, docKind: "maintenance_sheet", title, filename: `${doc.filenameStem}.pdf`, mime: "application/pdf", bytes };
+  }
   if (kind === "pl") {
     const pKind = parts[1];
     const year = Number(parts[2]);
@@ -38854,7 +41440,7 @@ async function buildInspectionPacket(ctx, args) {
         }
       } catch {}
     }
-    eldCloudNote = eldDvirs.length > 0 ? `${providerName} is connected (read-only) and is the official record \u2014 its DVIRs are listed separately below, source-labelled.` : `${providerName} is connected (read-only), but no ELD DVIRs have been received yet \u2014 live sync activates at go-live. The DVIRs above are the in-app signed reports; ${providerName} remains the official record.`;
+    eldCloudNote = eldDvirs.length > 0 ? `${providerName} is connected (read-only) and is the official record \u2014 its DVIRs are listed separately below, source-labelled.` : `${providerName} is connected (read-only), but no ELD DVIRs have been received yet \u2014 tap \u201CSync now\u201D on the connection to pull them. The DVIRs above are the in-app signed reports; ${providerName} remains the official record.`;
   }
   let prev = GENESIS_HASH;
   let chainIntact = true;
@@ -42865,7 +45451,7 @@ var Actions = {
           try {
             const p = JSON.parse(stats.payloadJson);
             if (typeof p.odometerMi === "number") {
-              milesSource = `ELD odometer \u2014 ${c.provider === "samsara" ? "Samsara" : "Motive"}`;
+              milesSource = `ELD odometer \u2014 ${ELD_PROVIDER_NAMES[c.provider] ?? c.provider}`;
             }
           } catch {}
         }
@@ -43337,6 +45923,8 @@ var Actions = {
       found: boolean2(),
       docKind: _enum(["rate_con", "bol", "load_sheet", "other"]).nullable(),
       shipper: string2().nullable(),
+      consignee: string2().nullable(),
+      carrier: string2().nullable(),
       brokerCompany: string2().nullable(),
       brokerName: string2().nullable(),
       brokerMc: string2().nullable(),
@@ -43372,6 +45960,8 @@ var Actions = {
           found: false,
           docKind: null,
           shipper: null,
+          consignee: null,
+          carrier: null,
           brokerCompany: null,
           brokerName: null,
           brokerMc: null,
@@ -43448,6 +46038,8 @@ var Actions = {
         found: result.found,
         docKind: result.found ? result.docKind : null,
         shipper: result.shipper,
+        consignee: null,
+        carrier: null,
         brokerCompany: result.brokerCompany,
         brokerName: result.brokerName,
         brokerMc: result.brokerMc,
@@ -43474,6 +46066,123 @@ var Actions = {
         chargesOther: result.chargesOther,
         chargesTotal: result.chargesTotal,
         totalPay: result.totalPay
+      };
+    }
+  }),
+  extractLoadFromText: defineAction({
+    description: "Read a rate confirmation's printed text (from a digital PDF's text layer) into load fields, deterministically.",
+    request: object({
+      text: string2().min(1).max(200000)
+    }),
+    response: object({
+      locked: boolean2(),
+      found: boolean2(),
+      source: literal("pdf_text"),
+      docKind: _enum(["rate_con", "bol", "load_sheet", "other"]).nullable(),
+      shipper: string2().nullable(),
+      consignee: string2().nullable(),
+      carrier: string2().nullable(),
+      brokerCompany: string2().nullable(),
+      brokerName: string2().nullable(),
+      brokerMc: string2().nullable(),
+      pickupCity: string2().nullable(),
+      pickupState: string2().nullable(),
+      pickupAddress: string2().nullable(),
+      deliveryCity: string2().nullable(),
+      deliveryState: string2().nullable(),
+      deliveryAddress: string2().nullable(),
+      pickupText: string2().nullable(),
+      deliveryText: string2().nullable(),
+      rate: number2().nullable(),
+      miles: number2().nullable(),
+      weightLbs: number2().nullable(),
+      commodity: string2().nullable(),
+      pieces: number2().nullable(),
+      sealNumber: string2().nullable(),
+      loadNumber: string2().nullable(),
+      poNumber: string2().nullable(),
+      proNumber: string2().nullable(),
+      chargesFuelSurcharge: number2().nullable(),
+      chargesDetention: number2().nullable(),
+      chargesLumper: number2().nullable(),
+      chargesOther: number2().nullable(),
+      chargesTotal: number2().nullable(),
+      totalPay: number2().nullable()
+    }),
+    async handler(ctx, args) {
+      const plan = await myPlan(ctx);
+      if (!isGoldPlan(plan)) {
+        return {
+          locked: true,
+          found: false,
+          source: "pdf_text",
+          docKind: null,
+          shipper: null,
+          consignee: null,
+          carrier: null,
+          brokerCompany: null,
+          brokerName: null,
+          brokerMc: null,
+          pickupCity: null,
+          pickupState: null,
+          pickupAddress: null,
+          deliveryCity: null,
+          deliveryState: null,
+          deliveryAddress: null,
+          pickupText: null,
+          deliveryText: null,
+          rate: null,
+          miles: null,
+          weightLbs: null,
+          commodity: null,
+          pieces: null,
+          sealNumber: null,
+          loadNumber: null,
+          poNumber: null,
+          proNumber: null,
+          chargesFuelSurcharge: null,
+          chargesDetention: null,
+          chargesLumper: null,
+          chargesOther: null,
+          chargesTotal: null,
+          totalPay: null
+        };
+      }
+      const f = parseRateConText(args.text);
+      return {
+        locked: false,
+        found: f.found,
+        source: "pdf_text",
+        docKind: f.found ? f.docKind : null,
+        shipper: f.shipper,
+        consignee: f.consignee,
+        carrier: f.carrier,
+        brokerCompany: f.brokerCompany,
+        brokerName: f.brokerName,
+        brokerMc: f.brokerMc,
+        pickupCity: f.pickupCity,
+        pickupState: f.pickupState,
+        pickupAddress: f.pickupAddress,
+        deliveryCity: f.deliveryCity,
+        deliveryState: f.deliveryState,
+        deliveryAddress: f.deliveryAddress,
+        pickupText: f.pickupText,
+        deliveryText: f.deliveryText,
+        rate: f.rate,
+        miles: f.miles,
+        weightLbs: f.weightLbs,
+        commodity: f.commodity,
+        pieces: f.pieces,
+        sealNumber: f.sealNumber,
+        loadNumber: f.loadNumber,
+        poNumber: f.poNumber,
+        proNumber: f.proNumber,
+        chargesFuelSurcharge: f.chargesFuelSurcharge,
+        chargesDetention: f.chargesDetention,
+        chargesLumper: f.chargesLumper,
+        chargesOther: f.chargesOther,
+        chargesTotal: f.chargesTotal,
+        totalPay: f.totalPay
       };
     }
   }),
@@ -43755,8 +46464,11 @@ var Actions = {
       let docBlobKey = null;
       let docSha = null;
       if (args.docDataBase64 && args.docMime) {
-        docBlobKey = `permit-doc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         const bytes = base64ToBytes(args.docDataBase64);
+        if (!assessUpload(new Uint8Array(bytes), args.docMime, { mode: "guard" }).ok) {
+          return fail("That file is a program, script, or archive \u2014 not a permit document, so it can't be filed.");
+        }
+        docBlobKey = `permit-doc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         docSha = await sha256Bytes(new Uint8Array(bytes));
         await ctx.blobs.put(docBlobKey, bytes, { contentType: args.docMime });
       }
@@ -43956,6 +46668,12 @@ var Actions = {
       brokerName: string2().max(120).nullable().optional(),
       brokerCompany: string2().max(160).nullable().optional(),
       brokerMc: string2().max(40).nullable().optional(),
+      loadNumber: string2().max(80).nullable().optional(),
+      pickupAddress: string2().max(200).nullable().optional(),
+      deliveryAddress: string2().max(200).nullable().optional(),
+      consignee: string2().max(200).nullable().optional(),
+      carrier: string2().max(200).nullable().optional(),
+      notes: string2().max(8000).nullable().optional(),
       docLoadNumber: string2().max(80).nullable().optional(),
       docPoNumber: string2().max(80).nullable().optional(),
       docProNumber: string2().max(80).nullable().optional(),
@@ -43972,8 +46690,11 @@ var Actions = {
       let docMime = null;
       let docSha = null;
       if (args.docDataBase64 && args.docMime) {
-        docBlobKey = `load-doc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         const bytes = base64ToBytes(args.docDataBase64);
+        if (!assessUpload(new Uint8Array(bytes), args.docMime, { mode: "guard" }).ok) {
+          throw new Error("That file is a program, script, or archive \u2014 not a load document, so it can't be saved.");
+        }
+        docBlobKey = `load-doc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         docSha = await sha256Bytes(new Uint8Array(bytes));
         await ctx.blobs.put(docBlobKey, bytes, {
           contentType: args.docMime
@@ -44001,6 +46722,15 @@ var Actions = {
         extraCharges: args.extraCharges != null ? Math.round(args.extraCharges * 100) / 100 : 0,
         extraChargesNote: args.extraChargesNote?.trim() || null
       };
+      const identityFields = {
+        loadNumber: (args.loadNumber ?? args.docLoadNumber)?.trim() || null,
+        pickupAddress: (args.pickupAddress ?? args.docPickupAddress)?.trim() || null,
+        deliveryAddress: (args.deliveryAddress ?? args.docDeliveryAddress)?.trim() || null,
+        consignee: args.consignee?.trim() || null,
+        carrier: args.carrier?.trim() || null,
+        notes: args.notes?.trim() || null
+      };
+      const identitySent = args.loadNumber !== undefined || args.docLoadNumber !== undefined || args.pickupAddress !== undefined || args.docPickupAddress !== undefined || args.deliveryAddress !== undefined || args.docDeliveryAddress !== undefined || args.consignee !== undefined || args.carrier !== undefined || args.notes !== undefined;
       const fileBookingCopy = async (loadId) => {
         if (!docSha || !docMime || !args.docDataBase64)
           return NO_COPIES;
@@ -44067,6 +46797,14 @@ var Actions = {
           set.brokerCompany = args.brokerCompany?.trim() || null;
         if (args.brokerMc !== undefined)
           set.brokerMc = args.brokerMc?.trim() || null;
+        if (identitySent) {
+          set.loadNumber = identityFields.loadNumber;
+          set.pickupAddress = identityFields.pickupAddress;
+          set.deliveryAddress = identityFields.deliveryAddress;
+          set.consignee = identityFields.consignee;
+          set.carrier = identityFields.carrier;
+          set.notes = identityFields.notes;
+        }
         if (docBlobKey) {
           set.docBlobKey = docBlobKey;
           set.docMime = docMime;
@@ -44078,7 +46816,7 @@ var Actions = {
           refId: args.id,
           sessionId: null,
           event: "load_updated",
-          payload: { ...fields, ...args.loadedMiles !== undefined ? milesFields : {}, ...args.extraCharges !== undefined || args.extraChargesNote !== undefined ? extrasFields : {} }
+          payload: { ...fields, ...args.loadedMiles !== undefined ? milesFields : {}, ...args.extraCharges !== undefined || args.extraChargesNote !== undefined ? extrasFields : {}, ...identitySent ? identityFields : {} }
         });
         if (docSha) {
           await appendChain(ctx, {
@@ -44142,7 +46880,8 @@ var Actions = {
         brokerCompany: args.brokerCompany?.trim() || null,
         brokerMc: args.brokerMc?.trim() || null,
         brokerSource: args.brokerName?.trim() || args.brokerCompany?.trim() ? "manual" : null,
-        brokerLinkId: null
+        brokerLinkId: null,
+        ...identityFields
       }).returning({ id: loads3.id });
       const inserted = result[0];
       if (!inserted)
@@ -44155,7 +46894,7 @@ var Actions = {
         refId: inserted.id,
         sessionId: null,
         event: "load_saved",
-        payload: { ...fields, ...args.loadedMiles !== undefined ? milesFields : {}, ...extrasFields }
+        payload: { ...fields, ...args.loadedMiles !== undefined ? milesFields : {}, ...extrasFields, ...identityFields }
       });
       if (docSha) {
         await appendChain(ctx, {
@@ -44250,6 +46989,16 @@ var Actions = {
       await db.delete(loadDocExceptions3).where(eq(loadDocExceptions3.loadId, args.id));
       await db.delete(loadDocVerifications3).where(eq(loadDocVerifications3.loadId, args.id));
       await db.delete(loadDocExtractions3).where(eq(loadDocExtractions3.loadId, args.id));
+      await db.delete(loadInvoices3).where(eq(loadInvoices3.loadId, args.id));
+      await db.delete(paymentPackets3).where(eq(paymentPackets3.loadId, args.id));
+      await db.delete(receiveLinks3).where(eq(receiveLinks3.loadId, args.id));
+      await db.delete(loadPaperwork3).where(eq(loadPaperwork3.loadId, args.id));
+      await db.delete(autoExceptions3).where(eq(autoExceptions3.loadId, args.id));
+      await db.delete(claimEvents3).where(eq(claimEvents3.loadId, args.id));
+      await db.delete(detentionRecords3).where(eq(detentionRecords3.loadId, args.id));
+      await db.delete(reeferChecks3).where(eq(reeferChecks3.loadId, args.id));
+      await db.delete(scaleTickets3).where(eq(scaleTickets3.loadId, args.id));
+      await db.delete(pretripInspections3).where(eq(pretripInspections3.loadId, args.id));
       await db.delete(loads3).where(eq(loads3.id, args.id));
       await appendChain(ctx, {
         refKind: "load",
@@ -44437,8 +47186,21 @@ var Actions = {
         return refused;
       receiveThrottleOk(args.token);
       let doc = null;
-      if (args.photoDataBase64 && args.photoMime)
-        doc = { base64: args.photoDataBase64, mime: args.photoMime };
+      if (args.photoDataBase64 && args.photoMime) {
+        let photoBytes = null;
+        try {
+          photoBytes = new Uint8Array(base64ToBytes(args.photoDataBase64));
+        } catch {
+          photoBytes = null;
+        }
+        const armor = photoBytes ? assessUpload(photoBytes, args.photoMime, {
+          mode: "strict",
+          allowedMimes: ["image/jpeg", "image/png", "image/webp", "image/gif", "image/heic", "image/heif"]
+        }) : null;
+        if (!armor || !armor.ok)
+          return refused;
+        doc = { base64: args.photoDataBase64, mime: armor.mime };
+      }
       const name = args.receiverName.trim();
       let signature = null;
       if (args.signatureDataBase64) {
@@ -46358,8 +49120,11 @@ Keep it for your records.
       let docMime = null;
       let docSha = null;
       if (args.docDataBase64 && args.docMime) {
-        docBlobKey = `board-doc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         const bytes = base64ToBytes(args.docDataBase64);
+        if (!assessUpload(new Uint8Array(bytes), args.docMime, { mode: "guard" }).ok) {
+          return { ok: false, error: "That file is a program, script, or archive \u2014 not a load document, so it can't be posted.", id: null };
+        }
+        docBlobKey = `board-doc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         docSha = await sha256Bytes(new Uint8Array(bytes));
         await ctx.blobs.put(docBlobKey, bytes, { contentType: args.docMime });
         docMime = args.docMime;
@@ -47722,9 +50487,21 @@ Keep it for your records.
         }
         docBlobKey = `broker-doc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         const bytes = base64ToBytes(args.docDataBase64);
+        const armor = assessUpload(new Uint8Array(bytes), args.docMime, {
+          mode: "strict",
+          allowedMimes: BROKER_DOC_MIMES
+        });
+        if (!armor.ok) {
+          return {
+            ok: false,
+            error: armor.kind === "executable" || armor.kind === "script" || armor.kind === "markup" || armor.kind === "zip" ? "Attach the rate con or BOL as a PDF or a photo (JPG, PNG, WebP, or HEIC) \u2014 that file is a program, script, or archive, not a document." : "Attach the rate con or BOL as a PDF or a photo (JPG, PNG, WebP, or HEIC) \u2014 that file doesn't match the type it claims to be.",
+            submissionId: null,
+            extracted: false
+          };
+        }
         docSha = await sha256Bytes(new Uint8Array(bytes));
-        await ctx.blobs.put(docBlobKey, bytes, { contentType: args.docMime });
-        docMime = args.docMime;
+        await ctx.blobs.put(docBlobKey, bytes, { contentType: armor.mime });
+        docMime = armor.mime;
         if (docMime === "image/jpeg" || docMime === "image/png") {
           const found = await extractBrokerDoc(ctx, args.docDataBase64, docMime);
           if (found) {
@@ -48716,7 +51493,7 @@ Keep it for your records.
       if (!eldConnected) {
         evidence.push("No ELD connection is recorded \u2014 there is no ELD clock set to compare against.");
       } else if (!eld) {
-        evidence.push("An ELD connection is recorded, but no HOS clocks snapshot has been received from it yet \u2014 live sync activates at go-live.");
+        evidence.push("An ELD connection is recorded, but no HOS clocks snapshot has been received from it yet \u2014 tap \u201CSync now\u201D on the connection to pull the first one.");
       }
       if (!appClocks) {
         evidence.push("No app duty log yet \u2014 set a duty state and the planning clocks start from your sealed log.");
@@ -53168,13 +55945,13 @@ ${args.question}`, { schema: answerSchema });
         plan,
         canManage: gate.canManage,
         role: gate.role,
-        syncStaged: true,
+        syncStaged: false,
         providers: [
           {
             key: "samsara",
             name: "Samsara",
             state: "available",
-            blurb: "Cloud ELD + telematics. STONEMILES reads HOS clocks and logs, DVIRs, vehicle stats (odometer + GPS), and IFTA jurisdiction miles.",
+            blurb: "Cloud ELD + telematics. STONEMILES reads HOS clocks and logs, DVIRs, vehicle stats (odometer + GPS), and IFTA jurisdiction miles. Samsara sync is wired live: connect, then tap Sync now.",
             planNote: "Samsara plan check: HOS and DVIR data only flows when your Samsara fleet plan carries the Telematics license. A Safety-only plan returns a limited feed \u2014 after the first sync, the data-availability check below reports exactly which feeds arrived and which the plan blocks.",
             feeds: ELD_FEED_MAP.samsara ?? []
           },
@@ -53182,17 +55959,17 @@ ${args.question}`, { schema: answerSchema });
             key: "motive",
             name: "Motive",
             state: "available",
-            blurb: "Cloud ELD (formerly KeepTruckin). STONEMILES reads HOS clocks and logs, vehicle inspections (DVIRs), vehicle locations + odometer, and IFTA trips and summaries.",
+            blurb: "Cloud ELD (formerly KeepTruckin). STONEMILES reads HOS clocks and logs, vehicle inspections (DVIRs), vehicle locations + odometer, and IFTA trips and summaries. Motive sync is wired live: connect, then tap Sync now.",
             planNote: null,
             feeds: ELD_FEED_MAP.motive ?? []
           },
           {
             key: "geotab",
             name: "Geotab",
-            state: "coming_next",
-            blurb: "On the roadmap after Samsara and Motive. No connection is offered yet \u2014 nothing to tap, nothing faked.",
-            planNote: null,
-            feeds: []
+            state: "available",
+            blurb: "Cloud ELD + telematics (the GO device in the dash port). STONEMILES reads HOS logs \u2014 and computes your clocks from them \u2014 plus DVIRs, vehicle stats (odometer + GPS), and IFTA jurisdiction miles. Geotab sync is wired live: connect, then tap Sync now.",
+            planNote: "Geotab connects differently: there is no API-token page \u2014 a MyGeotab login (database + username + password) is the credential, and your fleet admin controls who gets one with API access. STONEMILES checks the login with Geotab before saving it, stores the password encrypted exactly like a token, and only ever reads.",
+            feeds: ELD_FEED_MAP.geotab ?? []
           }
         ],
         connections,
@@ -53275,8 +56052,14 @@ ${args.question}`, { schema: answerSchema });
   connectEld: defineAction({
     description: "Connect eld.",
     request: object({
-      provider: _enum(["samsara", "motive"]),
-      token: string2().min(8).max(500),
+      provider: _enum(["samsara", "motive", "geotab"]),
+      token: string2().min(8).max(500).optional(),
+      geotab: object({
+        server: string2().max(120).optional(),
+        database: string2().min(1).max(120),
+        username: string2().min(1).max(200),
+        password: string2().min(1).max(500)
+      }).optional(),
       label: string2().min(1).max(60)
     }),
     response: object({
@@ -53292,12 +56075,46 @@ ${args.question}`, { schema: answerSchema });
         return { ok: false, error: `ELD connections are a Diamond feature \u2014 they come with Diamond Driver and Owner plans (Owner drivers get Diamond included). Your recorded plan is ${planLabel(await myPlan(ctx))}; upgrade to Diamond in Plans to connect an ELD.`, connectionId: null, status: null };
       }
       if (!gate.canManage) {
-        return { ok: false, error: "Only the fleet owner / admin can connect an ELD. Ask your owner to paste the API token \u2014 drivers and dispatch can view connection status but never handle tokens.", connectionId: null, status: null };
+        return { ok: false, error: "Only the fleet owner / admin can connect an ELD. Ask your owner to connect it \u2014 drivers and dispatch can view connection status but never handle credentials.", connectionId: null, status: null };
       }
-      const token = args.token.trim();
-      if (containsCardNumber(token)) {
-        await logSecurityEvent(ctx, "eld_token_rejected", "An ELD token field shaped like a card number was rejected before storage");
-        return { ok: false, error: "That looks like a card number, not an API token \u2014 card numbers never go in this app. Paste the API token from your provider dashboard.", connectionId: null, status: null };
+      let secret;
+      let providerAccount = null;
+      let syncStaged = true;
+      if (args.provider === "geotab") {
+        const g = args.geotab;
+        if (!g) {
+          return { ok: false, error: "Geotab connects with a MyGeotab login \u2014 database, username, and password are all required.", connectionId: null, status: null };
+        }
+        const creds = {
+          server: normalizeGeotabServer(g.server),
+          database: g.database.trim(),
+          username: g.username.trim(),
+          password: g.password
+        };
+        if (containsCardNumber(creds.password)) {
+          await logSecurityEvent(ctx, "eld_token_rejected", "A Geotab password field shaped like a card number was rejected before storage");
+          return { ok: false, error: "That looks like a card number, not a password \u2014 card numbers never go in this app. Enter the MyGeotab password.", connectionId: null, status: null };
+        }
+        let session;
+        try {
+          session = await geotabAuthenticate(geotabHttpFetch, creds);
+        } catch (e) {
+          return { ok: false, error: e instanceof Error ? e.message : "Geotab refused the sign-in \u2014 nothing was stored.", connectionId: null, status: null };
+        }
+        secret = creds.password;
+        providerAccount = JSON.stringify({ server: session.server, database: creds.database, username: creds.username });
+        syncStaged = false;
+      } else {
+        const token = (args.token ?? "").trim();
+        if (token.length < 8) {
+          return { ok: false, error: `Paste the ${ELD_PROVIDER_NAMES[args.provider]} API token from the provider dashboard.`, connectionId: null, status: null };
+        }
+        if (containsCardNumber(token)) {
+          await logSecurityEvent(ctx, "eld_token_rejected", "An ELD token field shaped like a card number was rejected before storage");
+          return { ok: false, error: "That looks like a card number, not an API token \u2014 card numbers never go in this app. Paste the API token from your provider dashboard.", connectionId: null, status: null };
+        }
+        secret = token;
+        syncStaged = false;
       }
       const existing = await db.select().from(eldConnections3).where(eq(eldConnections3.provider, args.provider));
       const active = existing.find((c) => c.status === "connected" || c.status === "validating");
@@ -53308,15 +56125,16 @@ ${args.question}`, { schema: answerSchema });
       const feeds = (ELD_FEED_MAP[args.provider] ?? []).map((f) => ({
         feed: f.feed,
         state: "awaiting_first_sync",
-        detail: "Awaiting first sync \u2014 live sync activates at go-live."
+        detail: args.provider === "geotab" ? "Awaiting first sync \u2014 tap \u201CSync now\u201D on this connection to pull from Geotab." : `Awaiting first sync \u2014 tap \u201CSync now\u201D on this connection to pull from ${ELD_PROVIDER_NAMES[args.provider] ?? args.provider}.`
       }));
       const inserted = await db.insert(eldConnections3).values({
         provider: args.provider,
         companyId: mine?.company.id ?? null,
         label: args.label.trim(),
         status: "connected",
-        tokenEnc: await encryptPii(ctx, token),
-        tokenLast4: token.slice(-4),
+        tokenEnc: await encryptPii(ctx, secret),
+        tokenLast4: secret.slice(-4),
+        providerAccount,
         feedsJson: JSON.stringify(feeds),
         lastError: null,
         connectedBy: gate.me
@@ -53332,9 +56150,9 @@ ${args.question}`, { schema: answerSchema });
         payload: {
           provider: args.provider,
           label: args.label.trim(),
-          tokenLast4: token.slice(-4),
+          tokenLast4: secret.slice(-4),
           readOnly: true,
-          syncStaged: true,
+          syncStaged,
           by: gate.me,
           at: new Date().toISOString()
         }
@@ -53395,7 +56213,7 @@ ${args.question}`, { schema: answerSchema });
         return { ok: false, error: "That connection doesn't exist." };
       if (conn.status === "revoked")
         return { ok: false, error: "That connection is already revoked." };
-      await db.update(eldConnections3).set({ status: "revoked", tokenEnc: null, tokenLast4: null, revokedAt: new Date, updatedAt: new Date }).where(eq(eldConnections3.id, conn.id));
+      await db.update(eldConnections3).set({ status: "revoked", tokenEnc: null, tokenLast4: null, providerAccount: null, revokedAt: new Date, updatedAt: new Date }).where(eq(eldConnections3.id, conn.id));
       await appendChain(ctx, {
         refKind: "driver",
         refId: null,
@@ -53495,7 +56313,94 @@ ${args.question}`, { schema: answerSchema });
         accepted: r.accepted,
         rejected: r.rejected,
         lines: r.lines,
-        note: "Test sync complete \u2014 simulated device data flowed through the real sync pipeline and is stored stamped \u201Csimulated\u201D. Live sync starts when a real ELD device is connected; nothing here is live provider data."
+        note: "Test sync complete \u2014 simulated device data flowed through the real sync pipeline and is stored stamped \u201Csimulated\u201D. For real data, use \u201CSync now\u201D on a connected ELD; nothing here is live provider data."
+      };
+    }
+  }),
+  syncEldNow: defineAction({
+    description: "Sync a connected ELD now \u2014 pulls real provider data (Geotab, Samsara, Motive) through the ELD sync pipeline.",
+    request: object({ connectionId: number2().int().positive() }),
+    response: object({
+      ok: boolean2(),
+      error: string2().nullable(),
+      accepted: number2(),
+      rejected: number2(),
+      lines: array(string2()),
+      note: string2().nullable()
+    }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const gate = await eldManageGate(ctx);
+      if (!gate.premium) {
+        return { ok: false, error: "ELD connections are a Diamond feature \u2014 syncing runs on a connection, and connections come with Diamond Driver and Owner plans.", accepted: 0, rejected: 0, lines: [], note: null };
+      }
+      if (!gate.canManage) {
+        return { ok: false, error: "Only the fleet owner / admin can sync an ELD connection \u2014 drivers and dispatch can view connection status.", accepted: 0, rejected: 0, lines: [], note: null };
+      }
+      const rows = await db.select().from(eldConnections3).where(eq(eldConnections3.id, args.connectionId)).limit(1);
+      const conn = rows[0];
+      if (!conn)
+        return { ok: false, error: "That ELD connection doesn't exist.", accepted: 0, rejected: 0, lines: [], note: null };
+      if (conn.status === "revoked") {
+        return { ok: false, error: "That connection was revoked \u2014 its credential is wiped, so there's nothing to sync with. Connect the ELD again first.", accepted: 0, rejected: 0, lines: [], note: null };
+      }
+      const providerName = ELD_PROVIDER_NAMES[conn.provider] ?? conn.provider;
+      if (conn.provider !== "geotab" && conn.provider !== "samsara" && conn.provider !== "motive") {
+        return { ok: false, error: `Live sync for ${providerName} isn't wired \u2014 the connection stands read-only and its feeds keep reporting \u201Cawaiting first sync\u201D.`, accepted: 0, rejected: 0, lines: [], note: null };
+      }
+      const prof = await db.select().from(profile3).where(eq(profile3.id, myProfileId(ctx))).limit(1);
+      const vin = (prof[0]?.truckVin ?? "").trim();
+      if (!vin) {
+        return { ok: false, error: `Your truck profile has no VIN yet \u2014 add it in Settings \u2192 Truck first. The sync matches your ${providerName} device by VIN, so it can never pull another truck's data.`, accepted: 0, rejected: 0, lines: [], note: null };
+      }
+      let fetched;
+      try {
+        if (conn.provider === "geotab") {
+          const account = parseGeotabAccount(conn.providerAccount);
+          if (!account || !conn.tokenEnc) {
+            return { ok: false, error: "This Geotab connection is missing its stored login \u2014 revoke it and connect again.", accepted: 0, rejected: 0, lines: [], note: null };
+          }
+          const password = await decryptPii(ctx, conn.tokenEnc);
+          if (password == null) {
+            return { ok: false, error: "The stored Geotab password couldn't be decrypted \u2014 revoke and reconnect this ELD.", accepted: 0, rejected: 0, lines: [], note: null };
+          }
+          fetched = await fetchGeotabBatch(geotabHttpFetch, { ...account, password }, { vin, now: new Date });
+        } else {
+          if (!conn.tokenEnc) {
+            return { ok: false, error: `This ${providerName} connection is missing its stored token \u2014 revoke it and connect again.`, accepted: 0, rejected: 0, lines: [], note: null };
+          }
+          const token = await decryptPii(ctx, conn.tokenEnc);
+          if (token == null) {
+            return { ok: false, error: `The stored ${providerName} token couldn't be decrypted \u2014 revoke and reconnect this ELD.`, accepted: 0, rejected: 0, lines: [], note: null };
+          }
+          fetched = conn.provider === "samsara" ? await fetchSamsaraBatch(samsaraHttpFetch, token, { vin, now: new Date }) : await fetchMotiveBatch(motiveHttpFetch, token, { vin, now: new Date });
+        }
+      } catch (e) {
+        const message = e instanceof Error ? e.message : `${providerName} didn't answer \u2014 the sync stored nothing.`;
+        await db.update(eldConnections3).set({ lastError: message, updatedAt: new Date }).where(eq(eldConnections3.id, conn.id));
+        ctx.invalidateQueries();
+        return { ok: false, error: message, accepted: 0, rejected: 0, lines: [], note: null };
+      }
+      if (fetched.batch.length === 0) {
+        const message = `${providerName} answered, but none of its feeds carried data for your truck yet \u2014 nothing was stored. Run a trip with the ELD signed in, then sync again.`;
+        await db.update(eldConnections3).set({ lastError: message, updatedAt: new Date }).where(eq(eldConnections3.id, conn.id));
+        ctx.invalidateQueries();
+        return { ok: false, error: message, accepted: 0, rejected: 0, lines: [], note: null };
+      }
+      const r = await applyEldSyncBatch(ctx, conn, fetched.batch, "provider");
+      await db.update(eldConnections3).set({ lastError: null, updatedAt: new Date }).where(eq(eldConnections3.id, conn.id));
+      ctx.invalidateQueries();
+      const lines = [...r.lines];
+      if (fetched.skipped.length > 0) {
+        lines.push(`No data from ${providerName} for: ${fetched.skipped.join(", ")} \u2014 those feeds keep their previous state; nothing was filled in.`);
+      }
+      return {
+        ok: true,
+        error: null,
+        accepted: r.accepted,
+        rejected: r.rejected,
+        lines,
+        note: `Live sync from ${providerName}${fetched.deviceName ? ` (device \u201C${fetched.deviceName}\u201D)` : ""} \u2014 real provider data, stored as received. ${providerName} stays the official record; STONEMILES mirrors it.`
       };
     }
   }),
@@ -53580,7 +56485,7 @@ ${args.question}`, { schema: answerSchema });
         rows,
         appTotal,
         eldTotal,
-        note: !gate.premium ? "IFTA reconciliation against your ELD is a premium feature (Diamond Driver / Owner)." : eldByState == null ? "No ELD IFTA feed has been received yet \u2014 live sync activates at go-live, so there is nothing to reconcile against. Your app miles stand as recorded; when the ELD feed arrives, differences will show here side by side and will never overwrite your sealed records." : "Differences are shown, never silently overwritten \u2014 your sealed app record and the ELD's IFTA feed stay exactly as each system recorded them."
+        note: !gate.premium ? "IFTA reconciliation against your ELD is a premium feature (Diamond Driver / Owner)." : eldByState == null ? "No ELD IFTA feed has been received yet \u2014 tap \u201CSync now\u201D on the connection to pull it; until then there is nothing to reconcile against. Your app miles stand as recorded; when the ELD feed arrives, differences will show here side by side and will never overwrite your sealed records." : "Differences are shown, never silently overwritten \u2014 your sealed app record and the ELD's IFTA feed stay exactly as each system recorded them."
       };
     }
   }),
@@ -53959,8 +56864,11 @@ ${args.question}`, { schema: answerSchema });
         return fail("That file is empty \u2014 nothing was uploaded.");
       if (bytes.length > TRAINING_VIDEO_MAX_BYTES)
         return fail(`That video is ${(bytes.length / 1048576).toFixed(1)} MB \u2014 this web build's limit is 50 MB per video. Trim it or export a smaller file and try again. Nothing was uploaded.`);
+      const armor = assessUpload(new Uint8Array(bytes), args.mime, { mode: "strict", allowedMimes: TRAINING_VIDEO_MIMES });
+      if (!armor.ok)
+        return fail("That file doesn't match the video type it claims to be \u2014 upload the real MP4, WebM, MOV, or M4V file. Nothing was uploaded.");
       const blobKey = `training-media/${mine.company.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      await ctx.blobs.put(blobKey, new Uint8Array(bytes), { contentType: args.mime });
+      await ctx.blobs.put(blobKey, new Uint8Array(bytes), { contentType: armor.mime });
       const inserted = await db.insert(trainingMedia3).values({
         companyId: mine.company.id,
         uploadedBy: me,
@@ -54237,8 +57145,11 @@ ${args.question}`, { schema: answerSchema });
         return { ok: false, error: "That file is empty \u2014 the original video is unchanged." };
       if (bytes.length > TRAINING_VIDEO_MAX_BYTES)
         return { ok: false, error: `That video is ${(bytes.length / 1048576).toFixed(1)} MB \u2014 this web build's limit is 50 MB per video. The original video is unchanged.` };
+      const armor = assessUpload(new Uint8Array(bytes), args.mime, { mode: "strict", allowedMimes: TRAINING_VIDEO_MIMES });
+      if (!armor.ok)
+        return { ok: false, error: "That file doesn't match the video type it claims to be \u2014 the original video is unchanged." };
       const blobKey = `training-media/${mine.company.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      await ctx.blobs.put(blobKey, new Uint8Array(bytes), { contentType: args.mime });
+      await ctx.blobs.put(blobKey, new Uint8Array(bytes), { contentType: armor.mime });
       try {
         await ctx.blobs.delete(media.blobKey);
       } catch {}
@@ -59995,6 +62906,69 @@ ${args.question}`, { schema: answerSchema });
       };
     }
   }),
+  getQuarterlyTax: defineAction({
+    description: "Get quarterly tax.",
+    request: object({
+      year: number2().int().min(1990).max(2100),
+      incomeRatePct: number2().min(0).max(40)
+    }),
+    response: object({
+      year: number2(),
+      incomeRatePct: number2(),
+      availableYears: array(number2()),
+      periods: array(object({
+        period: number2(),
+        monthsLabel: string2(),
+        startIso: string2(),
+        endIso: string2(),
+        dueIso: string2(),
+        dueLabel: string2(),
+        dueState: _enum(["upcoming", "open", "past"]),
+        gross1099: number2(),
+        stubDeductions: number2(),
+        expenses: number2(),
+        fuel: number2(),
+        net: number2(),
+        seTax: number2(),
+        incomeTax: number2(),
+        setAside: number2(),
+        count: number2()
+      })),
+      totals: object({
+        gross1099: number2(),
+        stubDeductions: number2(),
+        expenses: number2(),
+        fuel: number2(),
+        net: number2(),
+        seTax: number2(),
+        incomeTax: number2(),
+        setAside: number2(),
+        count: number2()
+      }),
+      hasData: boolean2(),
+      note: string2()
+    }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const all = await db.select().from(payEntries3);
+      const years = new Set([new Date().getUTCFullYear()]);
+      for (const e of all)
+        if (e.kind === "1099" && !e.isForm)
+          years.add(e.paidAt.getUTCFullYear());
+      const exps = await db.select().from(expenses3);
+      const fuel = await db.select().from(fuelPurchases3);
+      const s = summarizeQuarterlyTax(all.map((e) => ({ paidAtMs: e.paidAt.getTime(), kind: e.kind, isForm: e.isForm, gross: e.gross, otherDeductions: e.otherDeductions })), exps.map((e) => ({ spentAtMs: e.spentAt.getTime(), amount: e.amount })), fuel.map((f) => ({ purchasedAtMs: f.purchasedAt.getTime(), total: f.total })), args.year, args.incomeRatePct, Date.now());
+      return {
+        year: s.year,
+        incomeRatePct: s.incomeRatePct,
+        availableYears: [...years].sort((a, b) => b - a),
+        periods: s.periods,
+        totals: s.totals,
+        hasData: s.hasData,
+        note: "Planning estimate from your own logged records \u2014 not tax advice and not a filing. The IRS collects 1099 tax in four payments a year over its own periods (the second is only Apr\u2013May), due Apr 15, Jun 15, Sep 15, and Jan 15. Each period's net mirrors your 1099 packet: gross \u2212 stub deductions \u2212 logged expenses \u2212 logged fuel, every dollar counted once. Per diem is non-taxable and never in here, and W-2 pay stays out \u2014 its tax is withheld already. Self-employment tax is figured at the full 15.3% on 92.35% of net, before the Social Security wage cap, so the set-aside errs on the safe side; if your year runs past the cap your real bill is lower and your preparer applies it. Income tax rides the rate you pick, and no state tax is guessed. If a due date lands on a weekend or a federal holiday, the IRS moves it to the next business day."
+      };
+    }
+  }),
   getMoneyOverview: defineAction({
     description: "The caller's own year-to-date money overview: gross, deductions by category, net, keep split, real $/mile over sealed loads, weekly trend, and a gated full-year projection.",
     request: object({}),
@@ -60083,6 +63057,116 @@ ${args.question}`, { schema: answerSchema });
         avgWeeklyNet: o.avgWeeklyNet,
         projection: o.projection,
         note: "Your own records only: paychecks from your Pay Book and miles from your sealed loads. Deduction categories are grouped from the labels on your stubs \u2014 anything unlabelled sits in Other, and nothing here is estimated. The projection, when it shows, is your year-to-date weekly pace carried to 52 weeks \u2014 a pace, not a promise."
+      };
+    }
+  }),
+  getPayRpm: defineAction({
+    description: "The caller's revenue per mile over their loads sealed in the last 30 days (load revenue over loaded miles).",
+    request: object({}),
+    response: object({
+      hasData: boolean2(),
+      windowDays: number2(),
+      revenue: number2(),
+      miles: number2(),
+      loadCount: number2(),
+      loadsSkippedNoMiles: number2(),
+      rpm: number2().nullable(),
+      note: string2()
+    }),
+    async handler(ctx) {
+      const db = ctx.db();
+      const loads = await db.select().from(loads3);
+      const pods = await podStatusByLoad(ctx);
+      const likes = [];
+      for (const l of loads) {
+        const pod = pods.get(l.id);
+        if (!pod?.sealed || !pod.sealedAt)
+          continue;
+        likes.push({
+          sealedAtMs: Date.parse(pod.sealedAt),
+          revenue: l.rate == null ? null : l.rate + (l.extraCharges ?? 0),
+          loadedMiles: l.loadedMiles ?? null
+        });
+      }
+      const r = computePayRpm(likes, Date.now(), 30);
+      return {
+        hasData: r.hasData,
+        windowDays: r.windowDays,
+        revenue: r.revenue,
+        miles: r.miles,
+        loadCount: r.loadCount,
+        loadsSkippedNoMiles: r.loadsSkippedNoMiles,
+        rpm: r.rpm,
+        note: "Your own sealed loads only: load revenue (rate + additional charges) divided by loaded miles, for loads sealed in the last 30 days. Deadhead miles aren't counted, and loads with no miles recorded aren't in the figure."
+      };
+    }
+  }),
+  getRateWatch: defineAction({
+    description: "Rate Watch for the Pay door: the week's published spot-market benchmarks plus the Stonervision Rate Index over sealed loads from the last 90 days.",
+    request: object({}),
+    response: object({
+      benchmarks: object({
+        weekLabel: string2(),
+        weekEndingLabel: string2(),
+        source: string2(),
+        totalSpotPerMile: number2(),
+        rows: array(object({
+          equipment: string2(),
+          label: string2(),
+          ratePerMile: number2().nullable(),
+          weeklyChange: string2(),
+          loadsChangePct: number2().nullable(),
+          vsLastYearPct: number2(),
+          note: string2().nullable()
+        }))
+      }),
+      index: object({
+        windowDays: number2(),
+        minLoads: number2(),
+        sealedLoadCount: number2(),
+        countedLoadCount: number2(),
+        hasIndex: boolean2(),
+        overall: object({ equipment: string2(), label: string2(), loadCount: number2(), rpm: number2() }).nullable(),
+        byEquipment: array(object({ equipment: string2(), label: string2(), loadCount: number2(), rpm: number2() }))
+      }),
+      note: string2()
+    }),
+    async handler(ctx) {
+      const db = ctx.db();
+      const loads = await db.select().from(loads3);
+      const pods = await podStatusByLoad(ctx);
+      const likes = [];
+      for (const l of loads) {
+        const pod = pods.get(l.id);
+        if (!pod?.sealed || !pod.sealedAt)
+          continue;
+        likes.push({
+          sealedAtMs: Date.parse(pod.sealedAt),
+          revenue: l.rate == null ? null : l.rate + (l.extraCharges ?? 0),
+          loadedMiles: l.loadedMiles ?? null,
+          equipmentType: l.equipmentType ?? null
+        });
+      }
+      const index = computeRateIndex(likes, Date.now(), 90);
+      const b = RATE_WATCH_BENCHMARKS;
+      return {
+        benchmarks: {
+          weekLabel: b.weekLabel,
+          weekEndingLabel: b.weekEndingLabel,
+          source: b.source,
+          totalSpotPerMile: b.totalSpotPerMile,
+          rows: b.rows.map((r) => ({ ...r }))
+        },
+        index: {
+          windowDays: index.windowDays,
+          minLoads: index.minLoads,
+          sealedLoadCount: index.sealedLoadCount,
+          countedLoadCount: index.countedLoadCount,
+          hasIndex: index.hasIndex,
+          overall: index.overall,
+          byEquipment: index.byEquipment
+        },
+        note: "Market: the week's published broker-posted spot averages (Truckstop.com / FTR, fuel included) \u2014 market direction, not a quote for any load. Stonervision Rate Index: sealed loads on STONEMILES over the last 90 days, load revenue (rate + additional charges) over loaded miles, deadhead not counted; a rate shows only once at least 5 sealed loads stand behind it, and no single load's rate, customer, or lane is ever shown."
       };
     }
   }),
@@ -63050,7 +66134,7 @@ ${args.question}`, { schema: answerSchema });
         });
       }
       drivers.sort((a, b) => a.username.localeCompare(b.username));
-      const since = new Date(Date.now() - 28 * DAY_MS7);
+      const since = new Date(Date.now() - 28 * DAY_MS9);
       const pulseRows = await db.select({ driverUsername: pulseResponses3.driverUsername, answersJson: pulseResponses3.answersJson }).from(pulseResponses3).where(and(eq(pulseResponses3.companyId, mine.company.id), eq(pulseResponses3.status, "answered"), gte(pulseResponses3.createdAt, since)));
       const parsed = [];
       for (const r of pulseRows) {
@@ -63207,7 +66291,8 @@ ${args.question}`, { schema: answerSchema });
     description: "The driver's own calendar: every bound load (whatever door it came through), off-duty blocks + requests, home-time commitment deadlines, credential expiries with their 60/30/7 renewal warnings, and paydays from the fleet's stated cycle. Plus the next move and everything waiting on the driver's answer.",
     request: object({
       fromIso: string2().min(10).max(40),
-      toIso: string2().min(10).max(40)
+      toIso: string2().min(10).max(40),
+      utcOffsetMinutes: number2().int().min(-840).max(840).optional()
     }),
     response: object({
       ok: boolean2(),
@@ -63239,6 +66324,8 @@ ${args.question}`, { schema: answerSchema });
         state: string2().nullable(),
         credentialKey: string2().nullable(),
         requestId: number2().nullable(),
+        eventId: number2().nullable(),
+        eventType: string2().nullable(),
         locked: boolean2()
       })),
       boundLoads: array(object({
@@ -63371,6 +66458,8 @@ ${args.question}`, { schema: answerSchema });
             state: row.status === "assigned" ? "offered" : locked ? "locked" : "committed",
             credentialKey: null,
             requestId: null,
+            eventId: null,
+            eventType: null,
             locked
           });
         }
@@ -63379,27 +66468,66 @@ ${args.question}`, { schema: answerSchema });
       for (const load of ownLoads) {
         if (load.id != null && boardLoadIds.has(load.id))
           continue;
+        const lane = `${load.pickupCity ?? "?"} \u2192 ${load.deliveryCity ?? "?"}`;
+        const detail = load.referenceNumber ? `Ref ${load.referenceNumber}` : null;
+        const status = load.status ?? "booked";
+        const pickupMs = parseLoadApptText(load.pickupText, args.utcOffsetMinutes ?? 0);
+        const deliveryMs = load.dockApptAt ? load.dockApptAt.getTime() : parseLoadApptText(load.deliveryText, args.utcOffsetMinutes ?? 0);
+        if (pickupMs != null || deliveryMs != null) {
+          const stops = [];
+          if (pickupMs != null)
+            stops.push({ atMs: pickupMs, title: `Pickup \u2014 ${lane}` });
+          if (deliveryMs != null)
+            stops.push({ atMs: deliveryMs, title: `Delivery \u2014 ${lane}` });
+          for (const s of stops) {
+            if (!inWindow(s.atMs))
+              continue;
+            events.push({
+              kind: "load",
+              at: new Date(s.atMs).toISOString(),
+              endAt: null,
+              title: s.title,
+              detail,
+              boardLoadId: null,
+              loadId: load.id,
+              state: status,
+              credentialKey: null,
+              requestId: null,
+              eventId: null,
+              eventType: null,
+              locked: false
+            });
+          }
+          const nextMs = pickupMs ?? deliveryMs;
+          if (status === "booked" && nextMs != null && nextMs >= now - 12 * 3600000) {
+            if (!nextMove || nextMs < Date.parse(nextMove.at)) {
+              nextMove = { boardLoadId: null, loadId: load.id, lane, at: new Date(nextMs).toISOString(), state: "committed" };
+            }
+          }
+          continue;
+        }
         const anchor = load.dockApptAt ?? load.createdAt;
         if (!anchor)
           continue;
         const anchorMs = anchor.getTime();
         if (!inWindow(anchorMs))
           continue;
-        const lane = `${load.pickupCity ?? "?"} \u2192 ${load.deliveryCity ?? "?"}`;
         events.push({
           kind: "load",
           at: new Date(anchorMs).toISOString(),
           endAt: null,
           title: lane,
-          detail: load.referenceNumber ? `Ref ${load.referenceNumber}` : null,
+          detail,
           boardLoadId: null,
           loadId: load.id,
-          state: load.status ?? "booked",
+          state: status,
           credentialKey: null,
           requestId: null,
+          eventId: null,
+          eventType: null,
           locked: false
         });
-        if ((load.status ?? "booked") === "booked" && anchorMs >= now - 12 * 3600000) {
+        if (status === "booked" && anchorMs >= now - 12 * 3600000) {
           if (!nextMove || anchorMs < Date.parse(nextMove.at)) {
             nextMove = { boardLoadId: null, loadId: load.id, lane, at: new Date(anchorMs).toISOString(), state: "committed" };
           }
@@ -63424,6 +66552,8 @@ ${args.question}`, { schema: answerSchema });
           state: r.status,
           credentialKey: null,
           requestId: r.id,
+          eventId: null,
+          eventType: null,
           locked: false
         });
       }
@@ -63442,6 +66572,8 @@ ${args.question}`, { schema: answerSchema });
             state: null,
             credentialKey: null,
             requestId: null,
+            eventId: null,
+            eventType: null,
             locked: false
           });
         }
@@ -63459,6 +66591,8 @@ ${args.question}`, { schema: answerSchema });
           state: m.kind,
           credentialKey: m.credentialKey,
           requestId: null,
+          eventId: null,
+          eventType: null,
           locked: false
         });
       }
@@ -63483,6 +66617,8 @@ ${args.question}`, { schema: answerSchema });
             state,
             credentialKey: null,
             requestId: null,
+            eventId: null,
+            eventType: null,
             locked: false
           });
         }
@@ -63499,6 +66635,28 @@ ${args.question}`, { schema: answerSchema });
           proposedBy: p.proposedBy,
           reason: p.reason ?? null,
           createdAt: p.createdAt.toISOString()
+        });
+      }
+      const myEventRows = await db.select().from(calendarEvents3).where(eq(calendarEvents3.profileId, myProfileId(ctx))).orderBy(desc(calendarEvents3.id));
+      for (const ev of myEventRows) {
+        const s = ev.startsAt.getTime();
+        const e = ev.endsAt.getTime();
+        if (!(s < toMs && e > fromMs))
+          continue;
+        events.push({
+          kind: "user_event",
+          at: ev.startsAt.toISOString(),
+          endAt: ev.endsAt.toISOString(),
+          title: ev.title,
+          detail: ev.note ?? null,
+          boardLoadId: null,
+          loadId: null,
+          state: null,
+          credentialKey: null,
+          requestId: null,
+          eventId: ev.id,
+          eventType: ev.type,
+          locked: false
         });
       }
       events.sort((a, b) => a.at.localeCompare(b.at));
@@ -63531,6 +66689,84 @@ ${args.question}`, { schema: answerSchema });
           decisionNote: r.decisionNote ?? null
         }))
       };
+    }
+  }),
+  saveCalendarEvent: defineAction({
+    description: "Add or edit one of the driver's OWN calendar events \u2014 home time, an appointment, a personal block, a maintenance window (migration 0145). No desk, no approval: the driver's calendar is his to write. The client sends the device's wall-clock times as ISO instants, so the event lands at the time he entered. Sealed.",
+    request: object({
+      id: number2().int().positive().nullable(),
+      title: string2().max(200),
+      type: _enum(["home_time", "appointment", "personal", "maintenance", "other"]),
+      startsAtIso: string2().min(10).max(40),
+      endsAtIso: string2().min(10).max(40),
+      note: string2().max(500).nullable().default(null)
+    }),
+    response: object({ ok: boolean2(), error: string2().nullable(), id: number2().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const title = args.title.trim();
+      if (!title)
+        return { ok: false, error: "Give the event a title \u2014 what is it?", id: null };
+      const startsAtMs = Date.parse(args.startsAtIso);
+      const endsAtMs = Date.parse(args.endsAtIso);
+      if (!Number.isFinite(startsAtMs) || !Number.isFinite(endsAtMs)) {
+        return { ok: false, error: "Those times don't parse \u2014 pick a start and an end.", id: null };
+      }
+      if (endsAtMs <= startsAtMs) {
+        return { ok: false, error: "The end has to be after the start \u2014 check the two times.", id: null };
+      }
+      if (endsAtMs - startsAtMs > 366 * 86400000) {
+        return { ok: false, error: "That block runs over a year \u2014 split it into shorter events.", id: null };
+      }
+      const note = (args.note ?? "").trim().slice(0, 500) || null;
+      const now = new Date;
+      if (args.id != null) {
+        const rows = await db.select().from(calendarEvents3).where(and(eq(calendarEvents3.id, args.id), eq(calendarEvents3.profileId, myProfileId(ctx)))).limit(1);
+        if (!rows[0])
+          return { ok: false, error: "That event isn't on your calendar.", id: null };
+        await db.update(calendarEvents3).set({ title, type: args.type, startsAt: new Date(startsAtMs), endsAt: new Date(endsAtMs), note, updatedAt: now }).where(eq(calendarEvents3.id, args.id));
+        await appendChain(ctx, {
+          refKind: "driver",
+          refId: myProfileId(ctx),
+          sessionId: null,
+          event: "calendar_event_updated",
+          payload: { eventId: args.id, type: args.type, startsAt: new Date(startsAtMs).toISOString(), endsAt: new Date(endsAtMs).toISOString(), at: now.toISOString() }
+        });
+        ctx.invalidateQueries();
+        return { ok: true, error: null, id: args.id };
+      }
+      const ins = await db.insert(calendarEvents3).values({ title, type: args.type, startsAt: new Date(startsAtMs), endsAt: new Date(endsAtMs), note }).returning({ id: calendarEvents3.id });
+      const id = ins[0]?.id ?? null;
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: myProfileId(ctx),
+        sessionId: null,
+        event: "calendar_event_added",
+        payload: { eventId: id, type: args.type, startsAt: new Date(startsAtMs).toISOString(), endsAt: new Date(endsAtMs).toISOString(), at: now.toISOString() }
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null, id };
+    }
+  }),
+  deleteCalendarEvent: defineAction({
+    description: "Delete one of the driver's OWN calendar events (migration 0145). Only his own rows \u2014 load appointments and every other derived calendar entry stay owned by their source and can't be deleted from here. Sealed.",
+    request: object({ id: number2().int().positive() }),
+    response: object({ ok: boolean2(), error: string2().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      const rows = await db.select().from(calendarEvents3).where(and(eq(calendarEvents3.id, args.id), eq(calendarEvents3.profileId, myProfileId(ctx)))).limit(1);
+      if (!rows[0])
+        return { ok: false, error: "That event isn't on your calendar." };
+      await db.delete(calendarEvents3).where(eq(calendarEvents3.id, args.id));
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: myProfileId(ctx),
+        sessionId: null,
+        event: "calendar_event_deleted",
+        payload: { eventId: args.id, type: rows[0].type, at: new Date().toISOString() }
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
     }
   }),
   getFleetCalendar: defineAction({
@@ -66955,9 +70191,13 @@ ${args.question}`, { schema: answerSchema });
           performedAt: r.performedAt.toISOString(),
           odometer: r.odometer ?? null,
           category: r.category,
+          kind: maintenanceKindOf(r.kind),
           description: r.description,
           shop: r.shop ?? null,
           cost: r.cost || 0,
+          parts: parseMaintenanceParts(r.partsJson),
+          oilBrand: r.oilBrand ?? null,
+          oilWeight: r.oilWeight ?? null,
           nextDueMiles: r.nextDueMiles ?? null,
           nextDueAt: r.nextDueAt ? r.nextDueAt.toISOString() : null,
           notes: r.notes ?? null,
@@ -66992,9 +70232,13 @@ ${args.question}`, { schema: answerSchema });
       performedAt: string2().min(1).max(40),
       odometer: number2().nonnegative().max(1e7).nullable(),
       category: maintenanceLogCategory,
+      kind: _enum(["service", "repair"]).optional(),
       description: string2().min(1).max(300),
       shop: string2().max(160).nullable(),
       cost: number2().nonnegative().max(1e6),
+      parts: array(object({ name: string2().min(1).max(120), partNumber: string2().max(80).nullable().optional() })).max(24).optional(),
+      oilBrand: string2().max(80).nullable().optional(),
+      oilWeight: string2().max(40).nullable().optional(),
       nextDueMiles: number2().nonnegative().max(1e7).nullable(),
       nextDueAt: string2().max(40).nullable(),
       notes: string2().max(500).nullable()
@@ -67007,9 +70251,13 @@ ${args.question}`, { schema: answerSchema });
         performedAt,
         odometer: args.odometer,
         category: args.category,
+        kind: maintenanceKindOf(args.kind),
         description: args.description.trim(),
         shop: args.shop?.trim() || null,
         cost: Math.round(args.cost * 100) / 100,
+        partsJson: cleanMaintenancePartsJson(args.parts),
+        oilBrand: args.oilBrand?.trim() || null,
+        oilWeight: args.oilWeight?.trim() || null,
         nextDueMiles: args.nextDueMiles,
         nextDueAt: args.nextDueAt && Number.isFinite(Date.parse(args.nextDueAt)) ? new Date(args.nextDueAt) : null,
         notes: args.notes?.trim() || null,
@@ -67021,7 +70269,8 @@ ${args.question}`, { schema: answerSchema });
         if (!existing[0])
           throw new Error("saveMaintenanceLogEntry: no such entry");
         const status = existing[0].status === "draft" ? "logged" : existing[0].status;
-        await db.update(maintenanceLogEntries3).set({ ...values, status }).where(eq(maintenanceLogEntries3.id, args.id));
+        const kind = args.kind !== undefined ? values.kind : maintenanceKindOf(existing[0].kind);
+        await db.update(maintenanceLogEntries3).set({ ...values, kind, status }).where(eq(maintenanceLogEntries3.id, args.id));
       } else {
         const ins = await db.insert(maintenanceLogEntries3).values(values).returning({ id: maintenanceLogEntries3.id });
         const row = ins[0];
@@ -67034,8 +70283,11 @@ ${args.question}`, { schema: answerSchema });
         refId: null,
         sessionId: null,
         event: "maintenance_log_entry_saved",
-        payload: { entryId: id, category: args.category, cost: values.cost, performedAt: performedAt.toISOString(), edited: args.id != null }
+        payload: { entryId: id, category: args.category, kind: values.kind, cost: values.cost, performedAt: performedAt.toISOString(), edited: args.id != null }
       });
+      const saved = await db.select().from(maintenanceLogEntries3).where(eq(maintenanceLogEntries3.id, id)).limit(1);
+      if (saved[0])
+        await publishMaintenanceFleetCopy(ctx, saved[0]);
       ctx.invalidateQueries();
       return { id };
     }
@@ -67059,6 +70311,7 @@ ${args.question}`, { schema: answerSchema });
         }
         await db.delete(maintenanceLogAttachments3).where(eq(maintenanceLogAttachments3.entryId, args.id));
         await db.delete(maintenanceLogEntries3).where(eq(maintenanceLogEntries3.id, args.id));
+        await removeMaintenanceFleetCopies(ctx, args.id);
         await appendChain(ctx, {
           refKind: "driver",
           refId: null,
@@ -67199,6 +70452,120 @@ ${args.question}`, { schema: answerSchema });
         return { url: null, mime: null };
       const url = await ctx.blobs.getUrl(row.blobKey);
       return { url, mime: row.mime };
+    }
+  }),
+  exportMaintenanceSheet: defineAction({
+    description: "Export ONE maintenance log entry as the Maintenance Sheet in plain text \u2014 the same sheet the Library renders as a PDF (ref maintenance-sheet:{id}), for a quick download or paste.",
+    request: object({ id: number2().int().positive() }),
+    response: object({ text: string2(), filename: string2() }),
+    async handler(ctx, args) {
+      const db = ctx.db();
+      if (await isAccountLocked(ctx, await myUsername(ctx))) {
+        return { text: "EXPORT BLOCKED \u2014 this account is locked (lost-phone kill switch). Unlock it from the Security Center to export again.", filename: "stonemiles-maintenance-sheet-blocked.txt" };
+      }
+      const rows = await db.select().from(maintenanceLogEntries3).where(eq(maintenanceLogEntries3.id, args.id)).limit(1);
+      const r = rows[0];
+      if (!r)
+        return { text: "No such maintenance log entry.", filename: "stonemiles-maintenance-sheet.txt" };
+      const atts = await db.select().from(maintenanceLogAttachments3).where(eq(maintenanceLogAttachments3.entryId, r.id)).orderBy(asc(maintenanceLogAttachments3.id));
+      const prof = await db.select().from(profile3).where(eq(profile3.id, myProfileId(ctx))).limit(1);
+      const p = prof[0];
+      const doc = buildMaintenanceSheet({
+        id: r.id,
+        kind: maintenanceKindOf(r.kind),
+        category: r.category,
+        performedAtMs: r.performedAt.getTime(),
+        odometer: r.odometer ?? null,
+        description: r.description,
+        shop: r.shop ?? null,
+        cost: r.cost || 0,
+        parts: parseMaintenanceParts(r.partsJson),
+        oilBrand: r.oilBrand ?? null,
+        oilWeight: r.oilWeight ?? null,
+        nextDueMiles: r.nextDueMiles ?? null,
+        nextDueAtMs: r.nextDueAt ? r.nextDueAt.getTime() : null,
+        notes: r.notes ?? null,
+        attachmentLabels: atts.map((a) => a.label)
+      }, {
+        truckYear: p?.truckYear ?? null,
+        truckMake: p?.truckMake ?? null,
+        truckModel: p?.truckModel ?? null,
+        truckUnitNumber: p?.truckUnitNumber ?? null,
+        truckVin: p?.truckVin ?? null,
+        truckPlate: p?.truckPlate ?? null,
+        truckEngine: p?.truckEngine ?? null
+      });
+      return { text: doc.textLines.join(`
+`), filename: `${doc.filenameStem}.txt` };
+    }
+  }),
+  listFleetMaintenance: defineAction({
+    description: "Fleet maintenance view: the maintenance records a company's drivers published for their trucks (share-up copies), newest first, with the truck list to filter by. Owner + dispatch seats only \u2014 a driver seat (or no company) gets isFleetViewer false and no records.",
+    request: object({}),
+    response: object({
+      isFleetViewer: boolean2(),
+      companyName: string2().nullable(),
+      trucks: array(object({ key: string2(), driverUsername: string2(), unit: string2().nullable(), label: string2().nullable() })),
+      records: array(object({
+        id: number2(),
+        entryId: number2(),
+        driverUsername: string2(),
+        truckUnit: string2().nullable(),
+        truckLabel: string2().nullable(),
+        kind: string2(),
+        category: string2(),
+        performedAt: string2(),
+        odometer: number2().nullable(),
+        description: string2(),
+        shop: string2().nullable(),
+        cost: number2(),
+        parts: array(object({ name: string2(), partNumber: string2().nullable() })),
+        oilBrand: string2().nullable(),
+        oilWeight: string2().nullable(),
+        nextDueMiles: number2().nullable(),
+        nextDueAt: string2().nullable()
+      }))
+    }),
+    async handler(ctx) {
+      const db = ctx.db();
+      const empty = { isFleetViewer: false, companyName: null, trucks: [], records: [] };
+      const me = await myUsername(ctx);
+      const memberships = await db.select().from(companyMembers3).where(eq(companyMembers3.username, me));
+      const viewer = memberships.find((m) => m.role === "owner" || m.role === "dispatch");
+      if (!viewer)
+        return empty;
+      const companyRows = await db.select().from(companies3).where(eq(companies3.id, viewer.companyId)).limit(1);
+      const rows = await db.select().from(maintenanceFleetRecords3).where(eq(maintenanceFleetRecords3.companyId, viewer.companyId)).orderBy(desc(maintenanceFleetRecords3.performedAt), desc(maintenanceFleetRecords3.id));
+      const truckByKey = new Map;
+      for (const r of rows) {
+        const key = `${r.username}::${r.truckUnit ?? ""}`;
+        if (!truckByKey.has(key))
+          truckByKey.set(key, { key, driverUsername: r.username, unit: r.truckUnit ?? null, label: r.truckLabel ?? null });
+      }
+      return {
+        isFleetViewer: true,
+        companyName: companyRows[0]?.name ?? null,
+        trucks: [...truckByKey.values()],
+        records: rows.map((r) => ({
+          id: r.id,
+          entryId: r.entryId,
+          driverUsername: r.username,
+          truckUnit: r.truckUnit ?? null,
+          truckLabel: r.truckLabel ?? null,
+          kind: maintenanceKindOf(r.kind),
+          category: r.category,
+          performedAt: r.performedAt.toISOString(),
+          odometer: r.odometer ?? null,
+          description: r.description,
+          shop: r.shop ?? null,
+          cost: r.cost || 0,
+          parts: parseMaintenanceParts(r.partsJson),
+          oilBrand: r.oilBrand ?? null,
+          oilWeight: r.oilWeight ?? null,
+          nextDueMiles: r.nextDueMiles ?? null,
+          nextDueAt: r.nextDueAt ? r.nextDueAt.toISOString() : null
+        }))
+      };
     }
   }),
   startDetention: defineAction({

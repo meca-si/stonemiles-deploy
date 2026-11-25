@@ -28813,7 +28813,10 @@ export const Actions = {
       deliveryAddress: z.string().max(200).nullable().optional(),
       consignee: z.string().max(200).nullable().optional(),
       carrier: z.string().max(200).nullable().optional(),
-      notes: z.string().max(2000).nullable().optional(),
+      // Broker terms run long — a full rate con's terms pasted in
+      // blew the old 2,000 cap and bounced the whole save
+      // (2026-11-24). 8,000 holds a real terms block.
+      notes: z.string().max(8000).nullable().optional(),
       // Document details with no column on the load itself (scan
       // auto-fill, 2026-10-30): the reference numbers, street
       // addresses, and piece count Meca read off the attached rate
@@ -53481,7 +53484,7 @@ export const Actions = {
         .nullable(),
       events: z.array(
         z.object({
-          kind: z.string(), // load | off_duty | off_duty_pending | commitment | credential_expiry | credential_warning | payday
+          kind: z.string(), // load | off_duty | off_duty_pending | commitment | credential_expiry | credential_warning | payday | user_event
           at: z.string(),
           endAt: z.string().nullable(),
           title: z.string(),
@@ -53491,6 +53494,12 @@ export const Actions = {
           state: z.string().nullable(), // offered | committed | locked | expected | paid | load status
           credentialKey: z.string().nullable(),
           requestId: z.number().nullable(),
+          // The driver's own calendar events (kind "user_event"):
+          // their row id + type, so the panel can offer edit/delete.
+          // Null on every derived event — those stay owned by their
+          // source (load, request, credential, pay cycle).
+          eventId: z.number().nullable(),
+          eventType: z.string().nullable(),
           locked: z.boolean(),
         }),
       ),
@@ -53581,6 +53590,8 @@ export const Actions = {
         state: string | null;
         credentialKey: string | null;
         requestId: number | null;
+        eventId: number | null;
+        eventType: string | null;
         locked: boolean;
       };
       const events: CalEvent[] = [];
@@ -53667,6 +53678,8 @@ export const Actions = {
             state: row.status === "assigned" ? "offered" : locked ? "locked" : "committed",
             credentialKey: null,
             requestId: null,
+            eventId: null,
+            eventType: null,
             locked,
           });
         }
@@ -53708,6 +53721,8 @@ export const Actions = {
               state: status,
               credentialKey: null,
               requestId: null,
+              eventId: null,
+              eventType: null,
               locked: false,
             });
           }
@@ -53734,6 +53749,8 @@ export const Actions = {
           state: status,
           credentialKey: null,
           requestId: null,
+          eventId: null,
+          eventType: null,
           locked: false,
         });
         if (status === "booked" && anchorMs >= now - 12 * 3_600_000) {
@@ -53766,6 +53783,8 @@ export const Actions = {
           state: r.status,
           credentialKey: null,
           requestId: r.id,
+          eventId: null,
+          eventType: null,
           locked: false,
         });
       }
@@ -53786,6 +53805,8 @@ export const Actions = {
             state: null,
             credentialKey: null,
             requestId: null,
+            eventId: null,
+            eventType: null,
             locked: false,
           });
         }
@@ -53809,6 +53830,8 @@ export const Actions = {
           state: m.kind,
           credentialKey: m.credentialKey,
           requestId: null,
+          eventId: null,
+          eventType: null,
           locked: false,
         });
       }
@@ -53843,6 +53866,8 @@ export const Actions = {
             state,
             credentialKey: null,
             requestId: null,
+            eventId: null,
+            eventType: null,
             locked: false,
           });
         }
@@ -53876,6 +53901,40 @@ export const Actions = {
         });
       }
 
+      // The driver's OWN calendar events (migration 0145): the
+      // free-form entries he adds, edits, and deletes himself —
+      // home time, appointments, maintenance. They carry their row
+      // id + type so the panel can offer edit/delete on exactly
+      // these; every derived event above keeps eventId null and
+      // stays owned by its source. The rows are profile-scoped by
+      // the host; the explicit profile filter keeps that true even
+      // where the scoped wrapper is bypassed.
+      const myEventRows = await db
+        .select()
+        .from(schema.calendarEvents)
+        .where(eq(schema.calendarEvents.profileId, myProfileId(ctx)))
+        .orderBy(desc(schema.calendarEvents.id));
+      for (const ev of myEventRows) {
+        const s = ev.startsAt.getTime();
+        const e = ev.endsAt.getTime();
+        if (!(s < toMs && e > fromMs)) continue;
+        events.push({
+          kind: "user_event",
+          at: ev.startsAt.toISOString(),
+          endAt: ev.endsAt.toISOString(),
+          title: ev.title,
+          detail: ev.note ?? null,
+          boardLoadId: null,
+          loadId: null,
+          state: null,
+          credentialKey: null,
+          requestId: null,
+          eventId: ev.id,
+          eventType: ev.type,
+          locked: false,
+        });
+      }
+
       events.sort((a, b) => a.at.localeCompare(b.at));
       return {
         ok: true,
@@ -53906,6 +53965,97 @@ export const Actions = {
           decisionNote: r.decisionNote ?? null,
         })),
       };
+    },
+  }),
+
+  saveCalendarEvent: defineAction({
+    description: "Add or edit one of the driver's OWN calendar events — home time, an appointment, a personal block, a maintenance window (migration 0145). No desk, no approval: the driver's calendar is his to write. The client sends the device's wall-clock times as ISO instants, so the event lands at the time he entered. Sealed.",
+    request: z.object({
+      id: z.number().int().positive().nullable(),
+      title: z.string().max(200),
+      type: z.enum(["home_time", "appointment", "personal", "maintenance", "other"]),
+      startsAtIso: z.string().min(10).max(40),
+      endsAtIso: z.string().min(10).max(40),
+      note: z.string().max(500).nullable().default(null),
+    }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable(), id: z.number().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const title = args.title.trim();
+      if (!title) return { ok: false, error: "Give the event a title — what is it?", id: null };
+      const startsAtMs = Date.parse(args.startsAtIso);
+      const endsAtMs = Date.parse(args.endsAtIso);
+      if (!Number.isFinite(startsAtMs) || !Number.isFinite(endsAtMs)) {
+        return { ok: false, error: "Those times don't parse — pick a start and an end.", id: null };
+      }
+      if (endsAtMs <= startsAtMs) {
+        return { ok: false, error: "The end has to be after the start — check the two times.", id: null };
+      }
+      if (endsAtMs - startsAtMs > 366 * 86_400_000) {
+        return { ok: false, error: "That block runs over a year — split it into shorter events.", id: null };
+      }
+      const note = (args.note ?? "").trim().slice(0, 500) || null;
+      const now = new Date();
+      if (args.id != null) {
+        const rows = await db
+          .select()
+          .from(schema.calendarEvents)
+          .where(and(eq(schema.calendarEvents.id, args.id), eq(schema.calendarEvents.profileId, myProfileId(ctx))))
+          .limit(1);
+        if (!rows[0]) return { ok: false, error: "That event isn't on your calendar.", id: null };
+        await db
+          .update(schema.calendarEvents)
+          .set({ title, type: args.type, startsAt: new Date(startsAtMs), endsAt: new Date(endsAtMs), note, updatedAt: now })
+          .where(eq(schema.calendarEvents.id, args.id));
+        await appendChain(ctx, {
+          refKind: "driver",
+          refId: myProfileId(ctx),
+          sessionId: null,
+          event: "calendar_event_updated",
+          payload: { eventId: args.id, type: args.type, startsAt: new Date(startsAtMs).toISOString(), endsAt: new Date(endsAtMs).toISOString(), at: now.toISOString() },
+        });
+        ctx.invalidateQueries();
+        return { ok: true, error: null, id: args.id };
+      }
+      const ins = await db
+        .insert(schema.calendarEvents)
+        .values({ title, type: args.type, startsAt: new Date(startsAtMs), endsAt: new Date(endsAtMs), note })
+        .returning({ id: schema.calendarEvents.id });
+      const id = ins[0]?.id ?? null;
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: myProfileId(ctx),
+        sessionId: null,
+        event: "calendar_event_added",
+        payload: { eventId: id, type: args.type, startsAt: new Date(startsAtMs).toISOString(), endsAt: new Date(endsAtMs).toISOString(), at: now.toISOString() },
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null, id };
+    },
+  }),
+
+  deleteCalendarEvent: defineAction({
+    description: "Delete one of the driver's OWN calendar events (migration 0145). Only his own rows — load appointments and every other derived calendar entry stay owned by their source and can't be deleted from here. Sealed.",
+    request: z.object({ id: z.number().int().positive() }),
+    response: z.object({ ok: z.boolean(), error: z.string().nullable() }),
+    async handler(ctx, args) {
+      const db = ctx.db<typeof schema>();
+      const rows = await db
+        .select()
+        .from(schema.calendarEvents)
+        .where(and(eq(schema.calendarEvents.id, args.id), eq(schema.calendarEvents.profileId, myProfileId(ctx))))
+        .limit(1);
+      if (!rows[0]) return { ok: false, error: "That event isn't on your calendar." };
+      await db.delete(schema.calendarEvents).where(eq(schema.calendarEvents.id, args.id));
+      await appendChain(ctx, {
+        refKind: "driver",
+        refId: myProfileId(ctx),
+        sessionId: null,
+        event: "calendar_event_deleted",
+        payload: { eventId: args.id, type: rows[0].type, at: new Date().toISOString() },
+      });
+      ctx.invalidateQueries();
+      return { ok: true, error: null };
     },
   }),
 
