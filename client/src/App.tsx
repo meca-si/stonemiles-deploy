@@ -1007,7 +1007,7 @@ const MECA_DEST_INFO: Record<MecaDestId, { label: string; blurb: string }> = {
   road_learning: { label: "Driver → Road learning", blurb: "Road learning lives on the Driver tab — the “Road learning — fixes its own mistakes” panel. It's the app's self-correction layer for road matching and traffic: when the parallel-road detector proves the truck was on a different road beside the route (the service-road case), that stretch is remembered by place and direction, and next time it's recognised sooner; and the truck's own speed judges the traffic paint — flowing freely through a stretch painted heavy counts against that corridor, and after the paint is proven wrong twice there, heavy is downgraded to slow on the map until confirmations earn the trust back. The panel carries the on/off switch — learning is opt-in, off until the driver turns it on, and while off it records and changes nothing, the counts, the remembered stretches (each forgettable on its own), and the corrections log: every time the app caught its own mistake, in plain words. It learns matching and judgement only — it never rewrites its own code and never edits sealed records, miles, or pay. The memory lives on this device only." },
   si_layer: { label: "Driver → STONEMILES SI", blurb: "STONEMILES SI — the Super Intelligent autonomous layer — lives on the Driver tab, right above Road learning. It runs under the 8 SI Rules set in stone 2026-11-01: (1) public information only, no personal data ever read or accessed; (2) it heals itself — road-matching via Road learning, bad data caught as correction flags, never rewrites of sealed records; (3) it preps and files its own paperwork; (4) it chases its own fuel plan from logged purchases; (5) it preps trip sheets state by state for queued trips without being asked; (6) it vets brokers, shippers, owners, and loads against public records (the official FMCSA SAFER link) BEFORE they post to a board — while SI is on, a board post that fails a HOLD check never reaches the board; (7) duty status is asked by the prompt, never assumed — SI has no duty controls and never touches the prompt; (8) the standard house rules govern and win any collision, and no money ever moves autonomously. The panel carries the master switch, the Run-the-sweep button (one pass does all the prep/chase/catch/vet work and reports counts), the decisions inbox (the only things SI asks a human for, with Approve/Hold and Resolve/Dismiss), a public-records vetting form (company name + MC/USDOT, or a load's lane/rate/miles/weight/freight — personal data is refused before it is stored), the work SI already did, and the 8 rules verbatim." },
   live_updates: { label: "Driver → Live Updates — App Health", blurb: "Live Updates — App Health & Self-Reporting — lives on the Driver tab, right under STONEMILES SI. It is the app's self-watch (owner order 2026-11-05): the app reports its own crashes and failures here AUTOMATICALLY (error text + screen name only — no location, no documents, no personal data, no third-party tracker; the owner can turn self-reporting off in the panel and automatic reports are then dropped, while manual reports still land). A health check also runs daily and on demand — it verifies the sealed hash chain, EIA fuel-average freshness, Market Pulse freshness, the address-search state, route reliability from the app's own timings, and the open inbox, all from real state. Every failing check opens a report in the failure inbox; a check that passes again clears its own report. Each report travels the fix pipeline: app reports itself → AI diagnoses (a diagnosis + fix plan drafted from the report alone) → fix drafted → tests verify → THE OWNER APPROVES → ships through Play. The app NEVER rewrites its own code and NEVER auto-ships — the owner is the gate. The panel carries the self-reporting switch, the Run-health-check button, the pipeline, the health board, the failure inbox with Diagnose-with-AI and pipeline buttons (Approve fix to ship appears only at the tested step), a manual problem-report form, and the live feed that narrates every check, report, diagnosis, and approval with its time." },
-  route_weather: { label: "Drive → Route weather", blurb: "Route weather lives in the Drive panel, right under the hours-of-service summary — it's route weather, not a city forecast. It samples public weather (Open-Meteo forecasts + National Weather Service alerts, keyless — public information only, SI Rule 1) at points ON your active route — here, 25, 60, and 120 miles ahead of the truck, and your destination — each labelled in miles ahead, with condition, temperature, wind, gusts, and visibility. WIND GUSTS are graded against the driver's own gust decision line (default 35 mph, settable 20–60 mph right in the panel — flatbed-relevant): gusts at or over the line are called out as over your line. TONIGHT AT YOUR STOP pins weather to where the HOS driving clock runs out on this route (the same reachability estimate the parking planner uses; no HOS log yet falls back to the destination; no route falls back to here and SAYS SO) and pairs it with the real stop near that point when one exists — its button opens that stop's stop card (parking count, amenities). With no route set the panel shows current-position weather only and states that plainly. RADAR: the 'Weather radar' switch in Layers & display (and in the panel) draws live NWS NEXRAD precipitation (NOAA/NWS via Iowa State Mesonet public tiles) over the map, and the map pill + Layers note report the tile state honestly — if the tiles don't answer, no overlay is shown and it says unavailable. SI KEEPS IT UPDATED (the driver's order): while SI is on, the panel re-fetches every 10 minutes, on route changes, and every ~5 miles rolled, and decision-grade weather — ice, snow, or thunderstorms ahead, gusts over the threshold, low visibility ahead, severe or freezing weather on tonight's stop — surfaces ONCE per corridor segment per 6-hour window as an SI decisions-inbox item plus a banner; benign weather is silent. While SI is off the panel still works manually (Refresh button, and it fetches when the route changes) but nothing auto-surfaces. ON THE GO MAP (added 2026-11-01 after the driver's 'no weather update' verdict — the panel alone never reached the driving screen): a live weather chip sits on the Go map at bottom-right, in the spot the map's End route button used to hold (End route lives in the pull-up trip tab; the map shows the posted limit only, no own-speed bubble) — conditions here plus the ~60-miles-ahead sample on your route, with the update time — and it refreshes on the same 10-minute / route-change / ~5-mile cadence with NO SI gate, so the driving screen always carries current weather; if the feed doesn't answer the chip says 'weather unavailable' with a Retry button. A feed that doesn't answer shows 'weather unavailable' — conditions are never invented." },
+  route_weather: { label: "Drive → Route weather", blurb: "Route weather lives in the Drive panel, right under the hours-of-service summary — it's route weather, not a city forecast. It samples public weather (Open-Meteo forecasts + National Weather Service alerts, keyless — public information only, SI Rule 1) at points ON your active route — here, 25, 60, and 120 miles ahead of the truck, and your destination — each labelled in miles ahead, with condition, temperature, wind, gusts, and visibility. WIND GUSTS are graded against the driver's own gust decision line (default 35 mph, settable 20–60 mph right in the panel — flatbed-relevant): gusts at or over the line are called out as over your line. TONIGHT AT YOUR STOP pins weather to where the HOS driving clock runs out on this route (the same reachability estimate the parking planner uses; no HOS log yet falls back to the destination; no route falls back to here and SAYS SO) and pairs it with the real stop near that point when one exists — its button opens that stop's stop card (parking count, amenities). With no route set the panel shows current-position weather only and states that plainly. RADAR: the 'Weather radar' switch in Layers & display (and in the panel) draws live NWS NEXRAD precipitation (NOAA/NWS via Iowa State Mesonet public tiles) over the map, and the map pill + Layers note report the tile state honestly — if the tiles don't answer, no overlay is shown and it says unavailable. SI KEEPS IT UPDATED (the driver's order): while SI is on, the panel re-fetches every 10 minutes, on route changes, and every ~5 miles rolled, and decision-grade weather — ice, snow, or thunderstorms ahead, gusts over the threshold, low visibility ahead, severe or freezing weather on tonight's stop — surfaces ONCE per corridor segment per 6-hour window as an SI decisions-inbox item plus a banner; benign weather is silent. While SI is off the panel still works manually (Refresh button, and it fetches when the route changes) but nothing auto-surfaces. ON THE GO MAP (added 2026-11-01 after the driver's 'no weather update' verdict — the panel alone never reached the driving screen): a live weather chip sits on the Go map at bottom-right, in the spot the map's End route button used to hold (End route lives in the pull-up trip tab; the map shows the posted limit only, no own-speed bubble). While turn-by-turn guidance is running, the driving-face restyle (2026-11-24, the driver's Apple Maps reference) takes the chip off the visible surface — it stays mounted and fetching underneath, so the wind advisory and this panel never lose the reading; it returns the moment guidance ends — conditions here plus the ~60-miles-ahead sample on your route, with the update time — and it refreshes on the same 10-minute / route-change / ~5-mile cadence with NO SI gate, so the driving screen always carries current weather; if the feed doesn't answer the chip says 'weather unavailable' with a Retry button. A feed that doesn't answer shows 'weather unavailable' — conditions are never invented." },
   stop_planner: { label: "Drive → Plan my stops", blurb: "The Fuel + Stop Planner lives behind the 'Plan my stops' button on the Drive screen (and in the route panel): one timeline for the whole day — your tank (ELD live when a real ELD fuel feed exists; otherwise your entered tank minus a burn estimate that knows your load weight, always labelled which), the cheapest true-cost fuel stops on the route with FILL / SPLASH / SKIP calls ranked on price, tank, weight-adjusted burn, and remaining miles — load pay only values detour time when a load's pay is actually on file; with no load pay (no load, deadheading, pay not entered) pay drops out entirely, no pay is asked for, and detour time falls back to the driver's Detour time cost setting in the planner (a $/hr they set, or the default: minutes only, no dollar conversion), your 30-minute break point off the HOS break clock (combined with a fuel stop when one lines up, and the plan says so), the stop-for-the-day off the 11h/14h clocks with parking only from real map data, and your own added fuel / rest / sleeper stops — the plan re-checks fuel range and HOS feasibility after every add and flags plainly when a plan stops working. Prices come only from data the app already holds and are labelled estimates. AUTO-ADD (the Settings → Driving switch 'Auto-add stops to my route', ON by default): when a route is planned, those same picks are added to the route itself as waypoints — the best fuel stop by true cost when the tank calls for it (with the estimated saving when the planner's own numbers support one), the 30-minute break stop (folded into the fuel stop when they line up), and a 10-hour rest stop placed before the 11/14 clocks run out, but only when that clock actually runs out on this route. The destination never changes. Each added stop is announced on a banner and a Drive card with its reason and a one-tap Remove (also removable in Plan my stops, where added stops show as on-route), and taking one out re-draws the route without it. If a plan lands while the driver is already rolling, the picks are announced as a pending card and added ONLY on the driver's tap — the app never yanks or silently re-routes a moving driver, and an off-route reroute keeps the stops the driver accepted. A permit-locked corridor route is NEVER auto-added to or altered — the planner says so plainly and its stops stay suggestions. With the switch OFF, behaviour is exactly the old way: suggestions only. Advisory only — it never touches duty status." },
   hill_grade_alerts: { label: "Drive → Hill grade alerts", blurb: "Hill grade alerts live on the Drive (Go) screen and the Cab Mode head unit. When a route is planned, the router's elevation for the route is stored with it (it survives Resume and works fully offline); the app reads the sustained grades out of that elevation and warns on any grade of 4% or more held for at least a third of a mile — 6% or more reads as a strong warning. DOWNHILL: a spoken + banner call about half a mile before the descent ('Downgrade — 6% for 1.2 miles ahead') with your LIVE speed on the banner and a gear-down / brake-check prompt; a heavier rig (by the gross weight on your truck profile) gets the call earlier — three quarters of a mile at 60,000 lbs, a full mile at 75,000 — and a second call lands at the crest. UPHILL: the same advance call ('Climb — 5% for 2.0 miles ahead') so a heavy load expects the slowdown and picks its lane early. While you're ON a grade, a small live readout (current % with an up/down arrow) sits beside the posted-limit sign. Voice rides the normal voice-guidance path — spoken where voice directions are on, banner-only where they're off or muted. The same alert mirrors onto the Cab Mode Head Unit Guidance screen in big type for every tier, and grades ahead also list on its Road alerts screen (full cab version). Safety warnings are never paywalled: the phone Drive screen shows them on every plan. Turn them off in Settings → Driving ('Hill grade alerts', on by default). HONEST LIMIT: a route whose routing answer carried no elevation shows no grades at all — the app never guesses a hill." },
   traffic_lights: { label: "Drive → Traffic lights", blurb: "Traffic lights live on the Drive map as a layer of signal LOCATIONS from OpenStreetMap (the map data's highway=traffic_signals tags, fetched with the same pass as the hazards and stored on your phone as they're fetched, so the layer keeps working offline in dead zones, Atlas-style). On an active route the next light on your line gets a small pill on the Go screen — 'Traffic light ahead — 0.4 mi'. The switch lives in Layers & display on the map and in Settings → Driving ('Traffic lights', on by default). HONESTY LAW: there is NO live red/green phase, timing, or countdown data available to this app — that data is car-company V2X territory, not open data — so the app NEVER shows a light's color, state, or timing. The marker is a plain unlit signal head (three grey dots) for exactly that reason: locations only." },
@@ -4342,6 +4342,11 @@ export function App() {
   // reporting path.
   const [tripSheetOpen, setTripSheetOpen] = useState(false);
   const [tripReportOpen, setTripReportOpen] = useState(false);
+  // Driving-face route overview (2026-11-24 restyle): the rail's
+  // Overview button fits the whole route once and pauses follow;
+  // the same button (now Resume) flies back to the truck and
+  // re-arms follow. View state only.
+  const [driveOverview, setDriveOverview] = useState(false);
   // Swipe tracking for the sheet's grab handle: a drag up opens,
   // a drag down closes, and a handled swipe swallows the click
   // that follows it so the tap doesn't toggle it back.
@@ -4944,7 +4949,10 @@ export function App() {
     // their own, so the badge never counter-rotates: the arrow simply
     // shows heading relative to the camera (heading − bearing), i.e.
     // pointing up while heading-up tracks.
-    const html = `<div style="width:34px;height:34px;border-radius:50%;background:#f5b301;border:3px solid #0b0d0e;display:flex;align-items:center;justify-content:center;transform:rotate(${arrowHeading - mapBearingRef.current}deg)"><span style="font-size:17px;line-height:1">▲</span></div>`;
+    // One clean arrow puck (2026-11-24 driving-face restyle): the
+    // brand gold disc, a crisp white ring, and a soft shadow — the
+    // Apple puck's cleanliness in Stonervision colors.
+    const html = `<div style="width:34px;height:34px;border-radius:50%;background:#f5b301;border:3px solid #ffffff;box-shadow:0 2px 10px rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;transform:rotate(${arrowHeading - mapBearingRef.current}deg)"><span style="font-size:17px;line-height:1;color:#0b0d0e">▲</span></div>`;
     const icon = L.divIcon({ html, className: "truck-div-icon", iconSize: [34, 34], iconAnchor: [17, 17] });
     // Marker position (road test #3): the marker rides the SMOOTHED
     // display position, never the raw fix — and when a route is on
@@ -11735,6 +11743,24 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected, progressMi]);
 
+  // DRIVING FACE (2026-11-24 restyle, x's Apple Maps reference:
+  // "see how smooth and nice Apple GPS screen look — this is how
+  // ours should look"). While guidance is actually running, the Go
+  // map sheds its planning chrome: ONE large instruction banner at
+  // the top, at most THREE round buttons on the right (overview /
+  // voice / report), ONE bottom pill with three numbers, no weather
+  // strip, no map-size pill, and no empty speed-limit sign. Purely
+  // presentational — every control still exists off this face (the
+  // parked Go face, Explore, the pull-up trip sheet, Layers), and
+  // no routing, stop, HOS, or data flow reads this flag.
+  const drivingNow = mapMode === "go" && !!selected && !!guidance && !guidance.arrived;
+  // The overview toggle belongs to one drive: when guidance ends
+  // it clears (follow re-arms from the full rail's Center button,
+  // exactly as after a manual map drag).
+  useEffect(() => {
+    if (!drivingNow && driveOverview) setDriveOverview(false);
+  }, [drivingNow, driveOverview]);
+
   // ---- Hill grade alerts (2026-11-08, x's order) ---------------------
   // The grade engine (hillGrade.ts) reads the SELECTED route's stored
   // elevation — planned with the route, restored with Resume, fully
@@ -14760,18 +14786,18 @@ export function App() {
             carries this presentation and the banner stands down. */}
         {mapMode === "go" && selected && !placardShown && (
           <div
-            className="glass-panel absolute inset-x-2 top-2 z-[500] px-3.5 py-2.5"
+            className={`glass-panel absolute inset-x-2 top-2 z-[500] ${drivingNow ? "px-4 py-3.5" : "px-3.5 py-2.5"}`}
             role="status"
             aria-label={guidance ? `Next turn: ${guidance.current.instruction}, ${dispDist(guidance.distToMi)} ${unitWord} away. Estimated arrival ${eta ? fmtClock(eta) : "unknown"}, ${fmtDuration(etaRemainingMin)} and ${dispDist(remainingMi)} ${unitWord} left` : `Estimated arrival ${eta ? fmtClock(eta) : "unknown"}, ${fmtDuration(etaRemainingMin)} and ${dispDist(remainingMi)} ${unitWord} left`}
           >
             {guidance ? (
               <div className="flex items-center gap-3">
-                <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-[var(--surface2)] text-[32px] leading-none" aria-hidden>{maneuverArrow(guidance.current)}</span>
+                <span className={`flex shrink-0 items-center justify-center rounded-2xl bg-[var(--surface2)] leading-none ${drivingNow ? "h-16 w-16 text-[38px]" : "h-14 w-14 text-[32px]"}`} aria-hidden>{maneuverArrow(guidance.current)}</span>
                 <div className="min-w-0 flex-1">
-                  <div className="font-condensed text-4xl font-bold leading-none">
+                  <div className={`font-condensed font-bold leading-none ${drivingNow ? "text-5xl" : "text-4xl"}`}>
                     {guidance.distToMi < 0.1 ? `${Math.max(0, Math.round(guidance.distToMi * 5280))} ft` : `${dispDist(guidance.distToMi)} ${unitWord}`}
                   </div>
-                  <div className="mt-1 truncate text-[15px] font-semibold text-[var(--dim)]">{guidance.current.instruction}</div>
+                  <div className={drivingNow ? "mt-1.5 text-xl font-bold leading-snug" : "mt-1 truncate text-[15px] font-semibold text-[var(--dim)]"}>{guidance.current.instruction}</div>
                   {permitNavPermit && (
                     <div className="whitespace-nowrap text-[10px] font-extrabold tracking-wide text-[var(--accent)]">🪧 PERMIT ROUTE · MATCHED (DERIVED)</div>
                   )}
@@ -15128,9 +15154,14 @@ export function App() {
             LIMIT fix: never a bare caption-less "––").
             Own-speed readouts still live on the Drive panel and
             the alert banners. */}
-        {mapPrefs.showSpeed && !(mapMode === "explore" && selectedPoi) && (
+        {mapPrefs.showSpeed && !(mapMode === "explore" && selectedPoi) && (gradeLivePct != null || !drivingNow || speedLimit != null) && (
         <div className="absolute left-2 z-[500]" style={{ bottom: `calc(0.5rem + ${liftPx}px + var(--map-bottom-reserve))` }}>
           <div className="flex items-end gap-2">
+          {/* Driving face: the sign renders ONLY with real limit
+              data — no "––" face and no NO LIMIT DATA caption while
+              guidance runs (the parked/planning faces keep the
+              captioned ladder exactly as before). */}
+          {(!drivingNow || speedLimit != null) && (
           <div
             className={`flex w-[64px] shrink-0 flex-col items-center rounded-xl border-[3px] bg-white px-1.5 pb-1.5 pt-1 text-center leading-none shadow-[0_10px_24px_rgba(0,0,0,0.55)] ${
               overspeed ? "border-[var(--danger)]" : "border-black"
@@ -15143,6 +15174,7 @@ export function App() {
               {speedLimit != null ? `${speedLimitSource === "est" ? "~" : ""}${dispSpeed(speedLimit)}` : "––"}
             </div>
           </div>
+          )}
           {/* Live grade readout — while the truck is ON a sustained
               grade (hillGrade.ts, from the route's stored elevation):
               the current grade with its arrow, beside the LIMIT
@@ -15159,7 +15191,7 @@ export function App() {
             </div>
           )}
           </div>
-          {limitCaption != null && (
+          {limitCaption != null && (!drivingNow || speedLimit != null) && (
             <div className="mt-1 text-center text-[9px] font-bold tracking-wide text-neutral-300" style={{ textShadow: "0 1px 3px rgba(0,0,0,0.9)" }}>
               {limitCaption}
             </div>
@@ -15177,7 +15209,7 @@ export function App() {
             returned none, no pill renders (never a guessed road). */}
         {tripBarUp && (
           <>
-            {guidance && !guidance.arrived && !tripSheetOpen && maneuverStreet(guidance.current) && (
+            {!drivingNow && guidance && !guidance.arrived && !tripSheetOpen && maneuverStreet(guidance.current) && (
               <div className="absolute inset-x-0 z-[500] flex justify-center" style={{ bottom: `calc(0.5rem + 120px + var(--map-bottom-reserve))` }}>
                 <span className="glass-pill max-w-[62vw] truncate rounded-full px-4 py-1.5 text-[15px] font-bold" role="status" aria-label={`Current road: ${maneuverStreet(guidance.current)}`}>
                   🛣️ {maneuverStreet(guidance.current)}
@@ -15300,6 +15332,7 @@ export function App() {
                 role="status"
                 aria-label={`Estimated arrival ${eta ? fmtClock(eta) : "unknown"}, ${fmtDuration(etaRemainingMin)} and ${dispDist(remainingMi)} ${unitWord} left${destination?.label ? ` to ${destination.label}` : ""}`}
               >
+                {(!drivingNow || tripSheetOpen) && (
                 <button
                   type="button"
                   className="btn-press flex w-full items-center justify-center gap-2 pb-1.5 pt-1"
@@ -15323,18 +15356,23 @@ export function App() {
                   <span aria-hidden className="h-1.5 w-12 rounded-full bg-white/35" />
                   <span aria-hidden className="text-xs leading-none text-[var(--dim)]">{tripSheetOpen ? "▾" : "▴"}</span>
                 </button>
-                <div className="flex items-end">
+                )}
+                {/* Driving face: the bar is ONE pill, three numbers
+                    only — arrival, time left, miles left, large. The
+                    labels and the grab handle stand down until the
+                    sheet opens (Report button) or guidance ends. */}
+                <div className={`flex items-end ${drivingNow && !tripSheetOpen ? "py-1.5" : ""}`}>
                   <div className="flex-1 text-center">
-                    <div className="font-condensed text-3xl font-bold tnum leading-none">{eta ? fmtClock(eta) : "––"}</div>
-                    <div className="mt-1 text-[10px] font-bold uppercase tracking-widest text-[var(--dim)]">Arrival</div>
+                    <div className={`font-condensed font-bold tnum leading-none ${drivingNow ? "text-4xl" : "text-3xl"}`}>{eta ? fmtClock(eta) : "––"}</div>
+                    {!drivingNow && <div className="mt-1 text-[10px] font-bold uppercase tracking-widest text-[var(--dim)]">Arrival</div>}
                   </div>
                   <div className="flex-1 text-center">
-                    <div className="font-condensed text-3xl font-bold tnum leading-none">{fmtDuration(etaRemainingMin)}</div>
-                    <div className="mt-1 text-[10px] font-bold uppercase tracking-widest text-[var(--dim)]">Time left</div>
+                    <div className={`font-condensed font-bold tnum leading-none ${drivingNow ? "text-4xl" : "text-3xl"}`}>{fmtDuration(etaRemainingMin)}</div>
+                    {!drivingNow && <div className="mt-1 text-[10px] font-bold uppercase tracking-widest text-[var(--dim)]">Time left</div>}
                   </div>
                   <div className="flex-1 text-center">
-                    <div className="font-condensed text-3xl font-bold tnum leading-none">{dispDist(remainingMi)}</div>
-                    <div className="mt-1 text-[10px] font-bold uppercase tracking-widest text-[var(--dim)]">{unitWord} left</div>
+                    <div className={`font-condensed font-bold tnum leading-none ${drivingNow ? "text-4xl" : "text-3xl"}`}>{dispDist(remainingMi)}</div>
+                    {!drivingNow && <div className="mt-1 text-[10px] font-bold uppercase tracking-widest text-[var(--dim)]">{unitWord} left</div>}
                   </div>
                 </div>
               </div>
@@ -15432,9 +15470,76 @@ export function App() {
             )}
           </div>
         )}
+        {/* DRIVING rail (2026-11-24 restyle) — while guidance runs,
+            the right edge carries exactly THREE round buttons:
+            route overview (tap again to resume following), voice,
+            and report (which opens the trip sheet, where Add a
+            stop and End route live). Layers / Places / Compass /
+            Center / Zoom stand down until guidance ends — they are
+            planning tools, and the driving face stays clean the
+            way the driver's Apple Maps reference is. */}
+        {drivingNow && (
+          <div className="absolute right-2 top-1/2 z-[600] flex -translate-y-1/2 flex-col items-center gap-2.5">
+            <button
+              type="button"
+              aria-pressed={driveOverview}
+              aria-label={driveOverview ? "Resume following my truck — back to the driving view" : "Route overview — see the whole route on the map"}
+              onClick={() => {
+                tapFx();
+                const map = mapRef.current;
+                if (driveOverview) {
+                  setDriveOverview(false);
+                  followRef.current = true;
+                  const p = posRef.current;
+                  if (p && map) map.flyTo([p.lat, p.lon], Math.max(map.getZoom(), 15), { duration: 0.7 });
+                } else {
+                  const L = window.L;
+                  const coords = routesRef.current[selectedRoute]?.coords ?? selected?.coords;
+                  if (map && L && coords && coords.length > 1) {
+                    setDriveOverview(true);
+                    followRef.current = false;
+                    map.fitBounds(L.latLngBounds(coords), { paddingTopLeft: [20, 120], paddingBottomRight: [20, 160] });
+                  }
+                }
+              }}
+              className="btn-press flex h-12 w-12 items-center justify-center rounded-full border border-[var(--border)] text-lg text-neutral-200"
+              style={{ boxShadow: "0 10px 26px rgba(0,0,0,0.55)", backgroundColor: driveSolidBg(driveGlassLevel, "0, 0, 0") }}
+            >
+              <span aria-hidden>{driveOverview ? "◎" : "🗺"}</span>
+            </button>
+            <button
+              type="button"
+              aria-pressed={guidanceMuted}
+              aria-label={guidanceMuted ? "Voice controls — spoken directions are off, tap to turn them on" : "Voice controls — spoken directions are on, tap to mute them"}
+              onClick={() => {
+                tapFx();
+                const next = !guidanceMuted;
+                setGuidanceMuted(next);
+                try { localStorage.setItem("tgps-guidance-muted", next ? "1" : "0"); } catch { /* ignore */ }
+                if (next) try { window.speechSynthesis?.cancel(); } catch { /* ignore */ }
+              }}
+              className="btn-press flex h-12 w-12 items-center justify-center rounded-full border border-[var(--border)] text-lg text-neutral-200"
+              style={{ boxShadow: "0 10px 26px rgba(0,0,0,0.55)", backgroundColor: driveSolidBg(driveGlassLevel, "0, 0, 0") }}
+            >
+              <span aria-hidden>{guidanceMuted ? "🔇" : "🔊"}</span>
+            </button>
+            <button
+              type="button"
+              aria-label="Report an incident — opens the trip sheet with the report choices out"
+              onClick={() => { tapFx(); setTripReportOpen(true); setTripSheetOpen(true); }}
+              className="btn-press flex h-12 w-12 items-center justify-center rounded-full border border-[var(--border)] text-lg text-neutral-200"
+              style={{ boxShadow: "0 10px 26px rgba(0,0,0,0.55)", backgroundColor: driveSolidBg(driveGlassLevel, "0, 0, 0") }}
+            >
+              <span aria-hidden>⚠️</span>
+            </button>
+          </div>
+        )}
         {/* Right rail — Layers · Places · Compass · Center · Zoom, one
             thumb column on the map's right edge in both modes (the
-            arrangement the driver's reference app uses). */}
+            arrangement the driver's reference app uses). Stands down
+            while guidance runs (the driving rail above takes the
+            edge); every tool here is a planning-face tool. */}
+        {!drivingNow && (
         <div className="absolute right-2 top-1/2 z-[600] flex -translate-y-1/2 flex-col items-center gap-2">
           <button
             type="button"
@@ -15531,6 +15636,7 @@ export function App() {
             </button>
           </div>
         </div>
+        )}
         {/* Saved Pins panel — the driver's own pins, right on the map.
             Tap a pin to see it on the map; each pin offers Route,
             Rename, and Delete. Saving starts from a search result, a
@@ -15955,7 +16061,13 @@ export function App() {
             update moved into the spot the button held. In Go the
             row lifts over the trip bar (liftPx) like the LIMIT
             sign does. */}
-        <div className="absolute right-2 z-[500] flex items-center gap-1.5" style={{ bottom: `calc(0.5rem + ${liftPx}px + var(--map-bottom-reserve))` }}>
+        {/* Driving face (2026-11-24 restyle): the whole row stands
+            down while guidance runs — no weather strip, no map-size
+            pill on the driving surface. The weather chip stays
+            MOUNTED (display:none) so its fetch cadence and the
+            wind-advisory reading it feeds never pause; the size
+            toggle returns with the planning faces. */}
+        <div className="absolute right-2 z-[500] flex items-center gap-1.5" style={{ bottom: `calc(0.5rem + ${liftPx}px + var(--map-bottom-reserve))`, display: drivingNow ? "none" : undefined }}>
           {mapMode === "go" && pos && driveVis.has("weather") && (
             <GoWeatherChip pos={pos} routeCoords={selected?.coords ?? []} onReading={onGoWeatherReading} />
           )}
