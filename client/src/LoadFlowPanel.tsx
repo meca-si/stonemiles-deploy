@@ -6,9 +6,10 @@
 // step one tap, no scrolling a workspace to find the next thing.
 //
 // The chain it drives (all existing machinery, chained not rebuilt):
-// Route it → routeLoad (geocode + Valhalla + the auto fuel-stop
-// machinery) → the selected route's fuel decisions from
-// buildStopPlan → Start guidance (startGuidanceNow).
+// Route it → routeLoad (geocode + Valhalla) → the load's STOP CHAIN
+// (loadStopChain.ts: pickup → the planner's routed stops →
+// delivery, the same chain the map pins and the Drive stop list
+// show) → Start guidance (startGuidanceNow).
 //
 // Honesty rules: pay comes from loadFlow.loadPayFigures — percent
 // of the load's gross when that's the driver's model, the driver's
@@ -26,17 +27,29 @@ import { fuelAdviceForLoad, type LoadPayFigures } from "./loadFlow";
 
 export type FlowLoad = ApiResponse<typeof api, "listLoads">["loads"][number];
 
-export interface FlowRouteStop {
-  name: string;
-  alongMi: number;
-  action: string;
-  buyGal: number;
+export interface FlowChainStop {
+  kind: string;
+  /** "Pickup — …" / "Fuel — …" / "Delivery — …" */
+  label: string;
+  /** Right-side detail: "Fill — 42 gal", "✓ Picked up", "210 mi in". */
+  detail: string | null;
+  done: boolean;
 }
 
 export interface FlowRouteInfo {
   miles: number;
   minutes: number;
-  stops: FlowRouteStop[];
+  /** The route's full stop chain, in order: pickup, the planner's
+   *  stops, delivery — the same chain the map pins and the Drive
+   *  stop list show. */
+  chain: FlowChainStop[];
+  /** Why the chain carries no fuel stop, when it doesn't — "no
+   *  fuel stop needed" reads as a decision, never a gap. Null when
+   *  a fuel stop is on the chain. */
+  fuelNote: string | null;
+  /** The planner's stops are figured but not on the route yet —
+   *  they wait on the driver's Add tap on the Drive stop card. */
+  stopsPending: boolean;
 }
 
 interface Props {
@@ -252,8 +265,8 @@ export function LoadFlowPanel(props: Props) {
                       ⚠ Short — buy at least {Math.ceil(advice.buyGalToFinish)} gal on the way to finish with the reserve in the tank. On this fuel you reach about {fmtMi(advice.rangeMi)} before the reserve.
                     </p>
                   )}
-                  {props.route && props.route.stops.length > 0 && (
-                    <p className="mt-1 text-[var(--dim)]">Where to stop is on the route below — the fuel stops are already placed on it.</p>
+                  {props.route && props.route.chain.some((s) => s.kind === "fuel") && (
+                    <p className="mt-1 text-[var(--dim)]">Where to stop is on the route below — every stop on this run, in order.</p>
                   )}
                 </div>
               ) : (
@@ -285,17 +298,22 @@ export function LoadFlowPanel(props: Props) {
               <p className="mt-1 text-sm">
                 <span className="font-bold">{fmtMi(props.route.miles)}</span> · about {fmtDur(props.route.minutes)} — the line is on the map under Routes.
               </p>
-              {props.route.stops.length > 0 ? (
-                <ul className="mt-2 space-y-1.5">
-                  {props.route.stops.map((s) => (
-                    <li key={`${s.name}-${s.alongMi}`} className="flex items-baseline justify-between gap-2 rounded-xl bg-[var(--surface2)] px-3 py-2 text-sm">
-                      <span><span className="font-bold">{s.name}</span> <span className="text-[var(--dim)]">· {fmtMi(s.alongMi)} in</span></span>
-                      <span className="shrink-0 font-bold">{s.action === "FILL" ? `Fill — ${Math.round(s.buyGal)} gal` : s.action === "SPLASH" ? `Splash — ${Math.round(s.buyGal)} gal` : s.action}</span>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="mt-1 text-sm text-[var(--dim)]">No fuel stop needed on this route at your current level — or no priced stop is on file along it yet.</p>
+              <ul className="mt-2 space-y-1.5" aria-label="Stops on this route, in order">
+                {props.route.chain.map((s, i) => (
+                  <li key={`${s.kind}-${s.label}-${i}`} className="flex items-baseline justify-between gap-2 rounded-xl bg-[var(--surface2)] px-3 py-2 text-sm">
+                    <span>
+                      <span aria-hidden="true">{s.kind === "pickup" ? "🏭 " : s.kind === "fuel" ? "⛽ " : s.kind === "break" ? "☕ " : s.kind === "rest" ? "🌙 " : "📍 "}</span>
+                      <span className="font-bold">{s.label}</span>
+                    </span>
+                    {s.detail && <span className={`shrink-0 font-bold ${s.done ? "text-[var(--ok)]" : ""}`}>{s.detail}</span>}
+                  </li>
+                ))}
+              </ul>
+              {props.route.fuelNote && (
+                <p className="mt-1.5 text-sm text-[var(--dim)]">{props.route.fuelNote}</p>
+              )}
+              {props.route.stopsPending && (
+                <p className="mt-1.5 text-sm text-amber-300">The planner's stops above are figured and waiting — tap Add on the Drive stop card to put them on the route.</p>
               )}
               <button type="button" className={`${primaryBtn} mt-2`} onClick={props.onStartGuidance}>▶ Drive this route</button>
               <div className="mt-2 flex gap-2">

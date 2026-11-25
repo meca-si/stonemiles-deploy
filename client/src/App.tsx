@@ -228,6 +228,7 @@ import {
 } from "./stopPlanner";
 import { LoadFlowPanel, type FlowRouteInfo } from "./LoadFlowPanel";
 import { loadPayFigures, readStoredTankPct, storeTankPct } from "./loadFlow";
+import { buildLoadStopChain, orderViaPoints, type ChainStop } from "./loadStopChain";
 import { selectAutoAddStops, type AutoAddStop } from "./autoAddStops";
 import { parkingFitFor, PARKING_FIT_LABEL } from "./parkingFit";
 import { eldIdentitySections, eldIdentityStamp } from "./eldIdentity";
@@ -3934,6 +3935,18 @@ export function App() {
   const autoHandledKeyRef = useRef<string>("");
   const autoApplyingRef = useRef(false);
 
+  // ---- Load stop chain (2026-11-24 follow-up) ----------------------
+  // Routing a load builds a STOP CHAIN (loadStopChain.ts): driver →
+  // pickup → the planner's stops → delivery. routeLoad records the
+  // chain here; planRoute folds the pending pickup into every route
+  // request for the chain's load as a via-point (until the load's
+  // status moves past pickup), and the Drive map + stop list + load
+  // panel all render this same chain. Cleared by endRoute; inert
+  // whenever another load (or no load) is the active one.
+  const [loadChain, setLoadChain] = useState<{ loadId: number; pickupLabel: string; pickup: LatLon; deliveryLabel: string } | null>(null);
+  const loadChainRef = useRef<{ loadId: number; pickupLabel: string; pickup: LatLon; deliveryLabel: string } | null>(null);
+  loadChainRef.current = loadChain;
+
   // Hazards + fuel stops
   const [hazards, setHazards] = useState<Hazard[]>([]);
   // EVERY bridge clearance the map data tags around the truck (the
@@ -5387,6 +5400,47 @@ export function App() {
       m.bindTooltip(escHtml("Dropped pin — save it or route to it below"), { direction: "top" });
       layerRefs.current.push(m);
     }
+    // Load stop chain pins (2026-11-24 follow-up): the routed
+    // load's pickup and the planner's ON-ROUTE stops draw as
+    // labelled pins with a gold ring — THIS route's stops, distinct
+    // from the ambient corridor-scan pins above. The pickup pin
+    // stands only while the load is still Booked; once picked up it
+    // leaves the map with the via-point. The delivery is the
+    // destination pin below.
+    if (mapPrefs.showRoute && loadChain && activeLoadId === loadChain.loadId) {
+      const chainLoad = (loadsQuery.data?.loads ?? []).find((l) => l.id === loadChain.loadId) ?? null;
+      const chainPin = (at: LatLon, badge: string, badgeBg: string, label: string, tooltip: string) => {
+        const icon = L.divIcon({
+          html:
+            `<div style="width:126px;margin-left:-48px;display:flex;flex-direction:column;align-items:center;gap:2px">` +
+            `<div style="min-width:30px;height:30px;padding:0 5px;border-radius:9px;background:${badgeBg};border:2px solid #f5b301;display:flex;align-items:center;justify-content:center;font-size:13px;box-shadow:0 6px 16px rgba(0,0,0,0.55)">${badge}</div>` +
+            `<div style="max-width:118px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:rgba(8,13,28,0.88);border:1px solid rgba(246,196,83,0.4);color:#f6f1e5;font-size:10px;font-weight:700;line-height:1.5;padding:0 6px;border-radius:999px">${escHtml(label)}</div>` +
+            `</div>`,
+          className: "alert-div-icon",
+          iconSize: [30, 30],
+          iconAnchor: [15, 15],
+        });
+        const m = L.marker([at.lat, at.lon], { icon }).addTo(map);
+        m.bindTooltip(escHtml(tooltip), { direction: "top" });
+        layerRefs.current.push(m);
+      };
+      if (chainLoad != null && chainLoad.status === "booked") {
+        chainPin(
+          loadChain.pickup,
+          "🏭",
+          "#7c3aed",
+          `Pickup — ${loadChain.pickupLabel}`,
+          `Pickup — ${chainLoad.shipper ?? loadChain.pickupLabel} · this load's first stop`,
+        );
+      }
+      for (const s of autoStops) {
+        const isFuel = s.kinds.includes("fuel");
+        const badge = isFuel ? "⛽" : s.kinds.includes("break") ? "☕" : "🌙";
+        const head = isFuel ? "Fuel" : s.kinds.includes("break") ? "Break" : "Rest";
+        const detail = isFuel && s.buyGal != null ? ` — FILL ~${Math.round(s.buyGal)} gal` : "";
+        chainPin(s, badge, "#14532d", `${head} — ${s.name}`, `${head} — ${s.name}${detail} · on this route`);
+      }
+    }
     if (destination && mapPrefs.showRoute) {
       const pinIcon = L.divIcon({
         html: `<div style="font-size:26px;line-height:1">📍</div>`,
@@ -5398,7 +5452,7 @@ export function App() {
       pin.bindTooltip(escHtml(destination.label), { direction: "top" });
       layerRefs.current.push(pin);
     }
-  }, [routes, selectedRoute, hazards, fuelStops, destination, mapReady, mapNight, intelQuery.data, explorePois, selectedPoi, mapPrefs.showFuel, mapPrefs.showParking, mapPrefs.showHazards, mapPrefs.showIntel, mapPrefs.showRoute, mapPrefs.showTrafficNotes, mapPrefs.showSignals, trafficSignals, allWorkZones, escapeRamps, railCrossings, chainPullouts, allDriverHazards, appSettings.winterWeatherAlerts, routeChooserOpen, routeChooserSheet, droppedPin, focusedPin, savedPlacesQuery.data, roadLearning, hiddenPlaceIds, retiredPlaceIds]);
+  }, [routes, selectedRoute, hazards, fuelStops, destination, mapReady, mapNight, intelQuery.data, explorePois, selectedPoi, mapPrefs.showFuel, mapPrefs.showParking, mapPrefs.showHazards, mapPrefs.showIntel, mapPrefs.showRoute, mapPrefs.showTrafficNotes, mapPrefs.showSignals, trafficSignals, allWorkZones, escapeRamps, railCrossings, chainPullouts, allDriverHazards, appSettings.winterWeatherAlerts, routeChooserOpen, routeChooserSheet, droppedPin, focusedPin, savedPlacesQuery.data, roadLearning, hiddenPlaceIds, retiredPlaceIds, autoStops, loadChain, activeLoadId, loadsQuery.data]);
 
   // ---------- Live queries (speed limit / hazards / trip state) --------------
 
@@ -7598,15 +7652,53 @@ export function App() {
   // 2–3 options the moment they land. (3) The option cards sat below
   // the multi-stop planner and chain-law panel on the Routes tab —
   // the cards now lead that tab (see the Routes JSX).
+  // ---- Load stop chain: the pickup as a via-point ------------------
+  // The chain's pickup belongs on EVERY route planned for the
+  // chain's load while the load is still Booked — the first plan
+  // (driver → pickup → delivery), the auto-add re-plan (… → fuel →
+  // delivery), and every fast reroute. Once the load's status moves
+  // past pickup, the pickup drops out here and the chain continues
+  // without it — the route never bends back to the shipper.
+  const chainPickupPoint = (): (LatLon & { alongMi: number | null }) | null => {
+    const chain = loadChainRef.current;
+    if (!chain) return null;
+    if (activeLoadIdRef.current !== chain.loadId) return null;
+    const load = loadsRef.current.find((l) => l.id === chain.loadId);
+    if (!load || load.status !== "booked") return null;
+    const sel = routesRef.current[selectedRoute];
+    const alongMi = sel && sel.coords.length > 1 ? projectOntoRoute(chain.pickup, sel.coords).alongMi : null;
+    return { ...chain.pickup, alongMi };
+  };
+
+  // Merge the pending pickup into a via list, ordered along the
+  // route (loadStopChain.orderViaPoints). Points that don't carry
+  // their own along-miles are projected onto the current line when
+  // there is one. No chain / pickup done → the list passes through.
+  const withChainVia = (others: (LatLon & { alongMi?: number | null })[]): LatLon[] => {
+    const pickup = chainPickupPoint();
+    if (!pickup) return others.map((o) => ({ lat: o.lat, lon: o.lon }));
+    const sel = routesRef.current[selectedRoute];
+    const coords = sel && sel.coords.length > 1 ? sel.coords : null;
+    return orderViaPoints(
+      pickup,
+      others.map((o) => ({
+        lat: o.lat,
+        lon: o.lon,
+        alongMi: o.alongMi ?? (coords ? projectOntoRoute(o, coords).alongMi : null),
+      })),
+    );
+  };
+
   const planRoute = async (
     from: LatLon,
     to: { label: string } & LatLon,
     tollsOverride?: boolean,
-    opts?: { fast?: boolean; via?: LatLon[]; autoApply?: boolean },
+    opts?: { fast?: boolean; via?: (LatLon & { alongMi?: number | null })[]; autoApply?: boolean },
   ): Promise<boolean> => {
     const fast = opts?.fast === true;
-    // Via-points (auto-add stops): the line must pass through these
-    // stops, in order, with the final destination unchanged.
+    // Via-points (auto-add stops + the load chain's pickup): the
+    // line must pass through these stops, in order, with the final
+    // destination unchanged.
     const via = opts?.via;
     const reqId = ++routeReqRef.current;
     const planStartedAt = Date.now();
@@ -7681,12 +7773,16 @@ export function App() {
       // A reroute keeps the route the driver accepted: stops already
       // auto-added and not yet passed ride along as via-points (an
       // explicit via set — the driver applying pending picks while
-      // rolling — wins). Removed or passed stops stay out.
-      const fastVia =
+      // rolling — wins). Removed or passed stops stay out. The load
+      // chain's pickup rides along the same way while the load is
+      // still Booked (withChainVia) — and drops out on its own once
+      // the load is picked up.
+      const fastVia = withChainVia(
         via ??
-        autoStopsRef.current
-          .filter((s) => s.alongMi > progressMi + 0.5)
-          .map((s) => ({ lat: s.lat, lon: s.lon }));
+          autoStopsRef.current
+            .filter((s) => s.alongMi > progressMi + 0.5)
+            .map((s) => ({ lat: s.lat, lon: s.lon, alongMi: s.alongMi })),
+      );
       while (attempts < 2) {
         const timeoutMs = rerouteTimeoutForAttempt(attempts, Date.now() - planStartedAt);
         if (timeoutMs <= 0) break;
@@ -7733,7 +7829,13 @@ export function App() {
       );
       return false;
     }
-    const body = valhallaRouteBody(from, to, tollsOverride, via && via.length > 0 ? 0 : 2, currentCourseDeg(), undefined, via);
+    // The via set this plan actually routes through: the caller's
+    // stops with the load chain's pending pickup merged in, ordered
+    // along the route. A via-pinned line gets no alternates and no
+    // variant backfill (the established rule — a variant could only
+    // re-draw or drop the stops' line).
+    const mergedVia = withChainVia(via ?? []);
+    const body = valhallaRouteBody(from, to, tollsOverride, mergedVia.length > 0 ? 0 : 2, currentCourseDeg(), undefined, mergedVia);
     try {
       const data = (await fetchJson("https://valhalla1.openstreetmap.de/route", {
         method: "POST",
@@ -7752,7 +7854,7 @@ export function App() {
       if (!publish(options)) return false;
       if (fast) {
         void backfillAlternates(reqId, from, to, tollsOverride, options[0]!);
-      } else if (options.length === 1 && !(via && via.length > 0)) {
+      } else if (options.length === 1 && mergedVia.length === 0) {
         // No variant backfill on a via-pinned line: the variant is
         // built off this same body and could only re-draw the stops'
         // line or drop them — one honest route is the whole offer.
@@ -7770,11 +7872,11 @@ export function App() {
       const straightMi = haversineMi(from, to);
       if (straightMi > 300) {
         try {
-          const sectionTrips = await routeSectioned(from, to, tollsOverride, via && via.length > 0 ? { via } : undefined);
+          const sectionTrips = await routeSectioned(from, to, tollsOverride, mergedVia.length > 0 ? { via: mergedVia } : undefined);
           const primary = buildRouteOption(sectionTrips, 0);
           if (!primary) throw new Error("No truck-legal route found");
           if (!publish([primary])) return false;
-          if (!fast && !(via && via.length > 0)) void backfillLongHaulVariants(reqId, from, to, tollsOverride, primary);
+          if (!fast && mergedVia.length === 0) void backfillLongHaulVariants(reqId, from, to, tollsOverride, primary);
           else void backfillAlternates(reqId, from, to, tollsOverride, primary);
           return true;
         } catch {
@@ -8122,6 +8224,16 @@ export function App() {
     chooseMapMode("go");
     setTab("drive");
     setBanner(`Guidance started — ${fmtMi(selected.miles)} mi to ${destination?.label ?? "your destination"}. Follow the big turn banner on Drive.`);
+    // Stop chain at the start line (2026-11-24 follow-up): picks
+    // the planner finished while the driver was setting up sit
+    // PENDING by design (never re-draw behind a moving driver) —
+    // but guidance START is the driver's own chosen moment, parked
+    // at the start of the run. Apply them now so the route he
+    // drives is the full chain — pickup, fuel, delivery — not the
+    // bare line that happened to publish first.
+    if (pendingAutoStops.length > 0) {
+      void applyAutoStops(pendingAutoStops);
+    }
   };
 
   // End route — stops ALL routing, for real. Until now there was no way
@@ -8175,6 +8287,10 @@ export function App() {
     setPendingAutoStops([]);
     setRemovedAutoStopKeys([]);
     setAutoCardDismissed(false);
+    // The load stop chain dies with the route too — a later plan
+    // for another destination must never inherit this load's pickup.
+    loadChainRef.current = null;
+    setLoadChain(null);
     setRouteChooserOpen(false);
     lastPlanRef.current = null;
     setDestination(null);
@@ -8735,7 +8851,9 @@ export function App() {
     const dest = destinationRef.current;
     if (!planRef || !dest) return false;
     const from = posRef.current ?? planRef.from;
-    const viaPts = stops.map((s) => ({ lat: s.lat, lon: s.lon }));
+    // Along-miles ride along so planRoute can order the load
+    // chain's pickup among these stops (withChainVia).
+    const viaPts = stops.map((s) => ({ lat: s.lat, lon: s.lon, alongMi: s.alongMi }));
     if (tripRef.current.active || driveMode) {
       return planRoute(from, dest, planRef.tollsOverride, { fast: true, via: viaPts });
     }
@@ -10084,14 +10202,29 @@ export function App() {
     // whenever the load carries one.
     const fromQuery = l.pickupAddress ? `${l.pickupAddress}, ${l.pickupCity}, ${l.pickupState ?? ""}` : `${l.pickupCity}, ${l.pickupState ?? ""}`;
     const toQuery = l.deliveryAddress ? `${l.deliveryAddress}, ${l.deliveryCity}, ${l.deliveryState ?? ""}` : `${l.deliveryCity}, ${l.deliveryState ?? ""}`;
-    const from = await geocodePlace(fromQuery);
+    const pickupPt = await geocodePlace(fromQuery);
     const to = await geocodePlace(toQuery);
-    if (!from || !to) {
+    if (!pickupPt || !to) {
       setBanner("Couldn't find one of those places on the map — edit the load and check the address / city / state spelling.");
       return;
     }
+    // STOP CHAIN (2026-11-24 follow-up): the route starts at the
+    // TRUCK, not at the shipper — the pickup becomes a via-point on
+    // the way to the delivery (planRoute's chain merge), the stop
+    // plan's picks join as via-points when they land, and the chain
+    // recorded here is what the map pins, the Drive stop list, and
+    // the load panel all render. No GPS fix yet → the plan starts
+    // at the pickup itself, exactly as before.
+    const gps = posRef.current;
+    const from = gps ?? pickupPt;
+    const pickupLabel = `${l.pickupCity}, ${l.pickupState ?? ""}`;
     const destLabel = `${l.deliveryCity}, ${l.deliveryState ?? ""}`;
-    setRouteOrigin({ label: `${l.pickupCity}, ${l.pickupState ?? ""}`, ...from });
+    // Ref set in the same breath: planRoute below reads the chain
+    // synchronously, before the state mirror's next render.
+    const chain = { loadId: l.id, pickupLabel, pickup: pickupPt, deliveryLabel: destLabel };
+    loadChainRef.current = chain;
+    setLoadChain(chain);
+    setRouteOrigin(gps ? null : { label: pickupLabel, ...pickupPt });
     setDestination({ label: destLabel, ...to });
     setDestQuery(destLabel);
     setActiveLoadId(l.id);
@@ -13966,28 +14099,70 @@ export function App() {
     });
     return { pct: reading.pct, label: tankSourceLabel(reading) };
   })();
+  // ---- The routed load's stop chain, for display ------------------
+  // One chain (loadStopChain.buildLoadStopChain) feeds the Drive
+  // stop list and the load panel alike: pickup (done once the load
+  // is past it) → the planner's stops → delivery. The mid stops are
+  // the stops actually ON the route (autoStops); picks still pending
+  // the driver's Add tap show in their place, flagged as pending.
+  const chainMidStops = pendingAutoStops.length > 0 ? pendingAutoStops : autoStops;
+  const chainFuelNote = (hasFuel: boolean): string | null => {
+    if (hasFuel) return null;
+    if (!appSettings.autoAddStops) return "Auto-add stops is off — fuel picks stay in Plan my stops; this route runs pickup → delivery.";
+    if (fuelState === "ok") return "No fuel stop needed on this route — your tank covers it at the level on file.";
+    if (fuelState === "unavailable") return "The fuel scan didn't answer along this route, so no fuel stop is placed on it.";
+    return "Fuel stops are still being figured for this route…";
+  };
+  const toFlowChain = (stops: ChainStop[]) =>
+    stops.map((s) => ({
+      kind: s.kind,
+      label: s.label,
+      detail:
+        s.kind === "pickup" && s.done
+          ? "✓ Picked up"
+          : s.kind === "fuel" && s.buyGal != null
+            ? `${s.action === "SPLASH" ? "Splash" : "Fill"} — ${Math.round(s.buyGal)} gal`
+            : s.alongMi != null
+              ? `${Math.round(s.alongMi).toLocaleString()} mi in`
+              : null,
+      done: s.done,
+    }));
+  const driveChain: { stops: ChainStop[]; fuelNote: string | null; stopsPending: boolean } | null = (() => {
+    if (!loadChain || !activeLoad || activeLoad.id !== loadChain.loadId || !destination) return null;
+    const built = buildLoadStopChain({
+      pickup: { label: loadChain.pickupLabel, lat: loadChain.pickup.lat, lon: loadChain.pickup.lon },
+      pickupDone: activeLoad.status !== "booked",
+      midStops: chainMidStops,
+      delivery: { label: loadChain.deliveryLabel, lat: destination.lat, lon: destination.lon },
+    });
+    return {
+      stops: built.stops,
+      fuelNote: chainFuelNote(built.stops.some((s) => s.kind === "fuel")),
+      stopsPending: pendingAutoStops.length > 0,
+    };
+  })();
   const flowRoute: FlowRouteInfo | null = (() => {
     if (!flowRouted || !selected || flowLoad == null) return null;
-    const reading = flowTank;
-    const plan = buildStopPlan({
-      routeMiles: selected.miles,
-      paceMph: selected.minutes > 0 ? selected.miles / (selected.minutes / 60) : 50,
-      tankPct: reading?.pct ?? 75,
-      capacityGal: flowCapacityGal,
-      baseMpg: profile.mpg,
-      loadWeightLbs: flowLoad.weightLbs ?? null,
-      payPerMile: flowLoad.totalPerMile ?? null,
-      settingsTimeValuePerHour: null,
-      hos,
-      candidates: plannerCandidates,
-      driverStops: [],
+    const built = buildLoadStopChain({
+      pickup: {
+        label: loadChain && loadChain.loadId === flowLoad.id ? loadChain.pickupLabel : `${flowLoad.pickupCity ?? ""}, ${flowLoad.pickupState ?? ""}`,
+        lat: loadChain && loadChain.loadId === flowLoad.id ? loadChain.pickup.lat : null,
+        lon: loadChain && loadChain.loadId === flowLoad.id ? loadChain.pickup.lon : null,
+      },
+      pickupDone: flowLoad.status !== "booked",
+      midStops: chainMidStops,
+      delivery: {
+        label: `${flowLoad.deliveryCity ?? ""}, ${flowLoad.deliveryState ?? ""}`,
+        lat: destination?.lat ?? null,
+        lon: destination?.lon ?? null,
+      },
     });
     return {
       miles: selected.miles,
       minutes: selected.minutes,
-      stops: plan.fuelDecisions
-        .filter((d) => d.action !== "SKIP")
-        .map((d) => ({ name: d.stop.name, alongMi: d.stop.alongMi, action: String(d.action), buyGal: d.buyGal })),
+      chain: toFlowChain(built.stops),
+      fuelNote: chainFuelNote(built.stops.some((s) => s.kind === "fuel")),
+      stopsPending: pendingAutoStops.length > 0,
     };
   })();
 
@@ -14153,6 +14328,40 @@ export function App() {
           onStatus={answerHosPromptStatus}
           onStillDriving={answerHosPromptStillDriving}
         />
+      )}
+      {/* Load stop chain card (2026-11-24 follow-up): the routed
+          load's stops IN ORDER — pickup, the planner's stops,
+          delivery — the same chain the map pins show. The pickup
+          reads ✓ done once the load is past it; a chain with no
+          fuel stop says why (tank covers it / scan silent / auto-add
+          off), so "no fuel stop" reads as a decision, not a gap. */}
+      {tab === "drive" && driveChain && routes.length > 0 && (
+        <div className="shrink-0 px-3 pt-2">
+          <div className="glass-pill animate-rise rounded-2xl px-4 py-3 text-sm text-sky-100" role="status">
+            <div className="font-bold">🧭 This load's stops — in order</div>
+            <ul className="mt-1.5 space-y-1.5">
+              {driveChain.stops.map((s, i) => (
+                <li key={`${s.kind}-${s.label}-${i}`} className="flex items-center gap-2">
+                  <span className="min-w-0 flex-1">
+                    {s.kind === "pickup" ? "🏭 " : s.kind === "fuel" ? "⛽ " : s.kind === "break" ? "☕ " : s.kind === "rest" ? "🌙 " : "📍 "}
+                    {s.label}
+                    {s.done && <span className="font-semibold text-emerald-300"> · ✓ done</span>}
+                    {s.kind === "fuel" && s.buyGal != null && (
+                      <span className="text-sky-200/80"> · {s.action === "SPLASH" ? "SPLASH" : "FILL"} ~{Math.round(s.buyGal)} gal</span>
+                    )}
+                    {s.alongMi != null && !s.done && (
+                      <span className="text-sky-200/80"> · ~{fmtMi(Math.max(0, s.alongMi - progressMi))} mi ahead</span>
+                    )}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            {driveChain.fuelNote && <p className="mt-1 text-xs text-sky-200/80">{driveChain.fuelNote}</p>}
+            {driveChain.stopsPending && (
+              <p className="mt-1 text-xs text-sky-200/80">The planner's stops above are figured — add them from the card below to put them on the route.</p>
+            )}
+          </div>
+        </div>
       )}
       {/* Auto-add stops card (2026-11-13): the announcement + control
           surface for the planner's picks. Applied stops list as ON
