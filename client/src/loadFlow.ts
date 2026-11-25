@@ -128,6 +128,29 @@ export function loadPayFigures(input: {
   };
 }
 
+/**
+ * The one-line label naming the split a pay figure was figured at —
+ * "at 90% of gross" on percent pay, "at $0.72/mi" on CPM — or null
+ * when the driver's model carries no value to name. Route cards put
+ * this under their NET PAY (driver report, 2026-11-24: a route card
+ * read NET $299.74 on a $600 load — figured at the 90% in his saved
+ * My-pay model, the split Alex Murphy promised, while his signed
+ * carrier paper pays 80%; the number was right from the model and
+ * still read as a silent surprise because the card never said which
+ * split it used). The math itself never lives here: percent cuts
+ * come from the same stored driverPayPct loadPayFigures reads.
+ */
+export function paySplitLabel(input: {
+  payBasis: "cpm" | "percent";
+  driverCpm: number | null;
+  driverPayPct: number | null;
+}): string | null {
+  if (input.payBasis === "percent") {
+    return input.driverPayPct != null && input.driverPayPct > 0 ? `at ${input.driverPayPct}% of gross` : null;
+  }
+  return input.driverCpm != null && input.driverCpm > 0 ? `at $${input.driverCpm.toFixed(2)}/mi` : null;
+}
+
 // ---------- Tank-level memory --------------------------------------------------
 //
 // The load flow and the Stop Planner share ONE memory of the tank:

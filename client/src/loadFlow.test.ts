@@ -1,6 +1,6 @@
 // loadFlow.test.ts — the load-flow panel's fuel + pay math.
 import { describe, expect, test } from "bun:test";
-import { fuelAdviceForLoad, loadPayFigures } from "./loadFlow";
+import { fuelAdviceForLoad, loadPayFigures, paySplitLabel } from "./loadFlow";
 
 describe("fuelAdviceForLoad", () => {
   test("the Jacksonville → Montgomery run on 3/8 of a 120-gal tank", () => {
@@ -61,5 +61,26 @@ describe("loadPayFigures", () => {
     const p = loadPayFigures({ payBasis: "cpm", driverCpm: null, driverPayPct: null, gross: 600, miles: 368 });
     expect(p.cut).toBe(null);
     expect(p.needsSetup).toBe(true);
+  });
+});
+
+describe("paySplitLabel", () => {
+  test("percent names the split from the same model loadPayFigures reads", () => {
+    // x's route-card report (2026-11-24): NET $299.74 on the $600
+    // load = $540 cut − $240.26 fuel, and $540 is 90% of $600 — the
+    // 90 in his saved My-pay model. The label names exactly that.
+    expect(paySplitLabel({ payBasis: "percent", driverCpm: null, driverPayPct: 90 })).toBe("at 90% of gross");
+    expect(paySplitLabel({ payBasis: "percent", driverCpm: null, driverPayPct: 80 })).toBe("at 80% of gross");
+    const p = loadPayFigures({ payBasis: "percent", driverCpm: null, driverPayPct: 90, gross: 600, miles: 401 });
+    expect(p.cut).toBe(540);
+  });
+
+  test("percent with no % set names nothing — no invented split", () => {
+    expect(paySplitLabel({ payBasis: "percent", driverCpm: null, driverPayPct: null })).toBeNull();
+  });
+
+  test("cpm names the driver's own set rate only", () => {
+    expect(paySplitLabel({ payBasis: "cpm", driverCpm: 0.72, driverPayPct: null })).toBe("at $0.72/mi");
+    expect(paySplitLabel({ payBasis: "cpm", driverCpm: null, driverPayPct: null })).toBeNull();
   });
 });

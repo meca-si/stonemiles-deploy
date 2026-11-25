@@ -227,7 +227,7 @@ import {
   type PlannerCandidate,
 } from "./stopPlanner";
 import { LoadFlowPanel, type FlowRouteInfo } from "./LoadFlowPanel";
-import { loadPayFigures, readStoredTankPct, storeTankPct } from "./loadFlow";
+import { loadPayFigures, paySplitLabel, readStoredTankPct, storeTankPct } from "./loadFlow";
 import { buildLoadStopChain, orderViaPoints, type ChainStop } from "./loadStopChain";
 import { selectAutoAddStops, type AutoAddStop } from "./autoAddStops";
 import { parkingFitFor, PARKING_FIT_LABEL } from "./parkingFit";
@@ -3912,6 +3912,19 @@ export function App() {
   // at half. The map fit reserves room for whichever state the
   // sheet is in (see the route-lines effect).
   const [routeChooserSheet, setRouteChooserSheet] = useState<"peek" | "half" | "full">("half");
+  // SEE ROUTE — TRUE FULL SCREEN (driver report, 2026-11-24 evening:
+  // "Still cut half of the screen when you tap show route instead of
+  // being full screen"). The old See route only dropped the chooser
+  // sheet to its peek bar — the map itself stayed the embedded strip
+  // of a scrolling page (Routes/Stops) with page panels stacked
+  // under it and their text bleeding up behind the glass sheet. Now
+  // See route is a MODE: the map goes full-bleed over the whole
+  // viewport, the whole picked route is fitted with every chain pin
+  // in frame, and the only overlays are a Back control and the
+  // arrival / time / miles pill. The return ref remembers the exact
+  // sheet shape he came from so Back restores it untouched.
+  const [routeFullView, setRouteFullView] = useState(false);
+  const routeFullReturnRef = useRef<{ sheet: "peek" | "half" | "full" } | null>(null);
   const [routeWhyOpen, setRouteWhyOpen] = useState(false);
   const [chooserOfflineConfirm, setChooserOfflineConfirm] = useState(false);
   // The last plan request, kept so the chooser's Retry button can
@@ -4700,7 +4713,7 @@ export function App() {
       setTimeout(() => mapRef.current?.invalidateSize(), ms),
     );
     return () => timers.forEach(clearTimeout);
-  }, [mapSize]);
+  }, [mapSize, routeChooserOpen, routeFullView]);
 
   // Phone rotation (portrait ⇄ landscape): these window events are the
   // explicit belt-and-braces pass — orientationchange fires before the
@@ -5150,18 +5163,40 @@ export function App() {
       // top); peeked to its slim bar or closed, the fit opens back
       // up. Chooser shape is part of the fit key so opening, peeking,
       // expanding, and closing each re-frame the line exactly once.
-      const chooserFit = routeChooserOpen ? (routeChooserSheet === "peek" ? "peek" : routeChooserSheet === "half" ? "half" : "open") : "closed";
+      const chooserFit = routeFullView ? "fullview" : routeChooserOpen ? (routeChooserSheet === "peek" ? "peek" : routeChooserSheet === "half" ? "half" : "open") : "closed";
       const fitKey = `${selectedRoute}|${routes.map((r) => r.coords.length).join(",")}|${destination?.lat ?? ""},${destination?.lon ?? ""}|${chooserFit}`;
       if (fitKey !== fitKeyRef.current) {
         fitKeyRef.current = fitKey;
-        const bounds = L.latLngBounds(sel.coords);
+        let bounds = L.latLngBounds(sel.coords);
+        if (chooserFit === "fullview") {
+          // Frame the whole route AND every pin on it: the chain's
+          // pickup and the planner's stops can sit just outside the
+          // line's own bounds (a deadhead-leg pickup, a stop a block
+          // off the corridor) — a pin outside the frame would read
+          // as a missing stop.
+          const pts: [number, number][] = [...sel.coords];
+          if (loadChain && activeLoadId === loadChain.loadId) pts.push([loadChain.pickup.lat, loadChain.pickup.lon]);
+          for (const s of autoStops) pts.push([s.lat, s.lon]);
+          if (destination) pts.push([destination.lat, destination.lon]);
+          bounds = L.latLngBounds(pts);
+        }
         if (!followRef.current || !posRef.current) {
           // In-app view (road test #4): the shell bar eats the map's
           // bottom ~84px, so the fit's bottom reserve grows by the
           // same amount — the framed line never hides behind it.
           const embedReserve =
             typeof document !== "undefined" && document.documentElement.dataset.appView === "embedded" ? 84 : 0;
-          if (chooserFit === "open") {
+          // The chooser opening/closing and See route now resize the
+          // map itself (full-bleed while either is up): re-measure
+          // before any fit reads the size, or the fit frames for the
+          // size the map USED to be.
+          map.invalidateSize();
+          if (chooserFit === "fullview") {
+            // Only two overlays ride the full view — the Back button
+            // at the top, the trip pill at the bottom — so the fit
+            // reserves exactly those and nothing else.
+            map.fitBounds(bounds, { paddingTopLeft: [24, 88], paddingBottomRight: [24, 128 + embedReserve] });
+          } else if (chooserFit === "open") {
             map.fitBounds(bounds, { paddingTopLeft: [14, 100], paddingBottomRight: [14, 336 + embedReserve] });
           } else if (chooserFit === "half") {
             map.fitBounds(bounds, { paddingTopLeft: [14, 100], paddingBottomRight: [14, 252 + embedReserve] });
@@ -5487,7 +5522,7 @@ export function App() {
       pin.bindTooltip(escHtml(destination.label), { direction: "top" });
       layerRefs.current.push(pin);
     }
-  }, [routes, selectedRoute, hazards, fuelStops, destination, mapReady, mapNight, intelQuery.data, explorePois, selectedPoi, mapPrefs.showFuel, mapPrefs.showParking, mapPrefs.showHazards, mapPrefs.showIntel, mapPrefs.showRoute, mapPrefs.showTrafficNotes, mapPrefs.showSignals, trafficSignals, allWorkZones, escapeRamps, railCrossings, chainPullouts, allDriverHazards, appSettings.winterWeatherAlerts, routeChooserOpen, routeChooserSheet, droppedPin, focusedPin, savedPlacesQuery.data, roadLearning, hiddenPlaceIds, retiredPlaceIds, autoStops, loadChain, activeLoadId, loadsQuery.data]);
+  }, [routes, selectedRoute, hazards, fuelStops, destination, mapReady, mapNight, intelQuery.data, explorePois, selectedPoi, mapPrefs.showFuel, mapPrefs.showParking, mapPrefs.showHazards, mapPrefs.showIntel, mapPrefs.showRoute, mapPrefs.showTrafficNotes, mapPrefs.showSignals, trafficSignals, allWorkZones, escapeRamps, railCrossings, chainPullouts, allDriverHazards, appSettings.winterWeatherAlerts, routeChooserOpen, routeChooserSheet, droppedPin, focusedPin, savedPlacesQuery.data, roadLearning, hiddenPlaceIds, retiredPlaceIds, autoStops, loadChain, activeLoadId, loadsQuery.data, routeFullView]);
 
   // ---------- Live queries (speed limit / hazards / trip state) --------------
 
@@ -9646,6 +9681,11 @@ export function App() {
   // printed total not matching rate + charges.
   const [scanReview, setScanReview] = useState<{ title: string; found: string[]; missing: string[]; warnings: string[] } | null>(() => restoredLoadForm()?.scanReview ?? null);
   const [loadsView, setLoadsView] = useState<"tracker" | "list" | "board" | "open" | "broker" | "shipper" | "brokerportal">("tracker");
+  // Loads screen top tabs (driver report, 2026-11-24: "Market pulse
+  // should have a tab instead of taking up space") — Loads (default)
+  // is loads only; Market Pulse carries the full weekly spot-rate
+  // panel that used to sit inline at the top of this screen.
+  const [loadsTopTab, setLoadsTopTab] = useState<"loads" | "pulse">("loads");
   // Simple-first layering (Loads / Money / More): each tab opens on the
   // one thing that matters; the depth renders only when its row is tapped.
   const [addLoadOpen, setAddLoadOpen] = useState(() => {
@@ -11863,6 +11903,31 @@ export function App() {
   useEffect(() => {
     if (!drivingNow && driveOverview) setDriveOverview(false);
   }, [drivingNow, driveOverview]);
+
+  // SEE ROUTE full view — enter/exit. Entering remembers the exact
+  // chooser sheet shape he came from and drops follow (the same move
+  // the driving rail's Overview button makes) so the fit frames the
+  // whole route instead of chasing the puck. Exiting restores the
+  // sheet shape untouched; the map size he had is never changed —
+  // the full-bleed is the mode's own, not a size change.
+  const enterRouteFullView = () => {
+    routeFullReturnRef.current = { sheet: routeChooserSheet };
+    followRef.current = false;
+    setRouteFullView(true);
+  };
+  const exitRouteFullView = () => {
+    const back = routeFullReturnRef.current;
+    routeFullReturnRef.current = null;
+    setRouteFullView(false);
+    if (back) setRouteChooserSheet(back.sheet);
+  };
+  // The full view belongs to route CHOOSING only: if guidance
+  // starts, the chooser closes, or the routes clear while it's up,
+  // it stands down and hands the screen back.
+  useEffect(() => {
+    if (routeFullView && (drivingNow || !routeChooserOpen || routes.length === 0)) exitRouteFullView();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeFullView, drivingNow, routeChooserOpen, routes.length]);
 
   // ---- Hill grade alerts (2026-11-08, x's order) ---------------------
   // The grade engine (hillGrade.ts) reads the SELECTED route's stored
@@ -14104,6 +14169,14 @@ export function App() {
   };
 
   const showMap = tab === "drive" || tab === "routes" || tab === "stops";
+  // Full-bleed map (driver report, 2026-11-24 evening): the map
+  // takes the whole viewport not only at the driver's own "full"
+  // size, but whenever the route CHOOSER is up — the chooser is a
+  // sheet OVER a full-bleed map, never a card stacked into a
+  // scrolling page with panel text bleeding up behind it — and in
+  // the See route full view. Closing the chooser (or exiting the
+  // full view) hands every tab its exact prior layout back.
+  const mapFullBleed = mapSize === "full" || routeFullView || routeChooserOpen;
   // Heading-up is a native camera bearing now: "rotated" just means
   // the camera bearing is materially off north (compass control copy).
   const mapRotated = Math.abs(bearingDeltaDeg(0, mapBearing)) > 0.5;
@@ -14676,7 +14749,7 @@ export function App() {
         data-drive-glass={driveGlassLevel}
         className={
           showMap
-            ? mapSize === "full"
+            ? mapFullBleed
               ? "drive-scope fixed inset-0 z-[800] h-dvh w-full overflow-hidden bg-[var(--bg)]"
               : tab === "drive"
                 ? "drive-scope relative min-h-0 flex-1 overflow-hidden"
@@ -14727,7 +14800,7 @@ export function App() {
             One tap on a chip drops those pins on the map (real OSM
             data around the truck); tapping a pin arms the Route
             button at the bottom. */}
-        {mapMode === "explore" && (
+        {mapMode === "explore" && !routeFullView && (
           <div className="absolute left-2 right-14 top-2 z-[600]">
             <form
               className="glass-pill flex items-center gap-1.5 rounded-full py-1 pl-4 pr-1"
@@ -14901,7 +14974,7 @@ export function App() {
             to the bottom trip bar, where the reference puts them.
             While the sign board is up (placardShown) the board
             carries this presentation and the banner stands down. */}
-        {mapMode === "go" && selected && !placardShown && (
+        {mapMode === "go" && selected && !placardShown && !routeFullView && (
           <div
             className={`glass-panel absolute inset-x-2 top-2 z-[500] ${drivingNow ? "px-4 py-3.5" : "px-3.5 py-2.5"}`}
             role="status"
@@ -15324,7 +15397,7 @@ export function App() {
             over it (liftPx). The road name is the routing data's
             street name for the maneuver in progress — when routing
             returned none, no pill renders (never a guessed road). */}
-        {tripBarUp && (
+        {tripBarUp && !routeFullView && (
           <>
             {!drivingNow && guidance && !guidance.arrived && !tripSheetOpen && maneuverStreet(guidance.current) && (
               <div className="absolute inset-x-0 z-[500] flex justify-center" style={{ bottom: `calc(0.5rem + 120px + var(--map-bottom-reserve))` }}>
@@ -15499,7 +15572,7 @@ export function App() {
         {/* ETA pill — in plain sight on the map while a route runs and
             the map is NOT in Go (Go carries the ETA in its trip bar):
             arrival clock, time left, miles left. */}
-        {selected && (driveMode || driveModeUi) && mapMode !== "go" && driveVis.has("etaPill") && (
+        {selected && (driveMode || driveModeUi) && mapMode !== "go" && !routeFullView && driveVis.has("etaPill") && (
           <div
             className="glass-pill absolute left-1/2 top-2 z-[500] flex -translate-x-1/2 items-baseline gap-2 whitespace-nowrap rounded-full px-4 py-2"
             role="status"
@@ -15595,7 +15668,7 @@ export function App() {
             Center / Zoom stand down until guidance ends — they are
             planning tools, and the driving face stays clean the
             way the driver's Apple Maps reference is. */}
-        {drivingNow && (
+        {drivingNow && !routeFullView && (
           <div className="absolute right-2 top-1/2 z-[600] flex -translate-y-1/2 flex-col items-center gap-2.5">
             <button
               type="button"
@@ -15656,7 +15729,7 @@ export function App() {
             arrangement the driver's reference app uses). Stands down
             while guidance runs (the driving rail above takes the
             edge); every tool here is a planning-face tool. */}
-        {!drivingNow && (
+        {!drivingNow && !routeFullView && (
         <div className="absolute right-2 top-1/2 z-[600] flex -translate-y-1/2 flex-col items-center gap-2">
           <button
             type="button"
@@ -15758,7 +15831,7 @@ export function App() {
             Tap a pin to see it on the map; each pin offers Route,
             Rename, and Delete. Saving starts from a search result, a
             long-press on the map, or the button below (your position). */}
-        {showPlacesPanel && (
+        {showPlacesPanel && !routeFullView && (
           <div
             className="glass-panel animate-sheet absolute right-2 top-1/2 z-[600] max-h-[calc(100%-3rem)] w-[min(300px,calc(100vw-1rem))] -translate-y-1/2 overflow-y-auto p-3.5"
             role="dialog"
@@ -15875,7 +15948,7 @@ export function App() {
             )}
           </div>
         )}
-        {showLayers && (
+        {showLayers && !routeFullView && (
           <div
             className="glass-panel animate-sheet absolute right-2 top-12 z-[600] max-h-[calc(100%-4rem)] w-[min(320px,calc(100vw-1rem))] overflow-y-auto p-3.5"
             role="dialog"
@@ -16184,7 +16257,7 @@ export function App() {
             MOUNTED (display:none) so its fetch cadence and the
             wind-advisory reading it feeds never pause; the size
             toggle returns with the planning faces. */}
-        <div className="absolute right-2 z-[500] flex items-center gap-1.5" style={{ bottom: `calc(0.5rem + ${liftPx}px + var(--map-bottom-reserve))`, display: drivingNow ? "none" : undefined }}>
+        <div className="absolute right-2 z-[500] flex items-center gap-1.5" style={{ bottom: `calc(0.5rem + ${liftPx}px + var(--map-bottom-reserve))`, display: drivingNow || routeFullView ? "none" : undefined }}>
           {mapMode === "go" && pos && driveVis.has("weather") && (
             <GoWeatherChip pos={pos} routeCoords={selected?.coords ?? []} onReading={onGoWeatherReading} />
           )}
@@ -16205,7 +16278,7 @@ export function App() {
             say how far it is, and offer the one big Route button.
             Routing runs through the same routeToPoint as saved
             places, and flips the map to Go. */}
-        {mapMode === "explore" && selectedPoi && (
+        {mapMode === "explore" && selectedPoi && !routeFullView && (
           <div className="glass-panel animate-sheet absolute inset-x-2 bottom-[calc(0.5rem+var(--map-bottom-reserve))] z-[620] flex items-center gap-3 px-3.5 py-3" role="status" aria-label={`Selected place: ${selectedPoi.name}`}>
             <div className="min-w-0 flex-1">
               <div className="truncate font-condensed text-xl font-bold leading-tight">{selectedPoi.name}</div>
@@ -16288,7 +16361,7 @@ export function App() {
         )}
         {/* Dropped pin: a long-press / right-click dropped this pin —
             save it, route to it, or clear it. */}
-        {droppedPin && !selectedPoi && (
+        {droppedPin && !selectedPoi && !routeFullView && (
           <div className="glass-panel animate-sheet absolute inset-x-2 bottom-[calc(0.5rem+var(--map-bottom-reserve))] z-[620] flex items-center gap-3 px-3.5 py-3" role="status" aria-label="Dropped pin">
             <div className="min-w-0 flex-1">
               <div className="truncate font-condensed text-xl font-bold leading-tight">📍 Dropped pin</div>
@@ -16341,7 +16414,7 @@ export function App() {
         )}
         {/* Focused saved pin: tapping a saved pin (in the list or on
             the map) lands here — Route, Rename, Delete in one place. */}
-        {focusedPin && !selectedPoi && !droppedPin && (
+        {focusedPin && !selectedPoi && !droppedPin && !routeFullView && (
           <div className="glass-panel animate-sheet absolute inset-x-2 bottom-[calc(0.5rem+var(--map-bottom-reserve))] z-[620] px-3.5 py-3" role="status" aria-label={`Saved pin: ${focusedPin.name}`}>
             <div className="flex items-center gap-3">
               <div className="min-w-0 flex-1">
@@ -16443,8 +16516,20 @@ export function App() {
             the unpicked routes' grey LINES are tappable on the map
             itself (engine-level pixel hit test in mapEngine.ts) —
             chip, pin, line, and sheet row all make the same pick,
-            so the selection is reachable in every chooser shape. */}
-        {routeChooserOpen && routeChooserSheet === "peek" && routes.length > 0 && routingState === "idle" ? (
+            so the selection is reachable in every chooser shape.
+            SEE ROUTE — TRUE FULL SCREEN (driver report, 2026-11-24
+            evening: "Still cut half of the screen when you tap show
+            route instead of being full screen"): peek alone wasn't
+            full screen — on Routes/Stops the map is a strip in a
+            scrolling page, so the "full-map look" was half a screen
+            with page panels stacked under it. See route now enters
+            routeFullView: the map goes full-bleed (it already does
+            whenever this chooser is open), every other overlay
+            stands down, the fit frames the whole route plus every
+            chain pin, and the only furniture is a Back button and
+            the arrival/time/miles pill rendered at the end of the
+            map wrapper. Back restores this sheet exactly. */}
+        {routeChooserOpen && !routeFullView && routeChooserSheet === "peek" && routes.length > 0 && routingState === "idle" ? (
           <div
             className="glass-panel animate-sheet absolute inset-x-2 bottom-[calc(0.5rem+var(--map-bottom-reserve))] z-[640] p-2"
             role="dialog"
@@ -16506,7 +16591,7 @@ export function App() {
               </span>
             </div>
           </div>
-        ) : routeChooserOpen && (
+        ) : routeChooserOpen && !routeFullView && (
           <div
             className={`glass-panel animate-sheet absolute inset-x-2 bottom-[calc(0.5rem+var(--map-bottom-reserve))] z-[640] overflow-y-auto p-3 ${routeChooserSheet === "full" ? "max-h-[min(430px,62%)]" : "max-h-[min(320px,50%)]"}`}
             role="dialog"
@@ -16557,8 +16642,8 @@ export function App() {
                   </div>
                   <button
                     type="button"
-                    aria-label="See the picked route full-screen — drop this sheet to a slim bar"
-                    onClick={() => { tapFx(); setRouteChooserSheet("peek"); }}
+                    aria-label="See the picked route full screen — the map fills the whole screen with the whole route and its stops; Back returns to these choices"
+                    onClick={() => { tapFx(); enterRouteFullView(); }}
                     className="btn-press min-h-[44px] shrink-0 rounded-full bg-[var(--surface2)] border border-[var(--border)] px-3.5 py-2 text-xs font-bold"
                   >
                     👁 See route
@@ -16625,7 +16710,7 @@ export function App() {
                         type="button"
                         role="option"
                         aria-selected={isSel}
-                        aria-label={`Preview route ${i + 1} on the map above: ${fmtMi(r.miles)} miles, ${fmtDuration(r.minutes)}, arrives ${fmtClock(new Date(Date.now() + r.minutes * 60000))}, fuel ${fmtMoney(r.fuelCost)}, net ${fmtMoney(r.net)}${r.hasToll ? ", includes a toll road" : ""}`}
+                        aria-label={`Preview route ${i + 1} on the map above: ${fmtMi(r.miles)} miles, ${fmtDuration(r.minutes)}, arrives ${fmtClock(new Date(Date.now() + r.minutes * 60000))}, fuel ${fmtMoney(r.fuelCost)}, net ${fmtMoney(r.net)}${paySplitLabel(profile) ? ` figured ${paySplitLabel(profile)}` : ""}${r.hasToll ? ", includes a toll road" : ""}`}
                         onClick={() => { tapFx(); selectRoute(i); }}
                         className={`btn-press flex min-h-[52px] w-full items-center gap-2.5 rounded-2xl px-3 py-2 text-left ${
                           isSel ? "bg-[var(--surface2)]" : "bg-black/25"
@@ -16651,6 +16736,15 @@ export function App() {
                         <span className="shrink-0 text-right">
                           <span className={`block font-condensed text-xl font-bold leading-none ${r.net >= 0 ? "text-[var(--ok)]" : "text-[var(--danger)]"}`}>{fmtMoney(r.net)}</span>
                           <span className="block text-[10px] font-bold tracking-wide text-[var(--dim)]">NET PAY</span>
+                          {/* The split the net was figured at, named on
+                              the card itself (2026-11-24): the math
+                              reads his saved My-pay model — the same
+                              driverPayPct loadPayFigures uses — and
+                              the card now says so instead of letting
+                              the number read as the app's own call. */}
+                          {paySplitLabel(profile) && (
+                            <span className="block text-[10px] font-semibold text-[var(--dim)]">{paySplitLabel(profile)}</span>
+                          )}
                         </span>
                       </button>
                     );
@@ -16790,13 +16884,55 @@ export function App() {
           © OpenStreetMap contributors · OpenFreeMap · © CARTO
           {drawnMapStyle === "satellite" || drawnMapStyle === "hybrid" ? <> · Imagery © Esri, Maxar, Earthstar Geographics</> : null}
         </div>
+        {/* SEE ROUTE full view — the ONLY furniture on the map in
+            this mode: a Back control (restores the chooser exactly
+            as it was) and one pill carrying the picked route's three
+            numbers. Every other overlay in this wrapper stands down
+            while routeFullView is on (the gates above). */}
+        {routeFullView && selected && (
+          <>
+            <button
+              type="button"
+              className="btn-press absolute left-2 top-2 z-[700] flex min-h-[44px] items-center gap-1 rounded-full border border-[var(--border)] px-4 py-2.5 text-sm font-bold text-neutral-100"
+              style={{ backgroundColor: driveSolidBg(driveGlassLevel, "0, 0, 0"), boxShadow: "0 10px 26px rgba(0,0,0,0.55)", textShadow: "0 1px 3px rgba(0,0,0,0.6)" }}
+              aria-label="Back to the route choices — close the full-screen route view"
+              onClick={() => { tapFx(); exitRouteFullView(); }}
+            >
+              <span aria-hidden className="text-lg leading-none">‹</span> Back
+            </button>
+            <div
+              className="glass-panel absolute inset-x-2 z-[700] px-2 pb-2.5 pt-2"
+              style={{ bottom: "calc(0.5rem + env(safe-area-inset-bottom))" }}
+              role="status"
+              aria-label={`Route ${selectedRoute + 1} to ${destination?.label ?? "your destination"}: ${fmtMi(selected.miles)} miles, ${fmtDuration(selected.minutes)}, arriving ${fmtClock(new Date(Date.now() + selected.minutes * 60000))}`}
+            >
+              <div className="truncate px-2 pb-1 text-center text-xs font-bold text-[var(--dim)]">
+                Route {selectedRoute + 1}{destination?.label ? <> → {destination.label}</> : null}
+              </div>
+              <div className="flex items-end">
+                <div className="flex-1 text-center">
+                  <div className="font-condensed text-3xl font-bold leading-none tnum">{fmtClock(new Date(Date.now() + selected.minutes * 60000))}</div>
+                  <div className="mt-1 text-[10px] font-bold uppercase tracking-widest text-[var(--dim)]">Arrival</div>
+                </div>
+                <div className="flex-1 text-center">
+                  <div className="font-condensed text-3xl font-bold leading-none tnum">{fmtDuration(selected.minutes)}</div>
+                  <div className="mt-1 text-[10px] font-bold uppercase tracking-widest text-[var(--dim)]">Time left</div>
+                </div>
+                <div className="flex-1 text-center">
+                  <div className="font-condensed text-3xl font-bold leading-none tnum">{fmtMi(selected.miles)}</div>
+                  <div className="mt-1 text-[10px] font-bold uppercase tracking-widest text-[var(--dim)]">Miles left</div>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Drive panel bar — on Drive (normal map size) the panels live
           in a sheet over the full-screen map; this bar is the handle.
           It names what's inside so nothing is buried: one tap opens
           the route starter, hours, Fuel Coach, and places. */}
-      {showMap && tab === "drive" && mapSize !== "full" && (
+      {showMap && tab === "drive" && !mapFullBleed && (
         <button
           type="button"
           aria-expanded={drivePanelOpen}
@@ -16815,7 +16951,7 @@ export function App() {
           normal scrolling panel under the map strip. */}
       <main
         className={
-          tab === "drive" && mapSize !== "full"
+          tab === "drive" && !mapFullBleed
             ? drivePanelOpen
               ? "fixed inset-x-2 bottom-[calc(8.75rem+env(safe-area-inset-bottom))] z-[760] max-h-[62dvh] min-w-0 overflow-y-auto overflow-x-clip rounded-3xl border border-[var(--glass-border)] bg-[var(--bg)] shadow-[0_18px_44px_rgba(0,0,0,0.65)]"
               : "hidden"
@@ -19149,6 +19285,9 @@ export function App() {
                     <div className="min-w-0">
                       <div className={`font-condensed text-[22px] font-bold leading-tight min-[420px]:text-2xl ${r.net >= 0 ? "text-[var(--ok)]" : "text-[var(--danger)]"}`}>{fmtMoney(r.net)}</div>
                       <div className="text-[10px] tracking-wide text-[var(--dim)]">NET PAY</div>
+                      {paySplitLabel(profile) && (
+                        <div className="text-[10px] font-semibold text-[var(--dim)]">{paySplitLabel(profile)}</div>
+                      )}
                     </div>
                   </div>
                   <button
@@ -19858,6 +19997,40 @@ export function App() {
 
         {tab === "loads" && (
           <div className="animate-rise space-y-3 px-3 py-3">
+            {/* LOADS / MARKET PULSE top tabs (driver report,
+                2026-11-24: "Market pulse should have a tab instead
+                of taking up space"). The pulse panel used to sit
+                inline at the top of this screen as a full-page card;
+                now Loads (the default) shows loads only, and the
+                full unchanged panel lives behind its own tab. */}
+            <div className="grid grid-cols-2 gap-2" role="tablist" aria-label={tr("Loads screen sections", "Secciones de la pantalla de cargas")}>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={loadsTopTab === "loads"}
+                onClick={() => { tapFx(); setLoadsTopTab("loads"); }}
+                className={`rounded-xl py-3 text-sm font-bold ${loadsTopTab === "loads" ? "bg-[var(--accent)] text-black" : "bg-[var(--surface2)] border border-[var(--border)]"}`}
+              >
+                📦 {tr("Loads", "Cargas")}
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={loadsTopTab === "pulse"}
+                onClick={() => { tapFx(); setLoadsTopTab("pulse"); }}
+                className={`rounded-xl py-3 text-sm font-bold ${loadsTopTab === "pulse" ? "bg-[var(--accent)] text-black" : "bg-[var(--surface2)] border border-[var(--border)]"}`}
+              >
+                📈 {tr("Market Pulse", "Pulso del mercado")}
+              </button>
+            </div>
+            {loadsTopTab === "pulse" ? (
+              marketPulseQuery.data ? (
+                <MarketPulseCard pulse={marketPulseQuery.data.pulse} />
+              ) : (
+                <p className="py-6 text-center text-sm text-[var(--dim)]">{tr("Market Pulse is loading…", "Cargando el pulso del mercado…")}</p>
+              )
+            ) : (
+              <>
             {/* LOADS WORKSPACE label (2026-11-15): the Loads door on
                 Today lands here — the tab's home carries its name. */}
             <p className="px-1 text-xs font-bold uppercase tracking-widest text-[var(--dim)]">{tr("📦 Loads workspace — find it, book it, haul it", "📦 Espacio de cargas — encuéntrala, resérvala, llévala")}</p>
@@ -19915,12 +20088,9 @@ export function App() {
                 </section>
               );
             })()}
-            {/* Market Pulse — the same weekly spot-rate context as
-                Today, at the top of Loads where load-judging happens
-                (2026-11-04). Flatbed first; labelled context only. */}
-            {marketPulseQuery.data && (
-              <MarketPulseCard pulse={marketPulseQuery.data.pulse} />
-            )}
+            {/* Market Pulse moved behind the Market Pulse tab at
+                the top of this screen (2026-11-24) — it no longer
+                sits inline here. The Today tab keeps its own card. */}
             {/* LOADS SEGMENTED SWITCH (Phase 2 consolidation,
                 2026-11-12): ONE simple switch at the top — My Loads /
                 Tracker / Boards. The board family (Fleet Board, Open
@@ -20730,6 +20900,8 @@ export function App() {
             <div id="facility-memory" className="scroll-mt-4">
               <AdvisorPanel setBanner={setBanner} lang={lang} />
             </div>
+              </>
+            )}
           </div>
         )}
 
