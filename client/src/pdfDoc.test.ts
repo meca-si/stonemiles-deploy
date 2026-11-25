@@ -36,6 +36,8 @@ function foundPage(over: Partial<LoadExtractResult> = {}): LoadExtractResult {
     found: true,
     docKind: "rate_con",
     shipper: null,
+    consignee: null,
+    carrier: null,
     brokerCompany: null,
     brokerName: null,
     brokerMc: null,

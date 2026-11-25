@@ -124,6 +124,8 @@ function emptyExtractResult(): LoadExtractResult {
     found: false,
     docKind: null,
     shipper: null,
+    consignee: null,
+    carrier: null,
     brokerCompany: null,
     brokerName: null,
     brokerMc: null,

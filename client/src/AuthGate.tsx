@@ -26,8 +26,10 @@
 //   screen says so and points at the invite link flow — there is no
 //   public signup form anywhere in this component, by design.
 // - Session pending TOTP (D7: owner + team seats) → code screen.
-// - Signed in → children + a compact account bar (email, sign out, and
-//   for the owner: invite desk + tester completion list).
+// - Signed in → children in a full-height column + a compact account
+//   strip in the layout flow beneath the app (email, sign out, and
+//   for the owner: invite desk + tester completion list behind the
+//   Account button). The strip never floats over the workspaces.
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
@@ -1001,27 +1003,33 @@ function AccountBar({ me, refresh }: { me: MeState; refresh: () => void }) {
     refresh();
   };
   if (deviceSignOutMark) return null;
+  // In-flow strip (2026-11-24 fix): this bar used to FLOAT
+  // (position:fixed, bottom-right, zIndex 9999) over the app's own
+  // bottom tab row — it covered the Money / More tabs and whatever
+  // content scrolled beneath it. It now sits in the normal layout
+  // flow as the bottom row of AuthGate's column, under the app, and
+  // can never overlap workspace content. The desks it carries open
+  // as a full-screen sheet the user taps into, not an overlay that
+  // lives on top of the app.
   return (
-    <div
-      style={{
-        position: "fixed",
-        right: 10,
-        bottom: 10,
-        zIndex: 9999,
-        background: "#0b1226ee",
-        border: "1px solid #1d2a4a",
-        borderRadius: 12,
-        padding: "8px 12px",
-        color: "#e8ecf4",
-        fontFamily: "system-ui, sans-serif",
-        maxWidth: "min(400px, calc(100vw - 20px))",
-      }}
-    >
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <span style={{ fontSize: 12, color: "#9fb0d0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+    <>
+      <div
+        style={{
+          flex: "none",
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          background: "#0b1226",
+          borderTop: "1px solid #1d2a4a",
+          padding: "6px 12px",
+          color: "#e8ecf4",
+          fontFamily: "system-ui, sans-serif",
+        }}
+      >
+        <span style={{ fontSize: 12, color: "#9fb0d0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
           {me.account?.email} {me.account?.isOwner ? "· owner" : ""}
         </span>
-        <button style={{ ...ghostButton, marginTop: 0 }} onClick={() => setOpen(!open)}>
+        <button style={{ ...ghostButton, marginTop: 0 }} onClick={() => setOpen(true)}>
           Account
         </button>
         <button style={{ ...ghostButton, marginTop: 0 }} onClick={() => void signOut()}>
@@ -1029,12 +1037,33 @@ function AccountBar({ me, refresh }: { me: MeState; refresh: () => void }) {
         </button>
       </div>
       {open && (
-        <>
+        <div
+          role="dialog"
+          aria-label="Account"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 9999,
+            overflowY: "auto",
+            background: "#050a1a",
+            color: "#e8ecf4",
+            fontFamily: "system-ui, sans-serif",
+            padding: "16px 14px 32px",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+            <span style={{ fontSize: 13, color: "#9fb0d0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {me.account?.email} {me.account?.isOwner ? "· owner" : ""}
+            </span>
+            <button style={{ ...ghostButton, marginTop: 0 }} onClick={() => setOpen(false)}>
+              ✕ Close
+            </button>
+          </div>
           <OwnerDesk me={me} />
           <PasskeyDesk />
-        </>
+        </div>
       )}
-    </div>
+    </>
   );
 }
 
@@ -1076,7 +1105,19 @@ export function AuthGate({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   if (me === null) return null;
-  if (!me.gateEnforced) return <>{children}</>;
+  // The app renders inside a full-height column so the account strip
+  // can live in the layout flow beneath it (2026-11-24): the app
+  // root is height:100% of the flex child, the strip takes its own
+  // row, and nothing floats over the workspaces. The not-enforced
+  // posture gets the same column (without the strip) so the app's
+  // height resolves identically either way.
+  const column = (withBar: boolean) => (
+    <div style={{ display: "flex", flexDirection: "column", height: "100dvh" }}>
+      <div style={{ flex: 1, minHeight: 0 }}>{children}</div>
+      {withBar && <AccountBar me={me} refresh={() => void refresh()} />}
+    </div>
+  );
+  if (!me.gateEnforced) return column(false);
   if (!me.signedIn) {
     gateFormSeenThisLoad = true;
     markAuthFormSeen();
@@ -1087,10 +1128,5 @@ export function AuthGate({ children }: { children: ReactNode }) {
     markAuthFormSeen();
     return <TotpScreen onDone={() => void refresh()} />;
   }
-  return (
-    <>
-      {children}
-      <AccountBar me={me} refresh={() => void refresh()} />
-    </>
-  );
+  return column(true);
 }

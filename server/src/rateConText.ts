@@ -26,6 +26,8 @@ export interface RateConTextFields {
   found: boolean;
   docKind: "rate_con" | "bol" | "load_sheet" | "other" | null;
   shipper: string | null;
+  consignee: string | null;
+  carrier: string | null;
   brokerCompany: string | null;
   brokerName: string | null;
   brokerMc: string | null;
@@ -58,6 +60,8 @@ export const EMPTY_RATE_CON_TEXT_FIELDS: RateConTextFields = {
   found: false,
   docKind: null,
   shipper: null,
+  consignee: null,
+  carrier: null,
   brokerCompany: null,
   brokerName: null,
   brokerMc: null,
@@ -127,6 +131,60 @@ function firstText(lines: string[], label: RegExp): string | null {
   return null;
 }
 
+/** True when a line is itself a field label or section furniture, so
+ *  it can never be a label's VALUE. Label/value-on-separate-lines
+ *  layouts (the BVB con: "LOAD NUMBER" alone, the number on the next
+ *  line) need this guard or the next label down gets read as the
+ *  previous label's value. */
+function isLabelLine(line: string): boolean {
+  const t = line.trim();
+  if (!t) return true;
+  if (/^(load|order|shipment|trip|ref(?:erence)?)\s*(#|no\.?|number|id)$/i.test(t)) return true;
+  if (/^(broker|carrier|shipper|consignee)\s+(name|phone|mc\s*#?|company|name and address)$/i.test(t)) return true;
+  if (/^(shipper|consignee)\s+—\s+(pickup|delivery)$/i.test(t)) return true;
+  if (/^(shipper|consignee) name and address$/i.test(t)) return true;
+  if (/^(pickup|delivery) instructions$/i.test(t)) return true;
+  if (/^(shipper|consignee) references$/i.test(t)) return true;
+  if (/^expected date\b/i.test(t)) return true;
+  if (/^(equipment type|shipment information|carrier fees|signature date|load accepted by|driver name|cell phone|truck #|trailer #|date|signature)$/i.test(t)) return true;
+  if (/^(p\.?o\.?|purchase order|pro|seal)\s*(#|no\.?|number)?$/i.test(t)) return true;
+  return false;
+}
+
+/** A label's value when the layout prints label and value on
+ *  SEPARATE lines: the same-line remainder when there is one, else
+ *  the first following line that is not itself a label. */
+function nextLineValue(lines: string[], label: RegExp): string | null {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line === undefined || !label.test(line)) continue;
+    const same = afterLabel(line, label);
+    if (same) return same;
+    for (let j = i + 1; j < Math.min(i + 3, lines.length); j++) {
+      const cand = lines[j];
+      if (cand === undefined) continue;
+      if (isLabelLine(cand)) return null;
+      return cand;
+    }
+    return null;
+  }
+  return null;
+}
+
+/** Itemized-charge money: the line must carry a printed $ amount.
+ *  Without the $ guard, the bare-number fallback reads PROSE — the
+ *  BVB terms' clause "11. THE BROKER WILL NOT PAY DETENTION OR
+ *  LAYOVER CHARGES." came back as an $11 detention charge. */
+function firstChargeMoney(lines: string[], label: RegExp): number | null {
+  for (const line of lines) {
+    if (label.test(line) && /\$/.test(line)) {
+      const v = moneyOn(line);
+      if (v != null) return v;
+    }
+  }
+  return null;
+}
+
 function dateNear(lines: string[], label: RegExp): string | null {
   const withTime = (line: string): string | null => {
     const d = DATE.exec(line);
@@ -165,11 +223,21 @@ interface Section {
 }
 
 /** City/state (and the street line just above it, when it looks like
- *  a street address) inside one section's lines. */
+ *  a street address) inside one section's lines. Layouts that print
+ *  an explicit "Address: …" line (the BVB con) are read from that
+ *  line — it beats the line-above heuristic, which would otherwise
+ *  grab the facility name line sitting over the city line. */
 function sectionPlace(lines: string[]): Section {
+  let labelledAddress: string | null = null;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (line === undefined) continue;
+    const am = /^address\s*:\s*(.+)$/i.exec(line);
+    if (am && labelledAddress == null) {
+      const v = am[1]!.trim().replace(/\.$/, "").trim();
+      if (v) labelledAddress = v;
+      continue;
+    }
     const m = CITY_STATE_ZIP.exec(line);
     if (m) {
       let address: string | null = null;
@@ -181,10 +249,10 @@ function sectionPlace(lines: string[]): Section {
       }
       const inline = line.slice(0, m.index).trim();
       if (!address && /^\d+\s+\S/.test(inline)) address = inline;
-      return { city: m[1]!.trim(), state: m[2]!, address };
+      return { city: m[1]!.trim(), state: m[2]!, address: labelledAddress ?? address };
     }
   }
-  return { city: null, state: null, address: null };
+  return { city: null, state: null, address: labelledAddress };
 }
 
 /** Split the document into pickup / delivery sections by their
@@ -221,22 +289,34 @@ export function parseRateConText(rawText: string): RateConTextFields {
   else if (/bill of lading/i.test(whole)) out.docKind = "bol";
   else if (/load (tender|sheet|offer)/i.test(whole)) out.docKind = "load_sheet";
 
-  // Reference numbers — labelled only.
+  // Reference numbers — labelled only. Label/value-on-separate-lines
+  // layouts resolve through nextLineValue (same-line still wins).
   out.loadNumber =
-    firstText(lines, /\b(load|order|shipment|trip|ref(?:erence)?)\s*(#|no\.?|number|id)\b/i) ??
-    firstText(lines, /\b(load|order|shipment)\s*#/i);
-  out.poNumber = firstText(lines, /\b(p\.?o\.?|purchase order)\s*(#|no\.?|number)?\b/i);
-  out.proNumber = firstText(lines, /\bpro\s*(#|no\.?|number)\b/i);
-  const mc = /\bMC\s*#?\s*:?\s*(\d{5,8})\b/.exec(whole);
-  out.brokerMc = mc?.[1] ?? null;
+    nextLineValue(lines, /\b(load|order|shipment|trip|ref(?:erence)?)\s*(#|no\.?|number|id)\b/i) ??
+    nextLineValue(lines, /\b(load|order|shipment)\s*#/i);
+  out.poNumber = nextLineValue(lines, /\b(p\.?o\.?|purchase order)\s*(#|no\.?|number)?\b/i);
+  out.proNumber = nextLineValue(lines, /\bpro\s*(#|no\.?|number)\b/i);
+  // The broker's MC: the first MC number printed on a line that is
+  // not the CARRIER's line. (The BVB con prints the carrier's MC as a
+  // label/value pair and the broker's on its own letterhead — the old
+  // whole-text first-match read the carrier's 326661 as the broker's.)
+  out.brokerMc = null;
+  for (const line of lines) {
+    const mm = /\bMC\s*#?\s*:?\s*(\d{5,8})\b/.exec(line);
+    if (mm && !/carrier/i.test(line)) {
+      out.brokerMc = mm[1]!;
+      break;
+    }
+  }
 
-  // Money — rate / total / itemized charges, all label-led.
-  out.chargesFuelSurcharge = firstMoney(lines, /fuel surcharge/i);
-  out.chargesDetention = firstMoney(lines, /detention/i);
-  out.chargesLumper = firstMoney(lines, /lumper/i);
-  out.chargesOther = firstMoney(lines, /(other charges|accessorial(?!.*total))/i);
-  out.chargesTotal = firstMoney(lines, /(total (accessorial|additional|charges)|accessorial total)/i);
-  out.totalPay = firstMoney(lines, /(grand total|total pay|total amount|total rate|total due|total:)/i);
+  // Money — rate / total / itemized charges, all label-led. The
+  // itemized charges require a printed $ on the line (prose guard).
+  out.chargesFuelSurcharge = firstChargeMoney(lines, /fuel surcharge/i);
+  out.chargesDetention = firstChargeMoney(lines, /detention/i);
+  out.chargesLumper = firstChargeMoney(lines, /lumper/i);
+  out.chargesOther = firstChargeMoney(lines, /(other charges|accessorial(?!.*total))/i);
+  out.chargesTotal = firstChargeMoney(lines, /(total (accessorial|additional|charges)|accessorial total)/i);
+  out.totalPay = firstMoney(lines, /(grand total|total pay|total amount|total rate|total due|total cost|total:)/i);
   out.rate =
     firstMoney(lines, /(linehaul|flat rate|load rate|rate\s*\/|rate:)/i) ??
     firstMoney(lines, /^(rate|amount)\b/i);
@@ -274,40 +354,79 @@ export function parseRateConText(rawText: string): RateConTextFields {
   out.commodity =
     firstText(lines, /\b(commodity|freight|product|description of goods|goods)\s*:/i) ??
     firstText(lines, /\b(commodity|freight)\b/i);
+  // A shipment TABLE HEADER is not a commodity: the BVB table's
+  // header row ("… COMMODITY DESCRIPTION LTL ONLY", with its NMFC /
+  // HANDLING UNIT columns) read back as the freight itself.
+  if (out.commodity && /(ltl only|nmfc|handling unit)/i.test(out.commodity)) {
+    out.commodity = null;
+  }
 
   // Seal — never from anything but its own label.
-  out.sealNumber = firstText(lines, /\bseal\s*(#|no\.?|number)\b/i);
+  out.sealNumber = nextLineValue(lines, /\bseal\s*(#|no\.?|number)\b/i);
 
   // Parties — the line after a "Broker:" / "Carrier:" style label is
   // the brokerage on most cons; the shipper name rides the pickup
   // section's first non-address line when it isn't the city line.
   out.brokerCompany =
-    firstText(lines, /\bbroker\s*:/i) ?? firstText(lines, /\bbroker company\b/i);
-  out.brokerName = firstText(lines, /\b(broker contact|dispatcher|agent)\s*:/i);
+    nextLineValue(lines, /\bbroker\s*:/i) ?? nextLineValue(lines, /\bbroker company\b/i);
+  out.brokerName =
+    nextLineValue(lines, /\b(broker contact|dispatcher|agent)\s*:/i) ??
+    nextLineValue(lines, /\bbroker\s+name\b/i);
+  out.carrier = nextLineValue(lines, /\bcarrier\s+name\b/i);
+  // Broker company from the letterhead when no label names it: the
+  // company-style line (LLC / INC / CORP) just above the broker MC
+  // line (the BVB con's page-2 letterhead: "BVB EXPRESS LLC" over
+  // "MC 1164350").
+  if (!out.brokerCompany && out.brokerMc) {
+    const mcIdx = lines.findIndex((l) => /\bMC\s*#?\s*:?\s*(\d{5,8})\b/.test(l) && !/carrier/i.test(l));
+    if (mcIdx > 0) {
+      for (let j = mcIdx - 1; j >= Math.max(0, mcIdx - 6); j--) {
+        const cand = lines[j]!;
+        if (/\b(LLC|L\.L\.C\.|INC|CORP|LTD)\b/i.test(cand) && !/rate confirmation/i.test(cand)) {
+          out.brokerCompany = cand;
+          break;
+        }
+      }
+    }
+  }
 
   const { pickup, delivery } = splitSections(lines);
+  // The facility name inside a section: the first line after the
+  // heading that is not the street/city line and not a labelled
+  // field. "CODE-- City" lines (BVB prints "BRWY-- Jacksonville"):
+  // when the part after -- is just the city, the CODE is the
+  // facility name; when it is a multiword name, that name is.
+  const sectionName = (section: string[], city: string | null): string | null => {
+    for (const line of section.slice(1)) {
+      if (CITY_STATE_ZIP.test(line)) break;
+      if (/^address\s*:/i.test(line)) continue;
+      if (/name and address/i.test(line)) continue;
+      if (/^expected date\b/i.test(line)) break;
+      if (/instructions/i.test(line)) break;
+      if (/^\d+\s+\S/.test(line)) continue;
+      if (/:/.test(line)) continue;
+      const dash = /^([A-Za-z0-9]{2,8})--\s*(.+)$/.exec(line);
+      if (dash) {
+        const rest = dash[2]!.trim();
+        return city && rest.toLowerCase() === city.toLowerCase() ? dash[1]! : rest;
+      }
+      if (line.length >= 3) return line;
+    }
+    return null;
+  };
   if (pickup) {
     const s = sectionPlace(pickup);
     out.pickupCity = s.city;
     out.pickupState = s.state;
     out.pickupAddress = s.address;
-    // Shipper name: the first section line after the heading that is
-    // not the street/city line and not a labelled field.
-    for (const line of pickup.slice(1)) {
-      if (CITY_STATE_ZIP.test(line)) break;
-      if (/^\d+\s+\S/.test(line)) continue;
-      if (/:/.test(line)) continue;
-      if (line.length >= 3) {
-        out.shipper = line;
-        break;
-      }
-    }
+    out.shipper = sectionName(pickup, s.city);
   }
   if (delivery) {
     const s = sectionPlace(delivery);
     out.deliveryCity = s.city;
     out.deliveryState = s.state;
     out.deliveryAddress = s.address;
+    out.consignee = sectionName(delivery, s.city);
   }
   if (!pickup && !delivery) {
     // No sections: first two city/state shapes in order.
@@ -335,6 +454,29 @@ export function parseRateConText(rawText: string): RateConTextFields {
     if (dates[0]) out.pickupText = dates[0];
     if (dates[1]) out.deliveryText = dates[1];
   }
+
+  // Appointment times that ride alone under an INSTRUCTIONS heading
+  // (the BVB con: "PICKUP INSTRUCTIONS" then a bare "9PM") join the
+  // date text, so the appointment carries its hour — the Schedule
+  // calendar reads the combined text. Only a bare time line counts;
+  // prose under the heading is never mined for a time.
+  const sectionBareTime = (section: string[] | null): string | null => {
+    if (!section) return null;
+    for (let i = 0; i < section.length; i++) {
+      if (!/instructions/i.test(section[i]!)) continue;
+      for (let j = i + 1; j < Math.min(i + 3, section.length); j++) {
+        const t = section[j]!.trim();
+        if (/^\d{1,2}(:\d{2})?\s*(AM|PM)$/i.test(t)) return t.replace(/\s+/g, "");
+        if (t) break;
+      }
+    }
+    return null;
+  };
+  const hasTime = (s: string) => /(AM|PM)|\d{1,2}:\d{2}/i.test(s);
+  const pTime = sectionBareTime(pickup);
+  if (pTime && out.pickupText && !hasTime(out.pickupText)) out.pickupText = `${out.pickupText} ${pTime}`;
+  const dTime = sectionBareTime(delivery);
+  if (dTime && out.deliveryText && !hasTime(out.deliveryText)) out.deliveryText = `${out.deliveryText} ${dTime}`;
 
   // A single printed total with no itemized charges IS the rate on
   // most flat-rate cons — but only when the document carries freight

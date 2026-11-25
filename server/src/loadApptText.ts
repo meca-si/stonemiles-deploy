@@ -5,11 +5,17 @@
 // instead of only at the moment the load was typed in.
 //
 // Honesty rules: a string with no recognizable date yields null —
-// nothing is invented. A date with no time lands at 12:00 UTC so it
-// stays on the same calendar day in every US timezone. A stated
-// time is taken as the wall time printed on the document (rate-con
-// times are facility-local; the calendar renders the instant, and
-// the DAY is what the driver checks first).
+// nothing is invented. A date with no time lands at 12:00 wall time
+// so it stays on the same calendar day in the reader's timezone. A
+// stated time is the WALL time the driver typed / the document
+// printed, in the reader's own timezone: the caller hands in the
+// device's UTC offset (the getInspectionPacket utcOffsetMinutes
+// pattern) and the instant is built from it. (Before 2026-11-24 the
+// wall time was built as UTC, so a 9:00 PM pickup showed on the
+// Schedule at 4:00 PM Eastern — five hours early.) The offset is
+// the one in force when the calendar is read; an appointment that
+// straddles a DST change can sit an hour off, which is still the
+// entered day and near the entered hour — never five hours early.
 
 const MONTHS: Record<string, number> = {
   jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6,
@@ -53,40 +59,48 @@ function timeIn(text: string): { h: number; m: number } | null {
   return null;
 }
 
-function buildMs(year: number, month: number, day: number, time: { h: number; m: number } | null): number | null {
+function buildMs(year: number, month: number, day: number, time: { h: number; m: number } | null, utcOffsetMinutes: number): number | null {
   if (month < 1 || month > 12 || day < 1 || day > 31 || year < 2000 || year > 2100) return null;
-  const ms = Date.UTC(year, month - 1, day, time ? time.h : 12, time ? time.m : 0);
-  // Reject rollovers (e.g. Feb 31 → Mar 3).
-  const d = new Date(ms);
+  // The wall time is built as if UTC, then shifted by the reader's
+  // offset (Date.getTimezoneOffset semantics: minutes to add to the
+  // wall time to reach UTC — +300 for Eastern standard).
+  const ms = Date.UTC(year, month - 1, day, time ? time.h : 12, time ? time.m : 0) + utcOffsetMinutes * 60_000;
+  // Reject rollovers (e.g. Feb 31 → Mar 3) — checked on the wall
+  // clock, i.e. the unshifted UTC fields.
+  const d = new Date(ms - utcOffsetMinutes * 60_000);
   if (d.getUTCFullYear() !== year || d.getUTCMonth() !== month - 1 || d.getUTCDate() !== day) return null;
   return ms;
 }
 
 /** Parse an appointment date (+ optional time) out of free text.
- *  Epoch ms, or null when the text carries no usable date. */
-export function parseLoadApptText(text: string | null | undefined): number | null {
+ *  Epoch ms, or null when the text carries no usable date.
+ *  `utcOffsetMinutes` is the reading device's offset in
+ *  Date.getTimezoneOffset() semantics (default 0 = the pre-fix UTC
+ *  reading, kept for callers that have no device to ask). */
+export function parseLoadApptText(text: string | null | undefined, utcOffsetMinutes = 0): number | null {
   if (!text) return null;
   const t = text.trim();
   if (!t) return null;
+  const off = Number.isFinite(utcOffsetMinutes) ? Math.max(-840, Math.min(840, Math.round(utcOffsetMinutes))) : 0;
 
   // ISO: 2026-11-24 (optionally with a T/space time after it — the
   // T is a word character, so the guard is "not a digit", not \b).
   let m = /(?<!\d)(\d{4})-(\d{1,2})-(\d{1,2})(?!\d)/.exec(t);
-  if (m) return buildMs(Number(m[1]), Number(m[2]), Number(m[3]), timeIn(t));
+  if (m) return buildMs(Number(m[1]), Number(m[2]), Number(m[3]), timeIn(t), off);
 
   // US numeric: 11/24/2026, 11/24/26, 11-24-2026.
   m = /\b(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})(?!\d)/.exec(t);
   if (m) {
     let year = Number(m[3]);
     if (year < 100) year += 2000;
-    return buildMs(year, Number(m[1]), Number(m[2]), timeIn(t));
+    return buildMs(year, Number(m[1]), Number(m[2]), timeIn(t), off);
   }
 
   // Month name: Nov 24, 2026 / November 24 2026 / 24 Nov 2026.
   m = /\b(jan|feb|mar|apr|may|jun|jul|aug|sept?|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?\s*,?\s*(\d{4})\b/i.exec(t);
-  if (m) return buildMs(Number(m[3]), MONTHS[m[1]!.toLowerCase()]!, Number(m[2]), timeIn(t));
+  if (m) return buildMs(Number(m[3]), MONTHS[m[1]!.toLowerCase()]!, Number(m[2]), timeIn(t), off);
   m = /\b(\d{1,2})(?:st|nd|rd|th)?\s+(jan|feb|mar|apr|may|jun|jul|aug|sept?|oct|nov|dec)[a-z]*\.?\s*,?\s*(\d{4})\b/i.exec(t);
-  if (m) return buildMs(Number(m[3]), MONTHS[m[2]!.toLowerCase()]!, Number(m[1]), timeIn(t));
+  if (m) return buildMs(Number(m[3]), MONTHS[m[2]!.toLowerCase()]!, Number(m[1]), timeIn(t), off);
 
   return null;
 }

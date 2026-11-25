@@ -1883,6 +1883,15 @@ export const loads = pgTable("loads", {
   // broker_link | board_post | manual | null (unknown / predates capture)
   brokerSource: text("broker_source"),
   brokerLinkId: integer("broker_link_id"),
+  // Load identity fields (migration 0144 / pg 0037): the load's own
+  // printed number, street addresses, consignee, carrier, and free
+  // notes as real columns. All null on older loads.
+  loadNumber: text("load_number"),
+  pickupAddress: text("pickup_address"),
+  deliveryAddress: text("delivery_address"),
+  consignee: text("consignee"),
+  carrier: text("carrier"),
+  notes: text("notes"),
   // Trailer Package (migration 0101) — per-load trailer records:
   // Loaded height in total inches, recorded by the driver at load
   // time (open decks especially — every load rides at its own

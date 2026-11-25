@@ -222,9 +222,12 @@ import {
   rankFuelStops,
   resolveEldSlot,
   resolveTankReading,
+  tankSourceLabel,
   type DriverStop,
   type PlannerCandidate,
 } from "./stopPlanner";
+import { LoadFlowPanel, type FlowRouteInfo } from "./LoadFlowPanel";
+import { loadPayFigures, readStoredTankPct, storeTankPct } from "./loadFlow";
 import { selectAutoAddStops, type AutoAddStop } from "./autoAddStops";
 import { parkingFitFor, PARKING_FIT_LABEL } from "./parkingFit";
 import { eldIdentitySections, eldIdentityStamp } from "./eldIdentity";
@@ -1069,6 +1072,12 @@ type LoadDraft = {
   pickupAddress: string;
   deliveryAddress: string;
   pieces: string;
+  // Load identity fields (migration 0144): real columns on the load
+  // since 2026-11-24 — the delivery party, the carrier the load runs
+  // under, and free notes (broker terms and the like).
+  consignee: string;
+  carrier: string;
+  notes: string;
 };
 
 const EMPTY_LOAD_DRAFT: LoadDraft = {
@@ -1098,6 +1107,9 @@ const EMPTY_LOAD_DRAFT: LoadDraft = {
   pickupAddress: "",
   deliveryAddress: "",
   pieces: "",
+  consignee: "",
+  carrier: "",
+  notes: "",
 };
 
 /** The Add-a-load form's persisted snapshot, parsed once per page
@@ -1148,6 +1160,14 @@ function loadGrossOf(l: { rate: number | null; extraCharges: number }): number |
 /** The driver's cut of a load at pct% — exact cents. */
 function percentCut(pct: number, gross: number): number {
   return Math.round(gross * pct) / 100;
+}
+
+/** How a load is named on screen: by its own printed load number
+ *  (migration 0144) when it carries one — "Load #31229" — else the
+ *  internal id. Before the column existed every surface fell back
+ *  to the id, so the driver's real load showed as "Load #2". */
+function loadLabel(l: { id: number; loadNumber?: string | null }): string {
+  return l.loadNumber ? `Load #${l.loadNumber}` : `Load #${l.id}`;
 }
 
 // LOCKED PLAN PRICING (set by x, 2026-10-22 — mirrors the pricing note
@@ -9446,6 +9466,13 @@ export function App() {
 
   const [loadDraft, setLoadDraft] = useState<LoadDraft>(() => restoredLoadForm()?.draft ?? EMPTY_LOAD_DRAFT);
   const [editingLoadId, setEditingLoadId] = useState<number | null>(() => restoredLoadForm()?.editingId ?? null);
+  // The load-flow panel (2026-11-24): the saved load's info screen —
+  // pay, fuel, route chain in taps. Set on every successful save and
+  // from a load card's "Load info & fuel" button.
+  const [flowLoadId, setFlowLoadId] = useState<number | null>(null);
+  // Bumped when the driver saves a tank level in the flow, so the
+  // panel re-reads the shared tank memory (tgps-planner-tank).
+  const [tankNonce, setTankNonce] = useState(0);
   const [pendingDoc, setPendingDoc] = useState<{ base64: string; mime: string } | null>(() => restoredLoadForm()?.pendingDoc ?? null);
   // What Meca's scan read classified the pending document as — passed
   // to saveLoad so the confirmed copy filed in the user's Files (and
@@ -9697,6 +9724,9 @@ export function App() {
       pickupAddress: result.pickupAddress ?? "",
       deliveryAddress: result.deliveryAddress ?? "",
       pieces: result.pieces != null ? String(Math.round(result.pieces)) : "",
+      consignee: result.consignee ?? "",
+      carrier: result.carrier ?? "",
+      notes: "",
     });
     // The review: what the paper showed, what it didn't, and the
     // one arithmetic cross-check the read can run on itself — the
@@ -9708,6 +9738,8 @@ export function App() {
       else missing.push(label);
     };
     check("Shipper", !!result.shipper, result.shipper ?? undefined);
+    check("Consignee", !!result.consignee, result.consignee ?? undefined);
+    check("Carrier", !!result.carrier, result.carrier ?? undefined);
     check("Broker", !!(result.brokerCompany || result.brokerName), [result.brokerCompany, result.brokerName].filter(Boolean).join(" — ") || undefined);
     check("Load #", !!result.loadNumber, result.loadNumber ?? undefined);
     check("Pickup", !!(result.pickupCity || result.pickupAddress), [result.pickupAddress, result.pickupCity, result.pickupState].filter(Boolean).join(", ") || undefined);
@@ -9944,6 +9976,17 @@ export function App() {
         docDeliveryAddress: clean(d.deliveryAddress),
         docPieces: num(d.pieces) != null ? Math.round(num(d.pieces)!) : null,
         docKind: pendingDocKind,
+        // Load identity fields (migration 0144): the same values as
+        // REAL load columns, written on every save — the doc* inputs
+        // above only land in the snapshot when a document is
+        // attached, which is how a typed LOAD # and typed street
+        // addresses used to vanish.
+        loadNumber: clean(d.loadNumber),
+        pickupAddress: clean(d.pickupAddress),
+        deliveryAddress: clean(d.deliveryAddress),
+        consignee: clean(d.consignee),
+        carrier: clean(d.carrier),
+        notes: clean(d.notes),
       },
       {
         onSuccess: (res) => {
@@ -9954,6 +9997,11 @@ export function App() {
           setPendingDocKind(null);
           setExtractNote(null);
           setScanReview(null);
+          // The flow (x's order, 2026-11-24): a saved load OPENS —
+          // straight to its info screen with the fuel + pay chain,
+          // never dumped back into the long Loads workspace to hunt
+          // for it. The panel reads the load from the refreshed list.
+          setFlowLoadId(res.id);
           if (hadDoc && res.copies.filed) {
             const bits: string[] = ["Load saved — the confirmed document is filed in your Files (below, Filed document copies)."];
             if (res.copies.off) bits.push("Load-document email copies are turned off in Document copies settings, so this one was filed only.");
@@ -10010,12 +10058,18 @@ export function App() {
       hazmat: l.hazmat ?? false,
       equipmentType: l.equipmentType ?? "",
       trailerNumber: l.trailerNumber ?? "",
-      loadNumber: "",
+      // The identity fields read back off the load row (migration
+      // 0144) — before the columns existed these reopened blank
+      // every time, which read as "the app dropped my LOAD #".
+      loadNumber: l.loadNumber ?? "",
       poNumber: "",
       proNumber: "",
-      pickupAddress: "",
-      deliveryAddress: "",
+      pickupAddress: l.pickupAddress ?? "",
+      deliveryAddress: l.deliveryAddress ?? "",
       pieces: "",
+      consignee: l.consignee ?? "",
+      carrier: l.carrier ?? "",
+      notes: l.notes ?? "",
     });
   };
 
@@ -10025,10 +10079,15 @@ export function App() {
       return;
     }
     setBanner("Finding the pickup and delivery…");
-    const from = await geocodePlace(`${l.pickupCity}, ${l.pickupState ?? ""}`);
-    const to = await geocodePlace(`${l.deliveryCity}, ${l.deliveryState ?? ""}`);
+    // Street addresses (migration 0144) route to the actual dock,
+    // not the city center — the full address goes to the geocoder
+    // whenever the load carries one.
+    const fromQuery = l.pickupAddress ? `${l.pickupAddress}, ${l.pickupCity}, ${l.pickupState ?? ""}` : `${l.pickupCity}, ${l.pickupState ?? ""}`;
+    const toQuery = l.deliveryAddress ? `${l.deliveryAddress}, ${l.deliveryCity}, ${l.deliveryState ?? ""}` : `${l.deliveryCity}, ${l.deliveryState ?? ""}`;
+    const from = await geocodePlace(fromQuery);
+    const to = await geocodePlace(toQuery);
     if (!from || !to) {
-      setBanner("Couldn't find one of those cities on the map — edit the load and check the city/state spelling.");
+      setBanner("Couldn't find one of those places on the map — edit the load and check the address / city / state spelling.");
       return;
     }
     const destLabel = `${l.deliveryCity}, ${l.deliveryState ?? ""}`;
@@ -13856,8 +13915,84 @@ export function App() {
     "w-full rounded-lg bg-[var(--surface2)] border border-[var(--border)] px-3 py-3 text-base text-[var(--text)] placeholder:text-[var(--dim)]";
   const labelCls = "block text-xs font-semibold uppercase tracking-wide text-[var(--dim)] mb-1";
 
+  // ---- Load-flow panel inputs (2026-11-24) --------------------------
+  // The saved load the flow is showing, its pay under the driver's
+  // own model, the tank level the app knows, and — once this load is
+  // the routed one — the selected route with its fuel decisions from
+  // the same buildStopPlan the auto-add machinery runs.
+  const flowLoad = flowLoadId != null ? (loads.find((l) => l.id === flowLoadId) ?? null) : null;
+  const flowCapacityGal = Math.max(20, Math.round(profile.tankRangeMi / Math.max(1, profile.mpg)));
+  const flowRouted = flowLoad != null && activeLoadId === flowLoad.id && selected != null;
+  const flowMiles = flowLoad == null
+    ? null
+    : flowLoad.loadedMiles ?? (flowRouted ? selected.miles : (loadLaneEstimates.get(laneKey(flowLoad)) ?? null));
+  const flowMilesNote = flowLoad == null || flowMiles == null
+    ? null
+    : flowLoad.loadedMiles != null
+      ? flowLoad.milesSource === "document" ? "as printed on the rate con" : "entered on the load"
+      : flowRouted
+        ? "from your route"
+        : "city-to-city estimate";
+  const flowPay = flowLoad == null
+    ? null
+    : loadPayFigures({
+        payBasis: profile.payBasis,
+        driverCpm: profile.driverCpm,
+        driverPayPct: profile.driverPayPct,
+        gross: loadGrossOf(flowLoad),
+        miles: flowMiles,
+      });
+  // tankNonce is read so a level saved in the flow re-reads the
+  // shared tank memory on the next render.
+  void tankNonce;
+  const flowStoredTankPct = readStoredTankPct();
+  const flowTank = (() => {
+    if (flowLoad == null) return null;
+    const slot = resolveEldSlot({
+      adapterKey: eldConnForPlanner?.provider ?? null,
+      linked: eldConnForPlanner != null,
+      reading: null,
+    });
+    if (slot.fuelPct == null && flowStoredTankPct == null) return null;
+    const reading = resolveTankReading({
+      eldFuelPct: slot.fuelPct,
+      eldConnected: slot.linkState !== "not_linked",
+      eldProviderName: slot.adapter?.name ?? null,
+      manualPct: flowStoredTankPct ?? 0,
+      milesSinceManualEntry: 0,
+      capacityGal: flowCapacityGal,
+      baseMpg: profile.mpg,
+      loadWeightLbs: flowLoad.weightLbs ?? null,
+    });
+    return { pct: reading.pct, label: tankSourceLabel(reading) };
+  })();
+  const flowRoute: FlowRouteInfo | null = (() => {
+    if (!flowRouted || !selected || flowLoad == null) return null;
+    const reading = flowTank;
+    const plan = buildStopPlan({
+      routeMiles: selected.miles,
+      paceMph: selected.minutes > 0 ? selected.miles / (selected.minutes / 60) : 50,
+      tankPct: reading?.pct ?? 75,
+      capacityGal: flowCapacityGal,
+      baseMpg: profile.mpg,
+      loadWeightLbs: flowLoad.weightLbs ?? null,
+      payPerMile: flowLoad.totalPerMile ?? null,
+      settingsTimeValuePerHour: null,
+      hos,
+      candidates: plannerCandidates,
+      driverStops: [],
+    });
+    return {
+      miles: selected.miles,
+      minutes: selected.minutes,
+      stops: plan.fuelDecisions
+        .filter((d) => d.action !== "SKIP")
+        .map((d) => ({ name: d.stop.name, alongMi: d.stop.alongMi, action: String(d.action), buyGal: d.buyGal })),
+    };
+  })();
+
   return (
-    <div data-sm-screen={tab} className="stoner-app flex h-dvh w-full max-w-full flex-col overflow-x-clip bg-[var(--bg)] text-[var(--text)]">
+    <div data-sm-screen={tab} className="stoner-app flex h-full w-full max-w-full flex-col overflow-x-clip bg-[var(--bg)] text-[var(--text)]">
       {/* Top bar — frosted glass over the cosmic-midnight theme, wearing
           the densest patch of the starfield (cosmic-header in theme.css) */}
       <header className="pt-safe glass-pill cosmic-header shrink-0" style={{ borderRadius: 0, borderLeft: "none", borderRight: "none", borderTop: "none" }}>
@@ -19630,6 +19765,18 @@ export function App() {
                   <label className={labelCls} htmlFor="ld-daddr">Delivery street address</label>
                   <input id="ld-daddr" className={inputCls} value={loadDraft.deliveryAddress} onChange={(e) => setLoadDraft({ ...loadDraft, deliveryAddress: e.target.value })} placeholder="Street address as printed — checked against the BOL" aria-label="Delivery street address from the document" />
                 </div>
+                <div className="col-span-2">
+                  <label className={labelCls} htmlFor="ld-consignee">Consignee (delivery party)</label>
+                  <input id="ld-consignee" className={inputCls} value={loadDraft.consignee} onChange={(e) => setLoadDraft({ ...loadDraft, consignee: e.target.value })} placeholder="Who receives it, as printed" aria-label="Consignee from the document" />
+                </div>
+                <div className="col-span-2">
+                  <label className={labelCls} htmlFor="ld-carrier">Carrier</label>
+                  <input id="ld-carrier" className={inputCls} value={loadDraft.carrier} onChange={(e) => setLoadDraft({ ...loadDraft, carrier: e.target.value })} placeholder="The carrier the load runs under, as printed" aria-label="Carrier from the document" />
+                </div>
+                <div className="col-span-2">
+                  <label className={labelCls} htmlFor="ld-notes">Notes</label>
+                  <textarea id="ld-notes" className={inputCls} rows={3} value={loadDraft.notes} onChange={(e) => setLoadDraft({ ...loadDraft, notes: e.target.value })} placeholder="Broker terms, check-in rules, anything on the paper that matters" aria-label="Load notes" />
+                </div>
                 <div>
                   <label className={labelCls} htmlFor="ld-pcity">Pickup city</label>
                   <input id="ld-pcity" className={inputCls} value={loadDraft.pickupCity} onChange={(e) => setLoadDraft({ ...loadDraft, pickupCity: e.target.value })} />
@@ -19815,7 +19962,12 @@ export function App() {
                     )}
                   </div>
                   <div className="mt-1 space-y-0.5 text-sm text-[var(--dim)]">
+                    {l.loadNumber && <div>Load #: <span className="font-bold text-[var(--text)]">{l.loadNumber}</span></div>}
                     {l.shipper && <div>Shipper: <span className="text-[var(--text)]">{l.shipper}</span></div>}
+                    {l.pickupAddress && <div>Pickup address: <span className="text-[var(--text)]">{l.pickupAddress}</span></div>}
+                    {l.consignee && <div>Consignee: <span className="text-[var(--text)]">{l.consignee}</span></div>}
+                    {l.deliveryAddress && <div>Delivery address: <span className="text-[var(--text)]">{l.deliveryAddress}</span></div>}
+                    {l.carrier && <div>Carrier: <span className="text-[var(--text)]">{l.carrier}</span></div>}
                     {l.pickupText && <div>Pickup: <span className="text-[var(--text)]">{l.pickupText}</span></div>}
                     {l.commodity && <div>Freight: <span className="text-[var(--text)]">{l.commodity}</span></div>}
                     <div>Equipment: <span className="text-[var(--text)]">{l.equipmentLabel ?? "not set — pick it at the pickup step"}</span></div>
@@ -19917,6 +20069,14 @@ export function App() {
                   )}
                   </ExpandRow>
                   <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setFlowLoadId(l.id)}
+                      className="rounded-lg bg-[var(--surface2)] border border-[var(--border)] px-4 py-2.5 text-sm font-bold"
+                      aria-label={`Open ${loadLabel(l)} — its info, your pay, fuel, and routing`}
+                    >
+                      📋 Load info &amp; fuel
+                    </button>
                     <button
                       type="button"
                       onClick={() => void routeLoad(l)}
@@ -20529,6 +20689,57 @@ export function App() {
         </div>
       </nav>
       </div>
+
+      {/* Load-flow panel (2026-11-24): a saved load opens HERE — its
+          info, pay, fuel, and the route chain in taps. */}
+      {flowLoadId != null && flowLoad == null && (
+        <div className="fixed inset-0 z-[920] flex items-end bg-black/70" role="dialog" aria-label="Opening your load">
+          <div className="animate-sheet w-full rounded-t-3xl bg-[var(--surface)] p-5 pb-safe">
+            <p className="text-sm text-[var(--dim)]">Opening your load…</p>
+            <button type="button" className="btn-press mt-3 min-h-[44px] rounded-xl bg-[var(--surface2)] border border-[var(--border)] px-4 font-bold" onClick={() => setFlowLoadId(null)}>
+              ✕ Close
+            </button>
+          </div>
+        </div>
+      )}
+      {flowLoad != null && flowPay != null && (
+        <LoadFlowPanel
+          load={flowLoad}
+          label={loadLabel(flowLoad)}
+          pay={flowPay}
+          miles={flowMiles}
+          milesNote={flowMilesNote}
+          capacityGal={flowCapacityGal}
+          baseMpg={profile.mpg}
+          tank={flowTank}
+          route={flowRoute}
+          onClose={() => setFlowLoadId(null)}
+          onEdit={() => {
+            setFlowLoadId(null);
+            setTab("loads");
+            setLoadsView("list");
+            editLoad(flowLoad);
+          }}
+          onRouteLoad={() => {
+            setFlowLoadId(null);
+            void routeLoad(flowLoad);
+          }}
+          onStartGuidance={() => {
+            setFlowLoadId(null);
+            startGuidanceNow();
+          }}
+          onSavePayModel={(patch) => {
+            const next = { ...profile, payBasis: patch.payBasis, driverPayPct: patch.driverPayPct, driverCpm: patch.driverCpm };
+            setProfile(next);
+            saveProfileMut.mutate(next);
+            setBanner(patch.payBasis === "percent" ? `Pay set: ${patch.driverPayPct}% of each load's gross — this load's cut is figured above.` : `Pay set: $${patch.driverCpm?.toFixed(2)}/mi — this load's pay is figured above.`);
+          }}
+          onSaveTankPct={(pct) => {
+            storeTankPct(pct);
+            setTankNonce((n) => n + 1);
+          }}
+        />
+      )}
 
       {/* Plans sheet */}
       {showPlans && (
@@ -39969,7 +40180,7 @@ function LoadTrackerView({
       <article key={l.id} className="glass-panel p-3.5">
         <div className="flex items-baseline justify-between gap-2">
           <div className="font-condensed text-xl font-bold leading-tight">
-            Load #{l.id} · {l.pickupCity ?? "?"} → {l.deliveryCity ?? "?"}
+            {loadLabel(l)} · {l.pickupCity ?? "?"} → {l.deliveryCity ?? "?"}
           </div>
           <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-bold ${st.key === "delivered" ? "bg-emerald-900/60 text-emerald-300" : st.key === "arriving" ? "bg-[var(--accent)] text-black" : "bg-[var(--surface2)]"}`}>
             {st.label}

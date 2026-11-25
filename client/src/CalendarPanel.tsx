@@ -161,7 +161,10 @@ export function CalendarPanel({ onOpenCredential }: { onOpenCredential: () => vo
 
   const calQuery = useQuery({
     queryKey: ["calendar", fromIso, toIso],
-    queryFn: () => api.getCalendar({ fromIso, toIso }),
+    // The device offset rides along so hand-typed load appointment
+    // text ("Nov 24, 2026 9:00 PM") lands at that LOCAL time, not
+    // five hours early as UTC (2026-11-24 fix).
+    queryFn: () => api.getCalendar({ fromIso, toIso, utcOffsetMinutes: new Date().getTimezoneOffset() }),
   });
   const cal = calQuery.data;
   const isDesk = cal?.myRole === "owner" || cal?.myRole === "dispatch";

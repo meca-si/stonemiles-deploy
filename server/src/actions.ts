@@ -3116,9 +3116,22 @@ async function deliveryConfirmationFor(ctx: Ctx, loadId: number): Promise<Delive
     .from(schema.chainLog)
     .where(and(eq(schema.chainLog.refKind, "load"), eq(schema.chainLog.refId, loadId)))
     .orderBy(asc(schema.chainLog.id));
+  // Incarnation guard (2026-11-24): chain rows are append-only and
+  // keyed by refId alone, so if a load id is ever recycled (a staging
+  // probe's row removed outside deleteLoad, a restore, manual DB
+  // work), the OLD load's close-out events would attach themselves
+  // to the new load — the live Jacksonville load showed an October
+  // probe's "Delivered — confirmed" this way. A load's own story
+  // starts at its latest load_saved event; confirmations and seals
+  // sealed before it belong to a previous incarnation and are not
+  // this load's. Loads whose chain predates load_saved events keep
+  // the historical reading (no floor found → no filtering).
+  let floorId = 0;
+  for (const r of rows) if (r.event === "load_saved") floorId = Math.max(floorId, r.id);
+  const own = floorId > 0 ? rows.filter((r) => r.id >= floorId) : rows;
   let sealHash: string | null = null;
-  for (const r of rows) if (r.event === "pod_seal") sealHash = r.hash;
-  for (const r of rows) {
+  for (const r of own) if (r.event === "pod_seal") sealHash = r.hash;
+  for (const r of own) {
     if (r.event !== "delivery_confirmed") continue;
     try {
       const p = JSON.parse(r.payload) as Record<string, unknown>;
@@ -3141,7 +3154,7 @@ async function deliveryConfirmationFor(ctx: Ctx, loadId: number): Promise<Delive
     }
   }
   if (sealHash) {
-    const seal = rows.find((r) => r.event === "pod_seal" && r.hash === sealHash);
+    const seal = own.find((r) => r.event === "pod_seal" && r.hash === sealHash);
     let receiverName: string | null = null;
     let exceptionNotes: string | null = null;
     let at: string | null = null;
@@ -5480,6 +5493,9 @@ async function evaluatePointsLanes(ctx: Ctx, me: string): Promise<void> {
   const sealMs = new Map<number, number>();
   for (const r of chain) {
     if (r.refId == null) continue;
+    // Incarnation reset (2026-11-24): a load_saved starts a new load
+    // under this refId; an earlier incarnation's seal is not its own.
+    if (r.event === "load_saved") sealMs.delete(r.refId);
     if (r.event === "pod_seal") {
       try {
         const p = JSON.parse(r.payload) as { at?: string };
@@ -11265,6 +11281,14 @@ const loadShape = z.object({
   // The load's reference number (migration 0109), when the booking
   // named one.
   referenceNumber: z.string().nullable(),
+  // Load identity fields (migration 0144): the load's own printed
+  // number, street addresses, consignee, carrier, and notes.
+  loadNumber: z.string().nullable(),
+  pickupAddress: z.string().nullable(),
+  deliveryAddress: z.string().nullable(),
+  consignee: z.string().nullable(),
+  carrier: z.string().nullable(),
+  notes: z.string().nullable(),
   // Phase 0 Payment Packet for this load, once assembled (at the seal
   // or on first view of a sealed load). Null before delivery.
   packet: packetShape.nullable(),
@@ -11434,6 +11458,12 @@ function toLoad(
     brokerMc: row.brokerMc ?? null,
     brokerSource: row.brokerSource ?? null,
     referenceNumber: row.referenceNumber ?? null,
+    loadNumber: row.loadNumber ?? null,
+    pickupAddress: row.pickupAddress ?? null,
+    deliveryAddress: row.deliveryAddress ?? null,
+    consignee: row.consignee ?? null,
+    carrier: row.carrier ?? null,
+    notes: row.notes ?? null,
     packet: packet ? toPacket(packet) : null,
     hasDoc: row.docBlobKey != null,
     docMime: row.docMime,
@@ -11491,6 +11521,15 @@ async function podStatusByLoad(ctx: Ctx): Promise<Map<number, PodInfo>> {
   const map = new Map<number, PodInfo>();
   for (const r of rows) {
     if (r.refId == null) continue;
+    // Incarnation reset (2026-11-24, same guard as
+    // deliveryConfirmationFor): a load_saved event starts a NEW
+    // load under this refId — any seal sealed before it belonged to
+    // a previous load that carried the id and must not mark this
+    // one delivered (or auto-assemble its payment packet).
+    if (r.event === "load_saved") {
+      map.delete(r.refId);
+      continue;
+    }
     if (r.event === "pod_seal") {
       let auto = false;
       let grade: PodInfo["grade"] = null;
@@ -27760,6 +27799,11 @@ export const Actions = {
       // of lading, another load sheet, or something else entirely.
       docKind: z.enum(["rate_con", "bol", "load_sheet", "other"]).nullable(),
       shipper: z.string().nullable(),
+      // Consignee + carrier as printed (migration 0144 fields). The
+      // vision read doesn't extract them in this build — they stay
+      // null here and the deterministic text read fills them.
+      consignee: z.string().nullable(),
+      carrier: z.string().nullable(),
       // Broker identity as printed (company, contact person, MC #) —
       // kept apart from the shipper: a rate con names both.
       brokerCompany: z.string().nullable(),
@@ -27806,6 +27850,8 @@ export const Actions = {
           found: false,
           docKind: null,
           shipper: null,
+          consignee: null,
+          carrier: null,
           brokerCompany: null,
           brokerName: null,
           brokerMc: null,
@@ -27904,6 +27950,8 @@ export const Actions = {
         found: result.found,
         docKind: result.found ? result.docKind : null,
         shipper: result.shipper,
+        consignee: null,
+        carrier: null,
         brokerCompany: result.brokerCompany,
         brokerName: result.brokerName,
         brokerMc: result.brokerMc,
@@ -27958,6 +28006,8 @@ export const Actions = {
       source: z.literal("pdf_text"),
       docKind: z.enum(["rate_con", "bol", "load_sheet", "other"]).nullable(),
       shipper: z.string().nullable(),
+      consignee: z.string().nullable(),
+      carrier: z.string().nullable(),
       brokerCompany: z.string().nullable(),
       brokerName: z.string().nullable(),
       brokerMc: z.string().nullable(),
@@ -27994,6 +28044,8 @@ export const Actions = {
           source: "pdf_text" as const,
           docKind: null,
           shipper: null,
+          consignee: null,
+          carrier: null,
           brokerCompany: null,
           brokerName: null,
           brokerMc: null,
@@ -28029,6 +28081,8 @@ export const Actions = {
         source: "pdf_text" as const,
         docKind: f.found ? f.docKind : null,
         shipper: f.shipper,
+        consignee: f.consignee,
+        carrier: f.carrier,
         brokerCompany: f.brokerCompany,
         brokerName: f.brokerName,
         brokerMc: f.brokerMc,
@@ -28746,6 +28800,20 @@ export const Actions = {
       brokerName: z.string().max(120).nullable().optional(),
       brokerCompany: z.string().max(160).nullable().optional(),
       brokerMc: z.string().max(40).nullable().optional(),
+      // Load identity fields (migration 0144): the load's own printed
+      // number, street addresses, consignee, carrier, and notes as
+      // REAL columns, written on every save — typed by hand or read
+      // off the document. (Before this they existed only as the
+      // doc* snapshot inputs below, which land solely when a document
+      // is attached — a hand-typed LOAD # and street addresses were
+      // dropped on save, twice over.) Optional like the other
+      // capture fields — on update, omitted = unchanged.
+      loadNumber: z.string().max(80).nullable().optional(),
+      pickupAddress: z.string().max(200).nullable().optional(),
+      deliveryAddress: z.string().max(200).nullable().optional(),
+      consignee: z.string().max(200).nullable().optional(),
+      carrier: z.string().max(200).nullable().optional(),
+      notes: z.string().max(2000).nullable().optional(),
       // Document details with no column on the load itself (scan
       // auto-fill, 2026-10-30): the reference numbers, street
       // addresses, and piece count Meca read off the attached rate
@@ -28813,6 +28881,23 @@ export const Actions = {
         extraCharges: args.extraCharges != null ? Math.round(args.extraCharges * 100) / 100 : 0,
         extraChargesNote: args.extraChargesNote?.trim() || null,
       };
+      // Load identity fields (migration 0144): trimmed, blank = null.
+      // The doc* snapshot inputs remain the cross-check's source;
+      // when a caller sends only the doc* variant (older clients),
+      // it seeds the column so the value still persists.
+      const identityFields = {
+        loadNumber: (args.loadNumber ?? args.docLoadNumber)?.trim() || null,
+        pickupAddress: (args.pickupAddress ?? args.docPickupAddress)?.trim() || null,
+        deliveryAddress: (args.deliveryAddress ?? args.docDeliveryAddress)?.trim() || null,
+        consignee: args.consignee?.trim() || null,
+        carrier: args.carrier?.trim() || null,
+        notes: args.notes?.trim() || null,
+      };
+      const identitySent =
+        args.loadNumber !== undefined || args.docLoadNumber !== undefined ||
+        args.pickupAddress !== undefined || args.docPickupAddress !== undefined ||
+        args.deliveryAddress !== undefined || args.docDeliveryAddress !== undefined ||
+        args.consignee !== undefined || args.carrier !== undefined || args.notes !== undefined;
       // Confirmed-document copies (x, 2026-10-30): saving a load WITH a
       // new document attached IS the confirmation — the driver reviewed
       // Meca's read (or typed the fields) and pressed Save. The document
@@ -28872,6 +28957,14 @@ export const Actions = {
         }
         if (args.brokerCompany !== undefined) set.brokerCompany = args.brokerCompany?.trim() || null;
         if (args.brokerMc !== undefined) set.brokerMc = args.brokerMc?.trim() || null;
+        if (identitySent) {
+          set.loadNumber = identityFields.loadNumber;
+          set.pickupAddress = identityFields.pickupAddress;
+          set.deliveryAddress = identityFields.deliveryAddress;
+          set.consignee = identityFields.consignee;
+          set.carrier = identityFields.carrier;
+          set.notes = identityFields.notes;
+        }
         // Only replace the stored document when a new file was uploaded.
         if (docBlobKey) {
           set.docBlobKey = docBlobKey;
@@ -28889,7 +28982,7 @@ export const Actions = {
           refId: args.id,
           sessionId: null,
           event: "load_updated",
-          payload: { ...fields, ...(args.loadedMiles !== undefined ? milesFields : {}), ...(args.extraCharges !== undefined || args.extraChargesNote !== undefined ? extrasFields : {}) },
+          payload: { ...fields, ...(args.loadedMiles !== undefined ? milesFields : {}), ...(args.extraCharges !== undefined || args.extraChargesNote !== undefined ? extrasFields : {}), ...(identitySent ? identityFields : {}) },
         });
         if (docSha) {
           await appendChain(ctx, {
@@ -28965,6 +29058,7 @@ export const Actions = {
           brokerMc: args.brokerMc?.trim() || null,
           brokerSource: args.brokerName?.trim() || args.brokerCompany?.trim() ? "manual" : null,
           brokerLinkId: null,
+          ...identityFields,
         })
         .returning({ id: schema.loads.id });
       const inserted = result[0];
@@ -28977,7 +29071,7 @@ export const Actions = {
         refId: inserted.id,
         sessionId: null,
         event: "load_saved",
-        payload: { ...fields, ...(args.loadedMiles !== undefined ? milesFields : {}), ...extrasFields },
+        payload: { ...fields, ...(args.loadedMiles !== undefined ? milesFields : {}), ...extrasFields, ...identityFields },
       });
       if (docSha) {
         await appendChain(ctx, {
@@ -29076,6 +29170,26 @@ export const Actions = {
       await db.delete(schema.loadDocExceptions).where(eq(schema.loadDocExceptions.loadId, args.id));
       await db.delete(schema.loadDocVerifications).where(eq(schema.loadDocVerifications.loadId, args.id));
       await db.delete(schema.loadDocExtractions).where(eq(schema.loadDocExtractions.loadId, args.id));
+      // Every remaining per-load child goes too (2026-11-24): the
+      // invoice, payment packet, receive links, paperwork state,
+      // auto exceptions, claim events, detention visits, reefer
+      // checks, scale tickets, and pre-trip inspections are this
+      // load's own artifacts — left behind, they outlive the load
+      // and attach to whatever later carries its id (an October
+      // staging probe's $2,500 invoice packet surfaced on the real
+      // Jacksonville load this way). Board-keyed tables
+      // (loadReassignments / driverLoadHandbacks carry boardLoadId,
+      // a different id space) are NOT touched.
+      await db.delete(schema.loadInvoices).where(eq(schema.loadInvoices.loadId, args.id));
+      await db.delete(schema.paymentPackets).where(eq(schema.paymentPackets.loadId, args.id));
+      await db.delete(schema.receiveLinks).where(eq(schema.receiveLinks.loadId, args.id));
+      await db.delete(schema.loadPaperwork).where(eq(schema.loadPaperwork.loadId, args.id));
+      await db.delete(schema.autoExceptions).where(eq(schema.autoExceptions.loadId, args.id));
+      await db.delete(schema.claimEvents).where(eq(schema.claimEvents.loadId, args.id));
+      await db.delete(schema.detentionRecords).where(eq(schema.detentionRecords.loadId, args.id));
+      await db.delete(schema.reeferChecks).where(eq(schema.reeferChecks.loadId, args.id));
+      await db.delete(schema.scaleTickets).where(eq(schema.scaleTickets.loadId, args.id));
+      await db.delete(schema.pretripInspections).where(eq(schema.pretripInspections.loadId, args.id));
       await db.delete(schema.loads).where(eq(schema.loads.id, args.id));
       // The deletion is chained too — a record can't vanish silently.
       await appendChain(ctx, {
@@ -53337,6 +53451,10 @@ export const Actions = {
     request: z.object({
       fromIso: z.string().min(10).max(40),
       toIso: z.string().min(10).max(40),
+      // The reading device's UTC offset (getTimezoneOffset minutes),
+      // so hand-typed appointment text lands at the entered LOCAL
+      // time on the calendar. Optional: older clients read as UTC.
+      utcOffsetMinutes: z.number().int().min(-840).max(840).optional(),
     }),
     response: z.object({
       ok: z.boolean(),
@@ -53571,8 +53689,8 @@ export const Actions = {
         // the moment it was created, so a load added for tonight's
         // pickup showed at typing time and its delivery never
         // showed as its own event at all.
-        const pickupMs = parseLoadApptText(load.pickupText);
-        const deliveryMs = load.dockApptAt ? load.dockApptAt.getTime() : parseLoadApptText(load.deliveryText);
+        const pickupMs = parseLoadApptText(load.pickupText, args.utcOffsetMinutes ?? 0);
+        const deliveryMs = load.dockApptAt ? load.dockApptAt.getTime() : parseLoadApptText(load.deliveryText, args.utcOffsetMinutes ?? 0);
         if (pickupMs != null || deliveryMs != null) {
           const stops: { atMs: number; title: string }[] = [];
           if (pickupMs != null) stops.push({ atMs: pickupMs, title: `Pickup — ${lane}` });
