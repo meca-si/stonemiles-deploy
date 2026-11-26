@@ -11,6 +11,7 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type ApiResponse } from "./api";
+import { preparePaperworkUpload } from "./paperworkUpload";
 
 type PaperworkState = ApiResponse<typeof api, "getLoadPaperwork">;
 type DocState = PaperworkState["pod"];
@@ -31,18 +32,6 @@ const SEND_LINES: Record<string, string> = {
   no_recipient: "No broker/factor email on file — add the address below and the copy sends itself.",
   failed: "The last send didn't go through — it retries on its own when this panel is opened.",
 };
-
-function readFileBase64(f: File): Promise<{ base64: string; mime: string }> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const s = String(reader.result ?? "");
-      resolve({ base64: s.slice(s.indexOf(",") + 1), mime: f.type || "image/jpeg" });
-    };
-    reader.onerror = () => reject(new Error("read failed"));
-    reader.readAsDataURL(f);
-  });
-}
 
 function PaperworkDocForm({
   loadId,
@@ -70,7 +59,28 @@ function PaperworkDocForm({
   const [email, setEmail] = useState(recipientEmail ?? "");
   const [emailLabel, setEmailLabel] = useState(recipientLabel ?? "");
   const [busy, setBusy] = useState(false);
-  const [file, setFile] = useState<{ base64: string; mime: string } | null>(null);
+
+  // One tap files the scan (2026-11-25 fix): pick the photo or file
+  // and it uploads itself — no staging behind a raw browser input
+  // and a second button that stayed grey through every silent
+  // failure. preparePaperworkUpload converts what the intake can't
+  // take as-is (an iPhone HEIC becomes a JPG) and refuses the rest
+  // with plain words; every failure lands on the banner, none is
+  // swallowed.
+  const uploadPicked = (f: File | null, okMessage: string) => {
+    if (!f || busy) return;
+    setBusy(true);
+    void preparePaperworkUpload(f)
+      .then((up) => api.fileLoadPaperwork({ loadId, docKind, dataBase64: up.base64, mime: up.mime }))
+      .then((r) => {
+        setBanner(r.ok ? okMessage : (r.error ?? "Couldn't file that document."));
+        onDone();
+      })
+      .catch((e: unknown) => {
+        setBanner(e instanceof Error ? e.message : "Couldn't file that document — try again.");
+      })
+      .finally(() => setBusy(false));
+  };
 
   const values: Record<FieldKey, string> = { lane, reference, weightLbs: weight, pieces, deliveryText };
   const setters: Record<FieldKey, (v: string) => void> = {
@@ -87,35 +97,25 @@ function PaperworkDocForm({
     <div className="mt-3 border-t border-[var(--border)] pt-2">
       <div className="text-xs font-bold text-[var(--dim)]">{title}</div>
       {!doc.filed ? (
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <input
-            type="file"
-            accept="image/*,.pdf"
-            className="text-xs"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (!f) return setFile(null);
-              void readFileBase64(f).then(setFile).catch(() => setFile(null));
-            }}
-          />
-          <button
-            type="button"
-            disabled={busy || !file}
-            className="rounded-lg bg-[var(--surface)] border border-[var(--border)] px-3 py-2 text-xs font-bold disabled:opacity-50"
-            onClick={() => {
-              if (!file) return;
-              setBusy(true);
-              void api
-                .fileLoadPaperwork({ loadId, docKind, dataBase64: file.base64, mime: file.mime })
-                .then((r) => {
-                  setBanner(r.ok ? "Document filed against this load ✓" : (r.error ?? "Couldn't file that document."));
-                  onDone();
-                })
-                .finally(() => setBusy(false));
-            }}
+        <div className="mt-2">
+          <label
+            className={`inline-flex min-h-[44px] cursor-pointer items-center rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-sm font-bold ${busy ? "opacity-50" : ""}`}
           >
-            📎 File the scan
-          </button>
+            {busy ? "Filing…" : "📎 Add the scan — photo or PDF"}
+            <input
+              type="file"
+              accept="image/*,.pdf"
+              className="hidden"
+              disabled={busy}
+              onChange={(e) => {
+                uploadPicked(e.target.files?.[0] ?? null, "Document filed against this load ✓");
+                e.target.value = "";
+              }}
+            />
+          </label>
+          <p className="mt-1 text-xs leading-relaxed text-[var(--dim)]">
+            Pick it and it files itself — a phone photo, JPG, PNG, or PDF.
+          </p>
         </div>
       ) : (
         <div className="mt-1">
@@ -195,23 +195,16 @@ function PaperworkDocForm({
                 Confirmed{doc.confirmedAt ? ` · ${new Date(doc.confirmedAt).toLocaleString()}` : ""}
               </span>
             )}
-            <label className="text-xs text-[var(--dim)] underline">
+            <label className="cursor-pointer text-xs text-[var(--dim)] underline">
               Replace scan
               <input
                 type="file"
                 accept="image/*,.pdf"
                 className="hidden"
+                disabled={busy}
                 onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (!f) return;
-                  setBusy(true);
-                  void readFileBase64(f)
-                    .then((up) => api.fileLoadPaperwork({ loadId, docKind, dataBase64: up.base64, mime: up.mime }))
-                    .then((r) => {
-                      setBanner(r.ok ? "New scan filed — check the fields and confirm again." : (r.error ?? "Couldn't file that document."));
-                      onDone();
-                    })
-                    .finally(() => setBusy(false));
+                  uploadPicked(e.target.files?.[0] ?? null, "New scan filed — check the fields and confirm again.");
+                  e.target.value = "";
                 }}
               />
             </label>
