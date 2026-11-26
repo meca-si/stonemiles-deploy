@@ -957,9 +957,13 @@
           <div class="kv-row"><span class="k">2 · Sample driver B</span><span class="v tnum">980 pts</span></div>
           <div class="kv-row"><span class="k">3 · Sample driver C</span><span class="v tnum">860 pts</span></div>
         </div>
+        <div id="boardFeed" style="margin-top:10px">
+          <div class="log-row"><strong>📣 Shout-out — Sample driver B</strong><div class="small dim" style="margin-top:2px">Sealed the Dallas run before the rain — dock 4 took us early. (sample)</div></div>
+        </div>
+        <input class="field" id="boardShoutInput" type="text" placeholder="Your shout-out for the board…" aria-label="Your shout-out for the board — demo" style="margin-top:10px" />
         <div style="display:flex;gap:8px;margin-top:12px">
-          <button class="btn-ghost" style="flex:1;min-height:56px" data-toast="Demo like — in the full app this cheers a driver's shout-out on the board. Nothing is posted from this preview.">👍 Like</button>
-          <button class="btn-ghost" style="flex:1;min-height:56px" data-toast="Demo post — in the full app your sealed trips and shout-outs post to the board from here. Nothing is posted from this preview.">✍️ Post</button>
+          <button class="btn-ghost" id="boardLikeBtn" style="flex:1;min-height:56px" data-toast="Liked (demo) — the count on the button is the board's count on this screen.">👍 Like · <span id="boardLikeCount">12</span></button>
+          <button class="btn-ghost" id="boardPostBtn" style="flex:1;min-height:56px">✍️ Post</button>
         </div>
         <p class="xs dim" style="margin-top:8px">One fixed board for every driver — season points, ranks, and sealed-trip shout-outs. Seasons run 31 days: scores and rank reset each season, past seasons stay archived with an all-time-best badge. These are demo entries; the real board starts empty and fills only from verified drivers' sealed records. The full board also lives on the More tab.</p>
       </div>
@@ -1137,9 +1141,9 @@
         <div class="hos-row"><span class="small" style="font-weight:700">Drive</span><div class="hos-bar"><div class="hos-fill" style="width:64%"></div></div><span class="cond tnum" style="font-weight:700;text-align:right">7h 02m</span></div>
         <div class="hos-row"><span class="small" style="font-weight:700">Window</span><div class="hos-bar"><div class="hos-fill" style="width:58%"></div></div><span class="cond tnum" style="font-weight:700;text-align:right">8h 07m</span></div>
         <div class="hos-row"><span class="small" style="font-weight:700">Break in</span><div class="hos-bar"><div class="hos-fill warn" style="width:38%"></div></div><span class="cond tnum" style="font-weight:700;text-align:right">3h 02m</span></div>
-        <div class="hos-row"><span class="small" style="font-weight:700">Cycle 70h</span><div class="hos-bar"><div class="hos-fill" style="width:71%"></div></div><span class="cond tnum" style="font-weight:700;text-align:right">49h 40m</span></div>
+        <div class="hos-row"><span class="small" style="font-weight:700" id="hosCycleName">Cycle 70h</span><div class="hos-bar"><div class="hos-fill" id="hosCycleFill" style="width:71%"></div></div><span class="cond tnum" style="font-weight:700;text-align:right">49h 40m</span></div>
         <div class="xs" style="font-weight:800;letter-spacing:.08em;margin-top:12px">CYCLE — YOUR CHOICE (REGULATORY FIX · SAMPLE)</div>
-        <div class="seg" role="group" aria-label="Hours of service cycle choice — sample" style="margin-top:6px"><button class="on" data-toast="Demo: cycle set to 70 hours / 8 days (sample). Nothing changes or saves in this preview.">70 hours / 8 days</button><button data-toast="Demo: cycle set to 60 hours / 7 days (sample). Nothing changes or saves in this preview.">60 hours / 7 days</button></div>
+        <div class="seg" id="hosCycleSeg" role="group" aria-label="Hours of service cycle choice — sample" style="margin-top:6px"><button class="on" data-cycle="70" data-toast="Cycle set to 70 hours / 8 days (demo) — the cycle clock above follows your pick.">70 hours / 8 days</button><button data-cycle="60" data-toast="Cycle set to 60 hours / 7 days (demo) — the cycle clock above follows your pick.">60 hours / 7 days</button></div>
         <p class="xs dim" style="margin-top:6px;line-height:1.55">The cycle is a <strong style="color:var(--text)">choice</strong>, not a default: the driver picks it — or the fleet owner picks it for the whole fleet — to match the carrier's real schedule, so the clocks never overstate the hours a driver actually has.</p>
         <p class="xs dim" style="margin-top:6px;line-height:1.55"><strong style="color:var(--text)">Split-sleeper, done right:</strong> a sleeper period of <strong style="color:var(--text)">7+ hours</strong> paired with another break of <strong style="color:var(--text)">2+ hours</strong> — 10 hours total — counts as a proper split and extends the day the way the federal rule allows (sample line).</p>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px" role="group" aria-label="Inspections — truck and trailer">
@@ -1611,10 +1615,10 @@
           <p class="xs dim" style="margin-top:8px;line-height:1.5">Only this fleet's <strong style="color:var(--text)">owner and dispatch seats</strong> see this board — never another fleet, never public. Off-duty locations stay private, like S. Williams above.</p>
 
           <div class="xs" style="font-weight:800;letter-spacing:.08em;margin:18px 0 6px">SUGGESTED NEXT LOAD — RANKED, REASONS PRINTED (SAMPLE)</div>
-          <p class="xs dim" style="line-height:1.5">Per driver, the board suggests the next load and prints <strong style="color:var(--text)">why</strong> across four legs — deadhead, calendar availability, home-time, and sealed hours. A leg whose facts are missing reads <strong style="color:var(--text)">“not checked”</strong> — never assumed. One tap routes into the normal offer / assign flow, and <strong style="color:var(--text)">every gate still runs</strong> — a suggestion never bypasses a check. Sample only: fake drivers, fake loads, nothing offers, assigns, or saves in this preview.</p>
+          <p class="xs dim" style="line-height:1.5">Per driver, the board suggests the next load and prints <strong style="color:var(--text)">why</strong> across four legs — deadhead, calendar availability, home-time, and sealed hours. A leg whose facts are missing reads <strong style="color:var(--text)">“not checked”</strong> — never assumed. One tap routes into the normal offer / assign flow, and <strong style="color:var(--text)">every gate still runs</strong> — a suggestion never bypasses a check. Sample only: fake drivers, fake loads — and the Offer / Assign buttons below record their outcome right on the card. Nothing leaves this page.</p>
 
           <div class="fleet-driver" style="margin-top:10px" aria-label="Suggested next load for D. Carter — sample">
-            <div class="fd-top"><div><strong>🎯 For D. Carter — Unit R-101 · Flatbed (fake driver)</strong><div class="xs dim">Suggested next: <strong style="color:var(--text)">Load #1064 — Dallas, TX → Houston, TX</strong> · Building materials (sample)</div></div><span class="status-live">SUGGESTION #1 · FAKE</span></div>
+            <div class="fd-top"><div><strong>🎯 For D. Carter — Unit R-101 · Flatbed (fake driver)</strong><div class="xs dim">Suggested next: <strong style="color:var(--text)">Load #1064 — Dallas, TX → Houston, TX</strong> · Building materials (sample)</div></div><span class="status-live" id="suggCarterTag">SUGGESTION #1 · FAKE</span></div>
             <div style="margin-top:6px">
               <div class="sugg-leg"><span class="sl-k">Deadhead</span><span class="sl-v tnum">18 empty mi — from Dallas, where his route ends</span></div>
               <div class="sugg-leg"><span class="sl-k">Calendar availability</span><span class="sl-v">Free from Wed — current load delivers Tue</span></div>
@@ -1622,13 +1626,13 @@
               <div class="sugg-leg"><span class="sl-k">Sealed hours</span><span class="sl-v tnum">7h 02m drive left — fits with the reset</span></div>
             </div>
             <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
-              <button class="btn-neon" style="flex:1;padding:11px;min-width:120px" data-toast="Demo: offering routes into the normal offer flow — the driver still accepts or declines, and every gate runs. Nothing is offered or saved in this preview.">Offer (demo)</button>
-              <button class="btn-ghost" style="flex:1;padding:11px;min-width:120px" data-toast="Demo: assigning routes into the normal assign flow — qualification file, home-time, and dispatch mode all still run. Nothing is assigned or saved in this preview.">Assign (demo)</button>
+              <button class="btn-neon" id="suggCarterOffer" style="flex:1;padding:11px;min-width:120px" data-toast="Offered (demo) — Load #1064 is offered to D. Carter; he still accepts or declines, and every gate runs.">Offer (demo)</button>
+              <button class="btn-ghost" id="suggCarterAssign" style="flex:1;padding:11px;min-width:120px" data-toast="Assigned (demo) — Load #1064 → D. Carter. Every gate ran: qualification file, home-time, and dispatch mode.">Assign (demo)</button>
             </div>
           </div>
 
           <div class="fleet-driver" aria-label="Suggested next load for R. Nguyen — suggested, but the qualification gate still refuses, sample">
-            <div class="fd-top"><div><strong>🎯 For R. Nguyen — Unit R-105 · Flatbed (fake driver)</strong><div class="xs dim">Suggested next: <strong style="color:var(--text)">Load #1060 — Mobile, AL → Birmingham, AL</strong> · Steel coils (sample)</div></div><span class="status-wait">SUGGESTION #1 · FAKE</span></div>
+            <div class="fd-top"><div><strong>🎯 For R. Nguyen — Unit R-105 · Flatbed (fake driver)</strong><div class="xs dim">Suggested next: <strong style="color:var(--text)">Load #1060 — Mobile, AL → Birmingham, AL</strong> · Steel coils (sample)</div></div><span class="status-wait" id="suggNguyenTag">SUGGESTION #1 · FAKE</span></div>
             <div style="margin-top:6px">
               <div class="sugg-leg"><span class="sl-k">Deadhead</span><span class="sl-v tnum">14 empty mi — empty near Mobile, AL</span></div>
               <div class="sugg-leg"><span class="sl-k">Calendar availability</span><span class="sl-v">Free now — no load booked</span></div>
@@ -1639,8 +1643,8 @@
               <p class="small" style="line-height:1.55"><strong class="danger">Suggested — but assignment still refuses.</strong> R. Nguyen's qualification file is not in order: the MVR review is overdue (see the dispatch hold on this Desk). The suggestion ranked on the four legs above; the <strong>qualification gate runs at assignment</strong> and refuses with the plain reason until the file is fixed. A suggestion never bypasses a check.</p>
             </div>
             <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
-              <button class="btn-neon" style="flex:1;padding:11px;min-width:120px" data-toast="Demo: offering routes into the normal offer flow — every gate still runs before anything binds. Nothing is offered or saved in this preview.">Offer (demo)</button>
-              <button class="btn-ghost" style="flex:1;padding:11px;min-width:120px" data-toast="Demo: assignment refused — R. Nguyen's MVR review is overdue. Record the new review, the hold clears, and the same tap goes through. Nothing is assigned or saved in this preview.">Assign (demo)</button>
+              <button class="btn-neon" id="suggNguyenOffer" style="flex:1;padding:11px;min-width:120px" data-toast="Offered (demo) — Load #1060 is offered to R. Nguyen; every gate still runs before anything binds.">Offer (demo)</button>
+              <button class="btn-ghost" id="suggNguyenAssign" style="flex:1;padding:11px;min-width:120px" data-toast="Assign refused (demo) — the qualification gate runs at assignment: R. Nguyen's MVR review is overdue. A suggestion never bypasses the check.">Assign (demo)</button>
             </div>
           </div>
 
@@ -1686,6 +1690,8 @@
             </div>
             <label class="xs dim" for="pulseNoteSample" style="display:block;margin-top:10px">Anything else? (optional note — sample)</label>
             <input class="field" id="pulseNoteSample" type="text" placeholder="Driver's own words — never shared with the fleet" aria-label="Pulse check-in note — sample, never shared" />
+            <button class="btn-ghost" id="pulseNoteBtn" type="button" style="width:100%;padding:11px;margin-top:8px">Add note (demo)</button>
+            <div id="pulseNoteList" style="display:none;margin-top:8px"></div>
             <p class="small" style="margin-top:8px;line-height:1.55"><strong>Privacy, plain:</strong> the fleet sees <strong>averages only when 3 or more drivers answered</strong>. An individual driver's answers are <strong>never shown to the fleet</strong>, and a driver's written notes are <strong>never shared at all</strong>.</p>
             <p class="xs dim" style="margin-top:6px;line-height:1.5">The driver can dismiss this and keep rolling — it never blocks a load, a route, or the clock. Sample card only: nothing is answered, sent, or saved in this preview.</p>
           </div>
@@ -1727,7 +1733,7 @@
               <div class="kv-row"><span class="k">Inspection (DVIR) records around it</span><span class="v">Pre-trip DVIR Nov 10 + the prior post-trip</span></div>
             </div>
             <p class="small" style="margin-top:8px;line-height:1.55"><strong>The packet stays exactly as pinned</strong> — sealed, never quietly rewritten. If a ticket or a claim comes later, the proof is <strong>one file</strong>, exactly as it was that day.</p>
-            <button class="btn-ghost" style="width:100%;padding:11px;margin-top:8px" data-toast="Demo: in the full app the sealed packet downloads as one file. Nothing downloads or saves in this preview.">⬇ Evidence packet — one file (demo)</button>
+            <button class="btn-ghost" id="evidenceBtn" style="width:100%;padding:11px;margin-top:8px">⬇ Evidence packet — one file (demo)</button>
           </div>
 
           <div class="xs" style="font-weight:800;letter-spacing:.08em;margin:18px 0 6px">RECRUITING (SAMPLE)</div>
@@ -1911,7 +1917,7 @@
             <div class="xs dim" style="font-weight:800;letter-spacing:.08em">RECEIVE LINK + QR — ON EVERY BOL</div>
             <div class="small" style="margin-top:2px;font-family:ui-monospace,Menlo,monospace;font-size:12.5px;word-break:break-all">stonemiles.app/receive/1042-DEMO</div>
             <p class="xs dim" style="margin-top:4px">The QR prints right on the BOL and the link rides with it. The receiver opens it on their own phone — no app, no account — checks the freight, notes any damage or shortage, and confirms. That confirmation <strong style="color:var(--text)">is</strong> the POD.</p>
-            <button class="copybtn" style="margin-top:6px" data-toast="Demo: in the full app this copies the receive link for Load #1042 — text it, email it, or let the receiver scan the QR on the BOL.">⧉ Copy receive link (demo)</button>
+            <button class="copybtn" id="recvCopyBtn" style="margin-top:6px">⧉ Copy receive link (demo)</button>
           </div>
         </div>
 
@@ -2097,10 +2103,10 @@
           <div class="xs" style="font-weight:800;letter-spacing:.08em">INVOICE STEP — APPEARS ONCE THE POD IS SEALED</div>
           <div style="margin-top:6px">
             <div class="kv-row"><span class="k">Invoice</span><span class="v tnum">INV-2026-0003</span></div>
-            <div class="kv-row"><span class="k">Status</span><span class="v">Draft ready</span></div>
+            <div class="kv-row"><span class="k">Status</span><span class="v" id="invStatusV">Draft ready</span></div>
           </div>
-          <button class="btn-neon" style="width:100%;padding:13px;margin-top:12px" data-toast="Demo: cutting the invoice draft builds INV-2026-0003 from this sealed load — draft only, nothing issues or sends in this preview.">🧾 Cut the invoice draft</button>
-          <p class="xs dim" style="margin-top:8px;line-height:1.5">Sample only — invoice number and status only on this step. In the full app, cutting the draft is the action state here: one tap drafts it from the sealed load, ready to issue from Money → Billing.</p>
+          <button class="btn-neon" id="cutInvoiceBtn" style="width:100%;padding:13px;margin-top:12px" data-toast="Invoice draft cut (demo) — INV-2026-0003, drafted from the sealed POD on Load #1065. Watch the status above flip.">🧾 Cut the invoice draft</button>
+          <p class="xs dim" style="margin-top:8px;line-height:1.5">Sample only — invoice number and status only on this step. Cutting the draft does it right here in the preview: one tap drafts it from the sealed load and the status flips — then it's ready to issue from Money → Billing.</p>
         </div>
         <p class="xs dim" style="margin-top:10px;line-height:1.5">Before the POD seals, this load shows no invoice step at all — no draft, no number. The step appears the second the POD seals, and only then.</p>
       </div>
@@ -2129,7 +2135,19 @@
         <div class="kv-row" style="margin-top:6px"><span class="k"><strong style="color:var(--text)">Trailer position</strong><br /><span class="xs">Trailer T-207 · near Lafayette, LA (sample)</span></span><span class="v">Last seen 24 min ago</span></div>
         <p class="xs dim" style="margin-top:4px;line-height:1.5">Freshness is always printed as an age — <strong style="color:var(--text)">“last seen 24 min ago”</strong> — never worded as live.</p>
         <p class="small" style="margin-top:8px;line-height:1.55"><strong>The temperature log rides with the load's records as delivery proof</strong> — sealed with the load and filed with the POD, so the delivery record shows the cold chain held, and where it didn't.</p>
-        <button class="btn-ghost" style="width:100%;padding:11px;margin-top:8px" data-toast="Demo: in the full app the full temperature log opens with the load's records. Nothing opens or saves in this preview.">❄️ Full temperature log (demo)</button>
+        <button class="btn-ghost" id="tempLogBtn" style="width:100%;padding:11px;margin-top:8px">❄️ Full temperature log (demo)</button>
+        <div id="tempLogFull" style="display:none;margin-top:8px">
+          <div class="xs" style="font-weight:800;letter-spacing:.08em;margin:6px 0 2px">FULL LOG — TRAILER T-207 · READINGS EVERY 2 HOURS (SAMPLE)</div>
+          <div class="kv-row"><span class="k">8:00 AM — pre-cool check (sample)</span><span class="v tnum">35.1°F ✓ in range</span></div>
+          <div class="kv-row"><span class="k">10:00 AM — departure check (sample)</span><span class="v tnum">35.8°F ✓ in range</span></div>
+          <div class="kv-row"><span class="k">12:00 PM — en route (sample)</span><span class="v tnum">36.4°F ✓ in range</span></div>
+          <div class="kv-row"><span class="k">2:00 PM — en route (sample)</span><span class="v tnum danger">41.2°F ⚠ OUT OF RANGE</span></div>
+          <div class="kv-row"><span class="k">2:20 PM — en route (sample)</span><span class="v tnum">37.1°F ✓ back in range</span></div>
+          <div class="kv-row"><span class="k">4:00 PM — en route (sample)</span><span class="v tnum">36.9°F ✓ in range</span></div>
+          <div class="kv-row"><span class="k">6:00 PM — en route (sample)</span><span class="v tnum">36.2°F ✓ in range</span></div>
+          <div class="kv-row"><span class="k">8:00 PM — en route (sample)</span><span class="v tnum">35.9°F ✓ in range</span></div>
+          <p class="xs dim" style="margin-top:6px;line-height:1.5">The whole log seals with the load and files with the POD — the 2:00 PM excursion and the 2:04 PM alert stay on the record, never smoothed away.</p>
+        </div>
       </div>
 
       <h2 class="sec">Rate-con / BOL cross-verification (sample)</h2>
@@ -2192,7 +2210,7 @@
           <div class="xs dim" style="font-weight:800;letter-spacing:.08em">RUGGS LOGISTICS SEND DOOR — FAKE DEMO</div>
           <div class="kv-row"><span class="k">Fleet code</span><span class="v" style="font-family:ui-monospace,Menlo,monospace">RUGGS-DEMO</span></div>
           <div class="kv-row"><span class="k">Send link (demo)</span><span class="v" style="font-family:ui-monospace,Menlo,monospace;font-size:12px">stonemiles.app/send/RUGGS-DEMO</span></div>
-          <button class="copybtn" style="margin-top:8px" data-toast="Demo: in the full app this copies the fleet's send link — hand it to any broker or shipper, no account needed on their end.">⧉ Copy send link (demo)</button>
+          <button class="copybtn" id="sendCopyBtn" style="margin-top:8px">⧉ Copy send link (demo)</button>
           <div class="xs" style="font-weight:800;letter-spacing:.08em;margin:14px 0 2px">TRY IT — SEND A LOAD AS A BROKER (DEMO)</div>
           <input class="field" id="doorFrom" type="text" value="Demo Broker Co." aria-label="Broker or shipper name (demo)" />
           <input class="field" id="doorLane" type="text" value="Mobile, AL → Birmingham, AL" aria-label="Lane (demo)" />
@@ -2206,7 +2224,7 @@
         </div>
         <p class="small dim" style="margin-top:4px;line-height:1.55">Brokers with an account post to the <strong style="color:var(--text)">public loadboard</strong>, where owner-operators and fleets can grab the load themselves. Posting is <strong style="color:var(--text)">free for brokers</strong> — the carrier who claims a load pays the dispatch fee. Every posting can be checked with the Worth-It Advisor before anyone books.</p>
         <div class="xs" style="font-weight:800;letter-spacing:.08em;margin:14px 0 2px">OPEN BOARD — PUBLIC LOADBOARD (SAMPLE POSTINGS)</div>
-        <div style="margin-top:8px">
+        <div id="openBoardList" style="margin-top:8px">
           <div class="kv-row"><span class="k">Load #1051 — Houston, TX → Mobile, AL · Building materials · 44,000 lbs <span class="xs">(posted by Demo Broker Co. — broker account)</span></span><span class="v tnum">$1,180.00 · $2.52/mi</span></div>
           <p class="xs dim" style="margin:2px 0 2px;line-height:1.5">🛡️ <strong style="color:var(--text)">Broker trust — Demo Broker Co. · MC 1048217</strong> · Bond active — expires Mar 2027 · Identity on file — verification source not connected</p>
           <p class="xs dim" style="margin:0 0 8px;line-height:1.5">💳 <strong style="color:var(--text)">Payment record — Demo Broker Co.</strong> · 14 loads carried · 12 paid · avg 19 days to pay (12 payments on record) · Figured from STONEMILES' own sealed history only</p>
@@ -2216,7 +2234,7 @@
           <p class="xs dim" style="margin:0 0 8px;line-height:1.5">💳 <strong style="color:var(--text)">Payment record — Demo Broker Co.</strong> · 14 loads carried · 12 paid · avg 19 days to pay (12 payments on record) · Figured from STONEMILES' own sealed history only</p>
           <button class="btn-ghost" data-claim-load="1042" style="padding:10px 16px;margin:0 0 4px">📥 Claim this load</button>
         </div>
-        <button class="btn-ghost" style="width:100%;padding:12px;margin-top:10px" data-toast="Demo: a broker account posts straight to the public loadboard — free to post; the claiming carrier pays the dispatch fee. Nothing posts from this preview.">📋 Post to the loadboard (broker account — demo)</button>
+        <button class="btn-ghost" id="postBoardBtn" style="width:100%;padding:12px;margin-top:10px">📋 Post to the loadboard (broker account — demo)</button>
         <p class="xs dim" style="margin-top:8px">Sample postings from the same demo run used across this preview — see the Worth-It check and the dispatch chain below.</p>
       </div>
 
@@ -2283,7 +2301,7 @@
           <div class="cal-day"><div class="cal-dnum">16</div><div class="ev ev-load seg-start">🚛 Pickup · Load #2103 — Mobile, AL · 7 AM</div><div class="ev" style="border:1px solid var(--danger)">🔒 Inside the decline window</div></div>
           <div class="cal-day"><div class="cal-dnum">17</div><div class="ev ev-load seg-mid">Load #2103 → en route</div></div>
           <div class="cal-day"><div class="cal-dnum">18</div><div class="ev ev-load seg-end">🏁 Deliver · Load #2103 — Nashville, TN</div></div>
-          <div class="cal-day"><div class="cal-dnum">19</div><div class="ev ev-offered">📨 Offered · Load #2107 — pending</div></div>
+          <div class="cal-day"><div class="cal-dnum">19</div><div class="ev ev-offered" id="calOffer2107">📨 Offered · Load #2107 — pending</div></div>
           <div class="cal-day"><div class="cal-dnum">20</div><div class="ev ev-pay">💵 Payday — expected</div></div>
           <div class="cal-day"><div class="cal-dnum">21</div></div>
           <div class="cal-day"><div class="cal-dnum">22</div></div>
@@ -2333,12 +2351,12 @@
       <div class="card offered-card" aria-label="Offered load — pending, sample">
         <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap">
           <strong>Load #2107 — Nashville, TN → Birmingham, AL</strong>
-          <span class="status-wait">OFFERED · PENDING</span>
+          <span class="status-wait" id="offer2107Tag">OFFERED · PENDING</span>
         </div>
         <p class="small dim" style="margin-top:4px;line-height:1.55">Pickup Thu, Nov 19 · 9:00 AM · Building materials (sample freight) · Offered to you — it is <strong style="color:var(--text)">not committed</strong> until you accept. Dashed and amber, on purpose: an offered load never wears the solid look of a committed one.</p>
         <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
-          <button class="btn-neon" style="flex:1;padding:13px;min-width:130px" data-toast="Demo only: accepting would commit Load #2107 to your calendar as a booked load. Nothing is accepted or saved in this preview.">✓ Accept (demo)</button>
-          <button class="btn-ghost" style="flex:1;padding:13px;min-width:130px" data-toast="Demo only: declining would send Load #2107 straight back to the board it came from, recorded as a fact — never scored against you. Nothing is declined or saved in this preview.">✕ Decline (demo)</button>
+          <button class="btn-neon" id="offerAcceptBtn" style="flex:1;padding:13px;min-width:130px" data-toast="Accepted (demo) — Load #2107 is committed to your calendar as a booked load. Watch the card and the Nov 19 cell on the month grid.">✓ Accept (demo)</button>
+          <button class="btn-ghost" id="offerDeclineBtn" style="flex:1;padding:13px;min-width:130px" data-toast="Declined (demo) — Load #2107 went straight back to the board it came from, recorded as a fact, never scored against you.">✕ Decline (demo)</button>
         </div>
         <p class="small" style="margin-top:10px;line-height:1.55"><strong>Declines are recorded as facts, never scored against the driver</strong> — and a declined load goes straight back to the board it came from.</p>
       </div>
@@ -2347,10 +2365,11 @@
       <div class="card locked-card" aria-label="Locked load — inside its decline window, sample">
         <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap">
           <strong>Load #2103 — Mobile, AL → Nashville, TN</strong>
-          <span class="status-wait" style="color:var(--danger);border-color:var(--danger)">🔒 LOCKED · SAFETY WINDOW</span>
+          <span class="status-wait" id="lockedTag" style="color:var(--danger);border-color:var(--danger)">🔒 LOCKED · SAFETY WINDOW</span>
         </div>
         <p class="small dim" style="margin-top:4px;line-height:1.55">Pickup Mon, Nov 16 · 7:00 AM · <strong style="color:var(--text)">Committed.</strong> Pickup is less than a day away, so this load sits <strong style="color:var(--text)">inside its decline window</strong> — it cannot be declined outright. There is no Decline button here, on purpose: the only door is a release request, and <strong style="color:var(--text)">dispatch decides</strong>.</p>
-        <button class="btn-ghost" style="width:100%;padding:13px;margin-top:12px" data-toast="Demo only: a release request would go to dispatch, and dispatch decides — the load stays committed until they release it. Nothing is sent or saved in this preview.">🔓 Request release (demo)</button>
+        <button class="btn-ghost" id="releaseReqBtn" style="width:100%;padding:13px;margin-top:12px" data-toast="Release requested (demo) — the request is with dispatch now, and dispatch decides. The load stays committed until they release it.">🔓 Request release (demo)</button>
+        <p class="small ok" id="releaseReqNote" style="display:none;margin-top:8px;line-height:1.55">✓ Release request sent to dispatch (demo) — Load #2103 stays committed until dispatch releases it.</p>
         <p class="xs dim" style="margin-top:8px;line-height:1.5">The decline cutoff is <strong style="color:var(--text)">fleet-set — default 24 hours before pickup</strong>. Outside the window a driver can decline outright; inside it, only dispatch can let the load go.</p>
       </div>
 
@@ -2371,7 +2390,8 @@
         <p class="xs dim" style="margin-top:8px;line-height:1.5">Medical / doctor visit <strong style="color:var(--text)">includes a DOT physical</strong> — the appointment that renews the medical card on the calendar above is booked the same way.</p>
         <label class="xs dim" for="calNote" style="display:block;margin-top:10px">Note (optional)</label>
         <textarea class="field" id="calNote" rows="2" placeholder="Anything dispatch should know — optional" aria-label="Time-off request note — optional, sample"></textarea>
-        <button class="btn-neon" style="width:100%;padding:13px;margin-top:12px" data-toast="Demo only: in the full app this request goes to dispatch or the owner for approval. Nothing is sent, requested, or saved in this preview.">Send request (demo)</button>
+        <button class="btn-neon" id="toSendBtn" style="width:100%;padding:13px;margin-top:12px" data-toast="Request sent (demo) — it joins the pending list right below, waiting on dispatch or the owner.">Send request (demo)</button>
+        <div id="toSentSlot"></div>
 
         <div class="card2" style="margin-top:12px" aria-label="Pending time-off request — sample">
           <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap"><strong>🏠 Home time — Thu Nov 26 – Sat Nov 28</strong><span class="status-wait">PENDING APPROVAL</span></div>
@@ -2437,15 +2457,16 @@
       <div class="card" style="margin-top:12px" aria-label="Reassignment consent — sample">
         <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap">
           <strong>↔ Reassignment — needs the driver's consent (sample)</strong>
-          <span class="status-wait">AWAITING CONSENT</span>
+          <span class="status-wait" id="consentTag">AWAITING CONSENT</span>
         </div>
         <p class="small dim" style="margin-top:6px;line-height:1.55"><strong style="color:var(--text)">Load #2110 — Memphis, TN → Little Rock, AR</strong> (sample) · Currently on <strong style="color:var(--text)">M. Chen</strong> · Dispatch proposes moving it to <strong style="color:var(--text)">S. Patel</strong>.</p>
         <p class="small" style="margin-top:6px;line-height:1.55"><strong>Reason, shown to both drivers:</strong> “Chen's approved home time starts Thursday — this delivery would run straight through it. Patel is empty in Memphis that morning.” (sample reason)</p>
         <p class="small dim" style="margin-top:6px;line-height:1.55">The move <strong style="color:var(--text)">fires only when the current driver consents</strong> — until Chen answers, the load stays exactly where it is. You are holding Chen's phone for this sample:</p>
         <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
-          <button class="btn-neon" style="flex:1;padding:13px;min-width:130px" data-toast="Demo only: consenting would fire the move — Load #2110 would land on S. Patel's calendar and leave M. Chen's. Nothing moves or saves in this preview.">✓ Consent to the move (demo)</button>
-          <button class="btn-ghost" style="flex:1;padding:13px;min-width:130px" data-toast="Demo only: a refusal stands — dispatch cannot override it. Only the fleet owner can, and only with a stated reason. Nothing is recorded in this preview.">✕ Refuse (demo)</button>
+          <button class="btn-neon" id="consentBtn" style="flex:1;padding:13px;min-width:130px" data-toast="Consented (demo) — the move fires: Load #2110 lands on S. Patel's calendar and leaves M. Chen's.">✓ Consent to the move (demo)</button>
+          <button class="btn-ghost" id="refuseBtn" style="flex:1;padding:13px;min-width:130px" data-toast="Refused (demo) — the refusal stands: dispatch cannot override it, and Load #2110 stays on M. Chen.">✕ Refuse (demo)</button>
         </div>
+        <p class="small" id="consentOutcome" style="display:none;margin-top:10px;line-height:1.55"></p>
         <div style="border:1.5px solid rgba(245,179,1,.6);background:rgba(245,179,1,.10);border-radius:14px;padding:12px 14px;margin-top:12px">
           <p class="small" style="line-height:1.6"><strong>The rule:</strong> a driver's refusal stands unless the <strong>FLEET OWNER</strong> overrides it with a stated reason — <strong>dispatch cannot override a refusal</strong>.</p>
         </div>
@@ -2453,7 +2474,7 @@
           <div class="xs" style="font-weight:800;letter-spacing:.08em">OWNER vs DISPATCH — SAME GRID, MORE LEVERS</div>
           <p class="small dim" style="margin-top:6px;line-height:1.55">The owner sees <strong style="color:var(--text)">the same fleet grid as dispatch</strong>, plus the owner-only levers: <strong style="color:var(--text)">overriding a refusal</strong> (with a stated reason the driver sees), the <strong style="color:var(--text)">dispatch-mode setting</strong> above, and <strong style="color:var(--text)">time-off approvals</strong>. Dispatch works the grid day to day; the owner owns the exceptions. And an owner-operator is the driver — same calendar, same loads and deadlines — wearing the owner hat only for his own approvals.</p>
         </div>
-        <p class="xs dim" style="margin-top:10px;line-height:1.5">Preview sample only: fictional drivers, fictional loads — every button above is inert and answers with a demo note. Nothing consents, refuses, moves, or saves.</p>
+        <p class="xs dim" style="margin-top:10px;line-height:1.5">Preview sample only: fictional drivers, fictional loads — and the buttons above answer for real inside this preview: consent or refuse and the card records the outcome on this screen. Nothing leaves this page.</p>
       </div>
 
       <div class="card" style="margin-top:12px;border-color:var(--neon-a)" aria-label="Showcase — 20 drivers, entry">
@@ -3246,8 +3267,18 @@
         </div>
         <p class="small dim" style="margin-top:6px;line-height:1.55">Tap <strong style="color:var(--text)">ARRIVE</strong> at the gate and <strong style="color:var(--text)">DONE</strong> when the dock releases you — both stamps seal into the record with the appointment and the free time. Free time (grace) defaults to <strong style="color:var(--text)">2 hours · 120 minutes</strong>. The clock keeps time only.</p>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px">
-          <button class="btn-neon" style="padding:13px" data-toast="Demo: ARRIVE stamps your gate arrival and seals it with the appointment and free time. Nothing stamps or saves in this preview.">⏱️ ARRIVE — at the gate</button>
-          <button class="btn-ghost" style="padding:13px" data-toast="Demo: DONE stamps the release and seals the finished dock record. Nothing stamps or saves in this preview.">✅ DONE — dock released me</button>
+          <button class="btn-neon" id="detArriveBtn" style="padding:13px" data-toast="ARRIVE stamped (demo) — the live dock clock below is running.">⏱️ ARRIVE — at the gate</button>
+          <button class="btn-ghost" id="detDoneBtn" style="padding:13px">✅ DONE — dock released me</button>
+        </div>
+        <div class="card2" id="detLiveCard" style="margin-top:12px" aria-label="Live dock clock — this visit, demo">
+          <div class="xs" style="font-weight:800;letter-spacing:.08em">LIVE DOCK CLOCK — THIS VISIT (DEMO)</div>
+          <div style="margin-top:6px">
+            <div class="kv-row"><span class="k">ARRIVE — stamped at the gate</span><span class="v tnum" id="detArriveV">Not stamped</span></div>
+            <div class="kv-row"><span class="k">DONE — dock released</span><span class="v tnum" id="detDoneV">Not stamped</span></div>
+            <div class="kv-row"><span class="k"><strong style="color:var(--text)">Time at the dock</strong></span><span class="v tnum" id="detElapsedV">—</span></div>
+            <div class="kv-row"><span class="k">Detention — 2 hrs free, then $50/hr (sample terms)</span><span class="v tnum" id="detAccrueV">—</span></div>
+          </div>
+          <p class="small" id="detStatus" style="margin-top:8px;line-height:1.55">Not started — tap <strong>ARRIVE</strong> at the gate and the clock runs here; <strong>DONE</strong> freezes it into a sealed record.</p>
         </div>
         <div class="xs" style="font-weight:800;letter-spacing:.08em;margin:14px 0 4px">LAST SEALED DOCK RECORD — SAMPLE</div>
         <div class="kv-row"><span class="k">Place</span><span class="v">Sample Receiver — Dallas, TX (fake)</span></div>
@@ -3314,10 +3345,10 @@
             <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px">
               <div class="xs" style="font-weight:800;letter-spacing:.08em">CREDENTIAL ALERTS — CDL · MEDICAL CARD · TWIC</div>
               <p class="small dim" style="margin-top:4px;line-height:1.55">Your three credentials get their own watch: a warning fires <strong style="color:var(--text)">60, 30, and 7 days</strong> before expiry — and the row reads <strong style="color:var(--text)">EXPIRED</strong> once the date passes. In-app only, no push. Dismissing a warning silences <strong style="color:var(--text)">that round only</strong> — the next mark still fires — and renewing the card re-arms the whole watch. The wallet's other documents keep their own existing warnings. Sample rows:</p>
-              <div style="margin-top:10px;background:rgba(245,179,1,.10);border:1px solid rgba(245,179,1,.55);border-radius:12px;padding:10px 12px">
+              <div id="medWarnBox" style="margin-top:10px;background:rgba(245,179,1,.10);border:1px solid rgba(245,179,1,.55);border-radius:12px;padding:10px 12px">
                 <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap"><strong>🪪 Medical card</strong><span class="status-off">⚠ 30-DAY WARNING — FIRING NOW</span></div>
                 <div class="small dim" style="margin-top:3px;line-height:1.5">Expires <strong style="color:var(--text)">Dec 6, 2026</strong> (sample) · <strong style="color:var(--text)">21 days left</strong> — inside the 30-day mark. The 60-day warning already fired; after this one the <strong style="color:var(--text)">7-day</strong> mark fires, then EXPIRED.</div>
-                <button class="copybtn" style="margin-top:8px" data-toast="Demo: dismissed — this 30-day round goes quiet, but the 7-day warning still fires, and a renewed card re-arms the whole watch. Nothing saves in this preview.">Dismiss this warning (demo)</button>
+                <button class="copybtn" id="dismissWarnBtn" style="margin-top:8px" data-toast="Dismissed (demo) — this 30-day round goes quiet, but the 7-day warning still fires, and a renewed card re-arms the whole watch.">Dismiss this warning (demo)</button>
               </div>
               <div style="margin-top:8px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:10px 12px">
                 <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap"><strong>🪪 CDL — Class A</strong><span class="status-on">✓ NO WARNING</span></div>
@@ -3651,18 +3682,19 @@
         <div class="log-row"><strong>Oct 22, 2026</strong><div class="small dim">Driving 7h 02m · On duty (not driving) 2h 13m · Off duty 14h 45m · 🔗 Sealed</div><div class="small" style="margin-top:3px">✓ <strong>Certified — Demo Driver — D. Carter — I certify these entries are true and correct</strong> · day sealed</div><div class="hash">record hash (sample) 1d9f…b208</div></div>
         <div style="margin-top:10px">
           <div class="xs" style="font-weight:800;letter-spacing:.08em">SAMPLE ENTRIES — OCT 22 · REMARK + CITY, STATE &amp; TIME ON EVERY LINE</div>
-          <div class="log-row"><div class="small">On Duty — Pre-trip inspection — Mobile, AL — 5:42 AM</div></div>
+          <div class="log-row"><div class="small" id="oct22StartLine">On Duty — Pre-trip inspection — Mobile, AL — 5:42 AM</div></div>
           <div class="log-row"><div class="small">On Duty — Fuel — Mobile, AL — 6:42 AM</div></div>
           <div class="log-row"><div class="small">Off Duty — Break/Rest — not recorded — 9:15 PM</div><div class="xs dim">No GPS fix on this change — the entry records its place as “not recorded,” never an invented place.</div></div>
           <div class="log-row"><div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap"><div class="small">On Duty (Not Driving) — Baton Rouge, LA — 11:48 AM</div><span class="status-off">AUTO DEFAULT</span></div><div class="small" style="margin-top:3px">Remark: <strong>“Stopped 5 min — no response; on-duty default”</strong></div><div class="xs dim">The stopped prompt (Drive tab) went unanswered for 1 minute, so the federal default sealed On Duty on its own — 49 CFR Part 395, Appendix A. It never seals Off Duty or Sleeper Berth.</div></div>
         </div>
         <div class="card2" style="margin-top:10px" aria-label="Pending owner correction — sample">
-          <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap"><strong>📝 Owner correction — your review (sample)</strong><span class="status-wait">PENDING</span></div>
+          <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap"><strong>📝 Owner correction — your review (sample)</strong><span class="status-wait" id="corrTag">PENDING</span></div>
           <p class="small dim" style="margin-top:6px;line-height:1.55">Your fleet owner (fake — sample fleet) proposed a correction to this day: <strong style="color:var(--text)">On Duty start 5:42 AM → 5:30 AM</strong> — “pre-trip began at the yard gate.” <strong style="color:var(--text)">Your original record stands</strong> until you act: acknowledge it and the correction applies, or dispute it with a note and the original stands for good.</p>
           <div style="display:flex;gap:8px;margin-top:10px">
-            <button class="btn-neon" style="flex:1;padding:12px" data-toast="Demo: in the full app, acknowledging applies the owner's correction and seals your acknowledgement with it. Nothing is acknowledged or saved in this preview.">✓ Acknowledge</button>
-            <button class="btn-ghost" style="flex:1;padding:12px" data-toast="Demo: in the full app, disputing asks for your note, keeps your original entry as the record, and prints the dispute on the DOT packet. Nothing is disputed or saved in this preview.">Dispute</button>
+            <button class="btn-neon" id="ackCorrBtn" style="flex:1;padding:12px" data-toast="Acknowledged (demo) — the correction applies: this day's On Duty start now reads 5:30 AM, sealed with your acknowledgement.">✓ Acknowledge</button>
+            <button class="btn-ghost" id="disCorrBtn" style="flex:1;padding:12px" data-toast="Disputed (demo) — your original 5:42 AM start stands for good, and the dispute prints on the DOT packet.">Dispute</button>
           </div>
+          <p class="small" id="corrOutcome" style="display:none;margin-top:8px;line-height:1.55"></p>
           <p class="xs dim" style="margin-top:8px;line-height:1.55">Disputes print on the DOT packet with your note. Nobody's log changes behind their back — a correction the driver never reviewed never becomes the record. Display sample only: fictional driver, fictional correction.</p>
         </div>
         <div class="log-row"><strong>Oct 21, 2026</strong><div class="small dim">Off duty all day · 34-hour reset in progress · 🔗 Sealed</div><div class="small" style="margin-top:3px">Not yet certified.</div><div class="hash">record hash (sample) 66aa…3e10</div></div>
@@ -3676,7 +3708,7 @@
 
       <h2 class="sec">DOT inspection packet (sample)</h2>
       <div class="card" aria-label="DOT inspection packet — sample">
-        <p class="small dim" style="line-height:1.55">The packet an officer asks for, built from the sealed record — on screen here, and ready to send two ways beside it. Both buttons are demo-only: nothing emails, downloads, or saves in this preview.</p>
+        <p class="small dim" style="line-height:1.55">The packet an officer asks for, built from the sealed record — on screen here, and ready to send two ways beside it. In this preview both buttons hand you the packet as a real file download — there is no mail server here, so Email delivers the same file the full app would send.</p>
         <div class="card2" style="margin-top:10px" aria-label="On-screen packet — sample">
           <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center"><strong>📋 On-screen packet — Oct 22, 2026 (sample)</strong><span class="sealed-pill">⛓✓ SEALED</span></div>
           <div class="log-row" style="margin-top:8px"><div class="small">Oct 22, 2026 — <strong>Truck 12 · Trailer 34</strong> — Pre-trip DVIR sealed 5:42 AM · Daily log certified · HOS clocks for the day</div><div class="xs dim">Unit numbers print on every packet day line, so the rig on paper is the rig at the scale (fictional units, sample).</div></div>
@@ -3684,8 +3716,8 @@
           <p class="xs dim" style="margin-top:8px;line-height:1.55">An <strong style="color:var(--text)">AUTO DEFAULT</strong> entry and any <strong style="color:var(--text)">disputed owner correction</strong> print on this packet exactly as they stand in the log — the dispute carries the driver's own note (samples in Daily logs above).</p>
         </div>
         <div class="export-bar" role="group" aria-label="Send the DOT inspection packet — demo">
-          <button class="export-btn main" data-toast="Demo: in the full app this emails the sealed inspection packet. Nothing is emailed or saved in this preview.">✉️ Email this packet</button>
-          <button class="export-btn" data-toast="Demo: in the full app this downloads the inspection packet as a PDF. Nothing downloads or saves in this preview.">⬇ Download PDF</button>
+          <button class="export-btn main" id="emailPacketBtn">✉️ Email this packet</button>
+          <button class="export-btn" id="dlPacketBtn">⬇ Download PDF</button>
         </div>
       </div>
 
@@ -4138,14 +4170,16 @@
       <div class="card">
         <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><strong>🗺️ Atlas</strong><span class="stage-tag">REFERENCE ONLY · OFFLINE</span></div>
         <p class="small dim" style="margin-top:6px;line-height:1.55">Every state's weight limits, key rules, and DOT contact in one offline reference — it works with no signal, because it's <strong style="color:var(--text)">reference only</strong>: it never routes, never files, and never replaces the posted sign or the state's own word. Always verify a limit or rule with the state DOT before you rely on it.</p>
+        <p class="xs dim" style="margin-top:8px">Tap a state — the four sample entries printed on this run (Alabama · Mississippi · Louisiana · Texas) highlight below; the full Atlas carries the same card for all 50.</p>
         <div class="atlas-grid" aria-label="All 50 states covered by Atlas">
           <span>Alabama</span><span>Alaska</span><span>Arizona</span><span>Arkansas</span><span>California</span><span>Colorado</span><span>Connecticut</span><span>Delaware</span><span>Florida</span><span>Georgia</span><span>Hawaii</span><span>Idaho</span><span>Illinois</span><span>Indiana</span><span>Iowa</span><span>Kansas</span><span>Kentucky</span><span>Louisiana</span><span>Maine</span><span>Maryland</span><span>Massachusetts</span><span>Michigan</span><span>Minnesota</span><span>Mississippi</span><span>Missouri</span><span>Montana</span><span>Nebraska</span><span>Nevada</span><span>New Hampshire</span><span>New Jersey</span><span>New Mexico</span><span>New York</span><span>North Carolina</span><span>North Dakota</span><span>Ohio</span><span>Oklahoma</span><span>Oregon</span><span>Pennsylvania</span><span>Rhode Island</span><span>South Carolina</span><span>South Dakota</span><span>Tennessee</span><span>Texas</span><span>Utah</span><span>Vermont</span><span>Virginia</span><span>Washington</span><span>West Virginia</span><span>Wisconsin</span><span>Wyoming</span>
         </div>
+        <p class="small" id="atlasNote" style="display:none;margin-top:10px;line-height:1.55"></p>
         <div style="margin-top:10px">
-          <div class="log-row"><strong>Sample entry — Alabama</strong><div class="small dim" style="margin-top:2px"><strong style="color:var(--text)">Weight limits:</strong> Gross 80,000 lbs · single axle 20,000 · tandem 34,000 (sample reference values).<br /><strong style="color:var(--text)">Key rules:</strong> oversize/overweight loads need a state permit before rolling; escorts required past permit thresholds (sample summary — check the permit).<br /><strong style="color:var(--text)">DOT contact:</strong> Alabama Department of Transportation (ALDOT) — Motor Carrier / Permit office (sample entry format; use the contact listed on the state's official DOT channels).</div></div>
-          <div class="log-row"><strong>Sample entry — Mississippi</strong><div class="small dim" style="margin-top:2px"><strong style="color:var(--text)">Weight limits:</strong> Gross 80,000 lbs · single axle 20,000 · tandem 34,000 (sample reference values).<br /><strong style="color:var(--text)">Key rules:</strong> state scales on I-10 at the welcome center; permit loads follow the route printed on the permit (sample summary).<br /><strong style="color:var(--text)">DOT contact:</strong> Mississippi Department of Transportation (MDOT) — Permits office (sample entry format; use the contact listed on the state's official DOT channels).</div></div>
-          <div class="log-row"><strong>Sample entry — Louisiana</strong><div class="small dim" style="margin-top:2px"><strong style="color:var(--text)">Weight limits:</strong> Gross 80,000 lbs · single axle 20,000 · tandem 34,000; permitted weights vary by route (sample reference values).<br /><strong style="color:var(--text)">Key rules:</strong> fuel tax $0.20/gal in this preview's IFTA table; bridge formulas apply on state routes (sample summary).<br /><strong style="color:var(--text)">DOT contact:</strong> Louisiana Department of Transportation and Development (DOTD) — Truck Permit office (sample entry format; use the contact listed on the state's official DOT channels).</div></div>
-          <div class="log-row"><strong>Sample entry — Texas</strong><div class="small dim" style="margin-top:2px"><strong style="color:var(--text)">Weight limits:</strong> Gross 80,000 lbs · single axle 20,000 · tandem 34,000 (sample reference values).<br /><strong style="color:var(--text)">Key rules:</strong> oversize permits run through the state permit system before the move; county roads can carry lower posted limits (sample summary).<br /><strong style="color:var(--text)">DOT contact:</strong> Texas Department of Transportation (TxDOT) — Motor Carrier / Permit office (sample entry format; use the contact listed on the state's official DOT channels).</div></div>
+          <div class="log-row" data-atlas-entry="Alabama"><strong>Sample entry — Alabama</strong><div class="small dim" style="margin-top:2px"><strong style="color:var(--text)">Weight limits:</strong> Gross 80,000 lbs · single axle 20,000 · tandem 34,000 (sample reference values).<br /><strong style="color:var(--text)">Key rules:</strong> oversize/overweight loads need a state permit before rolling; escorts required past permit thresholds (sample summary — check the permit).<br /><strong style="color:var(--text)">DOT contact:</strong> Alabama Department of Transportation (ALDOT) — Motor Carrier / Permit office (sample entry format; use the contact listed on the state's official DOT channels).</div></div>
+          <div class="log-row" data-atlas-entry="Mississippi"><strong>Sample entry — Mississippi</strong><div class="small dim" style="margin-top:2px"><strong style="color:var(--text)">Weight limits:</strong> Gross 80,000 lbs · single axle 20,000 · tandem 34,000 (sample reference values).<br /><strong style="color:var(--text)">Key rules:</strong> state scales on I-10 at the welcome center; permit loads follow the route printed on the permit (sample summary).<br /><strong style="color:var(--text)">DOT contact:</strong> Mississippi Department of Transportation (MDOT) — Permits office (sample entry format; use the contact listed on the state's official DOT channels).</div></div>
+          <div class="log-row" data-atlas-entry="Louisiana"><strong>Sample entry — Louisiana</strong><div class="small dim" style="margin-top:2px"><strong style="color:var(--text)">Weight limits:</strong> Gross 80,000 lbs · single axle 20,000 · tandem 34,000; permitted weights vary by route (sample reference values).<br /><strong style="color:var(--text)">Key rules:</strong> fuel tax $0.20/gal in this preview's IFTA table; bridge formulas apply on state routes (sample summary).<br /><strong style="color:var(--text)">DOT contact:</strong> Louisiana Department of Transportation and Development (DOTD) — Truck Permit office (sample entry format; use the contact listed on the state's official DOT channels).</div></div>
+          <div class="log-row" data-atlas-entry="Texas"><strong>Sample entry — Texas</strong><div class="small dim" style="margin-top:2px"><strong style="color:var(--text)">Weight limits:</strong> Gross 80,000 lbs · single axle 20,000 · tandem 34,000 (sample reference values).<br /><strong style="color:var(--text)">Key rules:</strong> oversize permits run through the state permit system before the move; county roads can carry lower posted limits (sample summary).<br /><strong style="color:var(--text)">DOT contact:</strong> Texas Department of Transportation (TxDOT) — Motor Carrier / Permit office (sample entry format; use the contact listed on the state's official DOT channels).</div></div>
         </div>
         <p class="xs dim" style="margin-top:8px">Sample entries shown for the preview states on this run — the full Atlas carries the same card for all 50 states, stored on-device. Demo / reference only; limits shown are sample reference values, not a permit and not legal advice.</p>
       </div>
@@ -4672,11 +4706,12 @@
         <option>31</option>
       </select>
     </div>
-    <p class="xs dim" style="margin-top:8px;line-height:1.5">Your birthday is <strong style="color:var(--text)">never shown on your profile</strong> — only you ever see it here — and there is <strong style="color:var(--text)">no year field</strong>: month and day are all the app asks for, only so it can award your birthday points (+100 — see How to earn — Layer 2 on the Money tab). Sample form in this preview; nothing saves here.</p>
+    <p class="small" id="bdayLine" style="display:none;margin-top:8px;line-height:1.55">🎂 Birthday: <strong id="bdayVal"></strong> — kept in this demo only, and never shown on your profile.</p>
+    <p class="xs dim" style="margin-top:8px;line-height:1.5">Your birthday is <strong style="color:var(--text)">never shown on your profile</strong> — only you ever see it here — and there is <strong style="color:var(--text)">no year field</strong>: month and day are all the app asks for, only so it can award your birthday points (+100 — see How to earn — Layer 2 on the Money tab). In this preview your pick shows right above — nothing leaves this page.</p>
   </div>
 
   <div class="set-group"><h3>🏢 Business profile — your invoice letterhead</h3>
-    <p class="xs dim" style="line-height:1.5">This letterhead is what prints on every invoice — fill it in once and each bill you cut from a sealed load (Money tab → Invoices) carries it. Sample form in this preview; nothing saves here.</p>
+    <p class="xs dim" style="line-height:1.5">This letterhead is what prints on every invoice — fill it in once and each bill you cut from a sealed load (Money tab → Invoices) carries it. In this preview, SAVE keeps the letterhead on this page and shows it back to you below — nothing leaves the page.</p>
     <label class="small" style="font-weight:700;display:block;margin-top:10px" for="bizName">Business name</label>
     <input class="field" id="bizName" type="text" autocomplete="off" placeholder="Your business name" aria-label="Business name — sample form" />
     <label class="small" style="font-weight:700;display:block;margin-top:10px" for="bizAddress">Business address</label>
@@ -4690,7 +4725,8 @@
     <label class="small" style="font-weight:700;display:block;margin-top:10px" for="bizLogo">Logo</label>
     <input class="field" id="bizLogo" type="file" accept="image/*" aria-label="Business logo upload — sample form" />
     <p class="xs dim" style="margin-top:6px;line-height:1.5">A JPEG logo also prints on the invoice PDF; other formats show in the app.</p>
-    <button class="btn-neon" style="width:100%;padding:13px;margin-top:12px" data-toast="Demo: SAVE BUSINESS PROFILE — in the full app this letterhead prints on every invoice. Nothing saves in this preview.">SAVE BUSINESS PROFILE</button>
+    <button class="btn-neon" id="bizSaveBtn" style="width:100%;padding:13px;margin-top:12px">SAVE BUSINESS PROFILE</button>
+    <p class="small ok" id="bizSavedLine" style="display:none;margin-top:10px;line-height:1.55"></p>
   </div>
 
   <div class="set-group"><h3>Privacy &amp; data — Security Center</h3>
@@ -6702,6 +6738,375 @@ $$("[data-ws-money]").forEach(function(b){
         renderLoads();
       }
       toast("Claimed (demo) — Load #" + id + " is yours. Find it under My Loads on this tab.");
+    });
+  });
+})();
+</script>
+<script>
+/* ============ UX wiring pass 2 (2026-11-26): the remaining toast-only dead ends ============
+   Every control wired below changes real demo state on this page — a stamp,
+   a status, a list, a count, a saved value, or a downloaded file. Toasts only
+   confirm what just happened, or explain why a tap can't work yet. */
+(function(){
+  function el(id){ return document.getElementById(id); }
+  function all(sel, r){ return Array.prototype.slice.call((r || document).querySelectorAll(sel)); }
+  function retire(btn, label){ if (!btn) return; btn.disabled = true; if (label) btn.textContent = label; }
+
+  /* ---- 1 · HOS cycle pair — a real segmented choice ---- */
+  var hosSeg = el("hosCycleSeg");
+  if (hosSeg){
+    var hosUsedMin = 49 * 60 + 40; /* the card's printed 49h 40m used — the pick never rewrites it */
+    all("button", hosSeg).forEach(function(b){
+      b.addEventListener("click", function(){
+        all("button", hosSeg).forEach(function(x){ x.classList.toggle("on", x === b); });
+        var cyc = parseInt(b.getAttribute("data-cycle"), 10);
+        el("hosCycleName").textContent = "Cycle " + cyc + "h";
+        el("hosCycleFill").style.width = Math.round(hosUsedMin / (cyc * 60) * 100) + "%";
+      });
+    });
+  }
+
+  /* ---- 2 · Detention — ARRIVE / DONE stamp a live dock clock ---- */
+  var det = { arriveAt:null, doneAt:null, timer:null };
+  function fmtClock(d){ return d.toLocaleTimeString([], { hour:"numeric", minute:"2-digit" }); }
+  function pad2(n){ return ("0" + n).slice(-2); }
+  function fmtDur(ms){
+    var s = Math.max(0, Math.floor(ms / 1000));
+    return Math.floor(s / 3600) + " hrs " + pad2(Math.floor((s % 3600) / 60)) + " min " + pad2(s % 60) + " sec";
+  }
+  function detRender(){
+    if (!det.arriveAt) return;
+    var end = det.doneAt || new Date();
+    var elapsed = end - det.arriveAt;
+    el("detElapsedV").textContent = fmtDur(elapsed);
+    var freeMs = 120 * 60000, pastMs = elapsed - freeMs;
+    if (pastMs <= 0){
+      el("detAccrueV").textContent = "Inside free time — " + Math.ceil(-pastMs / 60000) + " min of grace left";
+    } else {
+      var pastMin = pastMs / 60000;
+      el("detAccrueV").textContent = Math.floor(pastMin / 60) + " hrs " + pad2(Math.round(pastMin % 60)) + " min past · $" + (pastMin / 60 * 50).toFixed(2) + " at $50/hr";
+    }
+  }
+  var detA = el("detArriveBtn"), detD = el("detDoneBtn");
+  if (detA) detA.addEventListener("click", function(){
+    if (det.arriveAt) return;
+    det.arriveAt = new Date();
+    el("detArriveV").textContent = fmtClock(det.arriveAt);
+    el("detStatus").innerHTML = "⏱ <strong>Clock running (demo)</strong> — stamped at the gate at " + fmtClock(det.arriveAt) + ". Tap DONE when the dock releases you and the record seals with both stamps.";
+    retire(detA, "✓ ARRIVED — " + fmtClock(det.arriveAt));
+    detRender();
+    det.timer = setInterval(detRender, 1000);
+  });
+  if (detD) detD.addEventListener("click", function(){
+    if (!det.arriveAt){ toast("Stamp ARRIVE first — the detention clock starts at the gate."); return; }
+    if (det.doneAt) return;
+    det.doneAt = new Date();
+    clearInterval(det.timer);
+    el("detDoneV").textContent = fmtClock(det.doneAt);
+    detRender();
+    el("detStatus").innerHTML = "⛓✓ <strong>Sealed (demo)</strong> — total at the dock " + el("detElapsedV").textContent + ", detention line: " + el("detAccrueV").textContent + ". The finished record stands with the sealed dock record below.";
+    retire(detD, "✓ DONE — " + fmtClock(det.doneAt));
+    toast("DONE stamped (demo) — the dock record is sealed with both stamps.");
+  });
+
+  /* ---- 3 · Calendar — offered Load #2107: Accept / Decline settle the card ---- */
+  function offerSettle(accepted){
+    var tag = el("offer2107Tag");
+    if (tag){ tag.textContent = accepted ? "✓ ACCEPTED · BOOKED" : "✕ DECLINED · BACK TO THE BOARD"; tag.className = accepted ? "status-done" : "status-off"; }
+    var chip = el("calOffer2107");
+    if (chip){
+      chip.textContent = accepted ? "✓ Booked · Load #2107 — pickup Thu Nov 19" : "✕ Declined · Load #2107 — back to the board";
+      if (!accepted) chip.style.opacity = ".55";
+    }
+    retire(el("offerAcceptBtn"), accepted ? "✓ Accepted" : null);
+    retire(el("offerDeclineBtn"), accepted ? null : "✕ Declined");
+  }
+  if (el("offerAcceptBtn")) el("offerAcceptBtn").addEventListener("click", function(){ offerSettle(true); });
+  if (el("offerDeclineBtn")) el("offerDeclineBtn").addEventListener("click", function(){ offerSettle(false); });
+
+  /* ---- 4a · Locked Load #2103 — Request release goes to dispatch ---- */
+  var relBtn = el("releaseReqBtn");
+  if (relBtn) relBtn.addEventListener("click", function(){
+    retire(relBtn, "✓ Release requested (demo)");
+    var note = el("releaseReqNote"); if (note) note.style.display = "block";
+    var tag = el("lockedTag"); if (tag) tag.textContent = "🔓 RELEASE REQUESTED · AWAITING DISPATCH";
+  });
+
+  /* ---- 4b · Time off — Send request lands on the pending list ---- */
+  var toBtn = el("toSendBtn");
+  if (toBtn) toBtn.addEventListener("click", function(){
+    var typeBtn = document.querySelector(".cal-type.on");
+    var type = typeBtn ? typeBtn.getAttribute("data-caltype") : "Home time";
+    var noteEl = el("calNote"), note = noteEl ? noteEl.value.trim() : "";
+    var slot = el("toSentSlot");
+    if (slot){
+      var card = document.createElement("div");
+      card.className = "card2"; card.style.marginTop = "12px";
+      card.innerHTML = "<div style=\"display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap\"><strong>" + esc(type) + " — new request</strong><span class=\"status-wait\">PENDING APPROVAL</span></div>" +
+        "<p class=\"small dim\" style=\"margin-top:4px;line-height:1.55\">Requested by J. Rivera (sample driver) · just now (demo)" + (note ? " · Note: “" + esc(note) + "”" : " · No note attached") + " · In an Assigned fleet this is not a commitment until dispatch or the owner approves it.</p>";
+      slot.appendChild(card);
+    }
+    retire(toBtn, "✓ Request sent (demo)");
+  });
+
+  /* ---- 4c · Reassignment — Consent / Refuse settle Load #2110 ---- */
+  function consentSettle(ok){
+    var tag = el("consentTag");
+    if (tag){ tag.textContent = ok ? "✓ CONSENTED · MOVE FIRED" : "✕ REFUSED · MOVE OFF"; tag.className = ok ? "status-done" : "status-off"; }
+    var out = el("consentOutcome");
+    if (out){
+      out.style.display = "block";
+      out.innerHTML = ok
+        ? "✓ <strong>Consented (demo).</strong> Load #2110 moves to <strong>S. Patel's</strong> calendar and leaves M. Chen's — the move fired on Chen's answer, exactly as the rule on this card says."
+        : "✕ <strong>Refused (demo).</strong> The refusal stands — dispatch cannot override it. Load #2110 stays on <strong>M. Chen</strong>. Only the fleet owner could override, and only with a stated reason.";
+    }
+    retire(el("consentBtn")); retire(el("refuseBtn"));
+  }
+  if (el("consentBtn")) el("consentBtn").addEventListener("click", function(){ consentSettle(true); });
+  if (el("refuseBtn")) el("refuseBtn").addEventListener("click", function(){ consentSettle(false); });
+
+  /* ---- 5 · Desk suggested loads — Offer / Assign record their outcome ----
+     The Desk Inbox assign chain keeps its selection in its own scope, so
+     these settle on their own cards. R. Nguyen's Assign meets the
+     qualification gate his card prints: the gate refuses, on the record. */
+  function suggOffer(offerId, tagId, offeredLabel){
+    var o = el(offerId), t = el(tagId);
+    if (o) o.addEventListener("click", function(){
+      retire(o, "✓ Offered (demo)");
+      if (t) t.textContent = offeredLabel;
+    });
+  }
+  suggOffer("suggCarterOffer", "suggCarterTag", "OFFERED · AWAITING ANSWER (DEMO)");
+  suggOffer("suggNguyenOffer", "suggNguyenTag", "OFFERED · AWAITING ANSWER (DEMO)");
+  var carterAssign = el("suggCarterAssign");
+  if (carterAssign) carterAssign.addEventListener("click", function(){
+    retire(carterAssign, "✓ Assigned to D. Carter (demo)");
+    var t = el("suggCarterTag");
+    if (t){ t.textContent = "ASSIGNED · D. CARTER (DEMO)"; t.className = "status-done"; }
+  });
+  var nguyenAssign = el("suggNguyenAssign");
+  if (nguyenAssign) nguyenAssign.addEventListener("click", function(){
+    retire(nguyenAssign, "Assign refused — gate (demo)");
+    var t = el("suggNguyenTag");
+    if (t){ t.textContent = "ASSIGN REFUSED · MVR OVERDUE (DEMO)"; t.className = "status-off"; }
+  });
+
+  /* ---- 6 · Owner correction — Acknowledge applies it, Dispute keeps the original ---- */
+  function corrSettle(ok){
+    var tag = el("corrTag");
+    if (tag){ tag.textContent = ok ? "✓ ACKNOWLEDGED" : "✕ DISPUTED"; tag.className = ok ? "status-done" : "status-off"; }
+    var out = el("corrOutcome");
+    if (out){
+      out.style.display = "block";
+      out.innerHTML = ok
+        ? "✓ <strong>Acknowledged (demo)</strong> — the correction applies and seals with your acknowledgement: this day's On Duty start now reads <strong>5:30 AM</strong> (see the day's first entry above)."
+        : "✕ <strong>Disputed (demo)</strong> — your original entry stands for good: On Duty start stays <strong>5:42 AM</strong>, and this dispute prints on the DOT packet.";
+    }
+    if (ok){
+      var line = el("oct22StartLine");
+      if (line) line.innerHTML = "On Duty — Pre-trip inspection — Mobile, AL — <strong>5:30 AM</strong> <span class=\"xs dim\">(owner correction — acknowledged by the driver)</span>";
+    }
+    retire(el("ackCorrBtn")); retire(el("disCorrBtn"));
+  }
+  if (el("ackCorrBtn")) el("ackCorrBtn").addEventListener("click", function(){ corrSettle(true); });
+  if (el("disCorrBtn")) el("disCorrBtn").addEventListener("click", function(){ corrSettle(false); });
+
+  /* ---- 7 · Credential warning — Dismiss actually dismisses ---- */
+  var disBtn = el("dismissWarnBtn");
+  if (disBtn) disBtn.addEventListener("click", function(){
+    var box = el("medWarnBox");
+    if (!box) return;
+    box.style.display = "none";
+    var note = document.createElement("p");
+    note.className = "xs dim"; note.style.marginTop = "8px"; note.style.lineHeight = "1.5";
+    note.innerHTML = "✓ <strong style=\"color:var(--text)\">30-day warning dismissed (demo)</strong> — this round is quiet. The 7-day warning still fires, and a renewed card re-arms the whole watch.";
+    box.parentNode.insertBefore(note, box.nextSibling);
+  });
+
+  /* ---- 8 · Pulse note — Add note / Enter appends it to the card's list ---- */
+  var pulseIn = el("pulseNoteSample"), pulseBox = el("pulseNoteList");
+  function pulseAdd(){
+    var v = pulseIn.value.trim();
+    if (!v){ toast("Type the note first — in the box above the button."); pulseIn.focus(); return; }
+    var row = document.createElement("div");
+    row.className = "log-row";
+    row.innerHTML = "<strong>📝 Your note — this round (demo)</strong><div class=\"small dim\" style=\"margin-top:2px;line-height:1.55\">“" + esc(v) + "” — your words only; a driver's written notes are never shared with the fleet.</div>";
+    pulseBox.appendChild(row);
+    pulseBox.style.display = "block";
+    pulseIn.value = "";
+    toast("Note added (demo) — it's on this card, and it stays yours.");
+  }
+  if (el("pulseNoteBtn")) el("pulseNoteBtn").addEventListener("click", pulseAdd);
+  if (pulseIn) pulseIn.addEventListener("keydown", function(e){ if (e.key === "Enter"){ e.preventDefault(); pulseAdd(); } });
+
+  /* ---- 9 · Board — Like counts, Post appends the shout-out ---- */
+  var likeCount = 12, likeBtn = el("boardLikeBtn");
+  if (likeBtn) likeBtn.addEventListener("click", function(){
+    likeCount++;
+    el("boardLikeCount").textContent = likeCount;
+  });
+  var boardPost = el("boardPostBtn");
+  if (boardPost) boardPost.addEventListener("click", function(){
+    var inp = el("boardShoutInput"), v = inp.value.trim();
+    if (!v){ toast("Type a shout-out first — in the box above Post."); inp.focus(); return; }
+    var row = document.createElement("div");
+    row.className = "log-row";
+    row.innerHTML = "<strong>📣 Shout-out — You (demo driver)</strong><div class=\"small dim\" style=\"margin-top:2px\">" + esc(v) + "</div>";
+    el("boardFeed").appendChild(row);
+    inp.value = "";
+    toast("Posted (demo) — your shout-out is on the board, on this screen only.");
+  });
+
+  /* ---- 10 · Copy links — a real clipboard copy, textarea fallback ---- */
+  function copyLink(btn, link, label){
+    if (!btn) return;
+    btn.addEventListener("click", function(){
+      function done(){
+        var old = btn.textContent;
+        btn.textContent = "Copied ✓";
+        setTimeout(function(){ btn.textContent = old; }, 2000);
+        toast(label + " copied — " + link + " (demo link). Hand it out; no account needed on their end.");
+      }
+      function fallback(){
+        var ta = document.createElement("textarea");
+        ta.value = link; ta.style.position = "fixed"; ta.style.opacity = "0";
+        document.body.appendChild(ta); ta.select();
+        var okCopy = false;
+        try { okCopy = document.execCommand("copy"); } catch (e){ okCopy = false; }
+        ta.remove();
+        if (okCopy) done();
+        else toast("Copy didn't work on this device — the link is printed on the card: " + link);
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(link).then(done, fallback);
+      else fallback();
+    });
+  }
+  copyLink(el("recvCopyBtn"), "stonemiles.app/receive/1042-DEMO", "Receive link");
+  copyLink(el("sendCopyBtn"), "stonemiles.app/send/RUGGS-DEMO", "Send link");
+
+  /* ---- 11 · Invoice — Cut the draft flips the step's status ---- */
+  var cutBtn = el("cutInvoiceBtn");
+  if (cutBtn) cutBtn.addEventListener("click", function(){
+    var st = el("invStatusV");
+    if (st) st.textContent = "Draft cut ✓ — INV-2026-0003, ready to issue";
+    retire(cutBtn, "✓ Draft cut — INV-2026-0003");
+  });
+
+  /* ---- 12 · Packets — buttons deliver a real file (Library download pattern) ---- */
+  var evidenceDoc = { title:"Evidence packet — harsh braking, Nov 10 (sample)", filename:"stonemiles-evidence-packet-nov10-sample.txt", text:
+    "STONEMILES - Exoneration Vault Evidence Packet (SAMPLE - fake preview data only)\n" +
+    "Event: Harsh braking - Tue Nov 10, 2026 - 2:14 PM - near Jackson, MS (sample)\n" +
+    "Driver: Demo Driver - D. Carter - Unit R-101 - Flatbed (fake)\n\n" +
+    "Camera clip reference: CAM-CLIP 8841 (reference only - the video stays with the camera partner)\n" +
+    "Duty timeline: duty status for the hours around 2:14 PM, Nov 10 (sealed)\n" +
+    "GPS summary: lane, speed and position summary around the event (sealed)\n" +
+    "Inspection records: pre-trip DVIR Nov 10 + the prior post-trip (sealed)\n" +
+    "Driver note: \"A car cut across two lanes for the exit - I braked hard to leave a gap.\"\n" +
+    "Dispatch: reviewed / coached - Nov 11 (sample)\n\n" +
+    "The packet stays exactly as pinned - sealed, never quietly rewritten.\n" +
+    "In the full app this packet is one sealed file, exactly as it was that day.\n" };
+  if (el("evidenceBtn")) el("evidenceBtn").addEventListener("click", function(){ downloadDoc(evidenceDoc); });
+  var packetDoc = { title:"DOT inspection packet — Oct 22, 2026 (sample)", filename:"stonemiles-dot-inspection-packet-sample.txt", text:
+    "STONEMILES - DOT Inspection Packet (SAMPLE - fake preview data only)\n" +
+    "Built from the sealed record - the packet an officer asks for.\n\n" +
+    "Oct 22, 2026 - Truck 12 - Trailer 34 - Pre-trip DVIR sealed 5:42 AM - Daily log certified - HOS clocks for the day\n" +
+    "Oct 21, 2026 - Truck 12 - Trailer 34 - Off duty - 34-hour reset in progress\n\n" +
+    "An AUTO DEFAULT entry and any disputed owner correction print on this packet exactly as they stand in the log.\n" +
+    "In the full app this packet emails or downloads as a PDF.\n" };
+  if (el("dlPacketBtn")) el("dlPacketBtn").addEventListener("click", function(){ downloadDoc(packetDoc); });
+  if (el("emailPacketBtn")) el("emailPacketBtn").addEventListener("click", function(){
+    downloadDoc(packetDoc);
+    toast("Demo: no mail server in this preview — the packet downloaded as a file instead. In the full app, Email sends this same packet.");
+  });
+
+  /* ---- 13 · Reefer — Full temperature log expands inline ---- */
+  var tempBtn = el("tempLogBtn"), tempFull = el("tempLogFull"), tempOpen = false;
+  if (tempBtn && tempFull) tempBtn.addEventListener("click", function(){
+    tempOpen = !tempOpen;
+    tempFull.style.display = tempOpen ? "block" : "none";
+    tempBtn.textContent = tempOpen ? "❄️ Hide full temperature log (demo)" : "❄️ Full temperature log (demo)";
+    toast(tempOpen ? "Full temperature log open (demo) — every reading for Load #1048, trailer T-207." : "Full temperature log closed (demo).");
+  });
+
+  /* ---- 14 · Open Board — Post to the loadboard appends a live posting ---- */
+  var postBoardBtn = el("postBoardBtn");
+  if (postBoardBtn) postBoardBtn.addEventListener("click", function(){
+    var list = el("openBoardList");
+    if (!list) return;
+    var wrap = document.createElement("div");
+    wrap.innerHTML =
+      "<div class=\"kv-row\"><span class=\"k\">Load #1066 — Birmingham, AL → Atlanta, GA · Steel beams · 38,500 lbs <span class=\"xs\">(posted by Demo Broker Co. — broker account · <strong style=\"color:var(--text)\">just posted</strong>)</span></span><span class=\"v tnum\">$890.00 · $2.61/mi</span></div>" +
+      "<p class=\"xs dim\" style=\"margin:2px 0 2px;line-height:1.5\">🛡️ <strong style=\"color:var(--text)\">Broker trust — Demo Broker Co. · MC 1048217</strong> · Bond active — expires Mar 2027 · Identity on file — verification source not connected</p>" +
+      "<p class=\"xs dim\" style=\"margin:0 0 8px;line-height:1.5\">💳 <strong style=\"color:var(--text)\">Payment record — Demo Broker Co.</strong> · 14 loads carried · 12 paid · avg 19 days to pay (12 payments on record) · Figured from STONEMILES' own sealed history only</p>";
+    var claim = document.createElement("button");
+    claim.className = "btn-ghost";
+    claim.style.cssText = "padding:10px 16px;margin:0 0 12px";
+    claim.textContent = "📥 Claim this load";
+    claim.addEventListener("click", function(){
+      claim.disabled = true;
+      claim.textContent = "✓ Claimed by you (demo)";
+      toast("Claimed (demo) — Load #1066 is yours. Find it under My Loads on this tab.");
+    });
+    wrap.appendChild(claim);
+    list.appendChild(wrap);
+    retire(postBoardBtn, "✓ Posted — Load #1066 is live on the board (demo)");
+    toast("Posted (demo) — Load #1066 is live on the Open Board, at the bottom of the list above. Free to post; the claiming carrier pays the dispatch fee.");
+  });
+
+  /* ---- 15 · Settings — birthday line + business profile SAVE persists ---- */
+  function bdaySync(){
+    var m = el("bdayMonth").value, d = el("bdayDay").value, line = el("bdayLine");
+    if (m && d){ el("bdayVal").textContent = m + " " + d; line.style.display = "block"; }
+    else line.style.display = "none";
+  }
+  if (el("bdayMonth") && el("bdayDay")){
+    el("bdayMonth").addEventListener("change", bdaySync);
+    el("bdayDay").addEventListener("change", bdaySync);
+  }
+  var demoBiz = null;
+  var bizSave = el("bizSaveBtn");
+  if (bizSave) bizSave.addEventListener("click", function(){
+    var name = el("bizName").value.trim();
+    if (!name){ toast("Type the business name first — it's the first line of your letterhead."); el("bizName").focus(); return; }
+    var logoEl = el("bizLogo");
+    var logoName = logoEl && logoEl.files && logoEl.files[0] ? logoEl.files[0].name : "";
+    demoBiz = { name:name, address:el("bizAddress").value.trim(), phone:el("bizPhone").value.trim(), email:el("bizEmail").value.trim(), pay:el("bizPay").value.trim(), logo:logoName };
+    var parts = [demoBiz.name];
+    if (demoBiz.address) parts.push(demoBiz.address);
+    if (demoBiz.phone) parts.push(demoBiz.phone);
+    if (demoBiz.email) parts.push(demoBiz.email);
+    if (demoBiz.logo) parts.push("Logo: " + demoBiz.logo);
+    var line = el("bizSavedLine");
+    line.innerHTML = "✓ <strong>Saved in this demo</strong> — your invoice letterhead now reads: " + esc(parts.join(" · ")) + ". Every invoice you cut from a sealed load carries it.";
+    line.style.display = "block";
+    toast("Business profile saved (demo) — the letterhead above is what prints on your invoices.");
+  });
+
+  /* ---- 16 · Atlas — state pills drive the sample-entry pane ----
+     Detail content exists in this file for four states only (AL · MS · LA ·
+     TX). Those highlight their entry; every other pill reports honestly
+     that its card lives in the full Atlas — no state data is invented. */
+  var atlasNote = el("atlasNote");
+  var atlasEntries = all("[data-atlas-entry]");
+  all(".atlas-grid span").forEach(function(pill){
+    pill.style.cursor = "pointer";
+    pill.addEventListener("click", function(){
+      all(".atlas-grid span").forEach(function(p){ p.style.outline = ""; p.style.background = ""; });
+      pill.style.outline = "2px solid var(--accent)";
+      pill.style.background = "var(--surface2)";
+      var name = pill.textContent.trim(), match = null;
+      atlasEntries.forEach(function(en){
+        en.style.outline = "";
+        if (en.getAttribute("data-atlas-entry") === name) match = en;
+      });
+      if (atlasNote){
+        atlasNote.style.display = "block";
+        atlasNote.innerHTML = match
+          ? "🗺️ <strong style=\"color:var(--text)\">Sample entry — " + esc(name) + "</strong>, highlighted below. The full Atlas carries this same card for all 50 states, stored on-device."
+          : "🗺️ <strong style=\"color:var(--text)\">" + esc(name) + "</strong> — this preview prints sample entries for Alabama, Mississippi, Louisiana, and Texas only (below). The full Atlas carries " + esc(name) + "'s card — weight limits, key rules, DOT contact — on-device and offline.";
+      }
+      if (match){ match.style.outline = "2px solid var(--accent)"; match.scrollIntoView({ block:"nearest" }); }
+      else if (atlasNote) atlasNote.scrollIntoView({ block:"nearest" });
     });
   });
 })();
