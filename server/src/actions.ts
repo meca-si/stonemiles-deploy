@@ -10633,6 +10633,9 @@ const appSettingsShape = z.object({
   // removable feature, plus the driver's camera choice — display-only.
   mapEnhancedView: z.boolean(),
   mapTiltMode: z.enum(["auto", "flat", "tilted"]),
+  // 3D view (migration 0146): the opt-in 3D driving view — default
+  // OFF, display-only, see ./mapPrefs.
+  mapView3d: z.boolean(),
   // Hill grade alerts (migration 0105) — default ON, every tier.
   hillGradeAlerts: z.boolean(),
   // Winter & weather alerts (migration 0107) — default ON, every tier.

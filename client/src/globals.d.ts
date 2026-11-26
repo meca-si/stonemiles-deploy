@@ -66,6 +66,9 @@ interface LeafletMap {
   setBearing(deg: number): void;
   getBearing(): number;
   setPitch(deg: number): void;
+  // 3D view gate (2026-11-25): show/hide the Streets style's
+  // building-3d extrusions; the engine re-applies it on style swaps.
+  setBuildings3d(on: boolean): void;
   // Docked-overlay camera reserve (gantry sign board, 2026-11-05):
   // top viewport padding so the follow camera frames the truck in
   // the unobstructed area below the board. 0 restores true center.

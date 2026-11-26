@@ -1348,6 +1348,11 @@ export const appSettings = sqliteTable("app_settings", {
   // Display-only — routing, alerts, and data never consult either.
   mapEnhancedView: integer("map_enhanced_view", { mode: "boolean" }).notNull().default(true),
   mapTiltMode: text("map_tilt_mode").notNull().default("auto"), // auto | flat | tilted
+  // 3D view (migration 0146): the opt-in 3D driving view (x's call
+  // 2026-11-25 — simple face default, 3D optional). ON leans the Go
+  // camera in and shows the Streets style's building extrusions.
+  // Display-only, like the rest of the map prefs.
+  mapView3d: integer("map_view_3d", { mode: "boolean" }).notNull().default(false),
   // Android Auto / Car Mode (migration 0104): the driver's car-display
   // preferences. carModeEnabled is the master switch for the glanceable
   // car display (the surface the Android Auto build projects);

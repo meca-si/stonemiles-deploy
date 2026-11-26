@@ -23,7 +23,7 @@ import { CYCLE_LIMITS, cycleTypeOf, hosClocksFromEvents, type CycleType, type Ho
 import { inspectionKindForRemark } from "./remarkInspection";
 import { createGpsFixFilter, type FixRejection } from "./gpsFilter";
 import { OFF_ROUTE_MI, OFF_ROUTE_SUSTAIN_MS, REROUTE_COOLDOWN_MS, bearingDeltaDeg, createParallelTrackTracker, headingFromTrack, normalizeBearingDeg, projectOntoRoute, smoothBearingDeg, snapDisplayToRoute } from "./routeGeometry";
-import { MAP_LAYER_CATEGORIES, effectiveBaseStyle, effectivePitchDeg, isIntelVisible, normalizeMapPrefs, offlineAutoSwitchApplies, resolveMapDayNight, satelliteFallbackActive, selectBearingSource, trafficLiveRefreshEnabled, trafficNotesVisible, type MapPrefs } from "./mapPrefs";
+import { MAP_LAYER_CATEGORIES, buildings3dOn, effectiveBaseStyle, effectivePitchDeg, isIntelVisible, normalizeMapPrefs, offlineAutoSwitchApplies, resolveMapDayNight, satelliteFallbackActive, selectBearingSource, trafficLiveRefreshEnabled, trafficNotesVisible, type MapPrefs } from "./mapPrefs";
 import { DRIVE_GLASS_LEVELS, DRIVE_OVERLAYS, STANDARD_DRIVE_LAYOUT, displayedSpeedMph, driveSolidBg, isStandardDriveLayout, visibleDriveOverlays } from "./driveScreen";
 import { CarDisplay, CarModePanel, HeadUnitDisplay } from "./CarModePanel";
 import {
@@ -385,6 +385,9 @@ const DEFAULT_APP_SETTINGS: AppSettingsT = {
   // shipped; tilt follows the faces (auto) until the driver pins it.
   mapEnhancedView: true,
   mapTiltMode: "auto",
+  // 3D view (migration 0146): the opt-in 3D driving view — OFF as
+  // shipped (x's call, 2026-11-25: simple face default, 3D optional).
+  mapView3d: false,
   // Android Auto / Cab Mode (migration 0104): the cab display starts
   // OFF — the driver turns it on in Settings → Driving; auto-launch,
   // voice, and the HOS tile default on once it's enabled.
@@ -4261,6 +4264,7 @@ export function App() {
     driveGlassLevel: appSettings.driveGlassLevel,
     enhancedMap: appSettings.mapEnhancedView,
     tiltMode: appSettings.mapTiltMode,
+    view3d: appSettings.mapView3d,
   });
   // Drive-screen overlay visibility (Repair 5, driveScreen.ts):
   // the single gate every floating element on the driving map
@@ -4804,6 +4808,17 @@ export function App() {
     if (!map || !mapReady) return;
     map.setPitch(drivePitchDeg);
   }, [drivePitchDeg, mapReady]);
+
+  // 3D view (2026-11-25): gate the Streets style's building
+  // extrusions on the driver's opt-in. The engine remembers the
+  // gate and re-applies it after every style swap; styles without
+  // a building-3d layer (night, satellite, offline) are a no-op.
+  const buildings3d = buildings3dOn(mapPrefs);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    map.setBuildings3d(buildings3d);
+  }, [buildings3d, mapReady]);
 
   // Satellite offline honesty: TRUE while the driver's chosen style
   // is a satellite style but no signal means the imagery isn't what's
@@ -16028,6 +16043,36 @@ export function App() {
                 </div>
                 <p className="mt-1.5 text-xs leading-relaxed text-[var(--dim)]">
                   Auto leans the driving (Go) view in and keeps Explore flat. Flat pins the camera top-down; Tilted leans it in everywhere. Works on the regular map and satellite alike — and fully offline. Set it right here in Layers & display.
+                </p>
+                {/* 3D view (2026-11-25, x's call: "make it optional")
+                    — the opt-in 3D driving view, OFF by default: the
+                    simple face stays the standard. ON leans the Go
+                    camera in and stands the Streets map's buildings
+                    up in 3D where the data carries heights. */}
+                <div className="mt-3 text-[11px] font-bold uppercase tracking-wider text-[var(--dim)]">3D view</div>
+                <div className="mt-1.5 flex overflow-hidden rounded-full border border-[var(--border)]" role="group" aria-label="3D view">
+                  {(
+                    [
+                      { key: false as const, label: "Off" },
+                      { key: true as const, label: "On" },
+                    ]
+                  ).map((s) => (
+                    <button
+                      key={String(s.key)}
+                      type="button"
+                      aria-pressed={mapPrefs.view3d === s.key}
+                      aria-label={`3D view: ${s.label}`}
+                      onClick={() => updateAppSettings({ mapView3d: s.key })}
+                      className={`flex-1 px-3 py-2 text-xs font-bold ${
+                        mapPrefs.view3d === s.key ? "bg-[var(--accent)] text-black" : "bg-black/40 text-neutral-300"
+                      }`}
+                    >
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-1.5 text-xs leading-relaxed text-[var(--dim)]">
+                  Off is the standard driving face — simple and flat. On leans the driving view in and stands buildings up in 3D on the regular map, where the map data carries building heights (zoomed in, mostly in towns and cities). The night map has no 3D buildings in its data, so at night On is the lean only.
                 </p>
               </>
             ) : (

@@ -41,6 +41,7 @@ describe("defaults equal today's map", () => {
       driveGlassLevel: "med",
       mapEnhancedView: true,
       mapTiltMode: "auto",
+      mapView3d: false,
     });
   });
   test("an account that never saved gets the defaults", () => {
@@ -71,6 +72,7 @@ describe("preference round-trip (set → reload → same setup)", () => {
       driveGlassLevel: "high",
       mapEnhancedView: false,
       mapTiltMode: "tilted",
+      mapView3d: true,
     };
     expect(mapPrefsFromRow(mapPrefsToRow(chosen))).toEqual(chosen);
     expect(mapPrefsFromRow(mapPrefsToRow(MAP_PREFS_DEFAULTS))).toEqual(MAP_PREFS_DEFAULTS);
@@ -150,6 +152,24 @@ describe("enhanced map view (migration 0100)", () => {
   test("a bogus stored tilt mode reads as Auto, never a broken state", () => {
     const row = { ...mapPrefsToRow(MAP_PREFS_DEFAULTS), mapTiltMode: "bogus" };
     expect(mapPrefsFromRow(row).mapTiltMode).toBe("auto");
+  });
+});
+
+describe("3D view (migration 0146)", () => {
+  test("defaults OFF — the simple face is the standard", () => {
+    expect(MAP_PREFS_DEFAULTS.mapView3d).toBe(false);
+    expect(mapPrefsFromRow(null).mapView3d).toBe(false);
+  });
+  test("an explicit ON round-trips through the row", () => {
+    const on: MapPrefs = { ...MAP_PREFS_DEFAULTS, mapView3d: true };
+    expect(mapPrefsFromRow(mapPrefsToRow(on)).mapView3d).toBe(true);
+    const off: MapPrefs = { ...MAP_PREFS_DEFAULTS, mapView3d: false };
+    expect(mapPrefsFromRow(mapPrefsToRow(off)).mapView3d).toBe(false);
+  });
+  test("a legacy row predating the column reads as OFF", () => {
+    const row = mapPrefsToRow(MAP_PREFS_DEFAULTS);
+    delete (row as Partial<typeof row>).mapView3d;
+    expect(mapPrefsFromRow(row as typeof row).mapView3d).toBe(false);
   });
 });
 

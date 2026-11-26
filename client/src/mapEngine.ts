@@ -115,6 +115,19 @@ function applyLabelsVisibility(ml: maplibregl.Map, labels: boolean) {
   }
 }
 
+/** Show/hide the Streets style's 3D building extrusions (3D view,
+ *  2026-11-25). The Liberty style SHIPS its building-3d layer
+ *  visible, so the opt-in gate must actively hide it while the
+ *  driver's 3D view is off — the simple face is the default. Styles
+ *  without the layer (night, satellite, offline) are a no-op. */
+function applyBuildings3dVisibility(ml: maplibregl.Map, on: boolean) {
+  try {
+    if (ml.getLayer("building-3d")) {
+      ml.setLayoutProperty("building-3d", "visibility", on ? "visible" : "none");
+    }
+  } catch { /* style not loaded / layer renamed upstream — skip */ }
+}
+
 /** One registered overlay (route line or raster) the adapter re-adds
  *  after every style swap — MapLibre drops custom sources/layers on
  *  setStyle, DOM markers survive on their own. */
@@ -135,6 +148,10 @@ class MLMapImpl {
   baseDark = true;
   baseNight = false;
   baseLabels = true;
+  /** 3D view gate (2026-11-25): the driver's opt-in for the Streets
+   *  style's building extrusions. Stored on the map (not just the
+   *  style) so every style swap re-applies it on style.load. */
+  baseBuildings3d = false;
   private styleEpoch = 0;
 
   dragging: LeafletMapHandler;
@@ -175,6 +192,7 @@ class MLMapImpl {
     this.ml.on("style.load", () => {
       applyTrueColorTheme(this.ml);
       applyLabelsVisibility(this.ml, this.baseLabels);
+      applyBuildings3dVisibility(this.ml, this.baseBuildings3d);
       // Re-add overlays above the base style (insertion order = draw
       // order, so re-adding in registration order keeps routes on top).
       for (const def of this.overlays.values()) this.addOverlayToStyle(def);
@@ -372,6 +390,14 @@ class MLMapImpl {
   }
   setPitch(deg: number) {
     try { this.ml.easeTo({ pitch: deg, duration: 650 }); } catch { /* not ready */ }
+  }
+
+  /** 3D view (2026-11-25): gate the Streets style's building-3d
+   *  extrusions. Remembered on the instance and re-applied after
+   *  every style swap (see the style.load handler). */
+  setBuildings3d(on: boolean) {
+    this.baseBuildings3d = on;
+    applyBuildings3dVisibility(this.ml, on);
   }
 
   setView(center: LatLngArr, zoom: number): this {

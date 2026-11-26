@@ -63,6 +63,11 @@ export type MapPrefs = {
   // restores the driver's setup exactly.
   mapEnhancedView: boolean;
   mapTiltMode: MapTiltMode;
+  // 3D view (migration 0146): the opt-in 3D driving view — the Go
+  // camera leans in and the Streets style's building extrusions
+  // show. Default OFF (x's call, 2026-11-25: the simple flat face
+  // stays the standard; 3D is the driver's option). Display-only.
+  mapView3d: boolean;
 };
 
 /** See-through level for Drive-screen overlays (Repair 5): how
@@ -100,6 +105,7 @@ export const MAP_PREFS_DEFAULTS: MapPrefs = {
   driveGlassLevel: "med",
   mapEnhancedView: true,
   mapTiltMode: "auto",
+  mapView3d: false,
 };
 
 /** The app_settings row shape the prefs columns are read from. */
@@ -123,6 +129,7 @@ export type MapPrefsRow = {
   driveGlassLevel: string;
   mapEnhancedView: boolean;
   mapTiltMode: string;
+  mapView3d: boolean;
 };
 
 /** Map a stored row to typed prefs. A missing row (account has never
@@ -169,6 +176,10 @@ export function mapPrefsFromRow(row: MapPrefsRow | null | undefined): MapPrefs {
       row.mapTiltMode === "flat" || row.mapTiltMode === "tilted"
         ? row.mapTiltMode
         : "auto",
+    // 3D view (0146): a legacy row predating the column reads as
+    // the shipped default — OFF. Only an explicit stored true
+    // turns the 3D view on.
+    mapView3d: row.mapView3d === true,
   };
 }
 
@@ -195,5 +206,6 @@ export function mapPrefsToRow(prefs: MapPrefs): MapPrefsRow {
     driveGlassLevel: prefs.driveGlassLevel,
     mapEnhancedView: prefs.mapEnhancedView,
     mapTiltMode: prefs.mapTiltMode,
+    mapView3d: prefs.mapView3d,
   };
 }

@@ -24,6 +24,19 @@
 //   tiltMode    — the camera choice while enhanced is on: auto
 //                 (Go leans / Explore flat), flat, or tilted.
 //
+// 3D view (2026-11-25, x's call after seeing a 3D lane-nav ad:
+// "make it optional") rides along too:
+//   view3d      — the 3D driving view as ONE opt-in switch. Default
+//                 OFF — the driving face stays the simple flat face
+//                 x approved. ON: the Go camera leans in (whatever
+//                 Tilt says) and the Streets style's building-3d
+//                 extrusion layer is shown, so buildings stand up
+//                 where the map data carries heights. Part of the
+//                 enhanced family: with enhancedMap OFF it is inert
+//                 (kept, like tiltMode). The night style carries no
+//                 building-3d layer, so at night the switch is the
+//                 lean only — never faked.
+//
 // The driver's own truck marker and active-navigation guidance are NOT
 // categories: they are never toggleable. Spoken/audio hazard alerts are
 // a safety behavior driven by the hazard DATA (which keeps loading
@@ -113,6 +126,9 @@ export type MapPrefs = {
   // effectivePitchDeg / satelliteFallbackActive below.
   enhancedMap: boolean;
   tiltMode: MapTiltMode;
+  // 3D view (2026-11-25): the opt-in 3D driving view — default OFF.
+  // See the header note and buildings3dOn / effectivePitchDeg below.
+  view3d: boolean;
 };
 
 export const MAP_PREFS_DEFAULTS: MapPrefs = {
@@ -138,6 +154,7 @@ export const MAP_PREFS_DEFAULTS: MapPrefs = {
   driveGlassLevel: "med",
   enhancedMap: true,
   tiltMode: "auto",
+  view3d: false,
 };
 
 /** The drawn-layer categories, in panel order. `key` names the drawn
@@ -197,6 +214,9 @@ export function normalizeMapPrefs(input: Partial<MapPrefs> | null | undefined): 
       input.tiltMode === "flat" || input.tiltMode === "tilted"
         ? input.tiltMode
         : MAP_PREFS_DEFAULTS.tiltMode,
+    // 3D view: only an explicit true turns it on — a stale cache or
+    // older server row (no field at all) keeps the simple face.
+    view3d: input.view3d === true,
   };
 }
 
@@ -247,13 +267,27 @@ export function effectiveBaseStyle(prefs: MapPrefs): MapBaseStyle {
 
 /** The camera pitch (degrees) for a map face under these prefs.
  *  Enhanced OFF → always 0 (flat, exactly the pre-feature map).
+ *  3D view ON → the Go face leans (the 3D look needs the lean,
+ *  whatever Tilt says); Explore keeps its Tilt behavior.
  *  Tilt "flat" → 0 everywhere; "tilted" → the driving lean
  *  everywhere; "auto" → the shipped faces (Go leans, Explore flat). */
 export function effectivePitchDeg(prefs: MapPrefs, mode: "explore" | "go"): number {
   if (!prefs.enhancedMap) return 0;
+  if (prefs.view3d && mode === "go") return DRIVE_TILT_PITCH_DEG;
   if (prefs.tiltMode === "flat") return 0;
   if (prefs.tiltMode === "tilted") return DRIVE_TILT_PITCH_DEG;
   return mode === "go" ? DRIVE_TILT_PITCH_DEG : 0;
+}
+
+/** Whether the Streets style's 3D building extrusions are drawn
+ *  under these prefs: exactly when the driver opted into the 3D
+ *  view and the enhanced feature that carries it is on. The map
+ *  engine gates the style's own building-3d layer on this — with
+ *  it off, the layer is hidden even though the style ships it
+ *  visible. Styles without the layer (night, satellite, offline)
+ *  simply have nothing to gate. */
+export function buildings3dOn(prefs: MapPrefs): boolean {
+  return prefs.enhancedMap && prefs.view3d;
 }
 
 /** Whether the map's camera is leaned in under these prefs/face —

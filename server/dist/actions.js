@@ -8547,6 +8547,7 @@ var appSettings = sqliteTable("app_settings", {
   driveGlassLevel: text2("drive_glass_level").notNull().default("med"),
   mapEnhancedView: integer3("map_enhanced_view", { mode: "boolean" }).notNull().default(true),
   mapTiltMode: text2("map_tilt_mode").notNull().default("auto"),
+  mapView3d: integer3("map_view_3d", { mode: "boolean" }).notNull().default(false),
   hillGradeAlerts: integer3("hill_grade_alerts", { mode: "boolean" }).notNull().default(true),
   winterWeatherAlerts: integer3("winter_weather_alerts", { mode: "boolean" }).notNull().default(true),
   autoAddStops: integer3("auto_add_stops", { mode: "boolean" }).notNull().default(true),
@@ -11460,6 +11461,7 @@ var appSettings2 = pgTable("app_settings", {
   driveGlassLevel: text("drive_glass_level").notNull().default("med"),
   mapEnhancedView: boolean3("map_enhanced_view").notNull().default(true),
   mapTiltMode: text("map_tilt_mode").notNull().default("auto"),
+  mapView3d: boolean3("map_view_3d").notNull().default(false),
   hillGradeAlerts: boolean3("hill_grade_alerts").notNull().default(true),
   winterWeatherAlerts: boolean3("winter_weather_alerts").notNull().default(true),
   autoAddStops: boolean3("auto_add_stops").notNull().default(true),
@@ -25598,7 +25600,8 @@ var MAP_PREFS_DEFAULTS = {
   driveShowEtaPill: true,
   driveGlassLevel: "med",
   mapEnhancedView: true,
-  mapTiltMode: "auto"
+  mapTiltMode: "auto",
+  mapView3d: false
 };
 function mapPrefsFromRow(row) {
   if (!row)
@@ -25622,7 +25625,8 @@ function mapPrefsFromRow(row) {
     driveShowEtaPill: row.driveShowEtaPill !== false,
     driveGlassLevel: row.driveGlassLevel === "low" || row.driveGlassLevel === "high" ? row.driveGlassLevel : "med",
     mapEnhancedView: row.mapEnhancedView !== false,
-    mapTiltMode: row.mapTiltMode === "flat" || row.mapTiltMode === "tilted" ? row.mapTiltMode : "auto"
+    mapTiltMode: row.mapTiltMode === "flat" || row.mapTiltMode === "tilted" ? row.mapTiltMode : "auto",
+    mapView3d: row.mapView3d === true
   };
 }
 function mapPrefsToRow(prefs) {
@@ -25645,7 +25649,8 @@ function mapPrefsToRow(prefs) {
     driveShowEtaPill: prefs.driveShowEtaPill,
     driveGlassLevel: prefs.driveGlassLevel,
     mapEnhancedView: prefs.mapEnhancedView,
-    mapTiltMode: prefs.mapTiltMode
+    mapTiltMode: prefs.mapTiltMode,
+    mapView3d: prefs.mapView3d
   };
 }
 
@@ -33345,6 +33350,7 @@ var appSettingsShape = object({
   driveGlassLevel: _enum(["low", "med", "high"]),
   mapEnhancedView: boolean2(),
   mapTiltMode: _enum(["auto", "flat", "tilted"]),
+  mapView3d: boolean2(),
   hillGradeAlerts: boolean2(),
   winterWeatherAlerts: boolean2(),
   autoAddStops: boolean2(),

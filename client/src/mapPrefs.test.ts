@@ -9,6 +9,7 @@ import {
 DRIVE_TILT_PITCH_DEG,
 MAP_LAYER_CATEGORIES,
 MAP_PREFS_DEFAULTS,
+buildings3dOn,
 effectiveBaseStyle,
 effectivePitchDeg,
 intelCategory,
@@ -51,6 +52,7 @@ describe("defaults equal today's map", () => {
       driveGlassLevel: "med",
       enhancedMap: true,
       tiltMode: "auto",
+      view3d: false,
     });
   });
   test("normalize of nothing is the defaults", () => {
@@ -92,6 +94,7 @@ describe("preference round-trip", () => {
       driveGlassLevel: "high",
       enhancedMap: false,
       tiltMode: "flat",
+      view3d: true,
     };
     expect(normalizeMapPrefs(chosen)).toEqual(chosen);
     // Idempotent: a saved setup reloaded passes through unchanged.
@@ -354,6 +357,33 @@ describe("enhanced map view — tilted camera", () => {
     // And the pinned states flip back.
     expect(nextTiltMode({ ...MAP_PREFS_DEFAULTS, tiltMode: "tilted" }, "go")).toBe("flat");
     expect(nextTiltMode({ ...MAP_PREFS_DEFAULTS, tiltMode: "flat" }, "go")).toBe("tilted");
+  });
+});
+
+describe("3D view (2026-11-25, x: simple default, 3D optional)", () => {
+  test("defaults OFF and a stale cache without the field stays OFF", () => {
+    expect(MAP_PREFS_DEFAULTS.view3d).toBe(false);
+    expect(normalizeMapPrefs({}).view3d).toBe(false);
+    expect(normalizeMapPrefs({ view3d: true }).view3d).toBe(true);
+    expect(buildings3dOn(MAP_PREFS_DEFAULTS)).toBe(false);
+  });
+  test("ON leans the Go camera even when Tilt is pinned flat; Explore keeps its Tilt behavior", () => {
+    const on: MapPrefs = { ...MAP_PREFS_DEFAULTS, tiltMode: "flat", view3d: true };
+    expect(effectivePitchDeg(on, "go")).toBe(DRIVE_TILT_PITCH_DEG);
+    expect(effectivePitchDeg(on, "explore")).toBe(0);
+    const onTilted: MapPrefs = { ...MAP_PREFS_DEFAULTS, tiltMode: "tilted", view3d: true };
+    expect(effectivePitchDeg(onTilted, "explore")).toBe(DRIVE_TILT_PITCH_DEG);
+  });
+  test("buildings show exactly when 3D is on AND the enhanced feature is on", () => {
+    expect(buildings3dOn({ ...MAP_PREFS_DEFAULTS, view3d: true })).toBe(true);
+    expect(buildings3dOn({ ...MAP_PREFS_DEFAULTS, view3d: true, enhancedMap: false })).toBe(false);
+    expect(buildings3dOn({ ...MAP_PREFS_DEFAULTS, view3d: false })).toBe(false);
+  });
+  test("enhanced OFF makes 3D inert — camera flat on both faces, choice kept", () => {
+    const off: MapPrefs = { ...MAP_PREFS_DEFAULTS, view3d: true, enhancedMap: false };
+    expect(effectivePitchDeg(off, "go")).toBe(0);
+    expect(effectivePitchDeg(off, "explore")).toBe(0);
+    expect(off.view3d).toBe(true); // stored choice untouched
   });
 });
 
