@@ -1,6 +1,6 @@
 // loadFlow.test.ts — the load-flow panel's fuel + pay math.
 import { describe, expect, test } from "bun:test";
-import { afterFuelEstimate, afterFuelVerdict, fuelAdviceForLoad, loadPayFigures, paySplitLabel } from "./loadFlow";
+import { afterFuelEstimate, afterFuelVerdict, fuelAdviceForLoad, loadPayFigures, nationalRpmCompare, paySplitLabel } from "./loadFlow";
 
 describe("fuelAdviceForLoad", () => {
   test("the Jacksonville → Montgomery run on 3/8 of a 120-gal tank", () => {
@@ -137,5 +137,36 @@ describe("afterFuelEstimate", () => {
     // An unset profile MPG is never replaced by a default.
     expect(afterFuelEstimate({ ...base, baseMpg: 0 })).toBeNull();
     expect(afterFuelEstimate({ ...base, pricePerGal: null })).toBeNull();
+  });
+});
+
+describe("nationalRpmCompare", () => {
+  test("a short regional run reads below the national average — the real Jax→Montgomery lane", () => {
+    // $600 over 368 loaded miles against DAT's dry van $3.11 (Nov 14–20, 2026).
+    const c = nationalRpmCompare({ gross: 600, loadedMiles: 368, nationalRpm: 3.11 });
+    expect(c).not.toBeNull();
+    expect(c!.rpm).toBe(1.63);
+    expect(c!.diffPerMile).toBe(-1.48);
+    expect(c!.direction).toBe("below");
+  });
+
+  test("a strong rate reads above, with the gap in dollars per mile", () => {
+    const c = nationalRpmCompare({ gross: 4000, loadedMiles: 1000, nationalRpm: 3.73 });
+    expect(c!.rpm).toBe(4);
+    expect(c!.diffPerMile).toBe(0.27);
+    expect(c!.direction).toBe("above");
+  });
+
+  test("a load priced at the average reads at", () => {
+    const c = nationalRpmCompare({ gross: 3110, loadedMiles: 1000, nationalRpm: 3.11 });
+    expect(c!.diffPerMile).toBe(0);
+    expect(c!.direction).toBe("at");
+  });
+
+  test("no rate, no miles, or no published lane average figures nothing", () => {
+    expect(nationalRpmCompare({ gross: null, loadedMiles: 368, nationalRpm: 3.11 })).toBeNull();
+    expect(nationalRpmCompare({ gross: 600, loadedMiles: null, nationalRpm: 3.11 })).toBeNull();
+    expect(nationalRpmCompare({ gross: 600, loadedMiles: 0, nationalRpm: 3.11 })).toBeNull();
+    expect(nationalRpmCompare({ gross: 600, loadedMiles: 368, nationalRpm: null })).toBeNull();
   });
 });

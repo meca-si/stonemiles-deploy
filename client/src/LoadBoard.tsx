@@ -24,7 +24,7 @@ import { api, type ApiResponse } from "./api";
 import { laneEstimateFor, rankBoardLoads, totalPerMile, type BoardSortKey } from "./loadRate";
 import { geocodeCity, laneKey, useLaneEstimates } from "./useLaneEstimate";
 import { BoardSortControl, PerMileLine } from "./RatePerMile";
-import { AfterFuelLine, type FuelPrice, type PayModel } from "./AfterFuelLine";
+import { AfterFuelLine, NationalRpmLine, type FuelPrice, type NationalRpm, type PayModel } from "./AfterFuelLine";
 import type { LatLon } from "./loadRate";
 
 type BoardData = ApiResponse<typeof api, "getLoadBoard">;
@@ -605,6 +605,17 @@ export function FleetLoadBoardPanel({
     if (d.eia && d.eia.national > 0) return { perGal: d.eia.national, label: "EIA weekly avg" };
     return null;
   })();
+  // National RPM yardstick (x 2026-11-25): one Rate Watch read for
+  // the whole board; each card stands its rate per mile against the
+  // DAT national average for its own equipment lane. Best-effort —
+  // still loading, or a lane with no published row, just means no
+  // comparison line on that card.
+  const rateWatchQuery = useQuery({ queryKey: ["rate-watch"], queryFn: () => api.getRateWatch({}) });
+  const nationalFor = (equipmentType: string | null): NationalRpm | null => {
+    const n = rateWatchQuery.data?.nationalRpm;
+    const row = n?.rows.find((x) => x.equipment === equipmentType);
+    return n && row ? { ratePerMile: row.ratePerMile, label: row.label, weekLabel: n.weekLabel } : null;
+  };
   const [myPos, setMyPos] = useState<LatLon | null>(null);
   const payModelOn = payModel != null;
   useEffect(() => {
@@ -1084,20 +1095,32 @@ export function FleetLoadBoardPanel({
             </span>
           )}
         </div>
-        {payModel && (r.status === "open" || r.status === "overflowed" || r.claimedBy === data.myUsername) && (
-          <AfterFuelLine
-            totalWithExtras={r.totalWithExtras}
-            rate={r.rate}
-            extraCharges={r.extraCharges}
-            loadedMiles={r.loadedMiles}
-            estMiles={laneEstimates.get(laneKey(r)) ?? null}
-            weightLbs={r.weightLbs}
-            pickupCity={r.pickupCity}
-            pickupState={r.pickupState}
-            payModel={payModel}
-            price={fuelPrice}
-            myPos={myPos}
-          />
+        {(r.status === "open" || r.status === "overflowed" || r.claimedBy === data.myUsername) && (
+          <>
+            {payModel && (
+              <AfterFuelLine
+                totalWithExtras={r.totalWithExtras}
+                rate={r.rate}
+                extraCharges={r.extraCharges}
+                loadedMiles={r.loadedMiles}
+                estMiles={laneEstimates.get(laneKey(r)) ?? null}
+                weightLbs={r.weightLbs}
+                pickupCity={r.pickupCity}
+                pickupState={r.pickupState}
+                payModel={payModel}
+                price={fuelPrice}
+                myPos={myPos}
+              />
+            )}
+            <NationalRpmLine
+              totalWithExtras={r.totalWithExtras}
+              rate={r.rate}
+              extraCharges={r.extraCharges}
+              loadedMiles={r.loadedMiles}
+              estMiles={laneEstimates.get(laneKey(r)) ?? null}
+              national={nationalFor(r.equipmentType)}
+            />
+          </>
         )}
         <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-sm">
           {r.shipper && (

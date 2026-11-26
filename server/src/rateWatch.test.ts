@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { computeRateIndex, MIN_INDEX_LOADS, RATE_WATCH_BENCHMARKS, type RateWatchLoadLike } from "./rateWatch";
+import { computeRateIndex, MIN_INDEX_LOADS, NATIONAL_RPM_BENCHMARKS, RATE_WATCH_BENCHMARKS, type RateWatchLoadLike } from "./rateWatch";
 
 const NOW = Date.parse("2026-11-17T12:00:00Z");
 const DAY = 86_400_000;
@@ -124,5 +124,24 @@ describe("RATE_WATCH_BENCHMARKS", () => {
     expect(byLabel.get("Flatbed")?.loadsChangePct).toBe(-7.3);
     expect(byLabel.get("Flatbed")?.vsLastYearPct).toBe(39);
     expect(byLabel.get("Flatbed")?.note).toContain("since August");
+  });
+});
+
+describe("NATIONAL_RPM_BENCHMARKS", () => {
+  test("carries exactly DAT's published Nov 14–20, 2026 all-in averages, nothing derived", () => {
+    const n = NATIONAL_RPM_BENCHMARKS;
+    expect(n.weekLabel).toBe("Nov 14–20, 2026");
+    expect(n.source).toContain("DAT Freight & Analytics");
+    expect(n.source).toContain("linehaul + fuel surcharge");
+    const byEquipment = new Map(n.rows.map((r) => [r.equipment, r]));
+    // DAT's release (Nov 24, 2026): van $3.11, reefer $3.73, flatbed $3.58.
+    expect(byEquipment.get("dry_van")?.ratePerMile).toBe(3.11);
+    expect(byEquipment.get("reefer")?.ratePerMile).toBe(3.73);
+    expect(byEquipment.get("flatbed")?.ratePerMile).toBe(3.58);
+    // Only lanes with a published all-in absolute get a row.
+    expect(byEquipment.has("open_deck")).toBe(false);
+    expect(byEquipment.has("rgn")).toBe(false);
+    expect(byEquipment.has("container")).toBe(false);
+    for (const r of n.rows) expect(r.ratePerMile).toBeGreaterThan(0);
   });
 });

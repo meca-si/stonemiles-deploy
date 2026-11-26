@@ -22,7 +22,7 @@ import { summarizeQuarterlyTax } from "./quarterlyTax";
 import { computeMoneyOverview } from "./moneyOverview";
 import { parseRateConText } from "./rateConText";
 import { computePayRpm } from "./payRpm";
-import { computeRateIndex, RATE_WATCH_BENCHMARKS } from "./rateWatch";
+import { computeRateIndex, NATIONAL_RPM_BENCHMARKS, RATE_WATCH_BENCHMARKS } from "./rateWatch";
 import {
 acceptGate,
 deliveryToPayEntry,
@@ -49784,6 +49784,17 @@ export const Actions = {
           }),
         ),
       }),
+      nationalRpm: z.object({
+        weekLabel: z.string(),
+        source: z.string(),
+        rows: z.array(
+          z.object({
+            equipment: z.string(),
+            label: z.string(),
+            ratePerMile: z.number(),
+          }),
+        ),
+      }),
       index: z.object({
         windowDays: z.number(),
         minLoads: z.number(),
@@ -49824,6 +49835,11 @@ export const Actions = {
           totalSpotPerMile: b.totalSpotPerMile,
           rows: b.rows.map((r) => ({ ...r })),
         },
+        nationalRpm: {
+          weekLabel: NATIONAL_RPM_BENCHMARKS.weekLabel,
+          source: NATIONAL_RPM_BENCHMARKS.source,
+          rows: NATIONAL_RPM_BENCHMARKS.rows.map((r) => ({ ...r })),
+        },
         index: {
           windowDays: index.windowDays,
           minLoads: index.minLoads,
@@ -49833,7 +49849,7 @@ export const Actions = {
           overall: index.overall,
           byEquipment: index.byEquipment,
         },
-        note: "Market: the week's published broker-posted spot averages (Truckstop.com / FTR, fuel included) — market direction, not a quote for any load. Stonervision Rate Index: sealed loads on STONEMILES over the last 90 days, load revenue (rate + additional charges) over loaded miles, deadhead not counted; a rate shows only once at least 5 sealed loads stand behind it, and no single load's rate, customer, or lane is ever shown.",
+        note: "Market: the week's published broker-posted spot averages (Truckstop.com / FTR, fuel included) — market direction, not a quote for any load. Board cards also stand a load's rate per mile next to DAT's 7-day national average spot rate for its equipment (broker-to-carrier, linehaul + fuel surcharge) — a yardstick, not a quote. Stonervision Rate Index: sealed loads on STONEMILES over the last 90 days, load revenue (rate + additional charges) over loaded miles, deadhead not counted; a rate shows only once at least 5 sealed loads stand behind it, and no single load's rate, customer, or lane is ever shown.",
       };
     },
   }),

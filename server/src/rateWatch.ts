@@ -84,6 +84,48 @@ export const RATE_WATCH_BENCHMARKS: RateWatchBenchmarks = {
   ],
 };
 
+// ---------------------------------------------------------------------
+// NATIONAL RPM BENCHMARKS — the board card's yardstick (x's order,
+// 2026-11-25): a load's rate-con price broken down to its rate per
+// mile, stood next to the real national average for the load's
+// equipment lane. DAT publishes clean national absolutes per
+// equipment (broker-to-carrier spot, linehaul + fuel surcharge —
+// the same all-in basis as a rate con's total), which the
+// Truckstop/FTR summary above does not, so this table carries its
+// own source and week and is seeded from DAT's published weekly
+// release, copied verbatim. Same honesty rules as the benchmarks
+// above: a lane DAT publishes no all-in absolute for gets NO row —
+// never derive one from a linehaul figure plus an assumed fuel
+// surcharge — and the card shows no comparison for that lane.
+// Refreshing is a one-object edit of NATIONAL_RPM_BENCHMARKS when a
+// new DAT week publishes.
+
+export interface NationalRpmRow {
+  /** Load equipment value the row speaks for (loads.equipmentType). */
+  equipment: string;
+  label: string;
+  /** Published national average spot rate, $/mi, fuel included. */
+  ratePerMile: number;
+}
+
+export interface NationalRpmBenchmarks {
+  /** The DAT 7-day window the figures cover, e.g. "Nov 14–20, 2026". */
+  weekLabel: string;
+  source: string;
+  rows: readonly NationalRpmRow[];
+}
+
+export const NATIONAL_RPM_BENCHMARKS: NationalRpmBenchmarks = {
+  weekLabel: "Nov 14–20, 2026",
+  source:
+    "DAT Freight & Analytics — 7-day national average spot rates, broker-to-carrier, linehaul + fuel surcharge (release of Nov 24, 2026)",
+  rows: [
+    { equipment: "dry_van", label: "Dry van", ratePerMile: 3.11 },
+    { equipment: "reefer", label: "Reefer", ratePerMile: 3.73 },
+    { equipment: "flatbed", label: "Flatbed", ratePerMile: 3.58 },
+  ],
+};
+
 /** Equipment labels for the index buckets — the same words the load
  *  form's equipment picker uses. Unknown values keep their raw text. */
 export const RATE_INDEX_EQUIPMENT_LABELS: Readonly<Record<string, string>> = {

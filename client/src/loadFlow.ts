@@ -274,3 +274,50 @@ export function afterFuelVerdict(est: AfterFuelEstimate): "green" | "yellow" | "
   if (est.afterFuel < 0) return "red";
   return est.afterFuelPerMi >= 0.5 ? "green" : "yellow";
 }
+
+// ---------------------------------------------------------------------
+// National rate-per-mile comparison (x's order, 2026-11-25): break
+// the load's rate-con price down to its rate per mile and stand it
+// next to the real national average for the load's equipment lane
+// (the driver's trailer world — dry van / reefer / flatbed), so the
+// card says whether the load pays above or below what the country
+// is paying this week.
+//
+// Basis, kept apples-to-apples with the published averages (DAT's
+// are broker-to-carrier spot, linehaul + fuel surcharge): the load's
+// RPM is its GROSS (rate + extras — the whole rate-con price) over
+// LOADED miles. Deadhead is NOT in this figure: the national
+// averages don't carry the driver's deadhead either, and the
+// after-fuel line above already judges the run with deadhead in.
+// The comparison is a yardstick, not a quote — national averages mix
+// every lane length, and a short regional run reads low against
+// them without being a bad load. The card's words say so.
+
+export interface NationalRpmComparison {
+  /** The load's gross rate per loaded mile, cents-rounded. */
+  rpm: number;
+  /** The published national average it stands against. */
+  nationalRpm: number;
+  /** rpm − nationalRpm, cents-rounded; signed. */
+  diffPerMile: number;
+  direction: "above" | "below" | "at";
+}
+
+export function nationalRpmCompare(input: {
+  gross: number | null;
+  loadedMiles: number | null;
+  nationalRpm: number | null;
+}): NationalRpmComparison | null {
+  const { gross, loadedMiles, nationalRpm } = input;
+  if (gross == null || !Number.isFinite(gross) || !(gross > 0)) return null;
+  if (loadedMiles == null || !(loadedMiles > 0)) return null;
+  if (nationalRpm == null || !Number.isFinite(nationalRpm) || !(nationalRpm > 0)) return null;
+  const rpm = Math.round((gross / loadedMiles) * 100) / 100;
+  const diffPerMile = Math.round((rpm - nationalRpm) * 100) / 100;
+  return {
+    rpm,
+    nationalRpm,
+    diffPerMile,
+    direction: diffPerMile > 0 ? "above" : diffPerMile < 0 ? "below" : "at",
+  };
+}
