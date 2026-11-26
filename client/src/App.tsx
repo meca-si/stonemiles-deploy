@@ -227,6 +227,8 @@ import {
   type PlannerCandidate,
 } from "./stopPlanner";
 import { LoadFlowPanel, type FlowRouteInfo } from "./LoadFlowPanel";
+import { LoadPaperworkBlock } from "./PaperworkPanel";
+import { filterToolItems } from "./toolSearch";
 import { loadPayFigures, paySplitLabel, readStoredTankPct, storeTankPct } from "./loadFlow";
 import { buildLoadStopChain, orderViaPoints, type ChainStop } from "./loadStopChain";
 import { selectAutoAddStops, type AutoAddStop } from "./autoAddStops";
@@ -9736,6 +9738,10 @@ export function App() {
     }
   }, [loadDraft, pendingDoc, pendingDocKind, extractNote, scanReview, addLoadOpen, editingLoadId]);
   const [loadDetailsOpen, setLoadDetailsOpen] = useState<Record<number, boolean>>({});
+  // Per-load paperwork expand on the My Loads cards (2026-11-25 UX
+  // package A) — its own row beside Load details, so filing a POD
+  // is two taps from the Loads tab, not a dig through the close-out.
+  const [paperworkOpen, setPaperworkOpen] = useState<Record<number, boolean>>({});
   const [moneyWalletOpen, setMoneyWalletOpen] = useState(false);
   // UI CLEANUP PASS (2026-11-15): the Money tab is sectioned — one
   // section on screen at a time under a sticky bar, instead of every
@@ -9747,6 +9753,11 @@ export function App() {
   // More tab: one directory group open at a time (first by default) —
   // the group headers are the menu; tapping one again closes it.
   const [moreOpenGroup, setMoreOpenGroup] = useState<string | null>(TOOL_GROUPS[0]?.id ?? null);
+  // By-name tool search (2026-11-25 UX package C): one query shared
+  // by Today's Find-a-tool panel and the More directory — typing
+  // filters the directory's items across all groups; clearing
+  // restores the groups.
+  const [toolQuery, setToolQuery] = useState("");
   // Bumped by every "take me to the Pay Book" jump (Ask Meca, the Money
   // tab's Pay Book button, the More list) — the PayBookPanel watches it
   // and opens itself so the jump lands on the Log pay form, not a
@@ -17017,13 +17028,27 @@ export function App() {
                 setLoadsView("tracker");
                 setTab("loads");
               }}
-              onOpenBoardLoad={() => {
+              onOpenBoardLoad={(_boardLoadId, loadId) => {
                 tapFx();
+                // Honor the tapped load (2026-11-25 UX package D):
+                // when the result names one of the driver's own
+                // saved loads, open THAT load's info & fuel panel —
+                // not just the board in general. A board row the
+                // driver hasn't saved still lands on the board.
+                if (loadId != null && loads.some((l) => l.id === loadId)) {
+                  setFlowLoadId(loadId);
+                  return;
+                }
                 setLoadsView("board");
                 setTab("loads");
               }}
-              onOpenDriver={() => {
+              onOpenDriver={(_username) => {
                 tapFx();
+                // The tapped driver's desk opens, scrolled to the
+                // fleet board. The desk sheets take no driver-focus
+                // prop today, so the username can't be carried
+                // further than this from here (2026-11-25 UX
+                // package D — App-side limit, noted in the report).
                 if (ownerDeskEligible) setShowOwnerDesk(true);
                 else setShowDispatchDesk(true);
                 scrollToAnchor("fleet-board", 650);
@@ -17391,6 +17416,43 @@ export function App() {
             <section className="glass-panel p-3.5" aria-label={tr("Find a tool", "Encuentra una herramienta")}>
               <h2 className="font-condensed text-xl font-semibold">🧰 {tr("Find a tool", "Encuentra una herramienta")}</h2>
               <p className="mt-0.5 text-sm text-[var(--dim)]">{tr("Every tool in the app, grouped — two taps to anything", "Todas las herramientas de la app, agrupadas — dos toques para llegar a cualquiera")}</p>
+              {/* BY-NAME SEARCH (2026-11-25 UX package C): type a
+                  tool's name and tap it — the same jump the
+                  directory rows perform. Clearing the box brings
+                  the groups back. */}
+              <label className="mt-2.5 block">
+                <span className="sr-only">{tr("Search tools by name", "Buscar herramientas por nombre")}</span>
+                <input
+                  type="search"
+                  value={toolQuery}
+                  onChange={(e) => setToolQuery(e.target.value)}
+                  placeholder={tr("Search tools by name — try “fuel” or “invoice”", "Buscar por nombre — prueba «diésel» o «factura»")}
+                  className="min-h-[48px] w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-base"
+                />
+              </label>
+              {toolQuery.trim().length > 0 ? (
+                <div className="mt-2.5 space-y-2">
+                  {filterToolItems(toolQuery).map((hit) => (
+                    <button
+                      key={hit.item.id}
+                      type="button"
+                      className="btn-press flex min-h-[56px] w-full items-center gap-3 rounded-xl bg-[var(--surface2)] border border-[var(--border)] px-3 py-2.5 text-left"
+                      aria-label={tr(`Open ${hit.item.en}`, `Abrir ${hit.item.es}`)}
+                      onClick={() => { tapFx(); openToolItem(hit.item); }}
+                    >
+                      <span className="text-2xl" aria-hidden>{hit.item.icon}</span>
+                      <span className="min-w-0">
+                        <span className="block font-condensed text-lg font-bold leading-tight">{tr(hit.item.en, hit.item.es)}</span>
+                        <span className="block text-xs leading-snug text-[var(--dim)]">{tr(`in ${hit.groupEn}`, `en ${hit.groupEs}`)} · {tr(hit.item.subEn, hit.item.subEs)}</span>
+                      </span>
+                      <span className="ml-auto shrink-0 text-[var(--dim)]" aria-hidden>→</span>
+                    </button>
+                  ))}
+                  {filterToolItems(toolQuery).length === 0 && (
+                    <p className="py-2 text-sm text-[var(--dim)]">{tr(`No tool is named like “${toolQuery.trim()}” — try a shorter word, or browse the groups in More.`, `Ninguna herramienta se llama así — prueba una palabra más corta o busca en los grupos de Más.`)}</p>
+                  )}
+                </div>
+              ) : (
               <div className="mt-2.5 space-y-2">
                 {TOOL_GROUPS.map((group) => (
                   <button
@@ -17398,7 +17460,7 @@ export function App() {
                     type="button"
                     className="btn-press flex min-h-[56px] w-full items-center gap-3 rounded-xl bg-[var(--surface2)] border border-[var(--border)] px-3 py-2.5 text-left"
                     aria-label={tr(`Open the ${group.en} tools`, `Abrir las herramientas de ${group.es}`)}
-                    onClick={() => { tapFx(); setTab("more"); scrollToAnchor(`more-group-${group.id}`, 350); }}
+                    onClick={() => { tapFx(); setMoreOpenGroup(group.id); setTab("more"); scrollToAnchor(`more-group-${group.id}`, 350); }}
                   >
                     <span className="text-2xl" aria-hidden>{group.icon}</span>
                     <span className="min-w-0">
@@ -17409,6 +17471,7 @@ export function App() {
                   </button>
                 ))}
               </div>
+              )}
             </section>
 
             {/* STONEMILES Open Chat — the one public room for every
@@ -17660,7 +17723,13 @@ export function App() {
                 offers, credential alerts, HOS warnings — in-app only,
                 never emailed. Sits on top of More; the dock's More
                 button carries its unread badge. */}
-            <NotificationsPanel lang={lang} />
+            <NotificationsPanel
+              lang={lang}
+              onOpenLoad={(loadId) => { tapFx(); setFlowLoadId(loadId); }}
+              onOpenBoardLoad={() => { tapFx(); setLoadsView("board"); setTab("loads"); }}
+              onOpenChat={(groupId) => { tapFx(); setTab("chat"); setChatGroupFocus({ groupId, n: Date.now() }); }}
+              onOpenCredentials={() => { tapFx(); goMecaDest("doc_expiry"); }}
+            />
             {/* THE DESK (Phase 2 consolidation, 2026-11-12): ONE Desk
                 entry where the three role-desk buttons used to sit.
                 Visible when the account holds ANY desk (the server
@@ -17696,6 +17765,44 @@ export function App() {
                 one open at a time — so the tab opens as five headers,
                 not the whole app in one scroll; a tool is still two
                 taps from here (its group header, then its row). */}
+            {/* BY-NAME SEARCH (2026-11-25 UX package C): the same
+                shared query as Today's Find-a-tool panel — typing
+                swaps the groups for matching tool rows across ALL
+                groups; clearing brings the groups back. */}
+            <label className="block pt-2">
+              <span className="sr-only">{tr("Search tools by name", "Buscar herramientas por nombre")}</span>
+              <input
+                type="search"
+                value={toolQuery}
+                onChange={(e) => setToolQuery(e.target.value)}
+                placeholder={tr("Search tools by name — try “fuel” or “invoice”", "Buscar por nombre — prueba «diésel» o «factura»")}
+                className="min-h-[48px] w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-base"
+              />
+            </label>
+            {toolQuery.trim().length > 0 ? (
+              <div className="space-y-2 pt-2">
+                {filterToolItems(toolQuery).map((hit) => (
+                  <button
+                    key={hit.item.id}
+                    type="button"
+                    className="btn-press flex min-h-[64px] w-full items-center gap-3 rounded-2xl bg-[var(--surface)] border border-[var(--border)] px-4 py-3 text-left"
+                    aria-label={tr(`Open ${hit.item.en}`, `Abrir ${hit.item.es}`)}
+                    onClick={() => { tapFx(); openToolItem(hit.item); }}
+                  >
+                    <span className="text-2xl" aria-hidden>{hit.item.icon}</span>
+                    <span className="min-w-0">
+                      <span className="block font-condensed text-xl font-bold leading-tight">{tr(hit.item.en, hit.item.es)}</span>
+                      <span className="block text-xs leading-snug text-[var(--dim)]">{tr(`in ${hit.groupEn}`, `en ${hit.groupEs}`)} · {tr(hit.item.subEn, hit.item.subEs)}</span>
+                    </span>
+                    <span className="ml-auto shrink-0 text-[var(--dim)]" aria-hidden>→</span>
+                  </button>
+                ))}
+                {filterToolItems(toolQuery).length === 0 && (
+                  <p className="py-2 text-sm text-[var(--dim)]">{tr(`No tool is named like “${toolQuery.trim()}” — try a shorter word, or clear the search to browse the groups.`, `Ninguna herramienta se llama así — prueba una palabra más corta o borra la búsqueda para ver los grupos.`)}</p>
+                )}
+              </div>
+            ) : (
+            <>
             {TOOL_GROUPS.map((group) => {
               const groupOpen = moreOpenGroup === group.id;
               return (
@@ -17749,6 +17856,8 @@ export function App() {
               </section>
               );
             })}
+            </>
+            )}
           </div>
         )}
 
@@ -19686,7 +19795,16 @@ export function App() {
                       className="btn-press mt-1.5 rounded-lg bg-[var(--surface2)] px-2.5 py-1.5 text-xs font-semibold"
                       aria-label="Refresh the EIA weekly diesel averages now"
                       onClick={() => {
-                        void api.refreshEiaDiesel({}).then(() => queryClient.invalidateQueries({ queryKey: ["fuel-price-data"] }));
+                        void api
+                          .refreshEiaDiesel({})
+                          .then((r) => {
+                            if (!r.ok) {
+                              setBanner(r.error ?? "Couldn't refresh the EIA week — try again.");
+                              return;
+                            }
+                            void queryClient.invalidateQueries({ queryKey: ["fuel-price-data"] });
+                          })
+                          .catch(() => setBanner("Couldn't refresh the EIA week — check your connection and try again."));
                       }}
                     >
                       ↻ Refresh EIA week
@@ -20276,6 +20394,11 @@ export function App() {
                   setTrackerDetailId(loadId);
                   setLoadsView("tracker");
                 }}
+                onOpenBoardLoad={() => {
+                  // Fleet-approved card's board door (2026-11-25
+                  // UX package D): land on the Fleet Board.
+                  setLoadsView("board");
+                }}
               />
             )}
 
@@ -20614,6 +20737,29 @@ export function App() {
                       </div>
                     )}
                   </div>
+                  {/* YOUR CUT on the card (2026-11-25 UX package B):
+                      the header above shows the load's GROSS — this
+                      line is the driver's own money, figured by the
+                      same loadPayFigures the Load info panel uses
+                      (his pay model, this load's gross, its loaded
+                      miles or the lane estimate). When his model
+                      can't produce a figure, the line doesn't render
+                      — never a guessed number. */}
+                  {(() => {
+                    const cut = loadPayFigures({
+                      payBasis: profile.payBasis,
+                      driverCpm: profile.driverCpm,
+                      driverPayPct: profile.driverPayPct,
+                      gross: loadGrossOf(l),
+                      miles: l.loadedMiles ?? loadLaneEstimates.get(laneKey(l)) ?? null,
+                    }).cut;
+                    return cut != null ? (
+                      <div className="mt-1 text-sm">
+                        Your cut: <span className="font-bold text-[var(--ok)]">{fmtMoney(cut)}</span>
+                        <span className="text-xs text-[var(--dim)]"> — from your pay setting; the full breakdown is in Load info &amp; fuel</span>
+                      </div>
+                    ) : null;
+                  })()}
                   <div className="mt-1 space-y-0.5 text-sm text-[var(--dim)]">
                     {l.loadNumber && <div>Load #: <span className="font-bold text-[var(--text)]">{l.loadNumber}</span></div>}
                     {l.shipper && <div>Shipper: <span className="text-[var(--text)]">{l.shipper}</span></div>}
@@ -20721,6 +20867,21 @@ export function App() {
                     </div>
                   )}
                   </ExpandRow>
+                  {/* PAPERWORK DOOR on the card (2026-11-25 UX
+                      package A): its own expand beside Load details,
+                      so the POD is two taps from the Loads tab —
+                      Loads → this row → the file button — instead of
+                      the last element buried in the close-out. */}
+                  <ExpandRow
+                    icon="🧾"
+                    title="Paperwork"
+                    sub="Rate con, BOL, POD — file a scan, confirm it, it sends itself"
+                    open={!!paperworkOpen[l.id]}
+                    onToggle={() => setPaperworkOpen((m) => ({ ...m, [l.id]: !m[l.id] }))}
+                    ariaLabel={paperworkOpen[l.id] ? `Hide paperwork for load ${l.id}` : `Show paperwork for load ${l.id}`}
+                  >
+                    <LoadPaperworkBlock loadId={l.id} setBanner={setBanner} />
+                  </ExpandRow>
                   <div className="mt-3 flex flex-wrap gap-2">
                     <button
                       type="button"
@@ -20746,7 +20907,8 @@ export function App() {
                         onClick={() => {
                           void api
                             .setLoadStatus({ id: l.id, status: "picked_up", why: "Driver marked the load picked up", manual: true })
-                            .then(() => queryClient.invalidateQueries({ queryKey: ["loads"] }));
+                            .then(() => queryClient.invalidateQueries({ queryKey: ["loads"] }))
+                            .catch(() => setBanner("Couldn't mark that load picked up — check your connection and try again."));
                         }}
                       >
                         ✓ Mark picked up
@@ -21258,6 +21420,11 @@ export function App() {
                   setTrackerDetailId(loadId);
                   setLoadsView("tracker");
                 }}
+                onOpenBoardLoad={() => {
+                  setConsoleOpen(false);
+                  setTab("loads");
+                  setLoadsView("board");
+                }}
               />
             </div>
           }
@@ -21462,7 +21629,11 @@ export function App() {
               const choose = (plan: PlanId) => {
                 void api
                   .setPlan({ plan, billingPeriod, ownerTrucks, ownerSeats })
-                  .then(() => {
+                  .then((r) => {
+                    if (!r.ok) {
+                      setBanner(r.error ?? "Couldn't save the plan — try again.");
+                      return;
+                    }
                     queryClient.invalidateQueries({ queryKey: ["plan"] });
                     queryClient.invalidateQueries({ queryKey: ["welcome-credit"] });
                     queryClient.invalidateQueries({ queryKey: ["points"] });
@@ -22226,8 +22397,16 @@ export function App() {
       {showDispatchDesk && (
         <DispatchDesk
           onClose={() => setShowDispatchDesk(false)}
-          onPostLoad={() => {
+          onPostLoad={(target) => {
             setShowDispatchDesk(false);
+            // A search tap inside the desk names the load
+            // (2026-11-25 UX package D): when it's one of the
+            // driver's saved loads, open THAT load's info panel
+            // instead of the board in general.
+            if (target?.loadId != null && loads.some((l) => l.id === target.loadId)) {
+              setFlowLoadId(target.loadId);
+              return;
+            }
             setLoadsView("board");
             setTab("loads");
           }}
@@ -22330,8 +22509,14 @@ export function App() {
             setLoadsView("brokerportal");
             setTab("loads");
           }}
-          onOpenFleetBoard={() => {
+          onOpenFleetBoard={(target) => {
             setShowOwnerDesk(false);
+            // Same tap-honoring as the Dispatch Desk: a named
+            // saved load opens its own info panel (2026-11-25).
+            if (target?.loadId != null && loads.some((l) => l.id === target.loadId)) {
+              setFlowLoadId(target.loadId);
+              return;
+            }
             setLoadsView("board");
             setTab("loads");
           }}
@@ -23896,7 +24081,13 @@ export function App() {
                       queryClient.invalidateQueries();
                       setBanner("All your data in this app was deleted — records, loads, documents, chats, everything.");
                     })
-                    .catch(() => setBanner("Delete failed — try again."));
+                    .catch((e: unknown) =>
+                      setBanner(
+                        e instanceof Error
+                          ? `Delete failed — ${e.message.replace(/^action \w+ error: /, "")}`
+                          : "Delete failed — try again.",
+                      ),
+                    );
                 }}
               >
                 {confirmWipe ? "TAP AGAIN — PERMANENTLY DELETE EVERYTHING" : "Delete all my data"}
@@ -25331,7 +25522,7 @@ export function App() {
                           void api
                             .reportUser({ username: p.username, reason: "Reported from profile" })
                             .then(() => setBanner(`Reported @${p.username}.`))
-                            .catch(() => undefined);
+                            .catch(() => setBanner("Couldn't send that report — check your connection and try again."));
                         }}
                       >
                         🚩 Report
@@ -38149,7 +38340,7 @@ function ChatPanel({
                         void api
                           .reportChatMessage({ messageId: m.id, reason: "Reported in app" })
                           .then(() => setBanner("Reported. The message was flagged for review."))
-                          .catch(() => undefined);
+                          .catch(() => setBanner("Couldn't send that report — check your connection and try again."));
                       }}
                     >
                       Report
@@ -38900,7 +39091,15 @@ function ChatPanel({
             )}
           </button>
         ))}
-        {groups.length === 0 && <p className="py-4 text-center text-sm text-[var(--dim)]">Loading chats…</p>}
+        {groups.length === 0 && (
+          <p className="py-4 text-center text-sm text-[var(--dim)]">
+            {groupsQuery.isLoading
+              ? "Loading chats…"
+              : groupsQuery.isError
+                ? "Couldn't load your chats — reopen this tab to retry."
+                : "No chats yet — start one from a load or the directory."}
+          </p>
+        )}
       </section>
 
       {showNew ? (
@@ -38934,7 +39133,13 @@ function ChatPanel({
                       queryClient.invalidateQueries({ queryKey: ["chat-groups"] });
                       openGroup(r.id);
                     })
-                    .catch(() => setBanner("Couldn't create the group — try again."));
+                    .catch((e: unknown) =>
+                      setBanner(
+                        e instanceof Error
+                          ? e.message.replace(/^action \w+ error: /, "")
+                          : "Couldn't create the group — try again.",
+                      ),
+                    );
                 }}
               >
                 CREATE GROUP
@@ -41127,7 +41332,8 @@ function LoadTrackerView({
                           setOverrideWhy("");
                           queryClient.invalidateQueries({ queryKey: ["loads"] });
                           queryClient.invalidateQueries({ queryKey: ["proof"] });
-                        });
+                        })
+                        .catch(() => setBanner("Couldn't apply that status change — check your connection and try again."));
                     }}
                   >
                     Apply

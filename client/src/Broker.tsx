@@ -494,12 +494,18 @@ function SubmissionCard({
   mode,
   setBanner,
   onOpenMyLoad,
+  onOpenBoardLoad,
   refresh,
 }: {
   sub: SubRow;
   mode: string;
   setBanner: (s: string | null) => void;
   onOpenMyLoad: (loadId: number) => void;
+  /** Fleet mode: an approved submission lives on the Fleet Board —
+   *  when the host passes this, its card gets a door to that board
+   *  row. Absent it, the card keeps its "posted to the Fleet Board
+   *  (board #N)" line as plain text. */
+  onOpenBoardLoad?: (boardLoadId: number) => void;
   refresh: () => void;
 }) {
   const [draft, setDraft] = useState<Draft>(() => draftOf(sub));
@@ -647,7 +653,7 @@ function SubmissionCard({
           </div>
         </>
       )}
-      {sub.status === "approved" && mode === "solo" && sub.loadId != null && (
+      {sub.status === "approved" && sub.loadId != null && (
         <button
           type="button"
           className="btn-neon btn-press mt-2.5 rounded-xl px-4 py-2.5 text-sm font-bold"
@@ -655,6 +661,16 @@ function SubmissionCard({
           onClick={() => onOpenMyLoad(sub.loadId!)}
         >
           Open in Load Tracker →
+        </button>
+      )}
+      {sub.status === "approved" && mode === "fleet" && sub.loadId == null && sub.boardLoadId != null && onOpenBoardLoad && (
+        <button
+          type="button"
+          className="btn-press mt-2.5 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 text-sm font-bold"
+          aria-label={`Open ${laneOf(sub)} on the Fleet Board`}
+          onClick={() => onOpenBoardLoad(sub.boardLoadId!)}
+        >
+          Open on the Fleet Board →
         </button>
       )}
       {viewDoc && (
@@ -695,10 +711,15 @@ function SubmissionCard({
 export function BrokerCenterPanel({
   setBanner,
   onOpenMyLoad,
+  onOpenBoardLoad,
   variant = "phone",
 }: {
   setBanner: (s: string | null) => void;
   onOpenMyLoad: (loadId: number) => void;
+  /** Fleet mode: open an approved submission's Fleet Board row.
+   *  Optional — hosts that pass it give fleet cards a door to the
+   *  board; without it the card's board line stays plain text. */
+  onOpenBoardLoad?: (boardLoadId: number) => void;
   variant?: "phone" | "console";
 }) {
   const queryClient = useQueryClient();
@@ -1144,13 +1165,13 @@ export function BrokerCenterPanel({
           </p>
         )}
         {pending.map((s) => (
-          <SubmissionCard key={s.id} sub={s} mode={data.mode} setBanner={setBanner} onOpenMyLoad={onOpenMyLoad} refresh={refresh} />
+          <SubmissionCard key={s.id} sub={s} mode={data.mode} setBanner={setBanner} onOpenMyLoad={onOpenMyLoad} onOpenBoardLoad={onOpenBoardLoad} refresh={refresh} />
         ))}
         {decided.length > 0 && (
           <>
             <h4 className="px-1 pt-1 font-condensed text-lg font-semibold text-[var(--dim)]">Decided — kept on record</h4>
             {decided.map((s) => (
-              <SubmissionCard key={s.id} sub={s} mode={data.mode} setBanner={setBanner} onOpenMyLoad={onOpenMyLoad} refresh={refresh} />
+              <SubmissionCard key={s.id} sub={s} mode={data.mode} setBanner={setBanner} onOpenMyLoad={onOpenMyLoad} onOpenBoardLoad={onOpenBoardLoad} refresh={refresh} />
             ))}
           </>
         )}

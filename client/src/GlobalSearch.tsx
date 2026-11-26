@@ -7,7 +7,10 @@
 // records, a desk only its fleet, a broker only its own loads.
 // Tapping a result routes through the host surface's own jump
 // machinery (the callbacks below) — this component navigates
-// nowhere by itself.
+// nowhere by itself. Every host passes all three callbacks, so
+// they're required: a result this component renders either opens
+// through one of them or is rendered as plain reference text that
+// says so — never as a button that silently does nothing.
 
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -23,11 +26,11 @@ export function GlobalSearch({
   placeholder,
 }: {
   /** A load in the caller's own library (driver side). */
-  onOpenLoad?: (loadId: number) => void;
+  onOpenLoad: (loadId: number) => void;
   /** A board row (desk / broker side; also the fallback for loads). */
-  onOpenBoardLoad?: (boardLoadId: number | null, loadId: number | null) => void;
+  onOpenBoardLoad: (boardLoadId: number | null, loadId: number | null) => void;
   /** A driver in the caller's fleet (desk side). */
-  onOpenDriver?: (username: string) => void;
+  onOpenDriver: (username: string) => void;
   placeholder?: string;
 }) {
   const [text, setText] = useState("");
@@ -42,19 +45,29 @@ export function GlobalSearch({
     enabled: query.length >= 2,
   });
   const data = searchQuery.data;
+  // A result is openable when it carries the identity its kind
+  // needs. The server always sends it; the check exists so a
+  // malformed row renders as reference text instead of a dead tap.
+  const canOpen = (r: SearchResult): boolean => {
+    if (r.kind === "driver") return r.username != null;
+    if (r.kind === "board_load") return r.boardLoadId != null || r.loadId != null;
+    // load + document results land on the load itself.
+    return r.loadId != null || r.boardLoadId != null;
+  };
   const open = (r: SearchResult) => {
     if (r.kind === "driver" && r.username) {
-      onOpenDriver?.(r.username);
+      onOpenDriver(r.username);
       return;
     }
     if (r.kind === "board_load") {
-      onOpenBoardLoad?.(r.boardLoadId, r.loadId);
+      onOpenBoardLoad(r.boardLoadId, r.loadId);
       return;
     }
     // load + document results land on the load itself.
     if (r.loadId != null) {
-      if (onOpenLoad) onOpenLoad(r.loadId);
-      else onOpenBoardLoad?.(r.boardLoadId, r.loadId);
+      onOpenLoad(r.loadId);
+    } else if (r.boardLoadId != null) {
+      onOpenBoardLoad(r.boardLoadId, r.loadId);
     }
   };
   return (
@@ -87,14 +100,22 @@ export function GlobalSearch({
                 <ul className="mt-1 space-y-1">
                   {g.results.map((r, i) => (
                     <li key={`${r.kind}:${r.loadId ?? ""}:${r.boardLoadId ?? ""}:${r.username ?? ""}:${i}`}>
-                      <button
-                        type="button"
-                        className="w-full rounded-lg bg-[var(--surface)] px-3 py-2 text-left"
-                        onClick={() => open(r)}
-                      >
-                        <span className="block text-sm font-semibold">{r.title}</span>
-                        {r.detail && <span className="block text-xs text-[var(--dim)]">{r.detail}</span>}
-                      </button>
+                      {canOpen(r) ? (
+                        <button
+                          type="button"
+                          className="w-full rounded-lg bg-[var(--surface)] px-3 py-2 text-left"
+                          onClick={() => open(r)}
+                        >
+                          <span className="block text-sm font-semibold">{r.title}</span>
+                          {r.detail && <span className="block text-xs text-[var(--dim)]">{r.detail}</span>}
+                        </button>
+                      ) : (
+                        <div className="w-full rounded-lg bg-[var(--surface)] px-3 py-2 opacity-70">
+                          <span className="block text-sm font-semibold">{r.title}</span>
+                          {r.detail && <span className="block text-xs text-[var(--dim)]">{r.detail}</span>}
+                          <span className="block text-xs text-[var(--dim)]">Reference only — this one doesn't open from search.</span>
+                        </div>
+                      )}
                     </li>
                   ))}
                 </ul>

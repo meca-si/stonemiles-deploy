@@ -24,6 +24,7 @@ import { useEffect, useState } from "react";
 import { api, type ApiResponse } from "./api";
 import { money } from "./NextLevel";
 import { fuelAdviceForLoad, type LoadPayFigures } from "./loadFlow";
+import { LoadPaperworkBlock } from "./PaperworkPanel";
 
 export type FlowLoad = ApiResponse<typeof api, "listLoads">["loads"][number];
 
@@ -94,6 +95,15 @@ export function LoadFlowPanel(props: Props) {
   const [tankPctDraft, setTankPctDraft] = useState("");
   const [tankGalDraft, setTankGalDraft] = useState("");
   const [editTank, setEditTank] = useState(false);
+  // Save errors (2026-11-25 UX package E): savePay/saveTank used to
+  // return silently on invalid input — the panel just sat there as
+  // if untapped, which reads as a dead button. A failed save now
+  // says what's wrong, in plain words, under the form.
+  const [payError, setPayError] = useState("");
+  const [tankError, setTankError] = useState("");
+  // The paperwork block banners its own results here — the flow
+  // panel has no host banner of its own.
+  const [pwBanner, setPwBanner] = useState("");
 
   useEffect(() => {
     setPayBasisDraft(pay.basis);
@@ -112,13 +122,20 @@ export function LoadFlowPanel(props: Props) {
 
   const savePay = () => {
     const v = parseFloat(payValueDraft.replace(/[^0-9.]/g, ""));
-    if (!Number.isFinite(v) || v <= 0) return;
+    if (!Number.isFinite(v) || v <= 0) {
+      setPayError("Enter a pay amount over $0.");
+      return;
+    }
     if (payBasisDraft === "percent") {
-      if (v > 100) return;
+      if (v > 100) {
+        setPayError("Percent must be 100 or less.");
+        return;
+      }
       props.onSavePayModel({ payBasis: "percent", driverPayPct: v, driverCpm: null });
     } else {
       props.onSavePayModel({ payBasis: "cpm", driverPayPct: null, driverCpm: v });
     }
+    setPayError("");
     setPayValueDraft("");
   };
 
@@ -127,13 +144,17 @@ export function LoadFlowPanel(props: Props) {
     if (Number.isFinite(pct) && pct >= 0 && pct <= 100) {
       props.onSaveTankPct(pct);
       setEditTank(false);
+      setTankError("");
       return;
     }
     const gal = parseFloat(tankGalDraft);
     if (Number.isFinite(gal) && gal >= 0 && props.capacityGal > 0) {
       props.onSaveTankPct(Math.min(100, (gal / props.capacityGal) * 100));
       setEditTank(false);
+      setTankError("");
+      return;
     }
+    setTankError("Enter a fuel level as % or gallons.");
   };
 
   const party = (label: string, name: string | null, lines: (string | null | undefined)[]) => {
@@ -227,6 +248,9 @@ export function LoadFlowPanel(props: Props) {
                   Save my pay
                 </button>
               </div>
+              {payError && (
+                <p role="alert" className="mt-1.5 text-sm font-semibold text-[var(--danger)]">{payError}</p>
+              )}
               <p className="mt-1.5 text-xs text-[var(--dim)]">Saved to your pay setting (Settings → My pay) — every load, route, and settlement figures from it.</p>
             </div>
           )}
@@ -243,6 +267,9 @@ export function LoadFlowPanel(props: Props) {
                 <input className={inputCls} inputMode="decimal" value={tankGalDraft} onChange={(e) => setTankGalDraft(e.target.value)} placeholder={`…or gallons (of ${props.capacityGal})`} aria-label="Current fuel in gallons" />
               </div>
               <button type="button" className={`${primaryBtn} mt-2`} onClick={saveTank}>Save my fuel level</button>
+              {tankError && (
+                <p role="alert" className="mt-1.5 text-sm font-semibold text-[var(--danger)]">{tankError}</p>
+              )}
             </div>
           ) : (
             <>
@@ -277,6 +304,9 @@ export function LoadFlowPanel(props: Props) {
                   <input className={inputCls} inputMode="decimal" value={tankPctDraft} onChange={(e) => setTankPctDraft(e.target.value)} placeholder="Tank % — e.g. 38" aria-label="Update fuel tank percent" />
                   <input className={inputCls} inputMode="decimal" value={tankGalDraft} onChange={(e) => setTankGalDraft(e.target.value)} placeholder={`…or gallons (of ${props.capacityGal})`} aria-label="Update fuel in gallons" />
                   <button type="button" className="btn-press col-span-2 min-h-[44px] rounded-xl bg-[var(--accent)] px-4 font-bold text-black" onClick={saveTank}>Save my fuel level</button>
+                  {tankError && (
+                    <p role="alert" className="col-span-2 text-sm font-semibold text-[var(--danger)]">{tankError}</p>
+                  )}
                 </div>
               ) : (
                 <button type="button" className={`${ghostBtn} mt-2`} onClick={() => setEditTank(true)}>Update fuel level</button>
@@ -325,6 +355,20 @@ export function LoadFlowPanel(props: Props) {
           {props.route == null && (
             <button type="button" className={`${ghostBtn} mt-2 w-full`} onClick={props.onEdit}>Edit load</button>
           )}
+        </section>
+
+        {/* Paperwork (2026-11-25 UX package A): the POD/BOL/rate-con
+            block lives HERE too — before this, filing a POD meant
+            digging to the last element of the delivery close-out
+            inside an expanded load card. From this screen it's one
+            scroll: file the scan, confirm the fields, it sends
+            itself. Same block, same actions as the close-out. */}
+        <section aria-label="Paperwork for this load" className="mt-3 rounded-2xl border border-[var(--border)] p-3.5">
+          <h3 className="font-condensed text-lg font-bold">🧾 Paperwork</h3>
+          {pwBanner && (
+            <p role="status" className="mt-1.5 rounded-lg bg-[var(--surface2)] px-3 py-2 text-sm font-semibold">{pwBanner}</p>
+          )}
+          <LoadPaperworkBlock loadId={l.id} setBanner={setPwBanner} />
         </section>
       </div>
     </div>

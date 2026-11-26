@@ -185,6 +185,7 @@ function PaperworkDocForm({
                     setBanner(r.ok ? "Paperwork confirmed ✓" : (r.error ?? "Couldn't confirm that paperwork."));
                     onDone();
                   })
+                  .catch(() => setBanner("Couldn't confirm that paperwork — check your connection and try again."))
                   .finally(() => setBusy(false));
               }}
             >
@@ -268,6 +269,7 @@ function PaperworkDoorLinks({ loadId, setBanner }: { loadId: number; setBanner: 
                   setBanner(r.ok ? "Paperwork link closed ✓" : (r.error ?? "Couldn't close that link."));
                   refresh();
                 })
+                .catch(() => setBanner("Couldn't close that link — check your connection and try again."))
                 .finally(() => setBusy(false));
             }}
           >
@@ -289,11 +291,25 @@ function PaperworkDoorLinks({ loadId, setBanner }: { loadId: number; setBanner: 
                 setBanner(r.ok ? "Paperwork link created ✓" : (r.error ?? "Couldn't create the link."));
                 refresh();
               })
+              .catch(() => setBanner("Couldn't create the link — check your connection and try again."))
               .finally(() => setBusy(false));
           }}
         >
           🔗 Create the paperwork link
         </button>
+      ) : linksQuery.isError || (data && !data.ok) ? (
+        <div className="mt-2">
+          <p role="alert" className="text-sm font-semibold text-[var(--danger)]">
+            {(data && !data.ok ? data.error : null) ?? "Couldn't load the paperwork link — nothing was changed."}
+          </p>
+          <button
+            type="button"
+            className="btn-press mt-2 min-h-[44px] rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-sm font-bold"
+            onClick={() => void linksQuery.refetch()}
+          >
+            Retry
+          </button>
+        </div>
       ) : null}
     </div>
   );
@@ -318,7 +334,29 @@ export function PodInvoiceStep({ loadId, setBanner }: { loadId: number; setBanne
   });
   const [busy, setBusy] = useState(false);
   const data = q.data;
-  if (!data || !data.ok || !data.sealed) return null;
+  // A failed read used to vanish this whole step silently
+  // (2026-11-25 UX package E) — now it says so and offers a retry.
+  // "Not sealed yet" is NOT a failure: the step simply doesn't
+  // exist until the delivery seals, so that path still renders
+  // nothing.
+  if (q.isError || (data && !data.ok)) {
+    return (
+      <div className="mt-3 border-t border-[var(--border)] pt-2">
+        <div className="text-xs font-bold text-[var(--dim)]">NEXT — THE INVOICE FOR THIS LOAD</div>
+        <p role="alert" className="mt-1.5 text-sm font-semibold text-[var(--danger)]">
+          {(data && !data.ok ? data.error : null) ?? "Couldn't check this load's invoice step — nothing was changed."}
+        </p>
+        <button
+          type="button"
+          className="btn-press mt-2 min-h-[44px] rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-sm font-bold"
+          onClick={() => void q.refetch()}
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+  if (!data || !data.sealed) return null;
   const inv = data.invoice;
   return (
     <div className="mt-3 border-t border-[var(--border)] pt-2">
@@ -337,14 +375,18 @@ export function PodInvoiceStep({ loadId, setBanner }: { loadId: number; setBanne
               setBusy(true);
               void api
                 .createInvoice({ loadId, dueDays: 30, notes: null })
-                .then(() => {
-                  setBanner("Invoice draft cut from the sealed load — review it in Pay → Invoices.");
+                .then((r) => {
+                  setBanner(`Invoice ${r.number} draft cut from the sealed load — review it in Pay → Invoices.`);
                   void queryClient.invalidateQueries({ queryKey: ["invoices"] });
                   void queryClient.invalidateQueries({ queryKey: ["load-paperwork", loadId] });
                   void queryClient.invalidateQueries({ queryKey: ["owed-board"] });
                 })
                 .catch((e: unknown) => {
-                  setBanner(e instanceof Error ? e.message : "Couldn't cut the invoice — try again.");
+                  setBanner(
+                    e instanceof Error
+                      ? e.message.replace(/^action \w+ error: /, "")
+                      : "Couldn't cut the invoice — try again.",
+                  );
                 })
                 .finally(() => setBusy(false));
             }}
@@ -365,7 +407,28 @@ export function LoadPaperworkBlock({ loadId, setBanner }: { loadId: number; setB
     queryFn: () => api.getLoadPaperwork({ loadId }),
   });
   const data: PaperworkState | undefined = pwQuery.data;
-  if (!data?.ok) return null;
+  // A failed read used to make the WHOLE paperwork block vanish
+  // with no sign anything was wrong (2026-11-25 UX package E) —
+  // now a failure renders as a failure, with a retry. Still
+  // loading renders nothing, as before.
+  if (!data?.ok) {
+    if (pwQuery.isPending) return null;
+    return (
+      <div className="mt-3 border-t border-[var(--border)] pt-2">
+        <div className="text-xs font-bold text-[var(--dim)]">PAPERWORK TO PAY — scan it, check it, it sends itself</div>
+        <p role="alert" className="mt-1.5 text-sm font-semibold text-[var(--danger)]">
+          {(data && !data.ok ? data.error : null) ?? "Couldn't load this load's paperwork — nothing was changed."}
+        </p>
+        <button
+          type="button"
+          className="btn-press mt-2 min-h-[44px] rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-sm font-bold"
+          onClick={() => void pwQuery.refetch()}
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ["load-paperwork", loadId] });
   return (
     <div className="mt-3 border-t border-[var(--border)] pt-2">

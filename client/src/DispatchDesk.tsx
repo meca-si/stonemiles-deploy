@@ -72,8 +72,11 @@ export function DispatchDesk({
   onOpenBrokerPortal,
 }: {
   onClose: () => void;
-  /** Jump to the Fleet Board, where Owner/Dispatch post and assign. */
-  onPostLoad: () => void;
+  /** Jump to the Fleet Board, where Owner/Dispatch post and assign.
+   *  Search passes the tapped load's ids as the target — hosts that
+   *  can land on that exact load use them; the desk itself has no
+   *  per-load surface to select in. */
+  onPostLoad: (target?: { boardLoadId: number | null; loadId: number | null }) => void;
   /** Jump to the Broker Portal — the review-queue door to the public board. */
   onOpenBrokerPortal: () => void;
 }) {
@@ -88,6 +91,9 @@ export function DispatchDesk({
   const [busy, setBusy] = useState(false);
   const [feeDraft, setFeeDraft] = useState<string>("");
   const [activateArmed, setActivateArmed] = useState(false);
+  // The driver a search tap named — their roster row below rings
+  // and scrolls into view, so the tap lands on THAT driver.
+  const [spotDriver, setSpotDriver] = useState<string | null>(null);
 
   const desk = deskQuery.data;
   const companyFeePct = desk?.dispatcherFeePct ?? null;
@@ -141,6 +147,33 @@ export function DispatchDesk({
     });
   };
 
+  // A search tap on a driver lands on THAT driver: their row in
+  // this desk's own roster when they're on it (ringed via
+  // spotDriver), else their truck card on the fleet board below,
+  // else the board itself.
+  const focusDriver = (username: string) => {
+    setSpotDriver(username);
+    setTimeout(() => {
+      const row = document.getElementById(`dd-driver-${username}`);
+      if (row) {
+        row.scrollIntoView({ behavior: "smooth", block: "center" });
+        return;
+      }
+      const cards = document.querySelectorAll<HTMLElement>("#fleet-board li");
+      for (const card of Array.from(cards)) {
+        if (card.textContent?.includes(`@${username}`)) {
+          card.scrollIntoView({ behavior: "smooth", block: "center" });
+          card.style.outline = "2px solid var(--accent)";
+          setTimeout(() => {
+            card.style.outline = "";
+          }, 2400);
+          return;
+        }
+      }
+      document.getElementById("fleet-board")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 60);
+  };
+
   const startEdit = (c: DeskClient) => {
     setEditingId(c.id);
     setDraft({
@@ -186,13 +219,9 @@ export function DispatchDesk({
         <div className="mt-3">
           <GlobalSearch
             placeholder="Driver name, city, shipper, reference, or load #"
-            onOpenLoad={() => onPostLoad()}
-            onOpenBoardLoad={() => onPostLoad()}
-            onOpenDriver={() => {
-              setTimeout(() => {
-                document.getElementById("fleet-board")?.scrollIntoView({ behavior: "smooth", block: "start" });
-              }, 60);
-            }}
+            onOpenLoad={(loadId) => onPostLoad({ boardLoadId: null, loadId })}
+            onOpenBoardLoad={(boardLoadId, loadId) => onPostLoad({ boardLoadId, loadId })}
+            onOpenDriver={focusDriver}
           />
         </div>
 
@@ -359,7 +388,7 @@ export function DispatchDesk({
                     the driver opts in.
                   </p>
                   <div className="mt-2 flex flex-wrap gap-2">
-                    <button type="button" className={BTN} onClick={onPostLoad}>
+                    <button type="button" className={BTN} onClick={() => onPostLoad()}>
                       Open the board — post / assign
                     </button>
                   </div>
@@ -560,7 +589,11 @@ export function DispatchDesk({
               ) : (
                 <ul className="mt-2 space-y-2">
                   {desk.drivers.map((d) => (
-                    <li key={d.username} className="flex flex-wrap items-center gap-2 rounded-lg bg-[var(--surface)] px-3 py-2.5">
+                    <li
+                      key={d.username}
+                      id={`dd-driver-${d.username}`}
+                      className={`flex flex-wrap items-center gap-2 rounded-lg bg-[var(--surface)] px-3 py-2.5 ${spotDriver === d.username ? "ring-2 ring-[var(--accent)]" : ""}`}
+                    >
                       <span className="font-semibold">@{d.username}</span>
                       <span className="text-xs text-[var(--dim)]">
                         joined {new Date(d.joinedAt).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })}

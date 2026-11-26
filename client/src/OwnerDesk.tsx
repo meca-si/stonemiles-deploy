@@ -24,6 +24,7 @@
 // totals never appear here; they answer as nonexistent. Records
 // only: this desk moves NO money and handles NO freight pay.
 
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, type ApiResponse } from "./api";
 import { FleetBoardPanel } from "./FleetBoard";
@@ -59,8 +60,10 @@ export function OwnerDesk({
   onClose: () => void;
   /** Jump into the Owner Console review queue (the Broker Portal desk face). */
   onOpenBrokerPortal: () => void;
-  /** Jump to the company Fleet Board. */
-  onOpenFleetBoard: () => void;
+  /** Jump to the company Fleet Board. Search passes the tapped
+   *  load's ids as the target for hosts that can land on that
+   *  exact load; pipeline hits are handled inside this desk. */
+  onOpenFleetBoard: (target?: { boardLoadId: number | null; loadId: number | null }) => void;
   /** Jump to Chat → My company (create a company / company setup). */
   onOpenCompany: () => void;
   /** Open the Plans sheet (the Fleet Owner plan door). */
@@ -70,6 +73,52 @@ export function OwnerDesk({
 }) {
   const deskQuery = useQuery({ queryKey: ["owner-desk"], queryFn: () => api.getOwnerDesk({}) });
   const desk = deskQuery.data;
+  // The pipeline row a search tap named — ringed + scrolled to,
+  // so the tap lands on THAT load, not the board in general.
+  const [spotKey, setSpotKey] = useState<string | null>(null);
+
+  // A search tap on a load lands on that load's own pipeline row
+  // when the pipeline carries it (board rows and queue rows carry
+  // their ids). A load the pipeline doesn't carry — the caller's
+  // own library load, say — goes to the Fleet Board with its ids
+  // passed through as the target.
+  const spotPipeline = (boardLoadId: number | null, loadId: number | null) => {
+    const row = (desk?.pipeline ?? []).find(
+      (r) =>
+        (boardLoadId != null && r.boardLoadId === boardLoadId) ||
+        (loadId != null && r.loadId === loadId),
+    );
+    if (!row) {
+      onOpenFleetBoard({ boardLoadId, loadId });
+      return;
+    }
+    setSpotKey(row.key);
+    setTimeout(() => {
+      document
+        .getElementById(`od-pipe-${row.key}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 60);
+  };
+
+  // A search tap on a driver lands on THAT driver's truck card on
+  // the fleet board below (this desk's roster is counts only, so
+  // the card is the per-driver surface), else the board itself.
+  const focusDriver = (username: string) => {
+    setTimeout(() => {
+      const cards = document.querySelectorAll<HTMLElement>("#fleet-board li");
+      for (const card of Array.from(cards)) {
+        if (card.textContent?.includes(`@${username}`)) {
+          card.scrollIntoView({ behavior: "smooth", block: "center" });
+          card.style.outline = "2px solid var(--accent)";
+          setTimeout(() => {
+            card.style.outline = "";
+          }, 2400);
+          return;
+        }
+      }
+      document.getElementById("fleet-board")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 60);
+  };
 
   const counts = new Map<string, number>();
   for (const row of desk?.pipeline ?? []) counts.set(row.state, (counts.get(row.state) ?? 0) + 1);
@@ -100,13 +149,9 @@ export function OwnerDesk({
         <div className="mt-3">
           <GlobalSearch
             placeholder="Driver name, city, shipper, reference, or load #"
-            onOpenLoad={() => onOpenFleetBoard()}
-            onOpenBoardLoad={() => onOpenFleetBoard()}
-            onOpenDriver={() => {
-              setTimeout(() => {
-                document.getElementById("fleet-board")?.scrollIntoView({ behavior: "smooth", block: "start" });
-              }, 60);
-            }}
+            onOpenLoad={(loadId) => spotPipeline(null, loadId)}
+            onOpenBoardLoad={(boardLoadId, loadId) => spotPipeline(boardLoadId, loadId)}
+            onOpenDriver={focusDriver}
           />
         </div>
 
@@ -197,7 +242,11 @@ export function OwnerDesk({
               ) : (
                 <ul className="mt-2 space-y-1.5">
                   {desk.pipeline.map((row: PipelineRow) => (
-                    <li key={row.key} className="rounded-lg bg-[var(--surface)] px-3 py-2.5 text-sm">
+                    <li
+                      key={row.key}
+                      id={`od-pipe-${row.key}`}
+                      className={`rounded-lg bg-[var(--surface)] px-3 py-2.5 text-sm ${spotKey === row.key ? "ring-2 ring-[var(--accent)]" : ""}`}
+                    >
                       <div className="flex flex-wrap items-baseline justify-between gap-2">
                         <span className="font-semibold">{row.lane}</span>
                         <span className="flex shrink-0 items-center gap-2">
@@ -224,7 +273,7 @@ export function OwnerDesk({
                 </ul>
               )}
               <div className="mt-3 flex flex-wrap gap-2">
-                <button type="button" className={BTN} onClick={onOpenFleetBoard}>
+                <button type="button" className={BTN} onClick={() => onOpenFleetBoard()}>
                   Open the Fleet Board
                 </button>
               </div>
@@ -322,7 +371,7 @@ export function OwnerDesk({
             <section className="mt-3 rounded-xl border border-[var(--glass-border)] bg-[var(--surface2)] px-3 py-3" aria-label="Shortcuts">
               <h3 className="font-condensed text-lg font-semibold">🔗 Shortcuts</h3>
               <div className="mt-2 flex flex-wrap gap-2">
-                <button type="button" className={BTN_GHOST} onClick={onOpenFleetBoard}>
+                <button type="button" className={BTN_GHOST} onClick={() => onOpenFleetBoard()}>
                   🚚 Fleet Board
                 </button>
                 <button type="button" className={BTN_GHOST} onClick={onOpenBrokerPortal}>

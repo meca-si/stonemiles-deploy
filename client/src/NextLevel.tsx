@@ -539,7 +539,7 @@ function FuelLogForm({ setBanner }: { setBanner: Banner }) {
               <span className="font-bold">{p.state}</span> · {p.gallons.toFixed(2)} gal @ {money(p.pricePerGallon)} = <strong>{money(p.total)}</strong>
               <span className="block truncate text-xs text-[var(--dim)]">{p.station ?? "Station not named"} · {new Date(p.purchasedAt).toLocaleDateString()} {p.hasReceipt ? "· receipt sealed" : ""}</span>
             </span>
-            <button type="button" className="shrink-0 text-xs font-bold underline" aria-label={`Delete fuel purchase in ${p.state} for ${money(p.total)}`} onClick={() => void api.deleteFuelPurchase({ id: p.id }).then(() => { void queryClient.invalidateQueries({ queryKey: ["fuel-purchases"] }); void queryClient.invalidateQueries({ queryKey: ["ifta-report"] }); })}>Delete</button>
+            <button type="button" className="shrink-0 text-xs font-bold underline" aria-label={`Delete fuel purchase in ${p.state} for ${money(p.total)}`} onClick={() => void api.deleteFuelPurchase({ id: p.id }).then(() => { void queryClient.invalidateQueries({ queryKey: ["fuel-purchases"] }); void queryClient.invalidateQueries({ queryKey: ["ifta-report"] }); }).catch(() => setBanner("Couldn't delete that fuel purchase — check your connection and try again."))}>Delete</button>
           </div>
         ))}
         {(list.data?.purchases ?? []).length === 0 && !list.isLoading && <p className="text-xs text-[var(--dim)]">No fuel logged yet.</p>}
@@ -698,7 +698,7 @@ export function MoneyPanel({ setBanner, lang = "en" }: { setBanner: Banner; lang
           {(expList.data?.expenses ?? []).slice(0, 8).map((e) => (
             <div key={e.id} className="flex items-center justify-between gap-2 rounded-xl bg-[var(--surface2)] px-3 py-2 text-sm">
               <span>{expenseCategoryLabel(e.category)} · <strong>{money(e.amount)}</strong> <span className="text-xs normal-case text-[var(--dim)]">{e.vendor ?? ""} · {new Date(e.spentAt).toLocaleDateString()}{e.hasReceipt ? " · receipt sealed" : ""}</span></span>
-              <button type="button" className="shrink-0 text-xs font-bold underline" aria-label={`Delete ${e.category} expense of ${money(e.amount)}`} onClick={() => void api.deleteExpense({ id: e.id }).then(() => { void queryClient.invalidateQueries({ queryKey: ["expenses"] }); void queryClient.invalidateQueries({ queryKey: ["money-truth"] }); })}>Delete</button>
+              <button type="button" className="shrink-0 text-xs font-bold underline" aria-label={`Delete ${e.category} expense of ${money(e.amount)}`} onClick={() => void api.deleteExpense({ id: e.id }).then(() => { void queryClient.invalidateQueries({ queryKey: ["expenses"] }); void queryClient.invalidateQueries({ queryKey: ["money-truth"] }); }).catch(() => setBanner("Couldn't delete that expense — check your connection and try again."))}>Delete</button>
             </div>
           ))}
         </div>
@@ -1944,7 +1944,7 @@ export function PayBookPanel({ setBanner, openSignal = 0, lang = "en" }: { setBa
                     </span>
                   )}
                 </span>
-                <button type="button" className="shrink-0 text-xs font-bold underline" aria-label={`Delete ${e.kind === "w2" ? "W-2" : "1099"} entry from ${e.payer} of ${money(e.gross)}`} onClick={() => void api.deletePayEntry({ id: e.id }).then(() => { void queryClient.invalidateQueries({ queryKey: ["pay-entries"] }); void queryClient.invalidateQueries({ queryKey: ["pay-book"] }); void queryClient.invalidateQueries({ queryKey: ["pay-book-ytd"] }); void queryClient.invalidateQueries({ queryKey: ["quarterly-tax"] }); })}>Delete</button>
+                <button type="button" className="shrink-0 text-xs font-bold underline" aria-label={`Delete ${e.kind === "w2" ? "W-2" : "1099"} entry from ${e.payer} of ${money(e.gross)}`} onClick={() => void api.deletePayEntry({ id: e.id }).then(() => { void queryClient.invalidateQueries({ queryKey: ["pay-entries"] }); void queryClient.invalidateQueries({ queryKey: ["pay-book"] }); void queryClient.invalidateQueries({ queryKey: ["pay-book-ytd"] }); void queryClient.invalidateQueries({ queryKey: ["quarterly-tax"] }); }).catch(() => setBanner("Couldn't delete that pay entry — check your connection and try again."))}>Delete</button>
               </div>
               {!e.isForm && e.perDiem > 0 && (
                 <p className="mt-0.5 text-xs text-[var(--dim)]">Per diem (non-taxable — paid separately): <strong className="text-[var(--text)]">{money(e.perDiem)}</strong> · total received {money(e.gross - e.federalWithheld - e.stateWithheld - e.otherDeductions + e.perDiem)}</p>
@@ -2505,7 +2505,7 @@ export function SettlementPanel({ setBanner, lang = "en" }: { setBanner: Banner;
           <div key={s.id} className="rounded-xl bg-[var(--surface2)] px-3 py-2 text-sm">
             <div className="flex items-center justify-between gap-2">
               <span><strong>{s.carrier ?? "Carrier not named"}</strong> · {s.periodLabel ?? "period not labelled"} <span className="text-[var(--dim)]">({s.lines} lines, net {s.net != null ? money(s.net) : "—"})</span></span>
-              <button type="button" className="shrink-0 text-xs font-bold underline" aria-label={`Re-run the check on settlement ${s.id}`} onClick={() => void api.checkSettlement({ id: s.id }).then((c) => { setReport(c.report); void queryClient.invalidateQueries({ queryKey: ["settlements"] }); })}>Re-check</button>
+              <button type="button" className="shrink-0 text-xs font-bold underline" aria-label={`Re-run the check on settlement ${s.id}`} onClick={() => void api.checkSettlement({ id: s.id }).then((c) => { if (!c.ok) { setBanner("Couldn't re-run that check — try again."); return; } setReport(c.report); void queryClient.invalidateQueries({ queryKey: ["settlements"] }); }).catch(() => setBanner("Couldn't re-run that check — check your connection and try again."))}>Re-check</button>
             </div>
             {s.checkReport ? <p className="mt-1 text-xs font-semibold">{s.checkFlags === 0 ? "✓ Last check: clean" : `⚠ Last check: ${s.checkFlags} flag${s.checkFlags === 1 ? "" : "s"}`} — open the report from the checker above after a re-check.</p> : <p className="mt-1 text-xs text-[var(--dim)]">Not checked yet.</p>}
           </div>
@@ -2596,7 +2596,10 @@ export function PassportPanel({ setBanner }: { setBanner: Banner }) {
   const toggle = (patch: Partial<{ enabled: boolean; showMiles: boolean; showOnTime: boolean; showSafety: boolean; showSeasons: boolean }>) => {
     if (!p) return;
     const next = { enabled: p.enabled, showMiles: p.showMiles, showOnTime: p.showOnTime, showSafety: p.showSafety, showSeasons: p.showSeasons, ...patch };
-    void api.savePassportPrefs(next).then(() => void queryClient.invalidateQueries({ queryKey: ["passport"] }));
+    void api
+      .savePassportPrefs(next)
+      .then(() => void queryClient.invalidateQueries({ queryKey: ["passport"] }))
+      .catch(() => setBanner("That passport change didn't save — check your connection and try again."));
   };
   const Row = ({ label, desc, on, onToggle, aria }: { label: string; desc: string; on: boolean; onToggle: () => void; aria: string }) => (
     <div className="flex items-center justify-between gap-3 rounded-xl bg-[var(--surface2)] px-3 py-2.5">
@@ -2979,7 +2982,7 @@ export function VaultPanel({ setBanner, lang = "en" }: { setBanner: Banner; lang
             </span>
             <span className="flex shrink-0 gap-2">
               {d.hasFile && <button type="button" className="text-xs font-bold underline" aria-label={`View ${d.label}`} onClick={() => viewDoc(d.id)}>View</button>}
-              <button type="button" className="text-xs font-bold underline" aria-label={`Delete ${d.label}`} onClick={() => void api.deletePersonalDoc({ id: d.id }).then(() => void queryClient.invalidateQueries({ queryKey: ["personal-docs"] }))}>Delete</button>
+              <button type="button" className="text-xs font-bold underline" aria-label={`Delete ${d.label}`} onClick={() => void api.deletePersonalDoc({ id: d.id }).then(() => void queryClient.invalidateQueries({ queryKey: ["personal-docs"] })).catch(() => setBanner("Couldn't delete that document — check your connection and try again."))}>Delete</button>
             </span>
           </div>
         ))}
@@ -3008,7 +3011,7 @@ export function VaultPanel({ setBanner, lang = "en" }: { setBanner: Banner; lang
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <label className="btn-press cursor-pointer rounded-xl bg-[var(--surface2)] border border-[var(--border)] px-3 py-2.5 text-sm font-bold">
           📎 Attach file/photo
-          <input type="file" accept="image/jpeg,image/png,application/pdf" className="hidden" aria-label="Attach the document file" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (!f) return; if (f.type === "image/jpeg" || f.type === "image/png" || f.type === "application/pdf") { void fileToBase64(f).then((enc) => setFile({ base64: enc.dataBase64, mime: f.type })); } else setBanner("Attach a JPEG, PNG, or PDF."); }} />
+          <input type="file" accept="image/jpeg,image/png,application/pdf" className="hidden" aria-label="Attach the document file" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (!f) return; if (f.type === "image/jpeg" || f.type === "image/png" || f.type === "application/pdf") { void fileToBase64(f).then((enc) => setFile({ base64: enc.dataBase64, mime: f.type })).catch(() => setBanner("That file couldn't be read — try a different file.")); } else setBanner("Attach a JPEG, PNG, or PDF."); }} />
         </label>
         {file && <span className="text-xs font-semibold text-emerald-300">File attached ✓</span>}
         <button

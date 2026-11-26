@@ -181,10 +181,13 @@ export function MySafetyCard() {
                   type="button"
                   className="rounded-lg bg-[var(--surface2)] px-2.5 py-1 text-sm font-semibold"
                   onClick={() => {
-                    void api.noteDashcamEvent({ eventId: e.id, note: noteDrafts[e.id] ?? "" }).then((r) => {
-                      setMsg(r.ok ? "Note saved on the event." : (r.error ?? "That didn't save."));
-                      if (r.ok) refresh();
-                    });
+                    void api
+                      .noteDashcamEvent({ eventId: e.id, note: noteDrafts[e.id] ?? "" })
+                      .then((r) => {
+                        setMsg(r.ok ? "Note saved on the event." : (r.error ?? "That didn't save."));
+                        if (r.ok) refresh();
+                      })
+                      .catch(() => setMsg("That didn't go through — try again."));
                   }}
                 >
                   Save note
@@ -206,7 +209,8 @@ export function MySafetyCard() {
                       .then((r) => {
                         setMsg(r.ok ? `Pinned to the exoneration vault — packet ${r.packetRef ?? ""}.` : (r.error ?? "That didn't pin."));
                         if (r.ok) refresh();
-                      });
+                      })
+                      .catch(() => setMsg("That didn't go through — try again."));
                   }}
                 >
                   Pin to vault
@@ -233,10 +237,13 @@ export function MySafetyCard() {
           type="button"
           className="rounded-lg bg-[var(--surface)] px-2.5 py-1.5 text-sm font-semibold"
           onClick={() => {
-            void api.runDashcamTestEvent({ kind: testKind }).then((r) => {
-              setMsg(r.ok ? "Test event recorded — it's stamped SIMULATED in the record." : (r.error ?? "That didn't run."));
-              if (r.ok) refresh();
-            });
+            void api
+              .runDashcamTestEvent({ kind: testKind })
+              .then((r) => {
+                setMsg(r.ok ? "Test event recorded — it's stamped SIMULATED in the record." : (r.error ?? "That didn't run."));
+                if (r.ok) refresh();
+              })
+              .catch(() => setMsg("That didn't go through — try again."));
           }}
         >
           Record a test event (simulated)
@@ -259,10 +266,13 @@ export function MySafetyCard() {
                       type="button"
                       className="rounded-lg bg-[var(--surface2)] px-2 py-0.5 text-xs font-semibold"
                       onClick={() => {
-                        void api.getLibraryDocument({ ref: v.packetRef }).then((doc) => {
-                          if (doc.ok && doc.dataBase64 && doc.filename) downloadPdf(doc.filename, doc.dataBase64);
-                          else setMsg(doc.error ?? "That packet couldn't be built.");
-                        });
+                        void api
+                          .getLibraryDocument({ ref: v.packetRef })
+                          .then((doc) => {
+                            if (doc.ok && doc.dataBase64 && doc.filename) downloadPdf(doc.filename, doc.dataBase64);
+                            else setMsg(doc.error ?? "That packet couldn't be built.");
+                          })
+                          .catch(() => setMsg("That didn't go through — try again."));
                       }}
                     >
                       Download packet
@@ -271,10 +281,13 @@ export function MySafetyCard() {
                       type="button"
                       className="rounded-lg bg-[var(--surface2)] px-2 py-0.5 text-xs font-semibold"
                       onClick={() => {
-                        void api.removeExoneration({ entryId: v.id }).then((r) => {
-                          setMsg(r.ok ? "Packet removed from the vault." : (r.error ?? "That didn't remove."));
-                          if (r.ok) refresh();
-                        });
+                        void api
+                          .removeExoneration({ entryId: v.id })
+                          .then((r) => {
+                            setMsg(r.ok ? "Packet removed from the vault." : (r.error ?? "That didn't remove."));
+                            if (r.ok) refresh();
+                          })
+                          .catch(() => setMsg("That didn't go through — try again."));
                       }}
                     >
                       Remove
@@ -300,10 +313,13 @@ export function MySafetyCard() {
                   type="button"
                   className="rounded-lg bg-[var(--surface2)] px-2 py-0.5 text-xs font-semibold"
                   onClick={() => {
-                    void api.revokeDashcamConnection({ connectionId: c.id }).then((r) => {
-                      setMsg(r.ok ? "Connection revoked — its secret is wiped." : (r.error ?? "That didn't revoke."));
-                      if (r.ok) refresh();
-                    });
+                    void api
+                      .revokeDashcamConnection({ connectionId: c.id })
+                      .then((r) => {
+                        setMsg(r.ok ? "Connection revoked — its secret is wiped." : (r.error ?? "That didn't revoke."));
+                        if (r.ok) refresh();
+                      })
+                      .catch(() => setMsg("That didn't go through — try again."));
                   }}
                 >
                   Revoke
@@ -322,14 +338,20 @@ export function MySafetyCard() {
               type="button"
               className="rounded-lg bg-[var(--surface2)] px-2.5 py-1 text-sm font-semibold"
               onClick={() => {
-                if (!connLabel.trim()) return;
-                void api.createDashcamConnection({ label: connLabel.trim() }).then((r) => {
-                  if (r.ok && r.secret) {
-                    setNewSecret(r.secret);
-                    setMsg("Connection wired. Copy the secret below into the partner's webhook config — it's shown only this once.");
-                  } else setMsg(r.error ?? "That didn't wire.");
-                  if (r.ok) refresh();
-                });
+                if (!connLabel.trim()) {
+                  setMsg("Give the connection a name first.");
+                  return;
+                }
+                void api
+                  .createDashcamConnection({ label: connLabel.trim() })
+                  .then((r) => {
+                    if (r.ok && r.secret) {
+                      setNewSecret(r.secret);
+                      setMsg("Connection wired. Copy the secret below into the partner's webhook config — it's shown only this once.");
+                    } else setMsg(r.error ?? "That didn't wire.");
+                    if (r.ok) refresh();
+                  })
+                  .catch(() => setMsg("That didn't go through — try again."));
               }}
             >
               Wire connection
@@ -374,7 +396,10 @@ export function MySafetyCard() {
           type="button"
           className="rounded-lg bg-[var(--surface)] px-2.5 py-1.5 text-sm font-semibold"
           onClick={() => {
-            if (!faultCode.trim()) return;
+            if (!faultCode.trim()) {
+              setMsg("Type the fault code off the dash first.");
+              return;
+            }
             const odo = Number(faultOdo);
             void api
               .reportFaultCode({
@@ -394,7 +419,8 @@ export function MySafetyCard() {
                   setFaultOdo("");
                   refresh();
                 } else setMsg(r.error ?? "That didn't record.");
-              });
+              })
+              .catch(() => setMsg("That didn't go through — try again."));
           }}
         >
           Record code
@@ -468,7 +494,8 @@ export function MySafetyCard() {
                         .then((r) => {
                           setMsg(r.ok ? `Sync: ${r.accepted} reading(s) in, ${r.rejected} rejected, ${r.outOfRange} out of range.` : (r.error ?? "That didn't sync."));
                           if (r.ok) refresh();
-                        });
+                        })
+                        .catch(() => setMsg("That didn't go through — try again."));
                     }}
                   >
                     Sync now
@@ -477,10 +504,13 @@ export function MySafetyCard() {
                     type="button"
                     className="rounded-lg bg-[var(--surface2)] px-2 py-0.5 text-xs font-semibold"
                     onClick={() => {
-                      void api.revokeTrailerDevice({ connectionId: c.id }).then((r) => {
-                        setMsg(r.ok ? "Pairing revoked." : (r.error ?? "That didn't revoke."));
-                        if (r.ok) refresh();
-                      });
+                      void api
+                        .revokeTrailerDevice({ connectionId: c.id })
+                        .then((r) => {
+                          setMsg(r.ok ? "Pairing revoked." : (r.error ?? "That didn't revoke."));
+                          if (r.ok) refresh();
+                        })
+                        .catch(() => setMsg("That didn't go through — try again."));
                     }}
                   >
                     Revoke
@@ -508,15 +538,21 @@ export function MySafetyCard() {
           type="button"
           className="rounded-lg bg-[var(--surface)] px-2.5 py-1.5 text-sm font-semibold"
           onClick={() => {
-            if (!deviceLabel.trim()) return;
-            void api.connectTrailerDevice({ label: deviceLabel.trim(), deviceRef: deviceRef.trim() || null }).then((r) => {
-              setMsg(r.ok ? "Device paired." : (r.error ?? "That didn't pair."));
-              if (r.ok) {
-                setDeviceLabel("");
-                setDeviceRef("");
-                refresh();
-              }
-            });
+            if (!deviceLabel.trim()) {
+              setMsg("Give the device a label first.");
+              return;
+            }
+            void api
+              .connectTrailerDevice({ label: deviceLabel.trim(), deviceRef: deviceRef.trim() || null })
+              .then((r) => {
+                setMsg(r.ok ? "Device paired." : (r.error ?? "That didn't pair."));
+                if (r.ok) {
+                  setDeviceLabel("");
+                  setDeviceRef("");
+                  refresh();
+                }
+              })
+              .catch(() => setMsg("That didn't go through — try again."));
           }}
         >
           Pair device
@@ -538,7 +574,8 @@ export function MySafetyCard() {
               .then((r) => {
                 setMsg(r.ok ? `Simulated readings in: ${r.lines.join(" · ")}` : (r.error ?? "That didn't run."));
                 if (r.ok) refresh();
-              });
+              })
+              .catch(() => setMsg("That didn't go through — try again."));
           }}
         >
           Run simulated readings
@@ -600,11 +637,17 @@ export function MySafetyCard() {
             const loadId = Number(rangeLoad);
             const min = Number(rangeMin);
             const max = Number(rangeMax);
-            if (!Number.isFinite(loadId) || loadId <= 0 || !Number.isFinite(min) || !Number.isFinite(max)) return;
-            void api.setLoadReeferRange({ loadId, minF: min, maxF: max }).then((r) => {
-              setMsg(r.ok ? `Range set on load #${loadId}: ${min}°F–${max}°F.` : (r.error ?? "That didn't set."));
-              if (r.ok) refresh();
-            });
+            if (!Number.isFinite(loadId) || loadId <= 0 || !Number.isFinite(min) || !Number.isFinite(max)) {
+              setMsg("Enter the load number and a low and high temperature to set the range.");
+              return;
+            }
+            void api
+              .setLoadReeferRange({ loadId, minF: min, maxF: max })
+              .then((r) => {
+                setMsg(r.ok ? `Range set on load #${loadId}: ${min}°F–${max}°F.` : (r.error ?? "That didn't set."));
+                if (r.ok) refresh();
+              })
+              .catch(() => setMsg("That didn't go through — try again."));
           }}
         >
           Set range
@@ -672,10 +715,13 @@ export function FleetSafetyPanel() {
                       type="button"
                       className="rounded-lg bg-[var(--surface2)] px-2 py-0.5 text-xs font-semibold"
                       onClick={() => {
-                        void api.reviewDashcamEvent({ eventId: e.id, status: "reviewed" }).then((r) => {
-                          setMsg(r.ok ? "Marked reviewed." : (r.error ?? "That didn't mark."));
-                          if (r.ok) refresh();
-                        });
+                        void api
+                          .reviewDashcamEvent({ eventId: e.id, status: "reviewed" })
+                          .then((r) => {
+                            setMsg(r.ok ? "Marked reviewed." : (r.error ?? "That didn't mark."));
+                            if (r.ok) refresh();
+                          })
+                          .catch(() => setMsg("That didn't go through — try again."));
                       }}
                     >
                       Mark reviewed
@@ -686,10 +732,13 @@ export function FleetSafetyPanel() {
                       type="button"
                       className="rounded-lg bg-[var(--surface2)] px-2 py-0.5 text-xs font-semibold"
                       onClick={() => {
-                        void api.reviewDashcamEvent({ eventId: e.id, status: "coached" }).then((r) => {
-                          setMsg(r.ok ? "Marked coached." : (r.error ?? "That didn't mark."));
-                          if (r.ok) refresh();
-                        });
+                        void api
+                          .reviewDashcamEvent({ eventId: e.id, status: "coached" })
+                          .then((r) => {
+                            setMsg(r.ok ? "Marked coached." : (r.error ?? "That didn't mark."));
+                            if (r.ok) refresh();
+                          })
+                          .catch(() => setMsg("That didn't go through — try again."));
                       }}
                     >
                       Mark coached

@@ -343,10 +343,13 @@ export function OwedBoardPanel({ setBanner, lang = "en" }: { setBanner: Banner; 
                         className="shrink-0 font-bold underline"
                         aria-label={`Remove the ${money(p.amount)} payment recorded on load ${r.loadId}`}
                         onClick={() =>
-                          void api.deleteLoadPayment({ id: p.id }).then(() => {
-                            void queryClient.invalidateQueries({ queryKey: ["owed-board"] });
-                            setBanner("Payment record removed (the removal is sealed too). The load is back on the board for that amount.");
-                          })
+                          void api
+                            .deleteLoadPayment({ id: p.id })
+                            .then(() => {
+                              void queryClient.invalidateQueries({ queryKey: ["owed-board"] });
+                              setBanner("Payment record removed (the removal is sealed too). The load is back on the board for that amount.");
+                            })
+                            .catch(() => setBanner("Couldn't remove that payment record — check your connection and try again."))
                         }
                       >
                         Remove
@@ -382,7 +385,7 @@ export function OwedBoardPanel({ setBanner, lang = "en" }: { setBanner: Banner; 
                             setPayNote("");
                             void queryClient.invalidateQueries({ queryKey: ["owed-board"] });
                           })
-                          .catch(() => setBanner("Couldn't record that payment — try again."))
+                          .catch(() => setBanner("Couldn't record that payment — check your connection and try again."))
                           .finally(() => setBusy(false));
                       }}
                     >
@@ -390,6 +393,9 @@ export function OwedBoardPanel({ setBanner, lang = "en" }: { setBanner: Banner; 
                     </button>
                     <button type="button" className={smallBtn} aria-label="Cancel recording a payment" onClick={() => setPayFor(null)}>Cancel</button>
                   </div>
+                  {!(parseFloat(payAmt) > 0) && (
+                    <p className="col-span-2 text-xs text-[var(--dim)]">Enter the amount received to record the payment.</p>
+                  )}
                 </div>
               ) : (
                 <button type="button" className={`${smallBtn} mt-2`} aria-label={`Record a payment received for load ${r.loadId}`} onClick={() => { setPayFor(r.loadId); setPayAmt(r.remaining != null ? String(r.remaining) : ""); setPayNote(""); }}>
@@ -742,7 +748,7 @@ export function SettlementCheckPanel({ setBanner }: { setBanner: Banner }) {
                       setLagInput(null);
                       refresh();
                     })
-                    .catch(() => setBanner("That pay lag didn't save — try again."))
+                    .catch(() => setBanner("That pay lag didn't save — check your connection and try again."))
                     .finally(() => setBusy(false));
                 }}
               >
@@ -1100,12 +1106,15 @@ export function ClaimsPanel({ setBanner, lang = "en" }: { setBanner: Banner; lan
               className="shrink-0 text-xs font-bold underline"
               aria-label={`Remove this ${claimKindLabel(e.kind)} claim of ${money(e.amount)}`}
               onClick={() =>
-                void api.deleteClaimEvent({ id: e.id }).then(() => {
-                  void queryClient.invalidateQueries({ queryKey: ["claim-events"] });
-                  void queryClient.invalidateQueries({ queryKey: ["loads"] });
-                  void queryClient.invalidateQueries({ queryKey: ["owed-board"] });
-                  setBanner("Claim event removed (the removal is sealed too).");
-                })
+                void api
+                  .deleteClaimEvent({ id: e.id })
+                  .then(() => {
+                    void queryClient.invalidateQueries({ queryKey: ["claim-events"] });
+                    void queryClient.invalidateQueries({ queryKey: ["loads"] });
+                    void queryClient.invalidateQueries({ queryKey: ["owed-board"] });
+                    setBanner("Claim event removed (the removal is sealed too).");
+                  })
+                  .catch(() => setBanner("Couldn't remove that claim event — check your connection and try again."))
               }
             >
               Remove
@@ -1585,7 +1594,9 @@ export function MaintenanceLogPanel({ setBanner, lang = "en" }: { setBanner: Ban
                       ev.target.value = "";
                       if (!f) return;
                       if (f.type === "image/jpeg" || f.type === "image/png" || f.type === "application/pdf") {
-                        void fileToBase64(f).then((enc) => setAttachFile({ base64: enc.dataBase64, mime: f.type }));
+                        void fileToBase64(f)
+                          .then((enc) => setAttachFile({ base64: enc.dataBase64, mime: f.type }))
+                          .catch(() => setBanner("That file couldn't be read — try a different file."));
                       } else setBanner("Attach a JPEG, PNG, or PDF.");
                     }}
                   />
@@ -1612,6 +1623,9 @@ export function MaintenanceLogPanel({ setBanner, lang = "en" }: { setBanner: Ban
                 >
                   {busy ? "Saving…" : "Save attachment"}
                 </button>
+                {!attachLabel.trim() && (
+                  <p className="w-full text-xs text-[var(--dim)]">Give the attachment a label to save it.</p>
+                )}
               </div>
             )}
           </div>
@@ -2573,6 +2587,9 @@ export function InvoicesPanel({ setBanner, lang = "en" }: { setBanner: Banner; l
               Email invoice
             </button>
           </div>
+          {!emailTo.includes("@") && (
+            <p className="mt-1 text-xs text-[var(--dim)]">Enter an email with @ to send.</p>
+          )}
           <InvoiceFactoringPanel invoiceId={d.id} setBanner={setBanner} />
         </div>
       )}
@@ -2697,6 +2714,9 @@ export function ProfitLossPanel({ setBanner, lang = "en" }: { setBanner: Banner;
               PDF
             </button>
           </div>
+          {!emailTo.includes("@") && (
+            <p className="mt-1 text-xs text-[var(--dim)]">Enter an email with @ to send.</p>
+          )}
           <p className="mt-2 text-[11px] text-[var(--dim)]">Statement periods: {PL_MONTH_NAMES[index - 1] && kind === "month" ? `${PL_MONTH_NAMES[index - 1]} ${year}` : kind === "quarter" ? `Q${index} ${year}` : `${year}`} · built from your sealed records — a record for your books, not tax advice.</p>
         </>
       )}

@@ -357,6 +357,12 @@ function FeeInvoiceCard({
             </button>
           </div>
           <p className="mt-1.5 text-xs text-[var(--dim)]">
+            {!reference.trim() && (
+              <>
+                <strong className="text-[var(--text)]">A payment reference is required</strong> — the Record
+                payment button stays off until one is entered.{" "}
+              </>
+            )}
             Blank amount records the full balance due. Partial payments record but do not reopen the board — paid in
             full is what clears the gate.
           </p>
@@ -1043,8 +1049,24 @@ export function FleetLoadBoardPanel({
   const renderCard = (r: BoardRow) => {
     const isMine = r.claimedBy === data.myUsername;
     const pick = assignPick[r.id] ?? assignable[0]?.username ?? "";
+    // A taken load that's mine opens in the Load Tracker — the
+    // whole card body is the door, same as its button below.
+    // Clicks that start on an inner control never reach it.
+    const cardOpens = r.status === "taken" && isMine && r.loadId != null;
     return (
-      <article key={r.id} className="rounded-2xl border border-[var(--border)] bg-[var(--surface2)] p-3.5" aria-label={`Board load ${laneOf(r)}`}>
+      <article
+        key={r.id}
+        className={`rounded-2xl border border-[var(--border)] bg-[var(--surface2)] p-3.5 ${cardOpens ? "cursor-pointer" : ""}`}
+        aria-label={`Board load ${laneOf(r)}`}
+        onClick={
+          cardOpens
+            ? (e) => {
+                if ((e.target as HTMLElement).closest("button, select, input, textarea, label, a")) return;
+                onOpenMyLoad(r.loadId!);
+              }
+            : undefined
+        }
+      >
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <div className="font-condensed text-lg font-bold leading-tight">{laneOf(r)}</div>
@@ -1370,6 +1392,11 @@ export function FleetLoadBoardPanel({
               >
                 {busy === `assign-${r.id}` ? "Reassigning…" : "Reassign"}
               </button>
+              {pick !== "" && pick === r.claimedBy && (
+                <p className="w-full text-xs leading-relaxed text-[var(--dim)]">
+                  Pick a different driver to reassign — @{r.claimedBy} already has this load.
+                </p>
+              )}
               {twoTap(`unassign-${r.id}`, "Cancel assignment", () =>
                 void act(`unassign-${r.id}`, () => api.unassignBoardLoad({ id: r.id }), "Assignment cancelled — the load is open on the board again."),
               )}

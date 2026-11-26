@@ -341,10 +341,17 @@ export function CalendarPanel({ onOpenCredential, onOpenLoad }: { onOpenCredenti
             {calQuery.isLoading ? (
               <p className="mt-2 text-sm text-[var(--dim)]">Reading your calendar…</p>
             ) : cal?.nextMove ? (
-              <p className="mt-1 text-base leading-relaxed">
-                🚛 <strong>{cal.nextMove.lane}</strong> — {fmtWhen(cal.nextMove.at)}
-                <span className="text-[var(--dim)]"> · committed work</span>
-              </p>
+              <>
+                <p className="mt-1 text-base leading-relaxed">
+                  🚛 <strong>{cal.nextMove.lane}</strong> — {fmtWhen(cal.nextMove.at)}
+                  <span className="text-[var(--dim)]"> · committed work</span>
+                </p>
+                {cal.nextMove.loadId != null && (
+                  <button type="button" className={`${BTN} mt-2`} onClick={() => onOpenLoad(cal.nextMove!.loadId!)}>
+                    Open load
+                  </button>
+                )}
+              </>
             ) : (
               <p className="mt-1 text-sm leading-relaxed text-[var(--dim)]">Nothing bound right now. Offers, time-off and deadlines will show here as they land.</p>
             )}

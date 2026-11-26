@@ -157,7 +157,10 @@ function TrackShareBlock({ loadId, setBanner }: { loadId: number; setBanner: (s:
             type="button"
             className="rounded-lg bg-[var(--surface)] border border-[var(--border)] px-3 py-2 text-xs font-bold"
             onClick={() => {
-              void navigator.clipboard?.writeText(live.url).then(() => setBanner("Tracking link copied — send it to whoever's watching this freight."));
+              void navigator.clipboard
+                ?.writeText(live.url)
+                .then(() => setBanner("Tracking link copied — send it to whoever's watching this freight."))
+                .catch(() => setBanner("Couldn't copy — long-press to copy the link."));
             }}
           >
             📋 Copy link
@@ -167,7 +170,11 @@ function TrackShareBlock({ loadId, setBanner }: { loadId: number; setBanner: (s:
             className="rounded-lg bg-[var(--surface)] border border-[var(--border)] px-3 py-2 text-xs font-bold"
             onClick={() => {
               if (navigator.share) void navigator.share({ title: "Track this load", url: live.url }).catch(() => undefined);
-              else void navigator.clipboard?.writeText(live.url).then(() => setBanner("Tracking link copied."));
+              else
+                void navigator.clipboard
+                  ?.writeText(live.url)
+                  .then(() => setBanner("Tracking link copied."))
+                  .catch(() => setBanner("Couldn't copy — long-press to copy the link."));
             }}
           >
             ↗ Share
@@ -265,10 +272,13 @@ export function DeliveryCloseout({ loadId, setBanner }: { loadId: number; setBan
               type="button"
               className="rounded-lg bg-[var(--surface)] border border-[var(--border)] px-3 py-2 text-xs font-bold"
               onClick={() => {
-                void api.getLibraryDocument({ ref: `pod:${loadId}` }).then((d) => {
-                  if (d.ok && d.dataBase64) pdfFromBase64(d.dataBase64, d.filename ?? "document.pdf");
-                  else setBanner(d.error ?? "The signed POD isn't available.");
-                });
+                void api
+                  .getLibraryDocument({ ref: `pod:${loadId}` })
+                  .then((d) => {
+                    if (d.ok && d.dataBase64) pdfFromBase64(d.dataBase64, d.filename ?? "document.pdf");
+                    else setBanner(d.error ?? "The signed POD isn't available.");
+                  })
+                  .catch(() => setBanner("Couldn't open the signed POD — check your connection and try again."));
               }}
             >
               ⬇ Signed POD
@@ -277,10 +287,13 @@ export function DeliveryCloseout({ loadId, setBanner }: { loadId: number; setBan
               type="button"
               className="rounded-lg bg-[var(--surface)] border border-[var(--border)] px-3 py-2 text-xs font-bold"
               onClick={() => {
-                void api.getLibraryDocument({ ref: `bol:${loadId}` }).then((d) => {
-                  if (d.ok && d.dataBase64) pdfFromBase64(d.dataBase64, d.filename ?? "document.pdf");
-                  else setBanner(d.error ?? "The BOL isn't available.");
-                });
+                void api
+                  .getLibraryDocument({ ref: `bol:${loadId}` })
+                  .then((d) => {
+                    if (d.ok && d.dataBase64) pdfFromBase64(d.dataBase64, d.filename ?? "document.pdf");
+                    else setBanner(d.error ?? "The BOL isn't available.");
+                  })
+                  .catch(() => setBanner("Couldn't open the BOL — check your connection and try again."));
               }}
             >
               🖨 Print BOL
@@ -304,10 +317,20 @@ export function DeliveryCloseout({ loadId, setBanner }: { loadId: number; setBan
                   type="button"
                   className="rounded-lg bg-[var(--surface)] border border-[var(--border)] px-3 py-2 text-xs font-bold"
                   onClick={() => {
-                    if (!link.token || !copyEmail.includes("@")) return;
-                    void api.emailReceiverCopy({ token: link.token, toEmail: copyEmail.trim() }).then((r) => {
-                      setCopyMsg(r.ok ? (r.status === "queued" ? "Copy queued — mail is being set up." : "Copy emailed ✓") : (r.error ?? "Couldn't send."));
-                    });
+                    if (!copyEmail.includes("@")) {
+                      setCopyMsg("Enter an email with @ to send the copy.");
+                      return;
+                    }
+                    if (!link.token) {
+                      setCopyMsg("The receive link isn't ready — try again in a moment.");
+                      return;
+                    }
+                    void api
+                      .emailReceiverCopy({ token: link.token, toEmail: copyEmail.trim() })
+                      .then((r) => {
+                        setCopyMsg(r.ok ? (r.status === "queued" ? "Copy queued — mail is being set up." : "Copy emailed ✓") : (r.error ?? "Couldn't send."));
+                      })
+                      .catch(() => setCopyMsg("Couldn't send the copy — check your connection and try again."));
                   }}
                 >
                   ✉ Email the copy
@@ -344,7 +367,11 @@ export function DeliveryCloseout({ loadId, setBanner }: { loadId: number; setBan
                     onClick={() => {
                       const url = link.copyUrl!;
                       if (navigator.share) void navigator.share({ title: "Signed proof of delivery", url }).catch(() => undefined);
-                      else void navigator.clipboard?.writeText(url).then(() => setCopyMsg("Copy link saved to clipboard."));
+                      else
+                        void navigator.clipboard
+                          ?.writeText(url)
+                          .then(() => setCopyMsg("Copy link saved to clipboard."))
+                          .catch(() => setCopyMsg("Couldn't copy — long-press to copy the link."));
                     }}
                   >
                     ↗ Share copy link
@@ -368,7 +395,10 @@ export function DeliveryCloseout({ loadId, setBanner }: { loadId: number; setBan
                 type="button"
                 className="rounded-lg bg-[var(--surface)] border border-[var(--border)] px-3 py-2 text-xs font-bold"
                 onClick={() => {
-                  void navigator.clipboard?.writeText(link.url ?? "").then(() => setBanner("Receive link copied — text it to the receiver."));
+                  void navigator.clipboard
+                    ?.writeText(link.url ?? "")
+                    .then(() => setBanner("Receive link copied — text it to the receiver."))
+                    .catch(() => setBanner("Couldn't copy — long-press to copy the link."));
                 }}
               >
                 📋 Copy link
@@ -377,10 +407,13 @@ export function DeliveryCloseout({ loadId, setBanner }: { loadId: number; setBan
                 type="button"
                 className="rounded-lg bg-[var(--surface)] border border-[var(--border)] px-3 py-2 text-xs font-bold"
                 onClick={() => {
-                  void api.getLibraryDocument({ ref: `bol:${loadId}` }).then((d) => {
-                    if (d.ok && d.dataBase64) pdfFromBase64(d.dataBase64, d.filename ?? "document.pdf");
-                    else setBanner(d.error ?? "The BOL isn't available.");
-                  });
+                  void api
+                    .getLibraryDocument({ ref: `bol:${loadId}` })
+                    .then((d) => {
+                      if (d.ok && d.dataBase64) pdfFromBase64(d.dataBase64, d.filename ?? "document.pdf");
+                      else setBanner(d.error ?? "The BOL isn't available.");
+                    })
+                    .catch(() => setBanner("Couldn't open the BOL — check your connection and try again."));
                 }}
               >
                 🖨 BOL (QR on it)
@@ -457,21 +490,27 @@ export function DeliveryCloseout({ loadId, setBanner }: { loadId: number; setBan
           <div>
             <div className="text-xs font-bold text-[var(--dim)]">3 · PAPER BOL — receiver signed the paper? Photograph it</div>
             <div className="mt-2 flex flex-wrap items-center gap-2">
-              <input
-                type="file"
-                accept="image/*"
-                className="text-xs"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (!f) return setPaperPhoto(null);
-                  const reader = new FileReader();
-                  reader.onload = () => {
-                    const s = String(reader.result ?? "");
-                    setPaperPhoto({ base64: s.slice(s.indexOf(",") + 1), mime: f.type || "image/jpeg" });
-                  };
-                  reader.readAsDataURL(f);
-                }}
-              />
+              <label className="inline-flex min-h-[44px] cursor-pointer items-center rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-sm font-bold">
+                {paperPhoto ? "📷 Photo picked ✓ — tap to change" : "📷 Photograph the signed BOL"}
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  aria-label="Photograph the signed paper BOL"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    e.target.value = "";
+                    if (!f) return setPaperPhoto(null);
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                      const s = String(reader.result ?? "");
+                      setPaperPhoto({ base64: s.slice(s.indexOf(",") + 1), mime: f.type || "image/jpeg" });
+                    };
+                    reader.onerror = () => setBanner("Couldn't read that photo — try again.");
+                    reader.readAsDataURL(f);
+                  }}
+                />
+              </label>
               <button
                 type="button"
                 disabled={busy || !paperPhoto || !receiverName.trim()}
