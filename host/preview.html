@@ -504,6 +504,11 @@
   .flow-arrow{ color:var(--neon-a); font-weight:800; }
   .door-tag{ font-size:10px; font-weight:800; letter-spacing:.06em; color:#04150c; background:linear-gradient(92deg,var(--neon-a),var(--neon-b)); border-radius:999px; padding:3px 8px; white-space:nowrap; }
   .inbox-item,.lib-item{ background:var(--surface2); border-radius:14px; padding:12px 14px; }
+  .inbox-item{ cursor:pointer; }
+  .inbox-item.sel{ box-shadow:inset 0 0 0 2px var(--accent); }
+  #deadheadCard .kv-row{ cursor:pointer; }
+  #deadheadCard .kv-row.sel{ background:var(--surface2); border-radius:8px; }
+  .sr-hit[data-goto-loads]{ cursor:pointer; }
   .inbox-item + .inbox-item,.lib-item + .lib-item{ margin-top:8px; }
   .lib-actions{ display:flex; gap:6px; flex-wrap:wrap; margin-top:9px; }
   .lib-actions .export-btn{ flex:1 1 30%; text-decoration:none; display:block; }
@@ -701,19 +706,20 @@
       <div class="card" aria-label="Global search — sample">
         <div class="xs dim" style="font-weight:800;letter-spacing:.08em">🔎 SEARCH — YOUR LOADS, DRIVERS &amp; PAPERWORK</div>
         <div class="searchrow" style="margin-top:8px">
-          <input type="search" value="Dallas" aria-label="Search your loads, drivers and paperwork — sample query" />
-          <button class="btn-neon" style="padding:12px 18px" data-toast="Demo: in the full app this searches your own records only — loads, drivers, and paperwork — and rates never appear in results. Nothing is searched or saved in this preview.">Search</button>
+          <input type="search" id="todaySearch" value="Dallas" aria-label="Search your loads, drivers and paperwork — sample query" />
+          <button class="btn-neon" id="todaySearchBtn" style="padding:12px 18px">Search</button>
         </div>
-        <p class="xs dim" style="margin-top:6px;line-height:1.5">Sample query: <strong style="color:var(--text)">“Dallas”</strong> — results grouped, the same box sits at the top of Today and on both desks.</p>
+        <p class="xs dim" style="margin-top:6px;line-height:1.5">Sample results — <strong style="color:var(--text)">type to filter them right here</strong>, and tap a load result to jump to Loads. Grouped Loads / Drivers / Paperwork, the same box sits at the top of Today and on both desks.</p>
         <div class="sr-label">LOADS</div>
-        <div class="sr-hit"><strong>Load #1042 — Mobile, AL → Dallas, TX</strong><div class="xs dim">En route · Pavers — palletized stone · D. Carter driving</div></div>
-        <div class="sr-hit"><strong>Load #1037 — Peacock Pavers Yard, AL → Pensacola, FL</strong><div class="xs dim">Delivered · sealed · POD on file</div></div>
+        <div class="sr-hit" data-goto-loads="mine"><strong>Load #1042 — Mobile, AL → Dallas, TX</strong><div class="xs dim">En route · Pavers — palletized stone · D. Carter driving</div></div>
+        <div class="sr-hit" data-goto-loads="mine"><strong>Load #1037 — Peacock Pavers Yard, AL → Pensacola, FL</strong><div class="xs dim">Delivered · sealed · POD on file</div></div>
         <div class="sr-label">DRIVERS</div>
         <div class="sr-hit"><strong>D. Carter — Unit R-101 · Flatbed</strong><div class="xs dim">En route — Load #1042, Dallas-bound</div></div>
         <div class="sr-hit"><strong>M. Alvarez — Unit R-102 · Step-deck</strong><div class="xs dim">Loading — Load #1051</div></div>
         <div class="sr-label">PAPERWORK</div>
         <div class="sr-hit"><strong>POD — Load #1037</strong><div class="xs dim">Signed &amp; sealed · in the Library</div></div>
         <div class="sr-hit"><strong>Rate confirmation — Load #1042</strong><div class="xs dim">On file · cross-checked against the BOL</div></div>
+        <p class="xs dim" id="todaySearchNone" style="display:none;margin-top:8px">No matches in the demo data — try a city, a driver, or a load number.</p>
         <p class="xs dim" style="margin-top:10px;line-height:1.5"><strong style="color:var(--text)">Showing first 6 — refine to narrow.</strong> Search only ever reaches your own records, and <strong style="color:var(--text)">rates never appear in results</strong> — not here, not on a desk, not anywhere search reaches. Sample results only: fake loads, fake drivers, nothing is searched or saved in this preview.</p>
       </div>
 
@@ -756,7 +762,7 @@
       <h2 class="sec">What's new in this preview</h2>
       <div class="card" style="border-color:var(--neon-a);padding-top:12px">
         <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><strong>Updated to the latest approved build</strong><span class="stage-tag">PREVIEW · SAMPLE ONLY</span></div>
-        <p class="small dim" style="margin-top:6px;line-height:1.55">Now mirrors the newest approved builds — the simplified navigation (one Library for every record, one Desk with a role switcher, Loads on a single My Loads / Tracker / Boards switch, Money as one tab), the new Tax Worksheet in the Library, auto-add stops on planned routes — the planner's fuel, 30-minute break, and 10-hour rest picks land on the route as waypoints, announced on the route with one-tap Remove, with an opt-out switch in Settings → Driving (on by default) — and this: the Worth-It Advisor and True Rate now deduct <strong style="color:var(--text)">your own factoring % and dispatcher %</strong> from a load's gross pay before judging it. The Advisor judges a load after your own factoring and dispatcher cuts are taken out, with the math shown line by line — fake RUGGS data only. Also new in this pass: the receiver signature pad (type the name or draw it — a drawn signature prints on the signed POD, and the sealed record notes how they signed), Money sectioned behind a sticky bar with the More directory folded into counted groups, one search box for your loads, drivers &amp; paperwork, suggested next loads on the fleet board with their reasons printed leg by leg, and a paperwork door on every load — a broker drops the rate con, BOL, or POD straight into the load, no account. Also in this pass: pre-trip and post-trip inspections beside the HOS clocks on Drive — the pre-trip opens on its own at the first On Duty of the day — and a one-tap duty remark on every status change, stamped with city, state, and time on every log entry. Also in this pass: the <strong style="color:var(--text)">regulatory audit fixes</strong> — the 70/8 or 60/7 cycle choice on the clocks card, split-sleeper done right, certified daily logs, the DOT packet with Email + PDF beside it, the 13-item inspection checklist with named repair certification, remarks that open the checklist, and a tightened qualification file. Also in this pass: <strong style="color:var(--text)">duty status now runs the federal pattern</strong> — stopped 5 minutes in Driving and the app asks what you're doing, with task-note picks (Fueling seals On Duty with the confirmed reason — fueling is On Duty time by law); no answer in 1 minute and On Duty seals on its own, stamped AUTO DEFAULT; Off Duty and Sleeper Berth are never automatic. And <strong style="color:var(--text)">owner log corrections now wait on the driver</strong> — a fleet owner's correction sits PENDING, the driver's original record stands, and it only applies when the driver acknowledges it; a dispute keeps the original and prints on the DOT packet. Also in this pass: every load card on the board carries an <strong style="color:var(--text)">after-fuel line</strong> — your cut minus the fuel the run burns, figured from where you're sitting (deadhead to the pickup included), your own MPG and a labelled fuel price (your last logged price, or the EIA weekly average) — with a <strong style="color:var(--text)">worth-taking verdict</strong> right on the card before you accept. The same card breaks the rate-con price down to its <strong style="color:var(--text)">rate per mile</strong> and stands it against the <strong style="color:var(--text)">national average for the load's trailer lane</strong> (DAT's published 7-day spot averages) — above or below, in dollars per mile. Nothing here is live or saved.</p>
+        <p class="small dim" style="margin-top:6px;line-height:1.55">Now mirrors the newest approved builds — the simplified navigation (one Library for every record, one Desk with a role switcher, Loads on a single My Loads / Tracker / Boards switch, Money as one tab), the new Tax Worksheet in the Library, auto-add stops on planned routes — the planner's fuel, 30-minute break, and 10-hour rest picks land on the route as waypoints, announced on the route with one-tap Remove, with an opt-out switch in Settings → Driving (on by default) — and this: the Worth-It Advisor and True Rate now deduct <strong style="color:var(--text)">your own factoring % and dispatcher %</strong> from a load's gross pay before judging it. The Advisor judges a load after your own factoring and dispatcher cuts are taken out, with the math shown line by line — fake RUGGS data only. Also new in this pass: the receiver signature pad (type the name or draw it — a drawn signature prints on the signed POD, and the sealed record notes how they signed), Money sectioned behind a sticky bar with the More directory folded into counted groups, one search box for your loads, drivers &amp; paperwork, suggested next loads on the fleet board with their reasons printed leg by leg, and a paperwork door on every load — a broker drops the rate con, BOL, or POD straight into the load, no account. Also in this pass: pre-trip and post-trip inspections beside the HOS clocks on Drive — the pre-trip opens on its own at the first On Duty of the day — and a one-tap duty remark on every status change, stamped with city, state, and time on every log entry. Also in this pass: the <strong style="color:var(--text)">regulatory audit fixes</strong> — the 70/8 or 60/7 cycle choice on the clocks card, split-sleeper done right, certified daily logs, the DOT packet with Email + PDF beside it, the 13-item inspection checklist with named repair certification, remarks that open the checklist, and a tightened qualification file. Also in this pass: <strong style="color:var(--text)">duty status now runs the federal pattern</strong> — stopped 5 minutes in Driving and the app asks what you're doing, with task-note picks (Fueling seals On Duty with the confirmed reason — fueling is On Duty time by law); no answer in 1 minute and On Duty seals on its own, stamped AUTO DEFAULT; Off Duty and Sleeper Berth are never automatic. And <strong style="color:var(--text)">owner log corrections now wait on the driver</strong> — a fleet owner's correction sits PENDING, the driver's original record stands, and it only applies when the driver acknowledges it; a dispute keeps the original and prints on the DOT packet. Also in this pass: every load card on the board carries an <strong style="color:var(--text)">after-fuel line</strong> — your cut minus the fuel the run burns, figured from where you're sitting (deadhead to the pickup included), your own MPG and a labelled fuel price (your last logged price, or the EIA weekly average) — with a <strong style="color:var(--text)">worth-taking verdict</strong> right on the card before you accept. The same card breaks the rate-con price down to its <strong style="color:var(--text)">rate per mile</strong> and stands it against the <strong style="color:var(--text)">national average for the load's trailer lane</strong> (DAT's published 7-day spot averages) — above or below, in dollars per mile. Also in this pass: the <strong style="color:var(--text)">usability pass</strong> — your cut printed on every load card next to the gross, a paperwork door on the card and inside Load info &amp; fuel (the POD files in two taps, and a phone photo files even when it arrives as an iPhone HEIC), a by-name search across all the tools, and taps that land on the thing you tapped: search results, notifications, and these Desk Inbox cards open the actual load — the cards below now select and assign for real, both search boxes filter as you type, and the BOL signs with a typed name as well as a drawn one. Nothing here is live or saved.</p>
         <p class="small" style="margin-top:8px;line-height:1.55"><strong style="color:var(--text)">📈 Rate Watch — Week 45 market benchmarks + the Stonervision Rate Index, priced from real sealed loads (RGN and oversized buckets included).</strong></p>
         <div class="tool-chips tight">
           <button class="chipbtn" data-goto-desk>🖥️ Desk — one entry, every role</button>
@@ -800,7 +806,7 @@
       <div class="card" aria-label="Find a tool — every tool within two taps, grouped">
         <p class="xs dim">Every tool is at most <strong style="color:var(--text)">2 taps</strong> from here: one tap into its group, one tap onto the tool. One name per tool — the name below is the name everywhere, including Ask Meca.</p>
         <div class="finder-group"><div class="xs" style="font-weight:800;letter-spacing:.08em">DRIVE</div><div class="tool-chips"><button class="chipbtn" data-goto="drive">Route planner</button><button class="chipbtn" data-goto="drive">Satellite map + tilt</button><button class="chipbtn" data-goto="drive">3D view — optional</button><button class="chipbtn" data-goto="drive">Hours of Service</button><button class="chipbtn" data-goto="drive">Route-ahead weather</button><button class="chipbtn" data-goto="drive">Scales finder</button><button class="chipbtn" data-goto="drive">Night parking layer</button><button class="chipbtn" data-goto="drive">Cab display</button><button class="chipbtn" data-goto="drive">Android Auto templates</button><button class="chipbtn" data-goto="drive">Ask Meca</button></div></div>
-        <div class="finder-group"><div class="xs" style="font-weight:800;letter-spacing:.08em">LOADS &amp; MONEY</div><div class="tool-chips"><button class="chipbtn" data-goto-loads="tracker">Load Tracker</button><button class="chipbtn" data-goto-desk>Desk — one desk, every role</button><button class="chipbtn" data-goto-loads="boards">Boards — Fleet · Open · Broker</button><button class="chipbtn" data-goto-loads="boards">After-fuel verdict — on the card</button><button class="chipbtn" data-goto-loads="boards">Rate per mile vs the national average</button><button class="chipbtn" data-goto-loads="tracker">BOL signing + receive link</button><button class="chipbtn" data-goto-loads="mine">Worth-It Advisor</button><button class="chipbtn" data-goto-loads="tracker">Receiver Memory</button><button class="chipbtn" data-goto="money">Who Owes Me</button><button class="chipbtn" data-goto="money">True Rate</button><button class="chipbtn" data-goto="money">TONU / Layover Logger</button><button class="chipbtn" data-goto="money">IFTA Estimator</button></div></div>
+        <div class="finder-group"><div class="xs" style="font-weight:800;letter-spacing:.08em">LOADS &amp; MONEY</div><div class="tool-chips"><button class="chipbtn" data-goto-loads="tracker">Load Tracker</button><button class="chipbtn" data-goto-desk>Desk — one desk, every role</button><button class="chipbtn" data-goto-loads="boards">Boards — Fleet · Open · Broker</button><button class="chipbtn" data-goto-loads="boards">After-fuel verdict — on the card</button><button class="chipbtn" data-goto-loads="boards">Rate per mile vs the national average</button><button class="chipbtn" data-goto-loads="mine">Your cut — on the card</button><button class="chipbtn" data-goto-loads="mine">Paperwork — on the load card</button><button class="chipbtn" data-goto-loads="tracker">BOL signing + receive link</button><button class="chipbtn" data-goto-loads="mine">Worth-It Advisor</button><button class="chipbtn" data-goto-loads="tracker">Receiver Memory</button><button class="chipbtn" data-goto="money">Who Owes Me</button><button class="chipbtn" data-goto="money">True Rate</button><button class="chipbtn" data-goto="money">TONU / Layover Logger</button><button class="chipbtn" data-goto="money">IFTA Estimator</button></div></div>
         <div class="finder-group"><div class="xs" style="font-weight:800;letter-spacing:.08em">TRUCK &amp; TRAILER</div><div class="tool-chips"><button class="chipbtn" data-more-anchor="trailerPkg">Trailer package</button><button class="chipbtn" data-more-anchor="trailerPkg">Reefer Cold-Chain Log</button><button class="chipbtn" data-more-anchor="trailerPkg">Securement Calculator</button><button class="chipbtn" data-more-anchor="trailerPkg">Axle Calculator</button><button class="chipbtn" data-more-anchor="trailerPkg">Dock Helper</button><button class="chipbtn" data-more-anchor="trailerPkg">Pre-trip checklists</button><button class="chipbtn" data-goto="money">Breakdown Mode</button></div></div>
         <div class="finder-group"><div class="xs" style="font-weight:800;letter-spacing:.08em">RECORDS</div><div class="tool-chips"><button class="chipbtn" data-goto="money">Library — every record, one home</button><button class="chipbtn" data-goto="money">Tax Worksheet</button><button class="chipbtn" data-goto="money">Document Vault</button><button class="chipbtn" data-goto="money">Tax Records</button><button class="chipbtn" data-goto="money">Trip sheet</button><button class="chipbtn" data-goto="drive">Scale tickets</button><button class="chipbtn" data-more-anchor="atlasCard">Atlas — 50 states</button></div></div>
         <div class="finder-group"><div class="xs" style="font-weight:800;letter-spacing:.08em">SETTINGS</div><div class="tool-chips"><button class="chipbtn" data-goto="more">Driver State</button><button class="chipbtn" data-goto="money">Maintenance Countdown</button><button class="chipbtn" id="finderLangBtn">Language — 5 languages</button><button class="chipbtn" id="finderSettingsBtn">Settings</button></div></div>
@@ -1467,25 +1473,27 @@
         <p class="xs dim" style="margin-top:8px;line-height:1.5">One Desk, not four: the sections below change with the role. Demo flow: assign Load #1060 as the Dispatcher, flip to Driver to accept or decline it, then check the Fleet owner and Broker views.</p>
         <div class="xs" style="font-weight:800;letter-spacing:.08em;margin:14px 0 6px">🔎 DESK SEARCH — YOUR LOADS, DRIVERS &amp; PAPERWORK</div>
         <div class="searchrow">
-          <input type="search" value="Carter" aria-label="Desk search — your loads, drivers and paperwork, sample query" />
-          <button class="btn-neon" style="padding:12px 18px" data-toast="Demo: the same search box sits on both desks — your own records only, grouped Loads / Drivers / Paperwork, capped with the cap stated, and rates never appear in results. Nothing is searched or saved in this preview.">Search</button>
+          <input type="search" id="deskSearch" value="Carter" aria-label="Desk search — your loads, drivers and paperwork, sample query" />
+          <button class="btn-neon" id="deskSearchBtn" style="padding:12px 18px">Search</button>
         </div>
-        <p class="xs dim" style="margin-top:6px;line-height:1.5">The same box as Today — grouped results (Loads / Drivers / Paperwork), capped with the cap stated on screen, your records only, and no rate ever rides in a result. Sample query only.</p>
+        <p class="xs dim" style="margin-top:6px;line-height:1.5">The same box as Today — <strong style="color:var(--text)">type to filter the desk inbox and the ranked drivers below</strong>. Grouped results (Loads / Drivers / Paperwork), capped with the cap stated on screen, your records only, and no rate ever rides in a result. Sample data only.</p>
+        <p class="xs dim" id="deskSearchNone" style="display:none;margin-top:6px">No desk matches in the demo data — try a city, a driver, or a load number.</p>
 
         <div data-desk-roles="dispatcher owner">
         <div class="xs" style="font-weight:800;letter-spacing:.08em;margin:16px 0 6px">DESK INBOX — OFFERED LOADS</div>
+        <p class="xs dim" style="margin:0 0 6px;line-height:1.5"><strong style="color:var(--text)">Tap a load to select it</strong> — the assign controls, the deadhead ranking, and the driver chain below all work on the selected load.</p>
         <div id="deskInbox">
-          <div class="inbox-item">
+          <div class="inbox-item sel" data-load-id="1060" data-lane="Mobile, AL → Birmingham, AL" data-freight="Steel coils · 40,000 lbs · $940.00" data-tag="OFFERED · VIA SEND DOOR">
             <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><strong>Load #1060 — Mobile, AL → Birmingham, AL</strong><span class="status-wait">OFFERED · VIA SEND DOOR</span></div>
             <div class="small dim" style="margin-top:2px">Steel coils · 40,000 lbs · $940.00 · Sent by Demo Broker Co. through the RUGGS send door — no account. Landed in this fleet's inbox only.</div>
           </div>
-          <div class="inbox-item">
+          <div class="inbox-item" data-load-id="1051" data-lane="Houston, TX → Mobile, AL" data-freight="Building materials · 44,000 lbs · $1,180.00" data-tag="OFFERED · DESK BOOKED">
             <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><strong>Load #1051 — Houston, TX → Mobile, AL</strong><span class="status-wait">OFFERED · DESK BOOKED</span></div>
             <div class="small dim" style="margin-top:2px">Building materials · 44,000 lbs · $1,180.00 · Booked by the desk off the public loadboard.</div>
           </div>
         </div>
 
-        <div class="xs" style="font-weight:800;letter-spacing:.08em;margin:16px 0 2px">ASSIGN LOAD #1060 TO A DRIVER</div>
+        <div class="xs" id="assignHeading" style="font-weight:800;letter-spacing:.08em;margin:16px 0 6px">ASSIGN LOAD #1060 TO A DRIVER</div>
         <label class="xs dim" for="assignDriver">Named driver (fake RUGGS roster)</label>
         <select class="field" id="assignDriver" aria-label="Assign load 1060 to a driver">
           <option value="D. Carter — Unit R-101">D. Carter — Unit R-101 · Flatbed</option>
@@ -1499,13 +1507,13 @@
           <button class="btn-ghost" id="reassignBtn" style="flex:1;padding:12px;min-width:140px" disabled>↔ Reassign</button>
         </div>
 
-        <div class="xs" style="font-weight:800;letter-spacing:.08em;margin:16px 0 6px">RANKED BY DEADHEAD — TO LOAD #1060 PICKUP · MOBILE, AL (SAMPLE)</div>
-        <div class="card2" aria-label="Assign ranking by deadhead — sample">
-          <div class="kv-row"><span class="k"><strong style="color:var(--text)">1 · R. Nguyen — Unit R-105 · Flatbed</strong><br /><span class="xs">Empty near Mobile, AL</span></span><span class="v tnum">14 empty mi</span></div>
-          <div class="kv-row"><span class="k"><strong style="color:var(--text)">2 · M. Alvarez — Unit R-102 · Step-deck</strong><br /><span class="xs">Loaded — Houston, TX → Mobile, AL · measured from Mobile, AL, where that route ends</span></span><span class="v tnum">22 empty mi*</span></div>
-          <div class="kv-row"><span class="k"><strong style="color:var(--text)">3 · J. Thompson — Unit R-103 · Flatbed</strong><br /><span class="xs">Empty near Pensacola, FL</span></span><span class="v tnum">54 empty mi</span></div>
-          <div class="kv-row"><span class="k"><strong style="color:var(--text)">4 · D. Carter — Unit R-101 · Flatbed</strong><br /><span class="xs">Loaded — Mobile, AL → Dallas, TX · measured from Dallas, TX, where that route ends</span></span><span class="v tnum">587 empty mi*</span></div>
-          <p class="xs dim" style="margin-top:8px;line-height:1.5">* A truck already under load is measured from <strong style="color:var(--text)">where its current route ends</strong>, not where it sits now — that's the empty run it would really drive to this pickup. Sample ranking only — fake miles, fake trucks, nothing saves in this preview.</p>
+        <div class="xs" id="rankHeading" style="font-weight:800;letter-spacing:.08em;margin:16px 0 6px">RANKED BY DEADHEAD — TO LOAD #1060 PICKUP · MOBILE, AL (SAMPLE)</div>
+        <div class="card2" id="deadheadCard" aria-label="Assign ranking by deadhead — sample">
+          <div class="kv-row" data-driver="R. Nguyen — Unit R-105"><span class="k"><strong style="color:var(--text)">1 · R. Nguyen — Unit R-105 · Flatbed</strong><br /><span class="xs">Empty near Mobile, AL</span></span><span class="v tnum">14 empty mi</span></div>
+          <div class="kv-row" data-driver="M. Alvarez — Unit R-102"><span class="k"><strong style="color:var(--text)">2 · M. Alvarez — Unit R-102 · Step-deck</strong><br /><span class="xs">Loaded — Houston, TX → Mobile, AL · measured from Mobile, AL, where that route ends</span></span><span class="v tnum">22 empty mi*</span></div>
+          <div class="kv-row" data-driver="J. Thompson — Unit R-103"><span class="k"><strong style="color:var(--text)">3 · J. Thompson — Unit R-103 · Flatbed</strong><br /><span class="xs">Empty near Pensacola, FL</span></span><span class="v tnum">54 empty mi</span></div>
+          <div class="kv-row" data-driver="D. Carter — Unit R-101"><span class="k"><strong style="color:var(--text)">4 · D. Carter — Unit R-101 · Flatbed</strong><br /><span class="xs">Loaded — Mobile, AL → Dallas, TX · measured from Dallas, TX, where that route ends</span></span><span class="v tnum">587 empty mi*</span></div>
+          <p class="xs dim" style="margin-top:8px;line-height:1.5">* A truck already under load is measured from <strong style="color:var(--text)">where its current route ends</strong>, not where it sits now — that's the empty run it would really drive to this pickup. <strong style="color:var(--text)">Tap a row to pick that driver</strong> in the assign box above. Sample ranking only — fake miles, fake trucks, nothing saves in this preview.</p>
         </div>
 
         </div>
@@ -2026,8 +2034,9 @@
           <div class="sig-choices">
             <div>
               <div class="xs dim" style="font-weight:800;letter-spacing:.08em">1 · TYPE YOUR NAME</div>
-              <input class="field" type="text" value="R. Okafor" aria-label="Type the receiver name to sign — sample" />
-              <button class="btn-ghost" style="width:100%;padding:11px;margin-top:8px" data-toast="Demo: a typed name signs the confirmation — the sealed record notes it was signed typed. Nothing signs or saves in this preview.">Sign with typed name (demo)</button>
+              <input class="field" type="text" id="typedSigName" value="R. Okafor" aria-label="Type the receiver name to sign — sample" />
+              <button class="btn-ghost" id="typedSigBtn" style="width:100%;padding:11px;margin-top:8px">Sign with typed name</button>
+              <div class="sig-padbox" id="typedSigPreview" style="display:none"><span class="sig-script" id="typedSigScript"></span></div>
             </div>
             <div>
               <div class="xs dim" style="font-weight:800;letter-spacing:.08em">2 · DRAW YOUR SIGNATURE</div>
@@ -2039,12 +2048,12 @@
           <div class="pod-doc" aria-label="Sample signed POD for Load 1042 — drawn signature above the Received by line">
             <div class="pod-head">PROOF OF DELIVERY — LOAD #1042 (SAMPLE)</div>
             <p style="font-size:var(--fs-sm);line-height:1.55;margin-top:6px">Mobile, AL → Dallas, TX · Pavers — palletized stone · 42,500 lbs<br />Freight received in good order — no damage or shortage noted.</p>
-            <div style="margin-top:16px"><span class="sig-script">R. Okafor</span></div>
+            <div style="margin-top:16px"><span class="sig-script" id="podSigScript">R. Okafor</span></div>
             <div class="pod-line">Received by: <strong>R. Okafor</strong> — Dallas receiver, dock 4</div>
-            <p style="font-size:var(--fs-sm);line-height:1.55;margin-top:8px">Signed: <strong>DRAWN</strong> — drawn on the receiver's own phone.<br />The sealed delivery record notes <strong>how</strong> they signed — drawn vs typed — right alongside the signature.</p>
+            <p style="font-size:var(--fs-sm);line-height:1.55;margin-top:8px">Signed: <strong id="podSigHow">DRAWN</strong> — <span id="podSigHowNote">drawn on the receiver's own phone.</span><br />The sealed delivery record notes <strong>how</strong> they signed — drawn vs typed — right alongside the signature.</p>
           </div>
           <p class="small" style="margin-top:10px;line-height:1.55"><strong>One hard rule:</strong> a fake or broken signature image <strong class="danger">refuses the whole confirmation</strong> — nothing seals.</p>
-          <p class="xs dim" style="margin-top:6px;line-height:1.5">Sample confirmation only — fake receiver, fake signature, nothing signs, seals, or saves in this preview.</p>
+          <p class="xs dim" style="margin-top:6px;line-height:1.5">Sample confirmation only — fake receiver, fake signature. The typed name really signs right here in the preview (watch the POD below change, and the Seal on the BOL above accepts it) — nothing leaves this page or saves for real.</p>
         </div>
 
         <div class="copy-prompt" id="copyPrompt" role="status" aria-label="Get your copy — receiver copy prompt">
@@ -2201,9 +2210,11 @@
           <div class="kv-row"><span class="k">Load #1051 — Houston, TX → Mobile, AL · Building materials · 44,000 lbs <span class="xs">(posted by Demo Broker Co. — broker account)</span></span><span class="v tnum">$1,180.00 · $2.52/mi</span></div>
           <p class="xs dim" style="margin:2px 0 2px;line-height:1.5">🛡️ <strong style="color:var(--text)">Broker trust — Demo Broker Co. · MC 1048217</strong> · Bond active — expires Mar 2027 · Identity on file — verification source not connected</p>
           <p class="xs dim" style="margin:0 0 8px;line-height:1.5">💳 <strong style="color:var(--text)">Payment record — Demo Broker Co.</strong> · 14 loads carried · 12 paid · avg 19 days to pay (12 payments on record) · Figured from STONEMILES' own sealed history only</p>
+          <button class="btn-ghost" data-claim-load="1051" style="padding:10px 16px;margin:0 0 12px">📥 Claim this load</button>
           <div class="kv-row"><span class="k">Load #1042 — Mobile, AL → Dallas, TX · Pavers — palletized stone · 42,500 lbs <span class="xs">(posted by Demo Broker Co. — broker account)</span></span><span class="v tnum">$1,360.00 · $2.42/mi</span></div>
           <p class="xs dim" style="margin:2px 0 2px;line-height:1.5">🛡️ <strong style="color:var(--text)">Broker trust — Demo Broker Co. · MC 1048217</strong> · Bond active — expires Mar 2027 · Identity on file — verification source not connected</p>
           <p class="xs dim" style="margin:0 0 8px;line-height:1.5">💳 <strong style="color:var(--text)">Payment record — Demo Broker Co.</strong> · 14 loads carried · 12 paid · avg 19 days to pay (12 payments on record) · Figured from STONEMILES' own sealed history only</p>
+          <button class="btn-ghost" data-claim-load="1042" style="padding:10px 16px;margin:0 0 4px">📥 Claim this load</button>
         </div>
         <button class="btn-ghost" style="width:100%;padding:12px;margin-top:10px" data-toast="Demo: a broker account posts straight to the public loadboard — free to post; the claiming carrier pays the dispatch fee. Nothing posts from this preview.">📋 Post to the loadboard (broker account — demo)</button>
         <p class="xs dim" style="margin-top:8px">Sample postings from the same demo run used across this preview — see the Worth-It check and the dispatch chain below.</p>
@@ -4117,7 +4128,7 @@
       <div class="card" aria-label="Tool directory — grouped, everything within two taps">
         <p class="xs dim">The cleaned-up directory: <strong style="color:var(--text)">37 tools under five groups</strong> — Drive · Loads &amp; Money · Truck &amp; Trailer · Records · Settings — each tool listed exactly once, identically here and in Today's Find a tool panel. The groups <strong style="color:var(--text)">fold</strong>: each group header carries its tool count, <strong style="color:var(--text)">one group opens at a time</strong>, tapping the header again closes it, and an open group closes from the <strong style="color:var(--text)">Close ▴</strong> row at its bottom too. Every tool is one tap into its group and one tap onto the tool. One name per tool, everywhere, including Ask Meca.</p>
         <div class="finder-group"><div class="xs" style="font-weight:800;letter-spacing:.08em">DRIVE</div><div class="tool-chips"><button class="chipbtn" data-goto="drive">Route planner</button><button class="chipbtn" data-goto="drive">Satellite map + tilt</button><button class="chipbtn" data-goto="drive">3D view — optional</button><button class="chipbtn" data-goto="drive">Hours of Service</button><button class="chipbtn" data-goto="drive">Route-ahead weather</button><button class="chipbtn" data-goto="drive">Scales finder</button><button class="chipbtn" data-goto="drive">Night parking layer</button><button class="chipbtn" data-goto="drive">Cab display</button><button class="chipbtn" data-goto="drive">Android Auto templates</button><button class="chipbtn" data-goto="drive">Ask Meca</button></div></div>
-        <div class="finder-group"><div class="xs" style="font-weight:800;letter-spacing:.08em">LOADS &amp; MONEY</div><div class="tool-chips"><button class="chipbtn" data-goto-loads="tracker">Load Tracker</button><button class="chipbtn" data-goto-desk>Desk — one desk, every role</button><button class="chipbtn" data-goto-loads="boards">Boards — Fleet · Open · Broker</button><button class="chipbtn" data-goto-loads="boards">After-fuel verdict — on the card</button><button class="chipbtn" data-goto-loads="boards">Rate per mile vs the national average</button><button class="chipbtn" data-goto-loads="tracker">BOL signing + receive link</button><button class="chipbtn" data-goto-loads="mine">Worth-It Advisor</button><button class="chipbtn" data-goto-loads="tracker">Receiver Memory</button><button class="chipbtn" data-goto="money">Who Owes Me</button><button class="chipbtn" data-goto="money">True Rate</button><button class="chipbtn" data-goto="money">TONU / Layover Logger</button><button class="chipbtn" data-goto="money">IFTA Estimator</button></div></div>
+        <div class="finder-group"><div class="xs" style="font-weight:800;letter-spacing:.08em">LOADS &amp; MONEY</div><div class="tool-chips"><button class="chipbtn" data-goto-loads="tracker">Load Tracker</button><button class="chipbtn" data-goto-desk>Desk — one desk, every role</button><button class="chipbtn" data-goto-loads="boards">Boards — Fleet · Open · Broker</button><button class="chipbtn" data-goto-loads="boards">After-fuel verdict — on the card</button><button class="chipbtn" data-goto-loads="boards">Rate per mile vs the national average</button><button class="chipbtn" data-goto-loads="mine">Your cut — on the card</button><button class="chipbtn" data-goto-loads="mine">Paperwork — on the load card</button><button class="chipbtn" data-goto-loads="tracker">BOL signing + receive link</button><button class="chipbtn" data-goto-loads="mine">Worth-It Advisor</button><button class="chipbtn" data-goto-loads="tracker">Receiver Memory</button><button class="chipbtn" data-goto="money">Who Owes Me</button><button class="chipbtn" data-goto="money">True Rate</button><button class="chipbtn" data-goto="money">TONU / Layover Logger</button><button class="chipbtn" data-goto="money">IFTA Estimator</button></div></div>
         <div class="finder-group"><div class="xs" style="font-weight:800;letter-spacing:.08em">TRUCK &amp; TRAILER</div><div class="tool-chips"><button class="chipbtn" data-more-anchor="trailerPkg">Trailer package</button><button class="chipbtn" data-more-anchor="trailerPkg">Reefer Cold-Chain Log</button><button class="chipbtn" data-more-anchor="trailerPkg">Securement Calculator</button><button class="chipbtn" data-more-anchor="trailerPkg">Axle Calculator</button><button class="chipbtn" data-more-anchor="trailerPkg">Dock Helper</button><button class="chipbtn" data-more-anchor="trailerPkg">Pre-trip checklists</button><button class="chipbtn" data-goto="money">Breakdown Mode</button></div></div>
         <div class="finder-group"><div class="xs" style="font-weight:800;letter-spacing:.08em">RECORDS</div><div class="tool-chips"><button class="chipbtn" data-goto="money">Library — every record, one home</button><button class="chipbtn" data-goto="money">Tax Worksheet</button><button class="chipbtn" data-goto="money">Document Vault</button><button class="chipbtn" data-goto="money">Tax Records</button><button class="chipbtn" data-goto="money">Trip sheet</button><button class="chipbtn" data-goto="drive">Scale tickets</button><button class="chipbtn" data-more-anchor="atlasCard">Atlas — 50 states</button></div></div>
         <div class="finder-group"><div class="xs" style="font-weight:800;letter-spacing:.08em">SETTINGS</div><div class="tool-chips"><button class="chipbtn" data-goto="more">Driver State</button><button class="chipbtn" data-goto="money">Maintenance Countdown</button><button class="chipbtn" id="moreLangBtn">Language — 5 languages</button><button class="chipbtn" id="moreSettingsBtn">Settings</button></div></div>
@@ -6027,11 +6038,47 @@ drawQR($("#bolQrBox"), "STNM-BOL-1042");
     var lane = ($("#doorLane").value || "Mobile, AL → Birmingham, AL").trim();
     var freight = ($("#doorFreight").value || "").trim();
     var item = document.createElement("div"); item.className = "inbox-item";
+    item.setAttribute("data-load-id", "1061");
+    item.setAttribute("data-lane", lane);
+    item.setAttribute("data-freight", freight);
+    item.setAttribute("data-tag", "OFFERED · VIA SEND DOOR");
     item.innerHTML = '<div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><strong>Load #1061 — ' + esc(lane) + '</strong><span class="status-wait">OFFERED · VIA SEND DOOR</span></div>' +
       '<div class="small dim" style="margin-top:2px">' + esc(freight) + ' · Sent by ' + esc(from) + ' through the RUGGS send door — no account. Landed in this fleet\'s inbox only.</div>';
     $("#deskInbox").appendChild(item);
     toast("Sent (demo) — the load landed in the RUGGS desk inbox as Offered. Nowhere else.");
     banner("🚪 Send door: a new offered load just landed in the RUGGS desk inbox.");
+  });
+
+  /* Inbox selection — the assign controls, deadhead ranking, and driver
+     chain all work on whichever offered load is selected. Clicking a
+     different load restarts the demo chain for that load. */
+  var selLoad = { id:"1060", lane:"Mobile, AL → Birmingham, AL", freight:"Steel coils · 40,000 lbs · $940.00" };
+  var selItem = $("#deskInbox .inbox-item.sel");
+  function setSelTag(text){ if (selItem){ var s = selItem.querySelector(".status-wait"); if (s) s.textContent = text; } }
+  function restoreSelTag(){ if (selItem){ var s = selItem.querySelector(".status-wait"); if (s) s.textContent = selItem.getAttribute("data-tag") || "OFFERED"; } }
+  function selectInboxLoad(item){
+    if (!item) return;
+    var id = item.getAttribute("data-load-id") || "1060";
+    var changed = id !== selLoad.id;
+    selItem = item;
+    selLoad = { id:id, lane:item.getAttribute("data-lane") || "", freight:item.getAttribute("data-freight") || "" };
+    $$("#deskInbox .inbox-item").forEach(function(x){ x.classList.toggle("sel", x === item); });
+    var ah = $("#assignHeading"); if (ah) ah.textContent = "ASSIGN LOAD #" + id + " TO A DRIVER";
+    var rh = $("#rankHeading");
+    if (rh){ var origin = selLoad.lane.split("→")[0].trim().toUpperCase(); rh.textContent = "RANKED BY DEADHEAD — TO LOAD #" + id + " PICKUP · " + origin + " (SAMPLE)"; }
+    if (!changed) return;
+    assignedDriver = null; dispatchState = "offered";
+    $("#driverActions").style.display = "none";
+    $("#declineBox").style.display = "none";
+    $("#driverAcceptedNote").style.display = "none";
+    var rb0 = $("#reassignBtn"); if (rb0) rb0.disabled = true;
+    $("#driverPrompt").innerHTML = "No assignment yet. When the desk assigns Load #" + id + ", it lands here — the driver accepts and it <strong>binds to the sealed Load Tracker</strong>, or declines and picks a reason that goes back to the desk.";
+    desk("Load #" + id + " is <strong>Offered</strong> in the desk inbox. Assign it to a named driver to start the chain.");
+  }
+  var inboxEl = $("#deskInbox");
+  if (inboxEl) inboxEl.addEventListener("click", function(e){
+    var item = e.target && e.target.closest ? e.target.closest(".inbox-item") : null;
+    if (item) selectInboxLoad(item);
   });
 
   /* Assign / reassign */
@@ -6042,15 +6089,26 @@ drawQR($("#bolQrBox"), "STNM-BOL-1042");
     $("#driverActions").style.display = "block";
     $("#declineBox").style.display = "none";
     $("#driverAcceptedNote").style.display = "none";
-    $("#driverPrompt").innerHTML = "📦 <strong>New assignment — Load #1060, Mobile, AL → Birmingham, AL.</strong> Steel coils · 40,000 lbs · $940.00. Assigned to <strong>" + esc(assignedDriver) + "</strong> (demo — you're holding the driver's phone). Accept and it binds to your sealed Load Tracker, or decline with a reason for the desk.";
-    desk("Load #1060 is <strong>Assigned</strong> to <strong>" + esc(assignedDriver) + "</strong> — waiting on the driver. " + (isReassign ? "(Reassigned from the desk.)" : "") + " The desk sees every change here, live.");
+    $("#driverPrompt").innerHTML = "📦 <strong>New assignment — Load #" + selLoad.id + ", " + esc(selLoad.lane) + ".</strong> " + esc(selLoad.freight) + ". Assigned to <strong>" + esc(assignedDriver) + "</strong> (demo — you're holding the driver's phone). Accept and it binds to your sealed Load Tracker, or decline with a reason for the desk.";
+    desk("Load #" + selLoad.id + " is <strong>Assigned</strong> to <strong>" + esc(assignedDriver) + "</strong> — waiting on the driver. " + (isReassign ? "(Reassigned from the desk.)" : "") + " The desk sees every change here, live.");
+    setSelTag("ASSIGNED — WAITING ON DRIVER");
     if (reassignBtn) reassignBtn.disabled = false;
-    toast((isReassign ? "Reassigned" : "Assigned") + " (demo) — Load #1060 → " + assignedDriver + ". Waiting on the driver.");
+    toast((isReassign ? "Reassigned" : "Assigned") + " (demo) — Load #" + selLoad.id + " → " + assignedDriver + ". Waiting on the driver.");
   }
   if (assignBtn) assignBtn.addEventListener("click", function(){ doAssign(false); });
   if (reassignBtn) reassignBtn.addEventListener("click", function(){
-    if (dispatchState === "accepted"){ toast("Load #1060 is already accepted and bound to " + driverName() + "'s Load Tracker — in the full app a reassign from here stamps the sealed record."); return; }
+    if (dispatchState === "accepted"){ toast("Load #" + selLoad.id + " is already accepted and bound to " + driverName() + "'s Load Tracker — in the full app a reassign from here stamps the sealed record."); return; }
     doAssign(true);
+  });
+
+  /* Ranked-by-deadhead rows pick the driver in the assign box */
+  var dhCard = $("#deadheadCard");
+  if (dhCard) dhCard.addEventListener("click", function(e){
+    var row = e.target && e.target.closest ? e.target.closest(".kv-row[data-driver]") : null;
+    if (!row) return;
+    var sel = $("#assignDriver"); if (sel) sel.value = row.getAttribute("data-driver");
+    $$("#deadheadCard .kv-row").forEach(function(x){ x.classList.toggle("sel", x === row); });
+    toast("Driver picked (demo) — " + row.getAttribute("data-driver") + " is set in the assign box. Hit Assign to send Load #" + selLoad.id + ".");
   });
 
   /* Driver accept — binds to the sealed Load Tracker */
@@ -6059,8 +6117,10 @@ drawQR($("#bolQrBox"), "STNM-BOL-1042");
     dispatchState = "accepted";
     $("#driverActions").style.display = "none";
     $("#driverAcceptedNote").style.display = "block";
-    desk("Load #1060: <strong>" + esc(driverName()) + " ACCEPTED</strong> — bound to the driver's sealed Load Tracker (Booked → … → Delivered · sealed). Status is live at this desk; the load seals on delivery.");
-    banner("⛓ Load #1060 accepted by " + driverName() + " — bound to the sealed Load Tracker.");
+    $("#driverAcceptedNote").innerHTML = "⛓✓ <strong>Accepted & bound.</strong> Load #" + selLoad.id + " is on your Load Tracker — Booked → Picked up → En route → Arrived → Delivered · sealed — and the desk sees it live. Find it in the Load Tracker below.";
+    setSelTag("ACCEPTED · ON THE TRACKER");
+    desk("Load #" + selLoad.id + ": <strong>" + esc(driverName()) + " ACCEPTED</strong> — bound to the driver's sealed Load Tracker (Booked → … → Delivered · sealed). Status is live at this desk; the load seals on delivery.");
+    banner("⛓ Load #" + selLoad.id + " accepted by " + driverName() + " — bound to the sealed Load Tracker.");
   });
 
   /* Driver decline — reason goes back to the desk */
@@ -6071,8 +6131,9 @@ drawQR($("#bolQrBox"), "STNM-BOL-1042");
     var reason = $("#declineReason").value;
     dispatchState = "declined";
     $("#driverActions").style.display = "none";
-    $("#driverPrompt").innerHTML = "You declined Load #1060. Your reason went straight back to the desk — pick another driver above and hit <strong>Reassign</strong> to keep the chain moving (demo).";
-    desk("Load #1060: <strong class=\"danger\">DECLINED by " + esc(driverName()) + "</strong> — reason back to the desk: “" + esc(reason) + ".” Reassign it above — the chain keeps moving.");
+    restoreSelTag();
+    $("#driverPrompt").innerHTML = "You declined Load #" + selLoad.id + ". Your reason went straight back to the desk — pick another driver above and hit <strong>Reassign</strong> to keep the chain moving (demo).";
+    desk("Load #" + selLoad.id + ": <strong class=\"danger\">DECLINED by " + esc(driverName()) + "</strong> — reason back to the desk: “" + esc(reason) + ".” Reassign it above — the chain keeps moving.");
     toast("Declined (demo) — reason sent back to the desk: " + reason);
   });
 
@@ -6152,6 +6213,26 @@ drawQR($("#bolQrBox"), "STNM-BOL-1042");
     } else {
       toast("Sealed from the signed paper POD — the receiver keeps the signed paper; a copy also lives in the Library.");
     }
+  });
+
+  /* Typed-name signing — the "type it" door in the receiver-signature
+     card below. Sets the same signed state the canvas pad sets
+     (sigDrawn), so the Seal above accepts it, and prints the typed
+     name on the sample POD as a TYPED signature. */
+  var tsBtn = $("#typedSigBtn");
+  if (tsBtn) tsBtn.addEventListener("click", function(){
+    var name = ($("#typedSigName").value || "").trim();
+    if (!name){ toast("Type the receiver's name first."); return; }
+    if (bolSealed){ toast("Already confirmed — Load #1042 is delivered and sealed. Every other door shows “already confirmed.”"); return; }
+    sigDrawn = true;
+    var prev = $("#typedSigPreview");
+    if (prev){ prev.style.display = "flex"; $("#typedSigScript").textContent = name; }
+    var pod = $("#podSigScript"); if (pod) pod.textContent = name;
+    var how = $("#podSigHow"); if (how) how.textContent = "TYPED";
+    var hnote = $("#podSigHowNote"); if (hnote) hnote.textContent = "typed on the receiver's own phone.";
+    var rn = $("#recvName"); if (rn) rn.value = name;
+    tsBtn.textContent = "✓ Signed as " + name + " (typed)";
+    toast("Signed (demo) — " + name + " signed typed. It prints on the POD below, and the Seal on the BOL above now accepts it.");
   });
 
   /* Receiver copy — email (demo) + text via the driver's own phone (sms: link built from the opted-in number) */
@@ -6546,6 +6627,84 @@ $$("[data-ws-money]").forEach(function(b){
     if (bar) setTimeout(function(){ bar.scrollIntoView({ block:"start" }); }, 60);
   });
 });
+</script>
+<script>
+/* ============ UX wiring pass (2026-11-25): live demo search filters + Open Board claim ============ */
+(function(){
+  function norm(s){ return (s || "").toLowerCase(); }
+
+  /* Today search — filters the sample result rows as you type;
+     group labels follow their visible rows. */
+  var tIn = document.getElementById("todaySearch");
+  if (tIn){
+    var tCard = tIn.closest(".card");
+    var tHits = Array.prototype.slice.call(tCard.querySelectorAll(".sr-hit"));
+    var tLabels = Array.prototype.slice.call(tCard.querySelectorAll(".sr-label"));
+    var tNone = document.getElementById("todaySearchNone");
+    function runToday(){
+      var q = norm(tIn.value).trim(), any = false;
+      tHits.forEach(function(h){
+        var show = !q || norm(h.textContent).indexOf(q) >= 0;
+        h.style.display = show ? "" : "none";
+        if (show) any = true;
+      });
+      tLabels.forEach(function(l){
+        var show = false, n = l.nextElementSibling;
+        while (n && !n.classList.contains("sr-label")){
+          if (n.classList.contains("sr-hit") && n.style.display !== "none"){ show = true; break; }
+          n = n.nextElementSibling;
+        }
+        l.style.display = show ? "" : "none";
+      });
+      if (tNone) tNone.style.display = any ? "none" : "block";
+    }
+    tIn.addEventListener("input", runToday);
+    var tBtn = document.getElementById("todaySearchBtn");
+    if (tBtn) tBtn.addEventListener("click", runToday);
+  }
+
+  /* Desk search — filters the desk inbox cards and the ranked
+     driver rows (queried live, so send-door loads filter too). */
+  var dIn = document.getElementById("deskSearch");
+  if (dIn){
+    var dNone = document.getElementById("deskSearchNone");
+    function runDesk(){
+      var q = norm(dIn.value).trim(), any = false;
+      Array.prototype.slice.call(document.querySelectorAll("#deskInbox .inbox-item")).forEach(function(it){
+        var show = !q || norm(it.textContent).indexOf(q) >= 0;
+        it.style.display = show ? "" : "none";
+        if (show) any = true;
+      });
+      Array.prototype.slice.call(document.querySelectorAll("#deadheadCard .kv-row")).forEach(function(r){
+        var show = !q || norm(r.textContent).indexOf(q) >= 0;
+        r.style.display = show ? "" : "none";
+        if (show) any = true;
+      });
+      if (dNone) dNone.style.display = any ? "none" : "block";
+    }
+    dIn.addEventListener("input", runDesk);
+    var dBtn = document.getElementById("deskSearchBtn");
+    if (dBtn) dBtn.addEventListener("click", runDesk);
+  }
+
+  /* Open Board — Claim takes the posting for real: the card marks
+     itself claimed, and the load's My Loads entry says where it
+     came from. */
+  Array.prototype.slice.call(document.querySelectorAll("[data-claim-load]")).forEach(function(btn){
+    btn.addEventListener("click", function(){
+      var id = btn.getAttribute("data-claim-load");
+      btn.disabled = true;
+      btn.textContent = "✓ Claimed by you (demo)";
+      if (typeof LOADS !== "undefined" && typeof renderLoads === "function"){
+        for (var i = 0; i < LOADS.length; i++){
+          if (LOADS[i].id === id) LOADS[i].det = "Claimed by you from the Open Board (demo) — it's on your board now.";
+        }
+        renderLoads();
+      }
+      toast("Claimed (demo) — Load #" + id + " is yours. Find it under My Loads on this tab.");
+    });
+  });
+})();
 </script>
 </body>
 </html>
