@@ -183,3 +183,94 @@ export function storeTankPct(pct: number): void {
     /* storage unavailable — the level just won't persist */
   }
 }
+
+// ---------- After-fuel estimate (board card, x 2026-11-25) ------------------
+// The decision-time line on a load offer: what is left of MY cut
+// after the fuel the run burns. Figured from the driver's current
+// position (deadhead to the pickup, when a position is known), the
+// loaded miles, the weight-adjusted MPG off the driver's own
+// profile MPG, and a labelled fuel price (the driver's own last
+// purchase price, or the EIA weekly average — never a live pump
+// price, and never presented as one).
+//
+// Honesty rules, same family as the rest of this module:
+// - Any missing real input (no cut, no miles, no MPG on the
+//   profile, no price) → null, and the card shows nothing rather
+//   than a stand-in figure. The profile MPG is REQUIRED: the
+//   planner's 6.5 fallback is never substituted under the driver's
+//   name here.
+// - A null deadhead means "not figured" — the total runs on the
+//   loaded miles alone and the line says so; it never reads as
+//   though the deadhead were zero-cost, it just isn't in the math.
+
+export interface AfterFuelEstimate {
+  /** The driver's cut (from loadPayFigures), dollars. */
+  cut: number;
+  loadedMi: number;
+  /** Deadhead miles from the driver's position to the pickup, or
+   *  null when no position was available to figure it from. */
+  deadheadMi: number | null;
+  /** loadedMi + (deadheadMi ?? 0). */
+  totalMi: number;
+  /** Weight-adjusted MPG the burn is figured at. */
+  effMpg: number;
+  gallons: number;
+  pricePerGal: number;
+  fuelCost: number;
+  /** cut − fuelCost; may be negative — a money-losing run says so. */
+  afterFuel: number;
+  /** The profitability figure drivers judge a load by: afterFuel
+   *  spread over every mile the run takes (deadhead included). */
+  afterFuelPerMi: number;
+}
+
+export function afterFuelEstimate(input: {
+  cut: number | null;
+  loadedMiles: number | null;
+  deadheadMi: number | null;
+  baseMpg: number | null;
+  weightLbs: number | null;
+  pricePerGal: number | null;
+}): AfterFuelEstimate | null {
+  const cut = input.cut;
+  const loadedMi = input.loadedMiles;
+  const baseMpg = input.baseMpg;
+  const pricePerGal = input.pricePerGal;
+  if (cut == null || !Number.isFinite(cut)) return null;
+  if (loadedMi == null || !(loadedMi > 0)) return null;
+  if (baseMpg == null || !(baseMpg > 0)) return null;
+  if (pricePerGal == null || !(pricePerGal > 0)) return null;
+  const deadheadMi =
+    input.deadheadMi != null && Number.isFinite(input.deadheadMi) && input.deadheadMi >= 0
+      ? Math.round(input.deadheadMi)
+      : null;
+  const totalMi = Math.round(loadedMi) + (deadheadMi ?? 0);
+  const effMpg = effectiveMpg(baseMpg, input.weightLbs);
+  const gallons = Math.round(gallonsForMiles(totalMi, effMpg) * 10) / 10;
+  const fuelCost = Math.round(gallons * pricePerGal * 100) / 100;
+  return {
+    cut,
+    loadedMi: Math.round(loadedMi),
+    deadheadMi,
+    totalMi,
+    effMpg: Math.round(effMpg * 100) / 100,
+    gallons,
+    pricePerGal,
+    fuelCost,
+    afterFuel: Math.round((cut - fuelCost) * 100) / 100,
+    afterFuelPerMi: Math.round(((cut - fuelCost) / totalMi) * 100) / 100,
+  };
+}
+
+/** The card's worth-it call, judged on the after-fuel figure alone
+ *  (x 2026-11-25). Fuel is the largest running cost, so a load that
+ *  doesn't clear fuel truly loses money (red, no caveat needed);
+ *  clearing it is necessary, not sufficient — the full Worth-It
+ *  Advisor scores against the driver's whole break-even (every
+ *  logged cost), and the card's words stay in fuel scope so the two
+ *  never blur. Green asks a real cushion over fuel — $0.50/mi left
+ *  after fuel — before it calls a load worth taking. */
+export function afterFuelVerdict(est: AfterFuelEstimate): "green" | "yellow" | "red" {
+  if (est.afterFuel < 0) return "red";
+  return est.afterFuelPerMi >= 0.5 ? "green" : "yellow";
+}

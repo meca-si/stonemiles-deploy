@@ -1,6 +1,6 @@
 // loadFlow.test.ts — the load-flow panel's fuel + pay math.
 import { describe, expect, test } from "bun:test";
-import { fuelAdviceForLoad, loadPayFigures, paySplitLabel } from "./loadFlow";
+import { afterFuelEstimate, afterFuelVerdict, fuelAdviceForLoad, loadPayFigures, paySplitLabel } from "./loadFlow";
 
 describe("fuelAdviceForLoad", () => {
   test("the Jacksonville → Montgomery run on 3/8 of a 120-gal tank", () => {
@@ -82,5 +82,60 @@ describe("paySplitLabel", () => {
   test("cpm names the driver's own set rate only", () => {
     expect(paySplitLabel({ payBasis: "cpm", driverCpm: 0.72, driverPayPct: null })).toBe("at $0.72/mi");
     expect(paySplitLabel({ payBasis: "cpm", driverCpm: null, driverPayPct: null })).toBeNull();
+  });
+});
+
+describe("afterFuelEstimate", () => {
+  test("the Jacksonville \u2192 Montgomery offer: $480 cut, deadhead figured in", () => {
+    // x's real lane: 368 loaded mi, ~25 mi deadhead to the pickup,
+    // 40,000 lbs at profile 6.5 mpg, diesel at $3.85.
+    const e = afterFuelEstimate({ cut: 480, loadedMiles: 368, deadheadMi: 25, baseMpg: 6.5, weightLbs: 40000, pricePerGal: 3.85 });
+    expect(e).not.toBeNull();
+    expect(e!.totalMi).toBe(393);
+    expect(e!.deadheadMi).toBe(25);
+    // Weight-adjusted burn runs under the profile mpg.
+    expect(e!.effMpg).toBeLessThan(6.5);
+    expect(e!.gallons).toBeGreaterThan(60);
+    // The books balance: what's left + what fuel costs = the cut.
+    expect(Math.abs(e!.afterFuel + e!.fuelCost - 480)).toBeLessThan(0.011);
+    expect(e!.afterFuel).toBeLessThan(480);
+    expect(e!.afterFuel).toBeGreaterThan(200);
+    // Profitability per mile: the after-fuel remainder over ALL
+    // miles the run takes, deadhead included.
+    expect(Math.abs(e!.afterFuelPerMi - e!.afterFuel / 393)).toBeLessThan(0.011);
+    expect(e!.afterFuelPerMi).toBeGreaterThan(0.5);
+  });
+
+  test("no position: deadhead is absent, never silently zero-costed into the total", () => {
+    const e = afterFuelEstimate({ cut: 480, loadedMiles: 368, deadheadMi: null, baseMpg: 6.5, weightLbs: 40000, pricePerGal: 3.85 });
+    expect(e).not.toBeNull();
+    expect(e!.deadheadMi).toBeNull();
+    expect(e!.totalMi).toBe(368);
+  });
+
+  test("a thin load can read negative \u2014 the line says so instead of hiding it", () => {
+    const e = afterFuelEstimate({ cut: 150, loadedMiles: 900, deadheadMi: 60, baseMpg: 6.5, weightLbs: 45000, pricePerGal: 4.1 });
+    expect(e).not.toBeNull();
+    expect(e!.afterFuel).toBeLessThan(0);
+  });
+
+  test("the verdict: cushion over fuel is green, bare clearance is yellow, under fuel is red", () => {
+    const green = afterFuelEstimate({ cut: 480, loadedMiles: 368, deadheadMi: 25, baseMpg: 6.5, weightLbs: 40000, pricePerGal: 3.85 });
+    expect(afterFuelVerdict(green!)).toBe("green");
+    const thin = afterFuelEstimate({ cut: 300, loadedMiles: 368, deadheadMi: 25, baseMpg: 6.5, weightLbs: 40000, pricePerGal: 3.85 });
+    expect(thin!.afterFuel).toBeGreaterThan(0);
+    expect(afterFuelVerdict(thin!)).toBe("yellow");
+    const loser = afterFuelEstimate({ cut: 150, loadedMiles: 900, deadheadMi: 60, baseMpg: 6.5, weightLbs: 45000, pricePerGal: 4.1 });
+    expect(afterFuelVerdict(loser!)).toBe("red");
+  });
+
+  test("missing real inputs figure nothing", () => {
+    const base = { cut: 480, loadedMiles: 368, deadheadMi: 25, baseMpg: 6.5, weightLbs: 40000, pricePerGal: 3.85 };
+    expect(afterFuelEstimate({ ...base, cut: null })).toBeNull();
+    expect(afterFuelEstimate({ ...base, loadedMiles: null })).toBeNull();
+    expect(afterFuelEstimate({ ...base, baseMpg: null })).toBeNull();
+    // An unset profile MPG is never replaced by a default.
+    expect(afterFuelEstimate({ ...base, baseMpg: 0 })).toBeNull();
+    expect(afterFuelEstimate({ ...base, pricePerGal: null })).toBeNull();
   });
 });

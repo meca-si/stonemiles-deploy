@@ -20259,6 +20259,7 @@ export function App() {
             {loadsView === "board" && boardGateQuery.data?.inCompany && (
               <FleetLoadBoardPanel
                 setBanner={setBanner}
+                payModel={{ payBasis: profile.payBasis, driverPayPct: profile.driverPayPct, driverCpm: profile.driverCpm, baseMpg: profile.mpg }}
                 onOpenMyLoad={(loadId) => {
                   setActiveLoadId(loadId);
                   setTrackerDetailId(loadId);
@@ -21238,6 +21239,7 @@ export function App() {
               <FleetLoadBoardPanel
                 variant="console"
                 setBanner={setBanner}
+                payModel={{ payBasis: profile.payBasis, driverPayPct: profile.driverPayPct, driverCpm: profile.driverCpm, baseMpg: profile.mpg }}
                 onOpenMyLoad={(loadId) => {
                   setConsoleOpen(false);
                   setTab("loads");

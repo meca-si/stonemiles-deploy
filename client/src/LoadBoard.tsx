@@ -24,6 +24,8 @@ import { api, type ApiResponse } from "./api";
 import { laneEstimateFor, rankBoardLoads, totalPerMile, type BoardSortKey } from "./loadRate";
 import { geocodeCity, laneKey, useLaneEstimates } from "./useLaneEstimate";
 import { BoardSortControl, PerMileLine } from "./RatePerMile";
+import { AfterFuelLine, type FuelPrice, type PayModel } from "./AfterFuelLine";
+import type { LatLon } from "./loadRate";
 
 type BoardData = ApiResponse<typeof api, "getLoadBoard">;
 type BoardRow = BoardData["board"][number];
@@ -568,10 +570,14 @@ export function FleetLoadBoardPanel({
   setBanner,
   onOpenMyLoad,
   variant = "phone",
+  payModel,
 }: {
   setBanner: (s: string | null) => void;
   onOpenMyLoad: (loadId: number) => void;
   variant?: "phone" | "console";
+  /** The viewing driver's own pay model + profile MPG, for the
+   *  cards' after-fuel line. Absent → the line never renders. */
+  payModel?: PayModel;
 }) {
   const queryClient = useQueryClient();
   const boardQuery = useQuery({ queryKey: ["load-board"], queryFn: () => api.getLoadBoard({}) });
@@ -582,6 +588,33 @@ export function FleetLoadBoardPanel({
   const [sortKey, setSortKey] = useState<BoardSortKey>("perMile");
   const laneEstimates = useLaneEstimates(data?.board ?? []);
   const estFor = (r: BoardRow) => laneEstimateFor(r, laneEstimates.get(laneKey(r)) ?? null);
+  // After-fuel line inputs (x 2026-11-25): one fuel-price read and
+  // one position fix for the whole board. Both are best-effort — no
+  // price narrows the line to nothing, no position just leaves the
+  // deadhead out (the line says so), neither blocks the board.
+  const fuelPriceQuery = useQuery({
+    queryKey: ["fuel-price-data"],
+    queryFn: () => api.getFuelPriceData({}),
+    enabled: payModel != null,
+  });
+  const fuelPrice: FuelPrice | null = (() => {
+    const d = fuelPriceQuery.data;
+    if (!d) return null;
+    const own = d.ownPurchases?.[0];
+    if (own && own.pricePerGallon > 0) return { perGal: own.pricePerGallon, label: "your last price" };
+    if (d.eia && d.eia.national > 0) return { perGal: d.eia.national, label: "EIA weekly avg" };
+    return null;
+  })();
+  const [myPos, setMyPos] = useState<LatLon | null>(null);
+  const payModelOn = payModel != null;
+  useEffect(() => {
+    if (!payModelOn || typeof navigator === "undefined" || !navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => setMyPos({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+      () => setMyPos(null),
+      { timeout: 8000, maximumAge: 300000 },
+    );
+  }, [payModelOn]);
   const [formOpen, setFormOpen] = useState(() => {
     const r = restoredBoardForm();
     return r ? r.formOpen || !isEmptyFormSnapshot(r, EMPTY_DRAFT) : variant === "console";
@@ -1051,6 +1084,21 @@ export function FleetLoadBoardPanel({
             </span>
           )}
         </div>
+        {payModel && (r.status === "open" || r.status === "overflowed" || r.claimedBy === data.myUsername) && (
+          <AfterFuelLine
+            totalWithExtras={r.totalWithExtras}
+            rate={r.rate}
+            extraCharges={r.extraCharges}
+            loadedMiles={r.loadedMiles}
+            estMiles={laneEstimates.get(laneKey(r)) ?? null}
+            weightLbs={r.weightLbs}
+            pickupCity={r.pickupCity}
+            pickupState={r.pickupState}
+            payModel={payModel}
+            price={fuelPrice}
+            myPos={myPos}
+          />
+        )}
         <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-sm">
           {r.shipper && (
             <div><dt className="inline text-[var(--dim)]">Shipper: </dt><dd className="inline font-semibold">{r.shipper}</dd></div>
