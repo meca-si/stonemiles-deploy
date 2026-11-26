@@ -1070,6 +1070,13 @@ function FleetSection({
   const [proposeLoad, setProposeLoad] = useState<string>("");
   const [proposeTarget, setProposeTarget] = useState<string>("");
   const [proposeReason, setProposeReason] = useState("");
+  // The day the desk tapped open in the grid (2026-11-26 leftover
+  // build): the whole day's book, every driver, read in full in
+  // the detail under the grid. Null = closed. The personal view's
+  // detail never closes (it's the driver's own day); the fleet
+  // grid is an overview the desk scans, so its detail opens on a
+  // tap and closes on a re-tap or the Close button.
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
 
   const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
 
@@ -1092,6 +1099,16 @@ function FleetSection({
   for (const d of data.drivers) {
     fleetBuckets.set(d.username, bucketEvents(d.events as unknown as CalEvent[], weekDays) as unknown as Map<string, FleetEvent[]>);
   }
+  // The tapped day's full book: every driver's events bucketed
+  // onto that day (a multi-day block lands on every day it
+  // touches, same as the grid chips), flattened with the driver
+  // attached and sorted by start time.
+  const selectedFleetEvents =
+    selectedDay == null
+      ? []
+      : data.drivers
+          .flatMap((d) => (fleetBuckets.get(d.username)?.get(selectedDay) ?? []).map((e) => ({ driver: d.username, e })))
+          .sort((a, b) => new Date(a.e.at).getTime() - new Date(b.e.at).getTime() || a.driver.localeCompare(b.driver) || a.e.title.localeCompare(b.e.title));
   const takenLoads = data.drivers.flatMap((d) =>
     d.events
       .filter((e) => e.kind === "load" && e.boardLoadId != null && e.state !== "offered")
@@ -1113,7 +1130,7 @@ function FleetSection({
             <div className="grid grid-cols-[92px_repeat(7,1fr)] gap-1 text-center text-[10px] font-bold uppercase tracking-wide text-[var(--dim)]">
               <div />
               {weekDays.map((d) => (
-                <div key={dayKey(d)} className={dayKey(d) === dayKey(new Date()) ? "neon-text" : undefined}>
+                <div key={dayKey(d)} className={`${dayKey(d) === dayKey(new Date()) ? "neon-text" : ""} ${dayKey(d) === selectedDay ? "text-[var(--accent)] underline underline-offset-2" : ""}`}>
                   {d.toLocaleDateString([], { weekday: "short" })} {d.getDate()}
                 </div>
               ))}
@@ -1126,17 +1143,30 @@ function FleetSection({
                 </div>
                 {weekDays.map((day) => {
                   const evts = fleetBuckets.get(d.username)?.get(dayKey(day)) ?? [];
+                  const k = dayKey(day);
+                  const isSel = k === selectedDay;
                   return (
-                    <div key={dayKey(day)} className="min-h-[44px] rounded-lg border border-[var(--glass-border)] bg-[var(--surface)] p-1">
+                    <button
+                      key={k}
+                      type="button"
+                      aria-pressed={isSel}
+                      aria-label={`${day.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" })} — @${d.username}: ${evts.length} item${evts.length === 1 ? "" : "s"} — tap to read the whole day`}
+                      onClick={() => setSelectedDay((cur) => (cur === k ? null : k))}
+                      className={`min-h-[44px] w-full rounded-lg border p-1 text-left align-top ${isSel ? "border-[var(--accent)]" : "border-[var(--glass-border)]"} bg-[var(--surface)]`}
+                    >
                       <div className="space-y-0.5">
                         {evts.slice(0, 3).map((e, i) => (
                           <div key={`${e.kind}-${e.boardLoadId ?? e.title}-${i}`} className={`truncate rounded px-1 py-px text-[9px] leading-tight ${chipCls(e)}`} title={e.detail ?? e.title}>
                             {fleetChipLabel(e)}
                           </div>
                         ))}
-                        {evts.length > 3 && <div className="px-1 text-[9px] font-bold text-[var(--dim)]">+{evts.length - 3} more</div>}
+                        {/* Not a nested button (invalid inside the
+                            cell button) — tapping it taps the cell,
+                            which is the same outcome: the day opens
+                            in full below. */}
+                        {evts.length > 3 && <div className="px-1 text-[9px] font-bold text-[var(--accent)]">+{evts.length - 3} more — tap to read</div>}
                       </div>
-                    </div>
+                    </button>
                   );
                 })}
               </div>
@@ -1144,6 +1174,45 @@ function FleetSection({
             {data.drivers.length === 0 && <p className="mt-2 text-sm text-[var(--dim)]">No drivers on this fleet yet.</p>}
           </div>
         </div>
+
+        {selectedDay == null ? (
+          <p className="mt-2 text-[11px] leading-relaxed text-[var(--dim)]">Tap any day cell to read that day in full — every driver, nothing cut off.</p>
+        ) : (
+          /* Selected day detail — the whole fleet's book for the
+             tapped day, in the personal detail's visual language.
+             Rows are read-only: fleet events carry a boardLoadId,
+             never the loadId the personal "Open load" door needs,
+             and onOpenLoad is not passed into this section. */
+          <div className="mt-3 rounded-xl bg-[var(--surface)] px-3 py-3">
+            <div className="flex items-start justify-between gap-2">
+              <div className="text-xs font-bold uppercase tracking-widest text-[var(--dim)]">
+                {fmtDay(new Date(`${selectedDay}T12:00:00`).toISOString())} — the whole fleet
+              </div>
+              <button type="button" className={BTN} onClick={() => setSelectedDay(null)}>
+                Close
+              </button>
+            </div>
+            {selectedFleetEvents.length === 0 ? (
+              <p className="mt-1 text-sm text-[var(--dim)]">Nothing on the books for {fmtDay(new Date(`${selectedDay}T12:00:00`).toISOString())}.</p>
+            ) : (
+              <ul className="mt-2 space-y-2">
+                {selectedFleetEvents.map(({ driver, e }, i) => (
+                  <li key={`${driver}-${e.kind}-${e.boardLoadId ?? e.title}-${i}`} className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <span className={`inline-block rounded px-1.5 py-0.5 text-[11px] ${chipCls(e)}`}>{fleetChipLabel(e)}</span>
+                      <span className="ml-2 text-xs font-bold">@{driver}</span>
+                      <span className="ml-2 text-xs text-[var(--dim)]">
+                        {fmtWhen(e.at)}
+                        {e.endAt ? ` → ${fmtWhen(e.endAt)}` : ""}
+                      </span>
+                      {e.detail && <div className="mt-0.5 text-xs leading-relaxed text-[var(--dim)]">{e.detail}</div>}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
       </section>
 
       {data.pendingOffDuty.length > 0 && (

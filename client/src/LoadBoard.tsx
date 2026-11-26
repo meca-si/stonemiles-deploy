@@ -671,6 +671,10 @@ export function FleetLoadBoardPanel({
   const [declineText, setDeclineText] = useState("");
   const [overflowPick, setOverflowPick] = useState<Record<number, string>>({});
   const [viewDocId, setViewDocId] = useState<number | null>(null);
+  // Read-only detail sheet for another driver's board load
+  // (2026-11-26): holds the tapped row itself; the board query's
+  // next refetch doesn't move a sheet the driver is reading.
+  const [viewRow, setViewRow] = useState<BoardRow | null>(null);
   const docQuery = useQuery({
     queryKey: ["board-doc", viewDocId],
     queryFn: () => api.getBoardLoadDoc({ id: viewDocId ?? 0 }),
@@ -1053,16 +1057,22 @@ export function FleetLoadBoardPanel({
     // whole card body is the door, same as its button below.
     // Clicks that start on an inner control never reach it.
     const cardOpens = r.status === "taken" && isMine && r.loadId != null;
+    // Another driver's assigned/taken load opens the read-only
+    // detail sheet instead — a look, not a door. onOpenMyLoad is
+    // scoped to the viewer's own loads and is never handed
+    // someone else's load.
+    const viewable = !isMine && (r.status === "assigned" || r.status === "taken");
     return (
       <article
         key={r.id}
-        className={`rounded-2xl border border-[var(--border)] bg-[var(--surface2)] p-3.5 ${cardOpens ? "cursor-pointer" : ""}`}
+        className={`rounded-2xl border border-[var(--border)] bg-[var(--surface2)] p-3.5 ${cardOpens || viewable ? "cursor-pointer" : ""}`}
         aria-label={`Board load ${laneOf(r)}`}
         onClick={
-          cardOpens
+          cardOpens || viewable
             ? (e) => {
                 if ((e.target as HTMLElement).closest("button, select, input, textarea, label, a")) return;
-                onOpenMyLoad(r.loadId!);
+                if (cardOpens) onOpenMyLoad(r.loadId!);
+                else setViewRow(r);
               }
             : undefined
         }
@@ -1421,6 +1431,16 @@ export function FleetLoadBoardPanel({
             ) : (
               <p className="w-full text-xs leading-relaxed text-[var(--dim)]">🔒 {r.unassignBlockedReason}</p>
             ))}
+          {viewable && (
+            <button
+              type="button"
+              className="btn-press rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3.5 py-2.5 text-sm font-bold"
+              aria-label={`View load ${laneOf(r)} — read only`}
+              onClick={() => setViewRow(r)}
+            >
+              👁 View
+            </button>
+          )}
         </div>
         {htBox && htBox.rowId === r.id && (
           <div className="mt-3 rounded-xl border border-amber-400/40 bg-amber-500/10 px-3 py-3">
@@ -1722,6 +1742,151 @@ export function FleetLoadBoardPanel({
       )}
 
       <MyDispatchFeesPanel setBanner={setBanner} />
+
+      {viewRow != null && (
+        <div className="fixed inset-0 z-[950] flex items-center justify-center bg-black/80 p-4" role="dialog" aria-label={`Load details — ${laneOf(viewRow)} (read only)`}>
+          <div className="max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-2xl bg-[var(--surface)] p-4">
+            <div className="flex items-start justify-between gap-2">
+              <div className="font-condensed text-xl font-bold leading-tight">{laneOf(viewRow)}</div>
+              <button
+                type="button"
+                onClick={() => setViewRow(null)}
+                className="shrink-0 rounded-full bg-[var(--surface2)] px-3.5 py-2 font-bold"
+                aria-label="Close load details"
+              >
+                ✕
+              </button>
+            </div>
+            <p className="mt-1 text-xs leading-relaxed text-[var(--dim)]">
+              👁 Read only — this load is @{viewRow.claimedBy ?? "another driver"}'s. You're just looking; nothing
+              here can claim, assign, or change it.
+            </p>
+            <div className="mt-2.5 flex flex-wrap items-center gap-2">
+              <span
+                className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${
+                  viewRow.status === "assigned" ? "bg-amber-900/60 text-amber-200" : "bg-[var(--surface2)] text-[var(--accent)]"
+                }`}
+              >
+                {viewRow.status === "assigned"
+                  ? `ASSIGNED · @${viewRow.claimedBy ?? ""} — AWAITING ANSWER`
+                  : `${viewRow.claimMethod === "assign" ? "ASSIGNED" : "CLAIMED"} · @${viewRow.claimedBy ?? ""}`}
+              </span>
+              <span className="text-xs text-[var(--dim)]">
+                Posted by @{viewRow.postedBy} · {new Date(viewRow.createdAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+              </span>
+            </div>
+            {viewRow.dispatcherFeePct != null && (
+              <p className="mt-1.5 text-xs text-[var(--dim)]">
+                Dispatcher fee {viewRow.dispatcherFeePct}% — the claiming carrier pays the poster's fee once for this load.
+              </p>
+            )}
+            <div className="mt-2.5 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <span className="neon-text font-condensed text-2xl font-bold">{money(viewRow.totalWithExtras)}</span>
+              <PerMileLine load={viewRow} estMiles={laneEstimates.get(laneKey(viewRow)) ?? null} />
+              {viewRow.rate != null && viewRow.extraCharges > 0 && (
+                <span className="text-xs text-[var(--dim)]">
+                  {money(viewRow.rate)} + {money(viewRow.extraCharges)} extras{viewRow.extraChargesNote ? ` (${viewRow.extraChargesNote})` : ""}
+                </span>
+              )}
+            </div>
+            <dl className="mt-2.5 grid grid-cols-2 gap-x-3 gap-y-1 text-sm">
+              {viewRow.shipper && (
+                <div><dt className="inline text-[var(--dim)]">Shipper: </dt><dd className="inline font-semibold">{viewRow.shipper}</dd></div>
+              )}
+              {viewRow.brokerTrust && (
+                <div className="col-span-2">
+                  <dt className="inline text-[var(--dim)]">🛡 Broker identity: </dt>
+                  <dd className="inline font-semibold">
+                    {[viewRow.brokerTrust.legalName, viewRow.brokerTrust.mc].filter(Boolean).join(" · ")}
+                    {` — bond ${viewRow.brokerTrust.bondStatusLabel.toLowerCase()}${viewRow.brokerTrust.bondExpiresMonth ? ` (expires ${viewRow.brokerTrust.bondExpiresMonth})` : ""} · ${viewRow.brokerTrust.verificationLabel}`}
+                  </dd>
+                </div>
+              )}
+              {viewRow.brokerCredit && (
+                <div className="col-span-2">
+                  <dt className="inline text-[var(--dim)]">💵 Payment record: </dt>
+                  <dd className="inline font-semibold">
+                    {viewRow.brokerCredit.label}
+                    {viewRow.brokerCredit.loadsCarried > 0 ? ` · ${viewRow.brokerCredit.loadsCarried} load${viewRow.brokerCredit.loadsCarried === 1 ? "" : "s"} carried in STONEMILES` : ""}
+                  </dd>
+                </div>
+              )}
+              {viewRow.commodity && (
+                <div><dt className="inline text-[var(--dim)]">Freight: </dt><dd className="inline font-semibold">{viewRow.commodity}{viewRow.hazmat ? " · HAZMAT" : ""}</dd></div>
+              )}
+              {viewRow.weightLbs != null && (
+                <div><dt className="inline text-[var(--dim)]">Weight: </dt><dd className="inline font-semibold">{viewRow.weightLbs.toLocaleString()} lbs</dd></div>
+              )}
+              {viewRow.equipmentLabel && (
+                <div><dt className="inline text-[var(--dim)]">Equipment: </dt><dd className="inline font-semibold">{viewRow.equipmentLabel}</dd></div>
+              )}
+              <div><dt className="inline text-[var(--dim)]">Pickup: </dt><dd className="inline font-semibold">{viewRow.pickupText ?? "Window not set"}</dd></div>
+              <div><dt className="inline text-[var(--dim)]">Deliver: </dt><dd className="inline font-semibold">{viewRow.deliveryText ?? "Window not set"}</dd></div>
+              {viewRow.referenceNumber && (
+                <div><dt className="inline text-[var(--dim)]">Ref #: </dt><dd className="inline font-semibold">{viewRow.referenceNumber}</dd></div>
+              )}
+              {viewRow.pickupApptAt && (
+                <div><dt className="inline text-[var(--dim)]">Pickup appt: </dt><dd className="inline font-semibold">{new Date(viewRow.pickupApptAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</dd></div>
+              )}
+              {viewRow.deliveryApptAt && (
+                <div><dt className="inline text-[var(--dim)]">Delivery appt: </dt><dd className="inline font-semibold">{new Date(viewRow.deliveryApptAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</dd></div>
+              )}
+            </dl>
+            {viewRow.notes && (
+              <div className="mt-2.5">
+                <div className="text-xs font-bold uppercase tracking-wide text-[var(--dim)]">Notes</div>
+                <p className="mt-0.5 whitespace-pre-wrap text-sm leading-relaxed">{viewRow.notes}</p>
+              </div>
+            )}
+            {viewRow.declineReason && (
+              <p className="mt-2.5 rounded-xl bg-amber-900/40 px-3 py-2 text-xs leading-relaxed text-amber-200">
+                ↩ @{viewRow.declinedBy ?? "A driver"} declined this load
+                {viewRow.declinedAt ? ` ${new Date(viewRow.declinedAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : ""}: “{viewRow.declineReason}”
+              </p>
+            )}
+            {viewRow.status === "taken" && (
+              <p className="mt-2.5 text-xs text-[var(--dim)]">
+                Load Tracker: {viewRow.linkedPodSealed ? "Delivered — POD sealed" : viewRow.linkedLoadStatus ? viewRow.linkedLoadStatus.replace(/_/g, " ") : "booked"}
+                {viewRow.claimedAt ? ` · taken ${new Date(viewRow.claimedAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : ""}
+              </p>
+            )}
+            {viewRow.status === "taken" && viewRow.deliveryPath && (
+              <p className="mt-1 text-xs font-semibold text-[var(--ok)]">
+                ✅ Confirmed{viewRow.deliveryReceiver ? ` by ${viewRow.deliveryReceiver}` : ""} · {viewRow.deliveryPath === "receive_link" ? "receive link" : viewRow.deliveryPath === "phone_signature" ? "signed on the driver's phone" : viewRow.deliveryPath === "paper_bol" ? "signed paper BOL" : "driver POD seal"}
+                {viewRow.deliveryConfirmedAt ? ` · ${new Date(viewRow.deliveryConfirmedAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : ""}
+                {" "}· proof in the Library packet
+              </p>
+            )}
+            {viewRow.status === "taken" && viewRow.deliveryException && (
+              <p className="mt-1 rounded-lg border border-amber-500/50 bg-amber-500/10 px-2 py-1 text-xs font-bold text-amber-300">
+                ⚠ DELIVERY EXCEPTION: {viewRow.deliveryException}
+              </p>
+            )}
+            {viewRow.status === "assigned" && (
+              <p className="mt-2.5 text-xs text-[var(--dim)]">
+                Assigned{viewRow.claimedAt ? ` ${new Date(viewRow.claimedAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : ""} · waiting on @{viewRow.claimedBy ?? "the driver"} to answer — nothing lands in their Loads until they accept.
+              </p>
+            )}
+            {viewRow.hasDoc && (
+              <button
+                type="button"
+                className="btn-press mt-3 rounded-lg border border-[var(--border)] bg-[var(--surface2)] px-3 py-2 text-xs font-bold"
+                aria-label={`View the rate confirmation or BOL for ${laneOf(viewRow)}`}
+                onClick={() => setViewDocId(viewRow.id)}
+              >
+                📄 Rate con / BOL on file{viewRow.docSha256 ? ` · fingerprint ${viewRow.docSha256.slice(0, 10)}…` : ""}
+              </button>
+            )}
+            <button
+              type="button"
+              className="btn-press mt-3 w-full rounded-xl border border-[var(--border)] bg-[var(--surface2)] px-4 py-2.5 text-sm font-bold"
+              onClick={() => setViewRow(null)}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
 
       {viewDocId != null && (
         <div className="fixed inset-0 z-[960] flex items-center justify-center bg-black/80 p-4" role="dialog" aria-label="Board load document">
